@@ -314,6 +314,12 @@ def _print_deploy_success(
             "\n  [bold]Backups:[/bold] Enabled (daily at 02:00 UTC to Spaces). "
             "Run [bold]dango remote backup download[/bold] to save a local copy."
         )
+    else:
+        console.print(
+            "\n  [yellow]Backups:[/yellow] Not configured. Backups are stored on this "
+            "server only — if the server is lost, so are your backups. "
+            "See https://docs.getdango.dev/deployment/backups for BYOS backup options."
+        )
     if warnings:
         for w in warnings:
             console.print(f"  [yellow]Warning:[/yellow] {w}")
@@ -490,9 +496,9 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
 
             # 2. Stop and remove Docker containers, volumes, images
             _server_project_dir = "/srv/dango/project"
-            from dango.platform.docker import get_compose_project_name
+            from dango.platform.cloud.backup import get_remote_compose_project_name
 
-            _proj_name = get_compose_project_name(_server_project_dir)
+            _proj_name = get_remote_compose_project_name(ssh, _server_project_dir)
             console.print("Stopping Docker services...")
             ssh.exec_command(
                 f"cd {_server_project_dir} && "

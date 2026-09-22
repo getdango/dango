@@ -19,6 +19,27 @@ from tests.factories.config_factories import (
 _session_id = f"{Path.cwd().name}:{os.getpid()}"
 
 
+def _blocked_webbrowser_open(url, *args, **kwargs):
+    raise AssertionError(
+        f"webbrowser.open({url!r}) called without being mocked. Tests must never open a "
+        "real browser — patch webbrowser.open (or the module-level `webbrowser` import, "
+        "for source modules that import it at module scope) explicitly in the test."
+    )
+
+
+@pytest.fixture(autouse=True)
+def _block_real_webbrowser_open(monkeypatch):
+    """Fail loudly if any test path reaches a real, unmocked webbrowser.open() call.
+
+    A test in this suite once called a function with url="https://example.com" without
+    realizing that function unconditionally opens a real browser — every run of that test
+    opened a real tab, on every machine, for weeks, undetected by grep because the call site
+    and the URL string live in different files. This fixture turns any future instance of
+    that bug class into an immediate, loud test failure instead of a silent side effect.
+    """
+    monkeypatch.setattr("webbrowser.open", _blocked_webbrowser_open)
+
+
 def pytest_sessionstart(session):
     logger = logging.getLogger("pytest.session")
     logger.info("=" * 60)

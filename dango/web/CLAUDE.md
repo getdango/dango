@@ -27,6 +27,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `templates/account.html` | User account settings — change password, sessions, API keys, 2FA | Alpine.js `accountPage()` component |
 | `templates/invite.html` | Invite acceptance page — set password for invited users | — |
 | `templates/secrets.html` | Secrets management page (env vars + OAuth credentials) | — |
+| `templates/telemetry.html` | Telemetry settings page (4-provider toggle table, 1.0.8-U) | Alpine.js `telemetryPage()` component |
 | `routes/__init__.py` | Package marker | — |
 | `routes/auth.py` | Login/logout, password change, OAuth flows, invite accept, API key CRUD (~901 lines) | `_bridge_metabase_session()`, `_set_session_cookie()` |
 | `routes/auth_2fa.py` | TOTP 2FA setup/verify/disable/recovery (~340 lines) | — |
@@ -42,12 +43,13 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/ui.py` | `/`, `/sources`, `/models`, `/health`, `/logs`, `/api`, `/api/docs`, `/api/redoc`, `/login`, `/account`, `/admin/users`, `/invite/{token}` | `templates`, `_render_template()` |
 | `routes/metabase_proxy.py` | All Metabase proxy routes + SSO session state | `proxy_to_metabase()`, `get_metabase_session()` |
 | `routes/secrets.py` | Secrets and OAuth credential management (admin-only, .env + .dlt/secrets.toml CRUD) | `router` |
+| `routes/telemetry.py` | Telemetry status/toggle API + `/settings/telemetry` page (admin-only, 1.0.8-U) — web front-end onto the same state `dango telemetry` (CLI) controls | `router` |
 | `routes/oauth_connect.py` | Web-based OAuth connect/callback for cloud deployments | `router` |
 | `routes/schedules.py` | Schedule list/get, trigger, reload, cancel, history, notification config/test, `/schedules` page (read-only, ~608 lines). Config mutations removed by R10-C (BUG-175) — use CLI instead. | `router` |
 | `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~506 lines) | `router` |
 | `routes/scripts.py` | Script list page and log viewer page routes | `router` |
 | `routes/scripts_api.py` | Script API endpoints: list, run, cancel, history | `router` |
-| `routes/scripts_helpers.py` | Script discovery, path validation, history, audit helpers | `_discover_scripts`, `_validate_script_path`, `_load_history`, `_append_history` |
+| `routes/scripts_helpers.py` | Script discovery, path validation, history, audit helpers. `_discover_scripts()` attaches each script's effective `timeout_seconds` (from `dango.config.scripts`, 1.0.8-BUGS-FOUND) | `_discover_scripts`, `_get_script_timeout`, `_validate_script_path`, `_load_history`, `_append_history` |
 | `routes/catalog.py` | Data catalog: columns, profiling, lineage, impact, model list/detail, search (~1338 lines) | `router` |
 | `routes/governance.py` | Schema drift + PII results API (~203 lines) | `router` |
 | `routes/monitoring.py` | Monitor results API (`/api/monitoring`, `/api/monitoring/run`, `/api/monitoring/history`), dbt test results. Page route removed in R12-M2 (test/freshness moved to catalog). Backward-compat `/api/insights*` redirects removed in M2 cloud fix. | `router` |

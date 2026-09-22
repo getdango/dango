@@ -7,7 +7,7 @@
 FROM eclipse-temurin:21-jre-jammy
 
 # Metabase version (requires Java 21 as of v0.52+)
-ENV MB_VERSION=v0.59.1
+ENV MB_VERSION=v0.62.18
 
 # Install Metabase
 USER root

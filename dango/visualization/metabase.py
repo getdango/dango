@@ -20,7 +20,20 @@ logger = logging.getLogger(__name__)
 
 
 # Dashboard SQL Queries
-# These queries work against DuckDB with dlt state tables
+#
+# These queries run against the `_dango_meta` schema of the DuckDB warehouse
+# (sync_history, dbt_test_results, source_overview tables), NOT hardcoded
+# constants. That schema is populated by
+# `dango.utils.pipeline_health.materialize_pipeline_health()` — see that
+# module's docstring for why materialization (rather than e.g. mounting the
+# underlying JSON state files into Metabase's container) was chosen, and
+# `dango/templates/docker-compose.yml.j2` for why the JSON files aren't
+# directly reachable from Metabase in the first place (its container only
+# mounts `./data:/data:ro`).
+#
+# 1.0.8-DASH-1: replaced the previous hardcoded placeholder SQL (health
+# score always 100/"Excellent", tests always "All Tests Passing", etc. —
+# see BUGS-FOUND.md's "Data Pipeline Health" entry) with the queries below.
 
 DASHBOARD_QUERIES = {
     "source_overview": {
@@ -28,15 +41,21 @@ DASHBOARD_QUERIES = {
         "description": "Overview of all configured data sources",
         "sql": """
         SELECT
-            name as source_name,
-            type as source_type,
-            enabled,
-            'Synced' as status  -- Placeholder, will be enhanced with actual state
-        FROM (VALUES
-            ('sample', 'csv', true),
-            ('demo', 'csv', true)
-        ) as t(name, type, enabled)
-        -- TODO: Replace with actual sources.yml data
+            so.source_name,
+            so.source_type,
+            so.enabled,
+            COALESCE(
+                (
+                    SELECT sh.status
+                    FROM _dango_meta.sync_history sh
+                    WHERE sh.source_name = so.source_name
+                    ORDER BY sh.sync_timestamp DESC
+                    LIMIT 1
+                ),
+                'never synced'
+            ) AS status
+        FROM _dango_meta.source_overview so
+        ORDER BY so.source_name
         """,
         "visualization": "table",
     },
@@ -50,10 +69,14 @@ DASHBOARD_QUERIES = {
             FROM generate_series(0, 6) as t(n)
         )
         SELECT
-            sync_date::DATE as date,
-            0 as syncs_completed  -- Placeholder
-        FROM sync_dates
-        ORDER BY sync_date DESC
+            sd.sync_date::DATE as date,
+            COUNT(sh.source_name) as syncs_completed
+        FROM sync_dates sd
+        LEFT JOIN _dango_meta.sync_history sh
+            ON date_trunc('day', sh.sync_timestamp) = sd.sync_date
+            AND sh.status = 'success'
+        GROUP BY sd.sync_date
+        ORDER BY sd.sync_date DESC
         """,
         "visualization": "line",
     },
@@ -62,11 +85,21 @@ DASHBOARD_QUERIES = {
         "description": "How recent is the data in each source",
         "sql": """
         SELECT
-            'sample_data' as source_name,
-            COUNT(*) as row_count,
-            MAX(CURRENT_TIMESTAMP) as last_updated
-        FROM (SELECT 1)  -- Placeholder
-        -- TODO: Query actual staging tables
+            so.source_name,
+            (
+                SELECT sh.rows_processed
+                FROM _dango_meta.sync_history sh
+                WHERE sh.source_name = so.source_name AND sh.status = 'success'
+                ORDER BY sh.sync_timestamp DESC
+                LIMIT 1
+            ) AS last_sync_row_count,
+            (
+                SELECT MAX(sh2.sync_timestamp)
+                FROM _dango_meta.sync_history sh2
+                WHERE sh2.source_name = so.source_name AND sh2.status = 'success'
+            ) AS last_updated
+        FROM _dango_meta.source_overview so
+        ORDER BY last_updated DESC NULLS LAST
         """,
         "visualization": "table",
     },
@@ -74,15 +107,31 @@ DASHBOARD_QUERIES = {
         "name": "Row Counts Over Time",
         "description": "Track data growth across all sources",
         "sql": """
+        -- Cumulative (not per-day) total: sync_history.rows_processed is the
+        -- count processed *in that sync* (often an incremental delta), not a
+        -- running warehouse total, so a running SUM approximates overall
+        -- data growth over the window — matching the "Row Counts Over Time"
+        -- / area-chart intent better than a per-day bar would.
         WITH dates AS (
             SELECT date_trunc('day', CURRENT_DATE - INTERVAL (n) DAY) as date
             FROM generate_series(0, 29) as t(n)
+        ),
+        daily_rows AS (
+            SELECT
+                date_trunc('day', sync_timestamp) as date,
+                SUM(rows_processed) as rows_that_day
+            FROM _dango_meta.sync_history
+            WHERE status = 'success'
+            GROUP BY 1
         )
         SELECT
-            date::DATE,
-            0 as total_rows  -- Placeholder
-        FROM dates
-        ORDER BY date
+            d.date::DATE as date,
+            SUM(COALESCE(dr.rows_that_day, 0)) OVER (
+                ORDER BY d.date ROWS UNBOUNDED PRECEDING
+            ) as total_rows
+        FROM dates d
+        LEFT JOIN daily_rows dr ON dr.date = d.date
+        ORDER BY d.date
         """,
         "visualization": "area",
     },
@@ -90,11 +139,25 @@ DASHBOARD_QUERIES = {
         "name": "dbt Test Results",
         "description": "Data quality tests from dbt",
         "sql": """
+        WITH latest_run AS (
+            SELECT MAX(run_generated_at) as run_generated_at
+            FROM _dango_meta.dbt_test_results
+        ),
+        latest_tests AS (
+            SELECT dtr.*
+            FROM _dango_meta.dbt_test_results dtr, latest_run lr
+            WHERE dtr.run_generated_at = lr.run_generated_at
+                AND dtr.passed IS NOT NULL  -- excludes skipped tests
+        )
         SELECT
-            'All Tests Passing' as status,
-            0 as failed_tests,
-            0 as total_tests
-        -- TODO: Parse dbt test results
+            CASE
+                WHEN COUNT(*) = 0 THEN 'No tests run yet'
+                WHEN SUM(CASE WHEN NOT passed THEN 1 ELSE 0 END) = 0 THEN 'All Tests Passing'
+                ELSE 'Tests Failing'
+            END as status,
+            COALESCE(SUM(CASE WHEN NOT passed THEN 1 ELSE 0 END), 0) as failed_tests,
+            COUNT(*) as total_tests
+        FROM latest_tests
         """,
         "visualization": "scalar",
     },
@@ -102,14 +165,401 @@ DASHBOARD_QUERIES = {
         "name": "Pipeline Health Score",
         "description": "Overall health of data pipeline (0-100)",
         "sql": """
+        -- Health score definition: a 50/50 weighted average of
+        --   (a) sync success rate — % of enabled sources whose most recent
+        --       sync attempt succeeded (sources that have never synced are
+        --       excluded from this rate, not counted as failures), and
+        --   (b) dbt test pass rate — % of tests passing in the latest dbt run.
+        -- If only one signal has data (e.g. sources synced but dbt has
+        -- never run), that signal is used alone. If neither has data
+        -- (fresh install), the score is 0 with an honest message instead of
+        -- a fake "Excellent" — see BUGS-FOUND.md's "Data Pipeline Health"
+        -- entry for why this matters.
+        WITH sync_health AS (
+            SELECT
+                COUNT(*) as total_enabled,
+                SUM(CASE WHEN latest_status = 'success' THEN 1 ELSE 0 END) as succeeded
+            FROM (
+                SELECT
+                    so.source_name,
+                    (
+                        SELECT sh.status
+                        FROM _dango_meta.sync_history sh
+                        WHERE sh.source_name = so.source_name
+                        ORDER BY sh.sync_timestamp DESC
+                        LIMIT 1
+                    ) as latest_status
+                FROM _dango_meta.source_overview so
+                WHERE so.enabled
+            ) t
+            WHERE latest_status IS NOT NULL
+        ),
+        test_health AS (
+            SELECT
+                COUNT(*) as total_tests,
+                SUM(CASE WHEN passed THEN 1 ELSE 0 END) as passed_tests
+            FROM _dango_meta.dbt_test_results dtr, (
+                SELECT MAX(run_generated_at) as m FROM _dango_meta.dbt_test_results
+            ) lr
+            WHERE dtr.run_generated_at = lr.m AND dtr.passed IS NOT NULL
+        )
         SELECT
-            100 as health_score,
-            'Excellent' as status,
-            'All sources syncing successfully' as message
+            CASE
+                WHEN sh.total_enabled = 0 AND th.total_tests = 0 THEN 0
+                WHEN sh.total_enabled > 0 AND th.total_tests > 0 THEN
+                    ROUND(
+                        0.5 * (sh.succeeded::DOUBLE / sh.total_enabled) * 100
+                        + 0.5 * (th.passed_tests::DOUBLE / th.total_tests) * 100
+                    )
+                WHEN sh.total_enabled > 0 THEN
+                    ROUND((sh.succeeded::DOUBLE / sh.total_enabled) * 100)
+                ELSE
+                    ROUND((th.passed_tests::DOUBLE / th.total_tests) * 100)
+            END as health_score,
+            CASE
+                WHEN sh.total_enabled = 0 AND th.total_tests = 0 THEN 'No data yet'
+                WHEN sh.total_enabled = 0 OR sh.succeeded = sh.total_enabled THEN
+                    CASE WHEN th.total_tests = 0 OR th.passed_tests = th.total_tests
+                         THEN 'Excellent' ELSE 'Needs Attention' END
+                WHEN (sh.succeeded::DOUBLE / sh.total_enabled) >= 0.8 THEN 'Good'
+                ELSE 'Needs Attention'
+            END as status,
+            CASE
+                WHEN sh.total_enabled = 0 AND th.total_tests = 0
+                    THEN 'No sources have synced yet and no dbt tests have run'
+                ELSE
+                    COALESCE(sh.succeeded, 0) || '/' || COALESCE(sh.total_enabled, 0)
+                    || ' sources synced successfully, '
+                    || COALESCE(th.passed_tests, 0) || '/' || COALESCE(th.total_tests, 0)
+                    || ' dbt tests passing'
+            END as message
+        FROM sync_health sh, test_health th
         """,
         "visualization": "gauge",
     },
 }
+
+
+def _metabase_login(
+    session: requests.Session,
+    metabase_url: str,
+    email: str,
+    password: str,
+    timeout: int = 10,
+) -> str | None:
+    """POST /api/session and return the session id, or None if login failed (non-200).
+
+    Shared by three of this module's simple (single-attempt) login call sites:
+    ``MetabaseProvisioner.authenticate()``, ``sync_metabase_schema()``, and
+    ``_apply_metabase_site_url_catchup()`` (added by 1.0.8-W's Site URL refresh — see
+    there and ``_set_metabase_site_url()`` below). Does NOT raise — callers decide
+    what a failed login means for their own contract (return False, swallow
+    silently, etc). ``setup_metabase()`` has its own multi-path login/retry logic and
+    does not use this helper — see BUGS-FOUND.md for why. ``set_metabase_telemetry()``
+    also does its own inline login rather than using this helper, since it needs to
+    distinguish a 401/403 (bad credentials) from other failures with a different
+    user-facing error message.
+
+    All four of the above (three real callers of this function, plus
+    ``set_metabase_telemetry()``'s own inline copy) also independently repeat the
+    "open .dango/metabase.yml, ``yaml.safe_load``, pull out ``admin.email``/
+    ``admin.password``" step before calling this — a shape that's now been copied
+    enough times that it's worth a shared loader, but each caller's error handling
+    on top of that shape differs enough (raise vs. return False vs. swallow
+    silently) that unifying it wasn't undertaken as part of this already-large PR;
+    left as an explicit follow-up rather than fixed here or left unacknowledged.
+    """
+    response = session.post(
+        f"{metabase_url}/api/session",
+        json={"username": email, "password": password},
+        timeout=timeout,
+    )
+    if response.status_code != 200:
+        return None
+    return response.json().get("id")
+
+
+def _should_apply_local_site_url(project_root: Path, cloud_mode: bool) -> bool:
+    """True only when the Site URL ``_set_metabase_site_url()`` computes
+    (``http://localhost:{config.platform.port}/metabase/``) is actually correct
+    for how this project is accessed.
+
+    Two cases make it wrong, not just unhelpful — Site URL also governs
+    Metabase's own password-reset/invite email links and other absolute URLs it
+    generates, not just JS asset paths, so writing the wrong value is a real
+    regression:
+
+    - **Cloud deployments** — Caddy fronts Metabase there with the real public
+      domain/HTTPS, not ``localhost:{port}``.
+    - **Local shared-nginx-registered projects** — ``platform/local/network.py``'s
+      shared nginx routing serves a registered project at its routing.json
+      ``domain`` entry (``{project_name}.dango`` by default, or a custom domain),
+      not ``localhost:{port}`` — *any* registration means this module's computed
+      URL is wrong for that project, not just a non-default one. (An earlier
+      version of this check compared the registered domain to
+      ``f"{project_name}.dango"`` to detect a "custom" domain — but
+      ``NetworkConfig.register_project()`` always registers under exactly that
+      pattern for the current project name, so that comparison could never be
+      true for the only real caller and silently never skipped anything. Fixed
+      during review to treat any registration as disqualifying, regardless of
+      what the domain string is.)
+
+    This registration check is defense in depth rather than an active concern
+    today: grepping the codebase confirmed ``NetworkConfig.register_project()``
+    is currently only ever called from the ``dango rename`` CLI command,
+    conditional on a routing.json entry that nothing else creates — there is no
+    live registration path for a *fresh* project. A project actually using this
+    feature already has the same JS-asset-path bug via a different Site URL
+    mismatch (nothing set Site URL at all before this fix), so this check isn't
+    closing a new gap for such projects — it's just making sure this PR doesn't
+    start actively writing a wrong value where none was written before. Fully
+    correct Site URL handling for locally-routed/custom-domain projects (e.g.
+    writing ``http://{domain}/metabase/`` instead of skipping) is out of scope
+    here.
+
+    Fails open (returns True) if project name / routing lookup can't be
+    completed, matching the common case (no registration exists) rather than
+    silently disabling the fix for every project over an unrelated I/O hiccup.
+    The failure is logged at debug level (not printed — this runs on every sync
+    for a project that's never registered, so it must stay silent by default)
+    so a persistent lookup failure (e.g. a corrupted ``~/.dango/routing.json``)
+    is still traceable rather than invisibly swallowed.
+    """
+    if cloud_mode:
+        return False
+    try:
+        # load_project_context() (not the full load_config()) is enough here —
+        # only project.name is needed, and the full load also parses/validates
+        # sources.yml for no benefit to this check. _set_metabase_site_url()
+        # still does its own full load separately (it needs platform.port, a
+        # different section of project.yml) — this doesn't eliminate that
+        # second parse, just avoids a third, heavier one here.
+        from dango.config import ConfigLoader
+        from dango.platform.local.network import NetworkConfig
+
+        project_name = ConfigLoader(project_root).load_project_context().name
+        if NetworkConfig().get_project_info(project_name) is not None:
+            return False
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"should_apply_local_site_url_check_failed: {e}")
+    return True
+
+
+def _safe_print(msg: str) -> None:
+    """print() that can't itself violate a caller's "never raises" contract.
+
+    A non-UTF-8 stdout (rare, but real: some CI runners, some Windows consoles)
+    could otherwise turn a ``UnicodeEncodeError`` on one of ``_set_metabase_site_url()``'s
+    own status glyphs (✓/⚠) into an uncaught exception escaping from what's supposed to
+    be a best-effort, print-only status line — its plain ``print()`` fallback branch
+    wasn't itself protected. Scoped to this PR's own new print calls only: the dozen-plus
+    pre-existing ✓/⚠/✗ prints elsewhere in this module (``setup_metabase()``, etc.) are a
+    pre-existing, unrelated risk this function does not attempt to cover.
+    """
+    try:
+        print(msg)
+    except Exception:  # noqa: BLE001
+        try:
+            print(msg.encode("ascii", "replace").decode("ascii"))
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _set_metabase_site_url(
+    session: requests.Session,
+    metabase_url: str,
+    headers: dict[str, str],
+    project_root: Path,
+) -> bool:
+    """PUT /api/setting/site-url so the local /metabase/ proxy serves correctly-pathed
+    JS assets — Metabase computes chunk-loading URLs from this setting, and the local
+    proxy (metabase_proxy.py) does not rewrite response bodies to compensate.
+
+    Shared by setup_metabase() (once, at initial setup) and refresh_metabase_connection()
+    (a one-time catch-up on the first post-upgrade sync — see the "site_url_set" marker
+    handling there — for a project whose .dango/metabase.yml was created before this fix
+    shipped). The PUT is idempotent — setting the same value repeatedly is harmless — but
+    callers should still gate on `_should_apply_local_site_url()` first: this function
+    always computes a plain ``localhost:{port}`` URL and has no way to know if that's
+    wrong for a cloud/custom-domain project. Never raises; failure is printed as a
+    warning only.
+
+    Returns:
+        True if the PUT succeeded (2xx — Metabase's setting-PUT endpoints return 204 No
+        Content on success, not 200; see the sibling anon-tracking-enabled PUT above,
+        which already relies on this via raise_for_status()), False otherwise (including
+        on any exception). Callers use this to decide whether it's safe to persist a
+        "site_url_set" marker.
+    """
+    try:
+        from dango.config import ConfigLoader
+
+        config = ConfigLoader(project_root).load_config()
+        web_port = config.platform.port
+        site_url = f"http://localhost:{web_port}/metabase/"
+        site_url_resp = session.put(
+            f"{metabase_url}/api/setting/site-url",
+            headers=headers,
+            json={"value": site_url},
+            timeout=10,
+        )
+        if site_url_resp.ok:
+            _safe_print(f"  ✓ Metabase Site URL set to {site_url}")
+            return True
+        _safe_print(f"  ⚠ Could not set Metabase Site URL: {site_url_resp.status_code}")
+        return False
+    except Exception as e:  # noqa: BLE001
+        _safe_print(f"  ⚠ Could not set Metabase Site URL: {e}")
+        return False
+
+
+def _apply_metabase_site_url_catchup(
+    session: requests.Session,
+    metabase_url: str,
+    project_root: Path,
+    session_id: str | None = None,
+) -> None:
+    """One-time catch-up for refresh_metabase_connection(): apply the Site URL fix to
+    a project whose .dango/metabase.yml was created before this fix shipped —
+    setup_metabase() only runs once per project and won't retroactively fix those.
+
+    ``session_id``: an optional already-authenticated Metabase session token
+    (1.0.8-Q17). When the caller already has a valid token from its own recent
+    login (e.g. ``refresh_metabase_connection()``'s post-restart login), pass it
+    here to skip this function's own ``_metabase_login()`` call — Metabase auth
+    is header-based (``X-Metabase-Session``), not cookie-based, so the same token
+    is valid for both requests regardless of which ``requests.Session`` object
+    makes them. Falls back to logging in itself when ``None`` (or falsy), so this
+    function remains standalone-callable exactly as before.
+
+    Deliberately checks the "site_url_set" marker in metabase.yml (one cheap file
+    read) *before* calling `_should_apply_local_site_url()`, which does heavier I/O
+    (project.yml reparse + pydantic validation, a `NetworkConfig()` construction that
+    touches ``~/.dango/``). Once a project is caught up, every subsequent sync pays for
+    a single open()+yaml.safe_load() here and nothing else — not a repeated
+    config/routing reparse forever, which an earlier ordering of these checks did.
+
+    Two known, accepted asymmetries from that marker design, left as-is rather than
+    fixed here (fixing either would mean re-doing the "one-time" work this ordering
+    exists to avoid):
+
+    - **Cloud/registered projects never get the "one-time" savings.**
+      `_should_apply_local_site_url()` returning False means the marker is never
+      written, so those projects *do* re-pay the project.yml/routing.json check on
+      every sync, indefinitely. This is intentional, not an oversight: it's what lets
+      a project whose topology later becomes plain-local (e.g. cloud deployment torn
+      down) get caught up automatically on a later sync, instead of being stuck
+      un-appliable forever. The cost is bounded to local file I/O (no network calls),
+      not the ~20s login+PUT budget.
+    - **The reverse direction has no correction path.** Once a project's marker is
+      True, it's never re-validated — a project that becomes cloud/registered *after*
+      already being marked keeps serving its earlier `localhost:{port}` Site URL
+      indefinitely, with no automatic re-check. In the current codebase this is a
+      narrow gap in practice: the only live path to local registration
+      (`dango rename`, see `_should_apply_local_site_url()`) only *updates* an
+      existing routing.json entry, it doesn't *create* one, so a project can't newly
+      become registered without already having been registered (itself requiring a
+      path this codebase doesn't currently expose either). Part of the same
+      already-disclosed "local custom-domain Site URL handling is out of scope"
+      follow-up gap, not a new one.
+
+    Never raises: the whole body is wrapped in its own try/except, so this
+    guarantee is self-contained rather than depending on the caller.
+    refresh_metabase_connection() also wraps this call as defense in depth, not
+    because this function relies on that wrapping to keep its own contract.
+    """
+    creds_file = project_root / ".dango" / "metabase.yml"
+    if not creds_file.exists():
+        return
+    try:
+        with open(creds_file) as f:
+            creds = yaml.safe_load(f) or {}
+        if creds.get("site_url_set"):
+            return
+
+        from dango.config.helpers import is_cloud_mode
+
+        if not _should_apply_local_site_url(project_root, is_cloud_mode(project_root)):
+            return
+
+        admin = creds.get("admin", {})
+        email = admin.get("email")
+        password = admin.get("password")
+
+        if not session_id:
+            if not email or not password:
+                return
+            session_id = _metabase_login(session, metabase_url, email, password)
+        if not session_id:
+            return
+
+        applied = _set_metabase_site_url(
+            session, metabase_url, {"X-Metabase-Session": session_id}, project_root
+        )
+        if applied:
+            creds["site_url_set"] = True
+            with open(creds_file, "w") as f:
+                yaml.safe_dump(creds, f, default_flow_style=False)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"metabase_site_url_catchup_failed: {e}")
+
+
+def _wait_for_metabase_log_ready(
+    container_name: str,
+    since: str,
+    max_wait_seconds: int = 90,
+    poll_interval: int = 2,
+) -> bool:
+    """Poll ``docker logs <container_name> --since <since>`` for Metabase's own
+    startup-complete banner line, instead of attempting a real login -- see
+    ``refresh_metabase_connection()``'s call site for the restart-readiness race
+    this closes (1.0.8-Q11/Q14/Q16 all tried a login-based version of this and
+    either failed to close the race or tripped Metabase's own login-throttle
+    lockout; see BUGS-FOUND.md). Metabase logs exactly one line, at real startup
+    completion, that has nothing to do with auth:
+
+        INFO core.core :: Metabase Initialization COMPLETE in X.Xs (JVM uptime: Y.Ys)
+
+    Reading container logs costs Metabase nothing server-side and cannot trip any
+    request-rate-based protection, unlike a login attempt -- so this can be polled
+    as long and as often as needed without the tradeoffs every prior version of
+    this function had to balance.
+
+    Confirmed live (2026-09-15, against `beta-1`'s real container,
+    `docker logs dango-59f02899-metabase-1`, read-only -- no restart/interference):
+    the line is written to the container's **stdout**, never stderr (stdout capture
+    had 20 matches; an isolated stderr-only capture of the full log had 0 lines at
+    all). Checked here regardless, since Metabase's own logging config isn't a
+    contract Dango controls and could change between versions.
+
+    ``since`` MUST be captured (e.g. via ``datetime.now(timezone.utc).isoformat()``)
+    immediately before the ``docker restart`` call this is polling for -- without
+    it, a stale "Initialization COMPLETE" line from a PRIOR boot still sitting in
+    the container's log buffer would cause an instant false-positive.
+
+    Never raises. Returns False (not an exception) on any subprocess failure
+    (docker not available, container gone, timeout) -- callers treat this the same
+    as "readiness not confirmed" and fall back accordingly, matching this module's
+    existing best-effort contract for restart-readiness checks.
+    """
+    deadline = time.monotonic() + max_wait_seconds
+    while time.monotonic() < deadline:
+        try:
+            result = subprocess.run(
+                ["docker", "logs", "--since", since, container_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if "Metabase Initialization COMPLETE" in result.stdout:
+                return True
+            if "Metabase Initialization COMPLETE" in result.stderr:
+                return True
+        except (subprocess.SubprocessError, OSError):
+            pass
+        time.sleep(poll_interval)
+
+    return False
 
 
 class MetabaseProvisioner:
@@ -127,16 +577,19 @@ class MetabaseProvisioner:
     def __init__(
         self,
         metabase_url: str = "http://localhost:3000",
-        username: str = "admin@example.com",
-        password: str = "admin123",
+        username: str = "",
+        password: str = "",
     ):
         """
         Initialize Metabase provisioner
 
         Args:
             metabase_url: Metabase instance URL
-            username: Admin username
-            password: Admin password
+            username: Admin username. Defaults to "" — real callers must supply this
+                explicitly; it previously defaulted to "admin@example.com", a
+                hardcoded-credential-shaped trap for any future caller (see
+                1.0.8-BUGS-FOUND.md)
+            password: Admin password. Defaults to "", same reasoning as username
         """
         self.metabase_url = metabase_url.rstrip("/")
         self.username = username
@@ -152,17 +605,10 @@ class MetabaseProvisioner:
             True if authentication successful
         """
         try:
-            response = self.session.post(
-                f"{self.metabase_url}/api/session",
-                json={"username": self.username, "password": self.password},
-                timeout=10,
+            self.session_token = _metabase_login(
+                self.session, self.metabase_url, self.username, self.password
             )
-
-            if response.status_code == 200:
-                self.session_token = response.json().get("id")
-                return True
-            else:
-                return False
+            return bool(self.session_token)
 
         except Exception as e:
             print(f"Authentication failed: {e}")
@@ -283,52 +729,82 @@ class MetabaseProvisioner:
 
         return None
 
-    def add_card_to_dashboard(
+    def set_dashboard_cards(
         self,
         dashboard_id: int,
-        card_id: int,
-        row: int = 0,
-        col: int = 0,
-        size_x: int = 6,
-        size_y: int = 4,
+        cards: list[dict[str, Any]],
     ) -> bool:
         """
-        Add card to dashboard with positioning
+        Attach a set of cards to a dashboard in a single call.
+
+        Metabase 0.62 removed `POST /api/dashboard/:id/cards` (it now 404s).
+        Cards are attached via `PUT /api/dashboard/:id` with a full
+        `dashcards` array instead -- Metabase replaces the dashboard's whole
+        card layout on each PUT, so all cards must be sent together. Each
+        new dashcard needs a unique negative placeholder `id`.
 
         Args:
             dashboard_id: Dashboard ID
-            card_id: Card ID to add
-            row: Row position (0-indexed)
-            col: Column position (0-indexed)
-            size_x: Width in grid units (0-18)
-            size_y: Height in grid units
+            cards: List of dicts, each with card_id, row, col, size_x, size_y
 
         Returns:
             True if successful
+
+        Raises:
+            RuntimeError: if the Metabase API call fails. Raised (rather
+                than silently returning False) so a future Metabase API
+                change can't hide the same way this one did -- cards
+                silently failing to attach while the dashboard reported
+                success with zero cards.
         """
         if not self.session_token:
             return False
 
-        card_data = {"cardId": card_id, "row": row, "col": col, "sizeX": size_x, "sizeY": size_y}
+        dashcards = [
+            {
+                "id": -(i + 1),  # negative placeholder id required for new dashcards
+                "card_id": card["card_id"],
+                "row": card["row"],
+                "col": card["col"],
+                "size_x": card["size_x"],
+                "size_y": card["size_y"],
+            }
+            for i, card in enumerate(cards)
+        ]
 
+        headers = {"X-Metabase-Session": self.session_token}
         try:
-            headers = {"X-Metabase-Session": self.session_token}
-            response = self.session.post(
-                f"{self.metabase_url}/api/dashboard/{dashboard_id}/cards",
+            response = self.session.put(
+                f"{self.metabase_url}/api/dashboard/{dashboard_id}",
                 headers=headers,
-                json=card_data,
+                json={"dashcards": dashcards},
                 timeout=10,
             )
-
-            return response.status_code == 200
-
         except Exception as e:
-            print(f"Failed to add card to dashboard: {e}")
-            return False
+            raise RuntimeError(f"Failed to attach cards to dashboard {dashboard_id}: {e}") from e
 
-    def provision_pipeline_health_dashboard(self) -> dict[str, Any]:
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Failed to attach cards to dashboard {dashboard_id}: "
+                f"{response.status_code} {response.text[:500]}"
+            )
+
+        return True
+
+    def provision_pipeline_health_dashboard(self, database_id: int | None = None) -> dict[str, Any]:
         """
         Provision complete Data Pipeline Health dashboard
+
+        Args:
+            database_id: Known Metabase database ID to use directly, bypassing
+                the name-search fallback below. `setup_metabase()` names the
+                DuckDB connection ``f"{org_name} Analytics"`` and persists its
+                ID in ``.dango/metabase.yml`` — passing that ID here avoids
+                relying on `get_database_id()`'s default `"DuckDB"` substring
+                search, which never matches that naming convention (found
+                2026-09-04: every real project's database name is
+                "<org> Analytics", never containing the literal word
+                "DuckDB", so the search always failed).
 
         Returns:
             Summary of provisioning results
@@ -346,8 +822,11 @@ class MetabaseProvisioner:
             summary["errors"].append("Authentication failed")
             return summary
 
-        # Get database ID
-        database_id = self.get_database_id()
+        # Get database ID: prefer the caller-supplied known ID; fall back to
+        # the name-search only when no ID was supplied (e.g. a caller that
+        # doesn't have access to .dango/metabase.yml).
+        if database_id is None:
+            database_id = self.get_database_id()
         if not database_id:
             summary["errors"].append("DuckDB database not found in Metabase")
             return summary
@@ -374,17 +853,35 @@ class MetabaseProvisioner:
             ("data_freshness", 10, 0, 18, 4),  # Full width: Freshness table
         ]
 
+        created_cards: list[dict[str, Any]] = []
         for query_key, row, col, size_x, size_y in card_layout:
             card_id = self.create_card(query_key, database_id)
             if card_id:
-                if self.add_card_to_dashboard(dashboard_id, card_id, row, col, size_x, size_y):
-                    summary["cards_created"].append(
-                        {"name": DASHBOARD_QUERIES[query_key]["name"], "card_id": card_id}
-                    )
-                else:
-                    summary["errors"].append(f"Failed to add card: {query_key}")
+                created_cards.append(
+                    {
+                        "query_key": query_key,
+                        "card_id": card_id,
+                        "row": row,
+                        "col": col,
+                        "size_x": size_x,
+                        "size_y": size_y,
+                    }
+                )
             else:
                 summary["errors"].append(f"Failed to create card: {query_key}")
+
+        # Attach all successfully-created cards to the dashboard in one call
+        # (Metabase's PUT /api/dashboard/:id replaces the whole dashcards
+        # array, so this can't be done incrementally per card).
+        if created_cards:
+            try:
+                self.set_dashboard_cards(dashboard_id, created_cards)
+                summary["cards_created"] = [
+                    {"name": DASHBOARD_QUERIES[c["query_key"]]["name"], "card_id": c["card_id"]}
+                    for c in created_cards
+                ]
+            except RuntimeError as e:
+                summary["errors"].append(str(e))
 
         summary["success"] = len(summary["cards_created"]) > 0
 
@@ -393,8 +890,10 @@ class MetabaseProvisioner:
 
 def provision_dashboard(
     metabase_url: str = "http://localhost:3000",
-    username: str = "admin@example.com",
-    password: str = "admin123",
+    *,
+    username: str,
+    password: str,
+    database_id: int | None = None,
 ) -> dict[str, Any]:
     """
     Convenience function to provision Data Pipeline Health dashboard
@@ -403,27 +902,16 @@ def provision_dashboard(
         metabase_url: Metabase instance URL
         username: Admin username
         password: Admin password
+        database_id: Known Metabase database ID — see
+            `MetabaseProvisioner.provision_pipeline_health_dashboard`'s docstring
+            for why this should be supplied whenever the caller has it
+            (e.g. from `.dango/metabase.yml`).
 
     Returns:
         Provisioning summary
     """
-    provisioner = MetabaseProvisioner(metabase_url, username, password)
-    return provisioner.provision_pipeline_health_dashboard()
-
-
-def create_pipeline_health_dashboard(project_root: Path) -> dict[str, Any]:
-    """
-    Create Data Pipeline Health dashboard for a Dango project
-
-    Args:
-        project_root: Path to Dango project root
-
-    Returns:
-        Provisioning summary
-    """
-    # Read Metabase credentials from project config if available
-    # For now, use defaults
-    return provision_dashboard()
+    provisioner = MetabaseProvisioner(metabase_url, username=username, password=password)
+    return provisioner.provision_pipeline_health_dashboard(database_id=database_id)
 
 
 def generate_secure_password(length: int = 20) -> str:
@@ -642,11 +1130,33 @@ def setup_metabase(
     from dango.platform.docker import get_compose_project_name
 
     compose_name = get_compose_project_name(project_root)
+    container_name = f"{compose_name}-metabase-1"
 
-    # Wait for Metabase to be ready (longer timeout for cloud cold start)
-    ready_timeout = 300 if cloud_mode else 60
+    # Wait for Metabase to be ready (longer timeout for cloud cold start).
+    # Try the log-line-based check first (Q17's proven mechanism -- confirms
+    # Metabase's own internal claim of readiness, not just that the container
+    # is listening, and reading container logs is cheap enough it can't trip
+    # any request-rate protection). Falls back to the original /api/health
+    # poll, same budget, only if the log-based check doesn't confirm
+    # readiness -- e.g. a Metabase version that logs the line differently, or
+    # a docker-logs failure for an unrelated reason -- so this never
+    # regresses below the previous behavior.
+    #
+    # Local-mode timeout (200s) is derived from 3 live cold-start
+    # measurements (1.0.8-AG, 2026-09-18), not a guess: wall-clock elapsed
+    # from this same `since` capture point to Metabase's "Initialization
+    # COMPLETE ... (JVM uptime: Y.Ys)" log line was 127.8s / 94.5s / 82.2s
+    # across 3 fresh cold starts (real Docker containers, real scratch
+    # projects) -- max 127.8s, ~1.5x variance across just 3 samples on one
+    # machine. 200s gives ~57% margin over the observed max while staying
+    # well under the untouched 300s cloud-mode budget.
+    ready_timeout = 300 if cloud_mode else 200
+    since = datetime.now(timezone.utc).isoformat()
     print("  ⏳ Waiting for Metabase to be ready...")
-    if not wait_for_metabase_ready(metabase_url, timeout=ready_timeout):
+    if not (
+        _wait_for_metabase_log_ready(container_name, since, max_wait_seconds=ready_timeout)
+        or wait_for_metabase_ready(metabase_url, timeout=ready_timeout)
+    ):
         summary["errors"].append(f"Metabase not ready after {ready_timeout} seconds")
         return summary
 
@@ -779,6 +1289,15 @@ def setup_metabase(
                 headers = {"X-Metabase-Session": session_token}
 
         # At this point, we have headers with session token from either path
+
+        # Set Site URL so the local /metabase/ proxy serves correctly-pathed JS assets.
+        # Skipped for cloud deployments (cloud_mode) and local custom-domain projects,
+        # where http://localhost:{port}/metabase/ would be the wrong Site URL to write
+        # — see _should_apply_local_site_url(). site_url_set is persisted below so
+        # refresh_metabase_connection() doesn't redundantly re-apply it on every sync.
+        site_url_set = False
+        if _should_apply_local_site_url(project_root, cloud_mode):
+            site_url_set = _set_metabase_site_url(session, metabase_url, headers, project_root)
 
         # Check for existing DuckDB connection to prevent duplicates
         existing_db_id = None
@@ -989,6 +1508,9 @@ def setup_metabase(
             "admin": {"email": admin_email, "password": admin_password},
             "database": {"id": summary.get("duckdb_id"), "name": f"{org_name} Analytics"},
             "setup_completed_at": datetime.now(tz=timezone.utc).isoformat(),
+            # 1.0.8-W: lets refresh_metabase_connection() skip its own login+PUT once
+            # this is already True, instead of re-attempting it on every sync forever.
+            "site_url_set": site_url_set,
         }
 
         credentials_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1009,7 +1531,11 @@ def setup_metabase(
     return summary
 
 
-def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localhost:3000") -> bool:
+def sync_metabase_schema(
+    project_root: Path,
+    metabase_url: str | None = None,
+    existing_session_id: str | None = None,
+) -> bool:
     """
     Trigger Metabase to re-sync database schema (table/column metadata).
 
@@ -1018,7 +1544,22 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
 
     Args:
         project_root: Path to project root
-        metabase_url: Metabase URL (default: http://localhost:3000)
+        metabase_url: Metabase URL. If not given, read from the "metabase_url"
+            key in .dango/metabase.yml (1.0.8-fix, same precedent as
+            set_metabase_telemetry()/cli/commands/metabase_cmd.py), falling
+            back to http://localhost:3000 if that key is absent too. The 6
+            call sites that never passed this explicitly were previously
+            silently hitting localhost:3000 regardless of a project's actual
+            configured platform.metabase_port -- see BUGS-FOUND.md.
+        existing_session_id: an optional already-authenticated Metabase session
+            token (1.0.8-Q17). When the caller already has a valid token (e.g.
+            from `refresh_metabase_connection()`'s post-restart login), pass it
+            here to skip this function's own `_metabase_login()` call — Metabase
+            auth is header-based (`X-Metabase-Session`), not cookie-based, so the
+            same token is valid regardless of which `requests.Session` object
+            makes the request. Falls back to logging in itself when `None` (or
+            falsy) — the default, unchanged behavior for the 6 other call sites
+            that don't pass this.
 
     Returns:
         True if sync triggered successfully, False otherwise
@@ -1038,6 +1579,8 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
         with open(credentials_file) as f:
             credentials = yaml.safe_load(f)
 
+        metabase_url = metabase_url or credentials.get("metabase_url", "http://localhost:3000")
+
         # Get database ID from nested structure
         database_id = credentials.get("database", {}).get("id")
         if not database_id:
@@ -1048,22 +1591,40 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
         email = admin.get("email")
         password = admin.get("password")
 
-        if not email or not password:
-            return False
-
-        # Login to get session
-        login_response = session.post(
-            f"{metabase_url}/api/session",
-            json={"username": email, "password": password},
-            timeout=10,
-        )
-
-        if login_response.status_code != 200:
-            return False
-
-        session_id = login_response.json().get("id")
+        # Reuse a pre-authenticated token if the caller already has one
+        # (1.0.8-Q17) -- otherwise log in ourselves, same as before.
+        session_id = existing_session_id
+        if not session_id:
+            if not email or not password:
+                return False
+            session_id = _metabase_login(session, metabase_url, email, password)
         if not session_id:
             return False
+
+        # Capture a baseline task id before triggering the re-sync, so the poll
+        # below can identify the specific "sync" task this call triggers (as
+        # opposed to some earlier/unrelated sync task for the same database).
+        # baseline_task_id is intentionally left as None (not 0) when this
+        # lookup fails — defaulting to 0 would let ANY historical "sync" task
+        # for this database (there's almost always one, for any database past
+        # first setup) match "id > baseline" and be mistaken for the task this
+        # call is about to trigger, breaking the poll loop instantly on an
+        # already-finished, unrelated task. That's the same false-positive
+        # failure mode this whole fix exists to remove, just reached via a
+        # flaky baseline call instead of the old initial_sync_status field.
+        baseline_task_id: int | None = None
+        try:
+            baseline_resp = session.get(
+                f"{metabase_url}/api/task",
+                headers={"X-Metabase-Session": session_id},
+                params={"db_id": database_id, "limit": 1},
+                timeout=5,
+            )
+            if baseline_resp.status_code == 200:
+                baseline_tasks = baseline_resp.json().get("data", [])
+                baseline_task_id = max((t.get("id", 0) for t in baseline_tasks), default=0)
+        except Exception:
+            baseline_task_id = None
 
         # Trigger sync
         response = session.post(
@@ -1075,24 +1636,75 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
         if response.status_code != 200:
             return False
 
-        # Wait for sync to complete (poll up to 30 seconds)
         import time
 
-        for _ in range(30):
-            time.sleep(1)
-            db_status = session.get(
-                f"{metabase_url}/api/database/{database_id}",
-                headers={"X-Metabase-Session": session_id},
-                timeout=5,
+        if baseline_task_id is None:
+            # Couldn't establish a pre-trigger baseline — without one we can't
+            # safely tell a newly-triggered "sync" task apart from an older,
+            # already-finished one (see note above), so the task-status poll
+            # below isn't safe to run. Fall back to a short fixed wait instead
+            # of guessing, then fall through to the metadata fetch as usual.
+            logger.warning(
+                "sync_metabase_schema: could not establish a baseline task id "
+                "before triggering the re-sync (GET /api/task failed) — "
+                "falling back to a fixed wait instead of task-status polling. "
+                "database_id=%s",
+                database_id,
             )
-            if db_status.status_code == 200:
-                # Check if sync is complete (no longer has 'initial_sync_status')
-                db_data = db_status.json()
-                if (
-                    not db_data.get("initial_sync_status")
-                    or db_data.get("initial_sync_status") == "complete"
-                ):
-                    break
+            time.sleep(5)
+        else:
+            # Wait for the async re-sync to settle. initial_sync_status only
+            # reflects the database's one-time initial onboarding sync, not
+            # this re-scan — for any database past first setup that field is
+            # already "complete" and this poll would otherwise exit instantly,
+            # before the re-scan has actually found new tables. Instead, poll
+            # Metabase's task log (GET /api/task) for the specific "sync" task
+            # this sync_schema call triggered (its id is greater than the
+            # baseline captured above) and wait for its status to leave
+            # "started". Bounded at 30 iterations of 1s sleep + up to 5s per
+            # request each — in the worst case (a consistently slow but not
+            # outright failing API) this can run longer than a strict 30s,
+            # up to roughly 30 * (1 + 5) = 180s.
+            for _ in range(30):
+                time.sleep(1)
+                try:
+                    task_resp = session.get(
+                        f"{metabase_url}/api/task",
+                        headers={"X-Metabase-Session": session_id},
+                        params={"db_id": database_id, "limit": 20},
+                        timeout=5,
+                    )
+                    if task_resp.status_code != 200:
+                        continue
+                    task_data = task_resp.json().get("data", [])
+                except Exception:
+                    continue
+
+                sync_tasks = [
+                    t
+                    for t in task_data
+                    if t.get("task") == "sync" and t.get("id", 0) > baseline_task_id
+                ]
+                if not sync_tasks:
+                    continue
+
+                latest_sync_task = max(sync_tasks, key=lambda t: t.get("id", 0))
+                status = latest_sync_task.get("status")
+                if status == "started":
+                    continue
+                if status != "success":
+                    # Covers "failed"/other terminal states and a missing
+                    # status field — still stop polling (the task is done,
+                    # just not successfully), but make sure this is visible
+                    # instead of silently reporting success below.
+                    logger.warning(
+                        "sync_metabase_schema: triggered re-sync task ended "
+                        "with unexpected status %r (task_id=%s, database_id=%s)",
+                        status,
+                        latest_sync_task.get("id"),
+                        database_id,
+                    )
+                break
 
         # Update table descriptions to guide users
         tables: list[dict[str, Any]] = []
@@ -1186,9 +1798,149 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
         return False
 
 
+def set_metabase_telemetry(
+    project_root: Path, enabled: bool, metabase_url: str | None = None
+) -> None:
+    """
+    Toggle Metabase's anonymous usage tracking via the admin Setting API.
+
+    Loads admin credentials from .dango/metabase.yml (same pattern as
+    sync_metabase_schema), logs in, then calls
+    PUT /api/setting/anon-tracking-enabled — Metabase's runtime setting key
+    for anonymous tracking (distinct from the one-time "allow_tracking" field
+    used only in the /api/setup wizard payload in setup_metabase() above).
+
+    On success, also writes a local last-known-state cache
+    (.dango/metabase_telemetry_state) so `dango telemetry status` can report
+    the real state without making a live API call every time — see
+    dango/cli/commands/telemetry.py's `_get_metabase_telemetry_state()`.
+
+    Args:
+        project_root: Path to project root
+        enabled: True to enable anonymous tracking, False to disable it
+        metabase_url: Metabase URL. If not given, read from the
+            "metabase_url" key in .dango/metabase.yml (same precedent as
+            cli/commands/metabase_cmd.py), falling back to
+            http://localhost:3000 if that key is absent too.
+
+    Raises:
+        click.ClickException: If Metabase credentials are missing/incomplete,
+            or if the API call fails (e.g. Metabase not running), or if
+            anything else in the credentials/login/API flow goes wrong.
+    """
+    import click
+
+    credentials_file = project_root / ".dango" / "metabase.yml"
+    if not credentials_file.exists():
+        raise click.ClickException("Metabase not configured. Run dango start first.")
+
+    try:
+        with open(credentials_file) as f:
+            credentials = yaml.safe_load(f) or {}
+
+        admin = credentials.get("admin", {})
+        email = admin.get("email")
+        password = admin.get("password")
+        if not email or not password:
+            raise click.ClickException(
+                "Metabase admin credentials missing from .dango/metabase.yml"
+            )
+
+        resolved_url = metabase_url or credentials.get("metabase_url", "http://localhost:3000")
+
+        session = requests.Session()
+        login_response = session.post(
+            f"{resolved_url}/api/session",
+            json={"username": email, "password": password},
+            timeout=10,
+        )
+        if login_response.status_code in (401, 403):
+            # Distinguish "reachable but rejected the credentials" from
+            # "unreachable" *before* raise_for_status() below would
+            # otherwise turn this into a generic requests.HTTPError (a
+            # RequestException subclass) and get mislabeled by the
+            # "is it running?" branch further down — Metabase is running
+            # fine here, the admin password in metabase.yml is just stale.
+            raise click.ClickException(
+                "Metabase login failed — check admin credentials in .dango/metabase.yml"
+            )
+        login_response.raise_for_status()
+        session_id = login_response.json().get("id")
+        if not session_id:
+            raise click.ClickException("Metabase login did not return a session id")
+
+        response = session.put(
+            f"{resolved_url}/api/setting/anon-tracking-enabled",
+            headers={"X-Metabase-Session": session_id},
+            json={"value": enabled},
+            timeout=10,
+        )
+        response.raise_for_status()
+
+        # The real API call above already succeeded — enabled is now the
+        # actual live Metabase state. A failure writing the local status
+        # cache (disk full, permissions, read-only filesystem) is a
+        # "dango telemetry status may show a stale value" problem, not a
+        # "this command failed" problem, so it's caught and logged here,
+        # inside its own try, rather than left to fall into the broad
+        # `except Exception` below — that would misreport a successful
+        # toggle as a failure just because a secondary, best-effort write
+        # didn't land.
+        try:
+            state_file = project_root / ".dango" / "metabase_telemetry_state"
+            state_file.parent.mkdir(parents=True, exist_ok=True)
+            state_file.write_text("true" if enabled else "false")
+        except Exception:
+            logger.warning(
+                "Metabase telemetry set to %s via API, but failed to write "
+                "local status cache at %s — `dango telemetry status` may "
+                "show a stale value until the next successful toggle.",
+                enabled,
+                project_root / ".dango" / "metabase_telemetry_state",
+                exc_info=True,
+            )
+
+    except click.ClickException:
+        raise
+    except requests.exceptions.RequestException as e:
+        raise click.ClickException(
+            f"Could not reach Metabase at {resolved_url} — is it running? ({e})"
+        ) from e
+    except Exception as e:
+        # Broad fallback: credentials-load/login/API flow can also fail on
+        # yaml.YAMLError (malformed metabase.yml) or a non-JSON 200 login
+        # response (login_response.json() raising ValueError), neither of
+        # which is a RequestException. Convert to the same clean-error
+        # contract this function promises for every other failure mode.
+        raise click.ClickException(f"Failed to set Metabase telemetry: {e}") from e
+
+
+def get_metabase_telemetry_state(project_root: Path | None) -> bool:
+    """Return Metabase's last-known opt-in state.
+
+    Reads the local cache file `set_metabase_telemetry()` writes above after
+    each successful live API call — this reports the real last-set state
+    without requiring Metabase to be running just to print a status table.
+    If telemetry was never toggled through this command (no cache file, or
+    no project), defaults to "on": that's Metabase's own out-of-the-box
+    default for anon-tracking-enabled.
+
+    Relocated here (Level 2, same level as `web/`) from
+    `cli/commands/telemetry.py`'s `_get_metabase_telemetry_state()`
+    (1.0.8-U) — both the CLI and `web/routes/telemetry.py` call this same
+    function so there is one real implementation, not two.
+    """
+    if project_root is None:
+        return True
+    state_file = project_root / ".dango" / "metabase_telemetry_state"
+    if not state_file.exists():
+        return True
+    return state_file.read_text().strip() == "true"
+
+
 def refresh_metabase_connection(
-    project_root: Path, metabase_url: str = "http://localhost:3000"
-) -> tuple[bool, str | None]:
+    project_root: Path, metabase_url: str | None = None
+) -> tuple[bool, str | None, str | None]:
     """
     Force Metabase to refresh its DuckDB connection to see latest data.
 
@@ -1197,16 +1949,43 @@ def refresh_metabase_connection(
 
     Args:
         project_root: Path to project root
-        metabase_url: Metabase URL
+        metabase_url: Metabase URL. If not given, read from the "metabase_url"
+            key in .dango/metabase.yml (1.0.8-fix, same precedent as
+            set_metabase_telemetry()/sync_metabase_schema()), falling back to
+            http://localhost:3000 if that key is absent too. The 4 real call
+            sites (dlt_runner.py, platform/scheduling/jobs.py, web/routes/dbt.py,
+            cli/commands/transform.py) never passed this explicitly, so were
+            silently targeting localhost:3000 regardless of a project's actual
+            configured platform.metabase_port -- see BUGS-FOUND.md.
 
     Returns:
-        Tuple of (success, error_message). error_message is None on success.
+        Tuple of (success, error_message, session_id). error_message is None on
+        success. session_id (1.0.8-Q17) is the Metabase session token obtained by
+        this function's own post-restart login, or None if that login was never
+        attempted/reached or failed -- callers that also need to call Metabase
+        (e.g. `sync_metabase_schema()`) can pass it through as
+        `existing_session_id` to avoid a second real login, since Metabase auth is
+        header-based (`X-Metabase-Session`), not cookie-based, so the token is
+        valid regardless of which `requests.Session` object makes the request.
     """
-    import subprocess
-
     session = requests.Session()
 
     try:
+        # Resolve the real configured Metabase URL before anything else uses
+        # it below (the /api/health poll, the post-restart login) -- best
+        # effort: a missing/malformed metabase.yml falls back to the same
+        # localhost:3000 default this function always had, it just no longer
+        # silently overrides an explicitly-configured non-default port.
+        if metabase_url is None:
+            metabase_url = "http://localhost:3000"
+            try:
+                creds_file = project_root / ".dango" / "metabase.yml"
+                with open(creds_file) as f:
+                    _creds = yaml.safe_load(f) or {}
+                metabase_url = _creds.get("metabase_url", metabase_url)
+            except (OSError, yaml.YAMLError):
+                pass
+
         # Get container name from DockerManager (uses hash-based naming)
         from dango.platform.docker import DockerManager
 
@@ -1223,7 +2002,13 @@ def refresh_metabase_connection(
 
         if container_name not in check_result.stdout:
             # Container not running
-            return (False, "Metabase container not running")
+            return (False, "Metabase container not running", None)
+
+        # Captured immediately before the restart -- _wait_for_metabase_log_ready()
+        # depends on this being the real restart boundary, not an earlier point, to
+        # avoid a false-positive match on an "Initialization COMPLETE" line left
+        # over from a PRIOR boot still sitting in the container's log buffer.
+        restart_time = datetime.now(timezone.utc).isoformat()
 
         # Restart Metabase container to force reconnection
         restart_result = subprocess.run(
@@ -1231,21 +2016,107 @@ def refresh_metabase_connection(
         )
 
         if restart_result.returncode != 0:
-            return (False, f"Docker restart failed: {restart_result.stderr[:200]}")
+            return (False, f"Docker restart failed: {restart_result.stderr[:200]}", None)
 
-        # Wait for Metabase to come back up (max 20 seconds)
-        max_attempts = 20
-        for _ in range(max_attempts):
+        # Wait for Metabase to come back up. Try the log-line-based check
+        # first (Q17's proven mechanism, same precedent as AG's setup_metabase()
+        # fix, PR #514) -- confirms Metabase's own internal readiness claim,
+        # not just that the container is listening. A still-shutting-down old
+        # Metabase process can keep answering /api/health with 200 for several
+        # seconds after `docker restart`'s SIGTERM (JVM graceful shutdown),
+        # followed by a real gap where nothing is listening -- the log line is
+        # immune to that race since it only appears once, at real startup
+        # completion. Falls back to the original /api/health poll, same
+        # overall budget, only if the log check doesn't confirm readiness.
+        #
+        # max_wait_seconds (1.0.8-AH, 2026-09-18) is derived from 4 live
+        # *restart*-path measurements against an already-warm, already-set-up
+        # container (not a cold first boot -- see AG's setup_metabase() fix
+        # above for that separate, larger number): wall-clock elapsed from
+        # this same `restart_time` capture point to Metabase's own
+        # "Initialization COMPLETE ... (JVM uptime: Y.Ys)" log line was
+        # 38.4s / 36.0s / 35.9s / 37.0s across 4 real `docker restart` cycles
+        # (real Docker container, real scratch project) -- max 38.4s, a tight
+        # ~7% spread (far tighter than AG's cold-boot 82.2-127.8s, consistent
+        # with a warm restart skipping image build/pull and benefiting from
+        # OS page cache). 60s gives ~56% margin over the observed max, the
+        # same margin ratio AG's own 200s/127.8s local-mode value used, not a
+        # guessed round number.
+        max_wait_seconds = 60
+        log_ready = _wait_for_metabase_log_ready(
+            container_name, restart_time, max_wait_seconds=max_wait_seconds
+        )
+        health_ready = False
+        if not log_ready:
+            deadline = time.monotonic() + max_wait_seconds
+            while time.monotonic() < deadline:
+                try:
+                    response = session.get(f"{metabase_url}/api/health", timeout=1)
+                    if response.status_code == 200:
+                        health_ready = True
+                        break
+                except requests.exceptions.RequestException:  # noqa: BLE001
+                    pass
+                time.sleep(1)
+
+        if log_ready or health_ready:
+            if health_ready and not log_ready:
+                # 1.0.8-AH: surfaces the same condition the old per-loop
+                # warning did (Metabase answers /api/health but its own
+                # "Initialization COMPLETE" log line never showed up within
+                # the readiness budget) -- worth keeping visible given this
+                # project's history needing exactly this signal to diagnose
+                # the Q11/Q14/Q16/Q17 readiness-race saga, even though it no
+                # longer implies a *downstream caller's* login is at risk
+                # (this function now does its own login unconditionally
+                # below, regardless of which check fired).
+                logger.warning(
+                    "refresh_metabase_connection: restart succeeded via the "
+                    "/api/health fallback -- Metabase's own 'Initialization "
+                    "COMPLETE' log line never appeared within the readiness "
+                    "budget"
+                )
+
+            # 1.0.8-Q17: one real login here, reused by both the site-url
+            # catch-up below and (via the return value) by callers'
+            # subsequent sync_metabase_schema() calls, instead of each
+            # independently re-logging in — drops real logins per
+            # successful cycle from up to 3 down to at most 1. Best-effort:
+            # a login failure here just means downstream callers fall back
+            # to their own login, same as before this change.
+            session_id: str | None = None
             try:
-                response = session.get(f"{metabase_url}/api/health", timeout=1)
-                if response.status_code == 200:
-                    return (True, None)
-            except requests.exceptions.RequestException:  # noqa: BLE001
-                pass
-            time.sleep(1)
+                creds_file = project_root / ".dango" / "metabase.yml"
+                with open(creds_file) as f:
+                    creds = yaml.safe_load(f) or {}
+                admin = creds.get("admin", {})
+                email = admin.get("email")
+                password = admin.get("password")
+                if email and password:
+                    session_id = _metabase_login(session, metabase_url, email, password)
+            except Exception:  # noqa: BLE001
+                pass  # Best-effort — downstream callers fall back to their own login
 
-        return (False, "Metabase did not become healthy after restart")
+            # See _apply_metabase_site_url_catchup()'s docstring for why this
+            # is a bounded one-time catch-up (cheap on every call once done),
+            # not a recurring cost paid on every sync forever. Best-effort:
+            # never turns a successful restart into a reported failure.
+            try:
+                _apply_metabase_site_url_catchup(
+                    session, metabase_url, project_root, session_id=session_id
+                )
+            except Exception:  # noqa: BLE001
+                pass  # Not critical — site URL refresh is best-effort
+
+            return (True, None, session_id)
+
+        return (False, "Metabase did not become healthy after restart", None)
 
     except Exception as e:
-        logger.warning("refresh_metabase_connection_error", error=str(e), exc_info=True)
-        return (False, str(e))
+        # Pre-existing bug fixed in passing: `error=str(e)` isn't a valid stdlib
+        # logging kwarg (logger here is `logging.getLogger`, not structlog) — it
+        # raised TypeError instead of logging, replacing the real exception this
+        # was supposed to report with an unrelated one. Caught while touching this
+        # exact except block for 1.0.8-W; verified live (see PR description).
+        logger.warning(f"refresh_metabase_connection_error: {e}", exc_info=True)
+        return (False, str(e), None)

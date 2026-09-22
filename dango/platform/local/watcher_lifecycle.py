@@ -12,7 +12,12 @@ import subprocess
 import time
 from pathlib import Path
 
-from dango.utils.process import is_process_running, kill_process
+from dango.utils.process import (
+    is_process_running,
+    kill_process,
+    read_pid_record,
+    write_pid_record,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,19 +78,27 @@ def start_file_watcher(project_root: Path) -> int | None:
     # Check if we already have a PID file first
     pid_file = get_watcher_pid_file_path(project_root)
     if pid_file.exists():
-        try:
-            existing_pid = int(pid_file.read_text().strip())
-            if is_process_running(existing_pid):
-                raise RuntimeError(
-                    f"File watcher is already running (PID {existing_pid}).\n"
-                    f"Stop it with 'dango stop'"
-                )
-            else:
-                # Stale PID file, remove it
+        existing_record = read_pid_record(pid_file)
+        if existing_record is None:
+            # Invalid/unparseable PID file, remove it
+            try:
                 pid_file.unlink()
-        except (ValueError, OSError):
-            # Invalid PID file, remove it
-            pid_file.unlink()
+            except OSError:  # noqa: BLE001
+                pass
+        elif is_process_running(
+            existing_record.pid, expected_start_time=existing_record.start_time
+        ):
+            raise RuntimeError(
+                f"File watcher is already running (PID {existing_record.pid}).\n"
+                f"Stop it with 'dango stop'"
+            )
+        else:
+            # Stale PID file (or a PID the OS has reused for a different process —
+            # see 1.0.8-OPS-1), remove it
+            try:
+                pid_file.unlink()
+            except OSError:  # noqa: BLE001
+                pass
 
     # Log file for watcher output
     log_file = project_root / ".dango" / "watcher.log"
@@ -121,8 +134,8 @@ def start_file_watcher(project_root: Path) -> int | None:
             log_handle.close()
             raise RuntimeError(f"File watcher failed to start. Check logs at {log_file}")
 
-        # Write PID file
-        pid_file.write_text(str(proc.pid))
+        # Write PID file (with start time, for identity verification — see 1.0.8-OPS-1)
+        write_pid_record(pid_file, proc.pid)
 
         # Don't close log_handle - let subprocess write to it
 
@@ -150,22 +163,23 @@ def stop_file_watcher(project_root: Path) -> bool:
         logger.debug("No file watcher PID file found")
         return False
 
-    try:
-        pid = int(pid_file.read_text().strip())
-    except (ValueError, OSError):
+    record = read_pid_record(pid_file)
+    if record is None:
         logger.warning("Invalid file watcher PID file")
         pid_file.unlink()
         return False
+    pid = record.pid
 
-    if not is_process_running(pid):
+    if not is_process_running(pid, expected_start_time=record.start_time):
         logger.debug("File watcher PID %d is not running (stale PID file)", pid)
         pid_file.unlink()
         return False
 
     logger.debug("Stopping file watcher (PID %d)", pid)
 
-    # Try to kill the process
-    success = kill_process(pid, timeout=10)
+    # Try to kill the process — identity-verified, so a stale PID file pointing at
+    # a reused PID is never signaled (see 1.0.8-OPS-1).
+    success = kill_process(pid, timeout=10, expected_start_time=record.start_time)
 
     # Clean up PID file
     try:
@@ -204,12 +218,9 @@ def get_watcher_status(project_root: Path) -> dict:
     }
 
     if pid_file.exists():
-        try:
-            pid = int(pid_file.read_text().strip())
-            if is_process_running(pid):
-                status["running"] = True
-                status["pid"] = pid
-        except (ValueError, OSError):  # noqa: BLE001
-            pass
+        record = read_pid_record(pid_file)
+        if record and is_process_running(record.pid, expected_start_time=record.start_time):
+            status["running"] = True
+            status["pid"] = record.pid
 
     return status

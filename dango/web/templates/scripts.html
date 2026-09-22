@@ -62,6 +62,9 @@
                                         class="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline">
                                     <span x-text="script.name"></span>
                                 </button>
+                                <span class="text-xs text-gray-400 ml-1"
+                                      :title="'Killed if still running after ' + formatDuration(script.timeout_seconds)"
+                                      x-text="'· timeout ' + formatDuration(script.timeout_seconds)"></span>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell"
                                 x-text="script.last_run ? timeAgo(script.last_run.started_at) : '—'"></td>
@@ -85,6 +88,7 @@
                             <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
                                 <template x-if="isEditorPlus && !script.running">
                                     <button @click="runScript(script)"
+                                            :title="'Will be killed if still running after ' + formatDuration(script.timeout_seconds)"
                                             class="text-blue-600 hover:text-blue-800 text-xs font-medium">Run Now</button>
                                 </template>
                                 <template x-if="isEditorPlus && script.running">

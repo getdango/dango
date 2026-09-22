@@ -127,6 +127,34 @@ class TestDiscoverScripts:
         assert "public.py" in names
         assert "nested.py" not in names
 
+
+@pytest.mark.unit
+class TestDiscoverScriptsTimeout:
+    """1.0.8-BUGS-FOUND: Scripts previously had no configurable timeout at all."""
+
+    def test_default_timeout_when_no_config(self, tmp_path: Path):
+        from dango.config.scripts import DEFAULT_SCRIPT_TIMEOUT_SECONDS
+        from dango.web.routes.scripts_helpers import _discover_scripts
+
+        _write_script(tmp_path / "scripts", "quick.py")
+
+        result = _discover_scripts(tmp_path)
+        assert result[0]["timeout_seconds"] == DEFAULT_SCRIPT_TIMEOUT_SECONDS
+
+    def test_configured_timeout_override(self, tmp_path: Path):
+        from dango.web.routes.scripts_helpers import _discover_scripts, _get_script_timeout
+
+        _write_script(tmp_path / "scripts", "orchestrator_v2.py")
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        (dango_dir / "scripts.yml").write_text(
+            "scripts:\n  - path: orchestrator_v2.py\n    timeout_seconds: 1800\n"
+        )
+
+        result = _discover_scripts(tmp_path)
+        assert result[0]["timeout_seconds"] == 1800
+        assert _get_script_timeout(tmp_path, "orchestrator_v2.py") == 1800
+
     def test_recursive_discovery(self, tmp_path: Path):
         """Recursively discovers scripts in subdirectories."""
         from dango.web.routes.scripts_helpers import _discover_scripts

@@ -17,9 +17,11 @@ from dango.cli.commands.dashboard import dashboard
 from dango.cli.commands.data import db, validate
 from dango.cli.commands.deploy import deploy
 from dango.cli.commands.dev import dev
+from dango.cli.commands.docker_audit import docker_audit
 from dango.cli.commands.doctor import doctor
 from dango.cli.commands.governance import governance
 from dango.cli.commands.local_backup import backup_group as local_backup_group
+from dango.cli.commands.mcp_server import mcp_group
 from dango.cli.commands.metabase_cmd import metabase
 from dango.cli.commands.migrate import migrate
 from dango.cli.commands.model import model
@@ -33,6 +35,7 @@ from dango.cli.commands.seed import seed
 from dango.cli.commands.serve import serve
 from dango.cli.commands.snapshot import snapshot
 from dango.cli.commands.source import source, sync
+from dango.cli.commands.telemetry import telemetry
 from dango.cli.commands.transform import docs, generate, run
 from dango.cli.commands.upgrade import upgrade
 from dango.cli.commands.web import web
@@ -103,6 +106,7 @@ cli.add_command(serve)
 cli.add_command(upgrade)
 cli.add_command(cleanup)
 cli.add_command(doctor)
+cli.add_command(docker_audit)
 
 # --- Register command groups ---
 cli.add_command(source)
@@ -114,6 +118,7 @@ cli.add_command(model)
 cli.add_command(seed)
 cli.add_command(dashboard)
 cli.add_command(metabase)
+cli.add_command(mcp_group)
 cli.add_command(migrate)
 cli.add_command(remote)
 cli.add_command(notebook)
@@ -124,6 +129,7 @@ cli.add_command(governance)
 cli.add_command(monitor)
 cli.add_command(snapshot)
 cli.add_command(local_backup_group)
+cli.add_command(telemetry)
 
 
 def main() -> None:

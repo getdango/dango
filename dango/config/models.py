@@ -3,6 +3,7 @@
 Pydantic models for configuration validation.
 """
 
+import uuid
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -21,7 +22,7 @@ class DeduplicationStrategy(str, Enum):
 
 
 class SourceType(str, Enum):
-    """Data source types — 35 source types (27 dlt verified + CSV + Local Files + REST API + dlt_native + Filesystem + PostgreSQL + sql_database + Scrapy)"""
+    """Data source types — 35 source types (27 dlt verified + CSV + Local Files + REST API + dlt_native + Filesystem + PostgreSQL + MySQL + sql_database)"""
 
     # Local/Custom
     CSV = "csv"
@@ -57,9 +58,10 @@ class SourceType(str, Enum):
     NOTION = "notion"
     INBOX = "inbox"
 
-    # Databases (3)
+    # Databases (4)
     MONGODB = "mongodb"
     POSTGRESQL = "postgres"
+    MYSQL = "mysql"
     SQL_DATABASE = "sql_database"  # Generic for 24 SQL databases via dlt
 
     # Streaming (2)
@@ -69,10 +71,9 @@ class SourceType(str, Enum):
     # Development (1)
     GITHUB = "github"
 
-    # Other (5)
+    # Other (4)
     SLACK = "slack"
     CHESS = "chess"
-    SCRAPY = "scrapy"
     STRAPI = "strapi"
     PERSONIO = "personio"
 
@@ -89,6 +90,12 @@ class ProjectContext(BaseModel):
     """Project-level context and metadata"""
 
     name: str
+    id: str = Field(
+        default_factory=lambda: uuid.uuid4().hex,
+        description="Stable identifier for this project, used to derive its Docker Compose "
+        "project name. Generated once at `dango init` and never changes, even if the project "
+        "directory is later moved or renamed. Do not edit by hand.",
+    )
     organization: str | None = Field(
         None, description="Organization name (used in Metabase, Web UI, etc.)"
     )

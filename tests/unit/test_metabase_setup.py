@@ -1,10 +1,14 @@
 """tests/unit/test_metabase_setup.py
 
-Unit tests for sync_metabase_schema and setup_metabase API interactions
-in dango/visualization/metabase.py.
+Unit tests for setup_metabase() API interactions in
+dango/visualization/metabase.py.
 
-For MetabaseProvisioner and wait_for_metabase_ready tests,
-see test_metabase_api.py.
+For MetabaseProvisioner and wait_for_metabase_ready tests, see
+test_metabase_api.py. For sync_metabase_schema tests, see
+test_metabase_schema_sync_core.py (core API interactions) and
+test_metabase_schema_sync.py (re-sync poll, session reuse, URL resolution)
+-- the former split out 1.0.8-AG to stay under the 500-line
+file-size-check limit once the log-ready-check tests were added.
 """
 
 from __future__ import annotations
@@ -13,284 +17,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# ---------------------------------------------------------------------------
-# sync_metabase_schema
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestSyncMetabaseSchema:
-    """Test sync_metabase_schema API interactions."""
-
-    def test_returns_false_when_credentials_file_missing(self, tmp_path: Path) -> None:
-        from dango.visualization.metabase import sync_metabase_schema
-
-        result = sync_metabase_schema(tmp_path)
-        assert result is False
-
-    def test_successful_sync_returns_true(self, tmp_path: Path) -> None:
-        """Full success path: login, sync_schema, poll, update tables."""
-        import requests
-        import yaml
-
-        from dango.visualization.metabase import sync_metabase_schema
-
-        # Create credentials file
-        creds_dir = tmp_path / ".dango"
-        creds_dir.mkdir()
-        creds_file = creds_dir / "metabase.yml"
-        creds_file.write_text(
-            yaml.dump(
-                {
-                    "metabase_url": "http://localhost:3000",
-                    "admin": {"email": "admin@test.com", "password": "secret"},
-                    "database": {"id": 5, "name": "Test Analytics"},
-                }
-            )
-        )
-
-        mock_session = MagicMock(spec=requests.Session)
-
-        # Login response
-        login_resp = MagicMock()
-        login_resp.status_code = 200
-        login_resp.json.return_value = {"id": "sess-abc"}
-
-        # Sync schema response
-        sync_resp = MagicMock()
-        sync_resp.status_code = 200
-
-        # Poll response — sync complete
-        poll_resp = MagicMock()
-        poll_resp.status_code = 200
-        poll_resp.json.return_value = {"initial_sync_status": "complete"}
-
-        # Metadata response
-        metadata_resp = MagicMock()
-        metadata_resp.status_code = 200
-        metadata_resp.json.return_value = {
-            "tables": [
-                {"id": 1, "name": "stg_orders", "schema": "staging"},
-                {"id": 2, "name": "_dlt_loads", "schema": "raw_sales"},
-            ]
-        }
-
-        # Table update response
-        update_resp = MagicMock()
-        update_resp.status_code = 200
-
-        mock_session.post.side_effect = [login_resp, sync_resp]
-        mock_session.get.side_effect = [poll_resp, metadata_resp]
-        mock_session.put.return_value = update_resp
-
-        with (
-            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
-            patch("dango.visualization.metabase.time.sleep"),
-        ):
-            result = sync_metabase_schema(tmp_path)
-
-        assert result is True
-        # Verify login call
-        assert mock_session.post.call_args_list[0][0][0] == "http://localhost:3000/api/session"
-        # Verify sync_schema call
-        assert (
-            mock_session.post.call_args_list[1][0][0]
-            == "http://localhost:3000/api/database/5/sync_schema"
-        )
-        # Verify table updates — both tables should be updated
-        assert mock_session.put.call_count == 2
-
-    def test_returns_false_when_login_fails(self, tmp_path: Path) -> None:
-        import requests
-        import yaml
-
-        from dango.visualization.metabase import sync_metabase_schema
-
-        creds_dir = tmp_path / ".dango"
-        creds_dir.mkdir()
-        creds_file = creds_dir / "metabase.yml"
-        creds_file.write_text(
-            yaml.dump(
-                {
-                    "admin": {"email": "admin@test.com", "password": "wrong"},
-                    "database": {"id": 5},
-                }
-            )
-        )
-
-        mock_session = MagicMock(spec=requests.Session)
-        login_resp = MagicMock()
-        login_resp.status_code = 401
-        mock_session.post.return_value = login_resp
-
-        with patch("dango.visualization.metabase.requests.Session", return_value=mock_session):
-            result = sync_metabase_schema(tmp_path)
-
-        assert result is False
-
-    def test_returns_false_when_database_id_missing(self, tmp_path: Path) -> None:
-        import yaml
-
-        from dango.visualization.metabase import sync_metabase_schema
-
-        creds_dir = tmp_path / ".dango"
-        creds_dir.mkdir()
-        creds_file = creds_dir / "metabase.yml"
-        creds_file.write_text(
-            yaml.dump(
-                {
-                    "admin": {"email": "admin@test.com", "password": "secret"},
-                    "database": {},  # No ID
-                }
-            )
-        )
-
-        result = sync_metabase_schema(tmp_path)
-        assert result is False
-
-    def test_returns_false_when_sync_schema_fails(self, tmp_path: Path) -> None:
-        import requests
-        import yaml
-
-        from dango.visualization.metabase import sync_metabase_schema
-
-        creds_dir = tmp_path / ".dango"
-        creds_dir.mkdir()
-        creds_file = creds_dir / "metabase.yml"
-        creds_file.write_text(
-            yaml.dump(
-                {
-                    "admin": {"email": "admin@test.com", "password": "secret"},
-                    "database": {"id": 5},
-                }
-            )
-        )
-
-        mock_session = MagicMock(spec=requests.Session)
-        login_resp = MagicMock()
-        login_resp.status_code = 200
-        login_resp.json.return_value = {"id": "sess-abc"}
-
-        sync_resp = MagicMock()
-        sync_resp.status_code = 500
-
-        mock_session.post.side_effect = [login_resp, sync_resp]
-
-        with patch("dango.visualization.metabase.requests.Session", return_value=mock_session):
-            result = sync_metabase_schema(tmp_path)
-
-        assert result is False
-
-    def test_returns_false_when_no_tables_found(self, tmp_path: Path) -> None:
-        import requests
-        import yaml
-
-        from dango.visualization.metabase import sync_metabase_schema
-
-        creds_dir = tmp_path / ".dango"
-        creds_dir.mkdir()
-        creds_file = creds_dir / "metabase.yml"
-        creds_file.write_text(
-            yaml.dump(
-                {
-                    "admin": {"email": "admin@test.com", "password": "secret"},
-                    "database": {"id": 5},
-                }
-            )
-        )
-
-        mock_session = MagicMock(spec=requests.Session)
-        login_resp = MagicMock()
-        login_resp.status_code = 200
-        login_resp.json.return_value = {"id": "sess-abc"}
-
-        sync_resp = MagicMock()
-        sync_resp.status_code = 200
-
-        poll_resp = MagicMock()
-        poll_resp.status_code = 200
-        poll_resp.json.return_value = {"initial_sync_status": "complete"}
-
-        metadata_resp = MagicMock()
-        metadata_resp.status_code = 200
-        metadata_resp.json.return_value = {"tables": []}  # No tables
-
-        mock_session.post.side_effect = [login_resp, sync_resp]
-        mock_session.get.side_effect = [poll_resp, metadata_resp]
-
-        with (
-            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
-            patch("dango.visualization.metabase.time.sleep"),
-        ):
-            result = sync_metabase_schema(tmp_path)
-
-        assert result is False
-
-    def test_hides_staging_and_raw_tables(self, tmp_path: Path) -> None:
-        """Verify tables in _staging/raw/raw_* schemas get visibility_type='hidden'."""
-        import requests
-        import yaml
-
-        from dango.visualization.metabase import sync_metabase_schema
-
-        creds_dir = tmp_path / ".dango"
-        creds_dir.mkdir()
-        creds_file = creds_dir / "metabase.yml"
-        creds_file.write_text(
-            yaml.dump(
-                {
-                    "admin": {"email": "admin@test.com", "password": "secret"},
-                    "database": {"id": 5},
-                }
-            )
-        )
-
-        mock_session = MagicMock(spec=requests.Session)
-        login_resp = MagicMock(status_code=200)
-        login_resp.json.return_value = {"id": "sess-abc"}
-        sync_resp = MagicMock(status_code=200)
-        poll_resp = MagicMock(status_code=200)
-        poll_resp.json.return_value = {"initial_sync_status": "complete"}
-        metadata_resp = MagicMock(status_code=200)
-        metadata_resp.json.return_value = {
-            "tables": [
-                {"id": 1, "name": "my_table", "schema": "raw_stripe_staging"},
-                {"id": 2, "name": "_dlt_loads", "schema": "raw"},
-                {"id": 3, "name": "my_model", "schema": "staging"},
-            ]
-        }
-        update_resp = MagicMock(status_code=200)
-
-        mock_session.post.side_effect = [login_resp, sync_resp]
-        mock_session.get.side_effect = [poll_resp, metadata_resp]
-        mock_session.put.return_value = update_resp
-
-        with (
-            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
-            patch("dango.visualization.metabase.time.sleep"),
-        ):
-            result = sync_metabase_schema(tmp_path)
-
-        assert result is True
-
-        # Check put calls for visibility_type
-        hidden_calls = [
-            c
-            for c in mock_session.put.call_args_list
-            if c[1]["json"].get("visibility_type") == "hidden"
-        ]
-        assert len(hidden_calls) == 2  # raw_stripe_staging + raw
-
-        # Check staging table does NOT have visibility_type=hidden
-        staging_calls = [
-            c
-            for c in mock_session.put.call_args_list
-            if c[1]["json"].get("description", "").startswith("\u2705")
-        ]
-        assert len(staging_calls) == 1
-        assert "visibility_type" not in staging_calls[0][1]["json"]
-
 
 # ---------------------------------------------------------------------------
 # setup_metabase API interactions
@@ -320,12 +46,95 @@ class TestSetupMetabaseApi:
 
         with (
             patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            # 1.0.8-AG: the log-ready check now runs first (real `docker logs`
+            # subprocess polling, up to `ready_timeout` seconds) -- must be
+            # mocked here too, or this test would take up to 200 real seconds
+            # polling a nonexistent container before falling through to the
+            # (mocked) health-check fallback.
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
             patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=False),
         ):
             result = setup_metabase(tmp_path, "test-project", "admin@example.com")
 
         assert not result["success"]
         assert "not ready" in result["errors"][0]
+
+    def test_setup_metabase_uses_log_ready_check_first(self, tmp_path: Path) -> None:
+        """1.0.8-AG: _wait_for_metabase_log_ready() is tried first. When it
+        confirms readiness, wait_for_metabase_ready() (the /api/health
+        fallback) must NOT be called at all -- `or` short-circuits and the
+        log-based check is authoritative when it succeeds."""
+        import requests
+
+        from dango.visualization.metabase import setup_metabase
+
+        mock_session = MagicMock(spec=requests.Session)
+        # Fail fast at the very next step (setup token) -- irrelevant to what
+        # this test verifies, just keeps it from doing unrelated real I/O.
+        mock_session.get.return_value = MagicMock(status_code=500)
+
+        with (
+            patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            patch(
+                "dango.visualization.metabase._wait_for_metabase_log_ready", return_value=True
+            ) as mock_log_ready,
+            patch("dango.visualization.metabase.wait_for_metabase_ready") as mock_health_check,
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+        ):
+            result = setup_metabase(tmp_path, "test-project", "admin@example.com")
+
+        mock_log_ready.assert_called_once()
+        mock_health_check.assert_not_called()
+        # Progressed past the readiness gate entirely (next failure is the
+        # setup-token step, not "not ready").
+        assert "not ready" not in result["errors"][0]
+
+    def test_setup_metabase_falls_back_to_health_check(self, tmp_path: Path) -> None:
+        """1.0.8-AG: when the log-ready check doesn't confirm readiness (e.g. a
+        Metabase version that logs the line differently, or a docker-logs
+        failure), setup_metabase() falls back to the original /api/health
+        poll, same budget -- confirms the fallback path still works and is
+        actually reached."""
+        import requests
+
+        from dango.visualization.metabase import setup_metabase
+
+        mock_session = MagicMock(spec=requests.Session)
+        mock_session.get.return_value = MagicMock(status_code=500)
+
+        with (
+            patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            patch(
+                "dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False
+            ) as mock_log_ready,
+            patch(
+                "dango.visualization.metabase.wait_for_metabase_ready", return_value=True
+            ) as mock_health_check,
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+        ):
+            result = setup_metabase(tmp_path, "test-project", "admin@example.com")
+
+        mock_log_ready.assert_called_once()
+        mock_health_check.assert_called_once()
+        # Readiness itself succeeded via the fallback -- next failure is the
+        # setup-token step, not "not ready".
+        assert "not ready" not in result["errors"][0]
+
+    def test_setup_metabase_fails_when_both_checks_fail(self, tmp_path: Path) -> None:
+        """1.0.8-AG: when both the log-ready check and the health-check
+        fallback fail, setup_metabase() reports failure the same way it
+        always has -- no regression in the failure-reporting path."""
+        from dango.visualization.metabase import setup_metabase
+
+        with (
+            patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
+            patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=False),
+        ):
+            result = setup_metabase(tmp_path, "test-project", "admin@example.com")
+
+        assert result["success"] is False
+        assert any("not ready" in e for e in result["errors"])
 
     def test_cannot_get_setup_token_returns_error(self, tmp_path: Path) -> None:
         import requests
@@ -339,6 +148,11 @@ class TestSetupMetabaseApi:
 
         with (
             patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            # 1.0.8-AG: log-ready check runs first; force it False so these
+            # pre-existing tests fall straight through to the (mocked) health
+            # check instead of real-polling a nonexistent container for up to
+            # `ready_timeout` seconds.
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
             patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
         ):
@@ -400,6 +214,11 @@ class TestSetupMetabaseApi:
 
         with (
             patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            # 1.0.8-AG: log-ready check runs first; force it False so these
+            # pre-existing tests fall straight through to the (mocked) health
+            # check instead of real-polling a nonexistent container for up to
+            # `ready_timeout` seconds.
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
             patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
         ):
@@ -452,6 +271,11 @@ class TestSetupMetabaseApi:
 
         with (
             patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            # 1.0.8-AG: log-ready check runs first; force it False so these
+            # pre-existing tests fall straight through to the (mocked) health
+            # check instead of real-polling a nonexistent container for up to
+            # `ready_timeout` seconds.
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
             patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
         ):

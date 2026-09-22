@@ -1,6 +1,6 @@
 """dango/ingestion/sources/registry.py
 
-Metadata registry for all 33 supported data sources (27 dlt verified + CSV + Local Files + dlt_native + REST API + PostgreSQL + Filesystem).
+Metadata registry for all 34 supported data sources (27 dlt verified + CSV + Local Files + dlt_native + REST API + PostgreSQL + MySQL + Filesystem).
 """
 
 from enum import Enum
@@ -21,7 +21,7 @@ class AuthType(str, Enum):
 # SOURCE SELECTION CRITERIA
 # ============================================================================
 #
-# This registry contains 33 sources in five categories:
+# This registry contains 34 sources in five categories:
 #   1. dlt verified sources (27): All connectors vendored in dlt_sources/. Each
 #      uses its own dlt verified source package (e.g., facebook_ads, hubspot).
 #   2. CSV (1): Custom CSVLoader — not dlt. For local structured CSV files.
@@ -33,8 +33,8 @@ class AuthType(str, Enum):
 #   5. dlt core built-ins (2): filesystem + rest_api. Built into dlt, no vendoring.
 #      filesystem: cloud storage (S3/GCS/Azure). Hidden from wizard — use local_files for local.
 #      rest_api: connect any REST API via declarative config.
-#   6. PostgreSQL (1): Dedicated wizard entry backed by dlt's built-in
-#      sql_database source. Structured params for the most common DB use case.
+#   6. PostgreSQL + MySQL (2): Dedicated wizard entries backed by dlt's built-in
+#      sql_database source. Structured params for the most common DB use cases.
 #
 # Excluded dlt verified sources:
 #   - sql_database (generic): Too complex for wizard UI (arbitrary table selectors,
@@ -2735,7 +2735,7 @@ CATEGORIES = {
     "Streaming": ["kafka", "kinesis"],
     "Development": ["github"],
     "Communication": ["slack"],
-    "Other": ["chess", "strapi", "personio"],  # scrapy not available
+    "Other": ["chess", "strapi", "personio"],
 }
 
 

@@ -39,13 +39,10 @@ def model_add(ctx: click.Context) -> None:
       dango model add    Run interactive wizard
     """
     from ..model_wizard import add_model
-    from ..utils import check_git_branch_warning, require_project_context
+    from ..utils import require_project_context
 
     try:
         project_root = require_project_context(ctx)
-
-        # Check git branch (gentle reminder if on main/master)
-        check_git_branch_warning(project_root)
 
         model_path = add_model(project_root)
 
@@ -323,9 +320,13 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
         # Refresh Metabase schema if table was dropped
         if dropped_table:
             try:
-                from dango.visualization.metabase import sync_metabase_schema
+                from dango.visualization.metabase import (
+                    refresh_metabase_connection,
+                    sync_metabase_schema,
+                )
 
-                if sync_metabase_schema(project_root):
+                mb_ok, _mb_err, mb_session_id = refresh_metabase_connection(project_root)
+                if mb_ok and sync_metabase_schema(project_root, existing_session_id=mb_session_id):
                     console.print("[green]✓[/green] Metabase schema refreshed")
             except Exception:  # noqa: BLE001
                 pass  # Non-critical — Metabase may not be running

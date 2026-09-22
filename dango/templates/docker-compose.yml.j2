@@ -29,6 +29,18 @@ services:
       retries: 5
       start_period: 300s
     restart: unless-stopped
+    # Bounds this container's own stdout/stderr capture (JVM startup logs, health-check
+    # noise) — never rotated before, so a long-lived project (especially an unattended
+    # cloud deployment) could accumulate this indefinitely. Rotates like any standard
+    # log setup (keep the last few segments up to a size cap each), not a wipe — same
+    # keep-recent-history-but-bound-it principle as this project's own audit log
+    # rotation (utils/log_rotation.py). Does not touch application-level audit logs at
+    # all, only this container's own operational output.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # dbt Docs - Documentation Server
   dbt-docs:
@@ -43,7 +55,15 @@ services:
       timeout: 10s
       retries: 3
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   metabase-data:
     driver: local
+    labels:
+      com.dango.project_name: "{{ project_name }}"
+      com.dango.project_id: "{{ project_id }}"

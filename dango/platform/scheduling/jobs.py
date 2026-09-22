@@ -387,9 +387,9 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
                 sync_metabase_schema,
             )
 
-            mb_ok, _mb_err = refresh_metabase_connection(project_root)
+            mb_ok, _mb_err, mb_session_id = refresh_metabase_connection(project_root)
             if mb_ok:
-                sync_metabase_schema(project_root)
+                sync_metabase_schema(project_root, existing_session_id=mb_session_id)
         except Exception:
             logger.warning("metabase_refresh_after_coalesced_dbt_failed", exc_info=True)
     else:
@@ -619,6 +619,16 @@ def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: A
                 mark_source_models_stale(project_root, list(failed_source_errors.keys()))
             except Exception:  # noqa: BLE001
                 logger.debug("mark_stale_after_partial_failure", exc_info=True)
+
+        _broadcast(
+            {
+                "event": "sync_data_loaded",
+                "schedule": schedule_name,
+                "sources": source_names,
+                "succeeded_sources": succeeded_sources,
+                "timestamp": _ts(),
+            }
+        )
 
         # Run coalesced dbt (waits for coalesce window, merges pending sources)
         transform_error: str | None = None

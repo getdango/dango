@@ -8,8 +8,8 @@ Integrates with Metabase for dashboard provisioning, auto-setup, schema synchron
 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
-| `__init__.py` | Public exports | `provision_dashboard`, `create_pipeline_health_dashboard` |
-| `metabase.py` | Metabase auto-setup, DuckDB connection, schema sync | `MetabaseProvisioner`, `setup_metabase`, `sync_metabase_schema`, `refresh_metabase_connection` |
+| `__init__.py` | Public exports | `provision_dashboard` |
+| `metabase.py` | Metabase auto-setup, DuckDB connection, schema sync | `MetabaseProvisioner`, `setup_metabase`, `sync_metabase_schema`, `refresh_metabase_connection`, `set_metabase_telemetry`, `get_metabase_telemetry_state` |
 | `dashboard_manager.py` | YAML-based dashboard/question export and import with rollback | `DashboardManager`, `import_dashboards` |
 
 ## Common Tasks
@@ -24,12 +24,21 @@ Integrates with Metabase for dashboard provisioning, auto-setup, schema synchron
 ## Dependencies
 
 **Imports from:**
-- No dango module imports (isolated module). Uses `requests` to call Metabase API, reads credentials from `.dango/metabase.yml` at runtime.
+- Mostly isolated (uses `requests` to call Metabase API, reads credentials from
+  `.dango/metabase.yml` at runtime), with one exception: `metabase.py`'s Site URL
+  handling (1.0.8-W — `_should_apply_local_site_url()`, `_apply_metabase_site_url_catchup()`)
+  lazy-imports `dango.config.ConfigLoader`, `dango.config.helpers.is_cloud_mode`, and
+  `dango.platform.local.network.NetworkConfig` to check deployment topology (cloud mode,
+  local shared-nginx registration) before writing a `localhost:{port}`-based Metabase Site
+  URL — all Level 0–2 imports, consistent with this module's Level 2 position in the
+  dependency hierarchy.
+- `DASHBOARD_QUERIES`' SQL (not Python imports) reads the `_dango_meta` schema tables written by `dango.utils.pipeline_health.materialize_pipeline_health()` (1.0.8-DASH-1) — `cli/commands/dashboard.py` calls that function (and `refresh_metabase_connection()`, below) before provisioning, not this module.
 
 **Used by:**
 - `dango/cli/main.py` — Metabase CLI commands (`dango metabase setup/sync/export/import/provision/refresh`)
 - `dango/ingestion/dlt_runner.py` — `sync_metabase_schema`, `refresh_metabase_connection` after data syncs
 - `dango/web/app.py` — `sync_metabase_schema`, `refresh_metabase_connection` via API endpoints
+- `dango/web/routes/telemetry.py`, `dango/cli/commands/telemetry.py` — `set_metabase_telemetry`, `get_metabase_telemetry_state` (1.0.8-U unified telemetry control, CLI + web front-ends)
 
 ## Testing
 

@@ -5,11 +5,100 @@ Unit tests for source wizard UX bugs (P2-2, P2-4, P2-6, P2-7, P8-3).
 
 from __future__ import annotations
 
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from dango.ingestion.sources.registry import SOURCE_REGISTRY
+
+
+def _init_git_repo(path, branch="main", dirty=False):
+    """Create a real git repo at `path` on the given branch."""
+    subprocess.run(["git", "init", str(path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.email", "test@test.com"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.name", "Test"], check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "checkout", "-b", branch], check=True, capture_output=True
+    )
+    (path / "committed.txt").write_text("hello")
+    subprocess.run(["git", "-C", str(path), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(path), "commit", "-m", "init"], check=True, capture_output=True
+    )
+    if dirty:
+        (path / "dirty.txt").write_text("uncommitted")
+
+
+# ---------------------------------------------------------------------------
+# 1.0.8-OPS-3: git guardrail warnings before writing a new source
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestPrintGitWarnings:
+    """SourceWizard._print_git_warnings() — warn-only git state check called
+    from run() right after the intro panel, before the state machine starts."""
+
+    def test_on_main_prints_warning(self, tmp_path):
+        from dango.cli.source_wizard import SourceWizard
+
+        _init_git_repo(tmp_path, branch="main")
+        wizard = SourceWizard(tmp_path)
+
+        with patch("dango.cli.source_wizard.console") as mock_console:
+            printed = []
+            mock_console.print = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            wizard._print_git_warnings()
+
+        assert any("main" in p and "Warning" in p for p in printed)
+
+    def test_clean_feature_branch_prints_nothing(self, tmp_path):
+        from dango.cli.source_wizard import SourceWizard
+
+        _init_git_repo(tmp_path, branch="feat/my-source")
+        wizard = SourceWizard(tmp_path)
+
+        with patch("dango.cli.source_wizard.console") as mock_console:
+            printed = []
+            mock_console.print = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            wizard._print_git_warnings()
+
+        assert printed == []
+
+    def test_dirty_tree_prints_warning(self, tmp_path):
+        from dango.cli.source_wizard import SourceWizard
+
+        _init_git_repo(tmp_path, branch="feat/my-source", dirty=True)
+        wizard = SourceWizard(tmp_path)
+
+        with patch("dango.cli.source_wizard.console") as mock_console:
+            printed = []
+            mock_console.print = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            wizard._print_git_warnings()
+
+        assert any("uncommitted" in p for p in printed)
+
+    def test_non_git_project_does_not_crash_or_print(self, tmp_path):
+        """tmp_path is a plain directory, never git-initialized here — must not
+        raise and must not print anything."""
+        from dango.cli.source_wizard import SourceWizard
+
+        wizard = SourceWizard(tmp_path)
+
+        with patch("dango.cli.source_wizard.console") as mock_console:
+            printed = []
+            mock_console.print = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            wizard._print_git_warnings()  # must not raise
+
+        assert printed == []
+
 
 # ---------------------------------------------------------------------------
 # P2-2: Success message requires actual auth tokens
@@ -130,6 +219,50 @@ class TestOAuthSkipHandling:
             result = wizard._handle_oauth_setup("google_ads", "my_ads", metadata)
 
         assert result == "skipped"
+
+    @patch("dango.cli.source_wizard.OAuthStorage")
+    @patch("dango.cli.source_wizard.inquirer")
+    def test_skip_message_renders_without_markup_error(
+        self, mock_inquirer, mock_storage_cls, tmp_path
+    ):
+        """The 'Skip for now' branch's dimmed message must render through Rich's
+        real markup parser without raising MarkupError. Deliberately does NOT mock
+        the console (unlike test_skip_returns_skipped above, which mocks it to test
+        the return value) — a mocked console never invokes Rich's real parser, which
+        is exactly how the original [dim]/[/dim] split-across-two-calls bug went
+        undetected for seven months."""
+        import io
+
+        from rich.console import Console
+
+        from dango.cli.source_wizard import SourceWizard
+
+        mock_storage_cls.return_value.get.return_value = None
+
+        mock_inquirer.prompt.return_value = {
+            "oauth_action": "Skip for now (configure manually later)"
+        }
+        mock_inquirer.List = MagicMock()
+
+        wizard = SourceWizard(tmp_path)
+        metadata = {"auth_type": "oauth", "display_name": "Google Ads"}
+
+        buffer = io.StringIO()
+        # Wide enough that Rich doesn't word-wrap the message onto a second
+        # line, which would otherwise break the exact-substring assertion below.
+        real_console = Console(file=buffer, force_terminal=False, width=200)
+
+        with patch("dango.cli.source_wizard.console", real_console):
+            result = wizard._handle_oauth_setup("google_ads", "my_ads", metadata)
+
+        assert result == "skipped"
+
+        output = buffer.getvalue()
+        # Confirms Rich actually parsed and rendered the [dim]...[/dim] markup
+        # (rather than the call simply not crashing for an unrelated reason).
+        assert "[dim]" not in output
+        assert "[/dim]" not in output
+        assert "you won't be able to sync until you set up OAuth credentials." in output
 
     def test_wizard_exits_on_skip_decline(self, tmp_path):
         """When user declines 'Continue setup anyway?' after skip, wizard exits (returns False)
@@ -268,3 +401,68 @@ class TestCredentialBlockGating:
         secrets_template = metadata.get("secrets_toml_template")
         would_show = not secret_params and auth_type != AuthType.OAUTH and secrets_template
         assert would_show, "Credential block SHOULD trigger with secrets_toml_template"
+
+
+# ---------------------------------------------------------------------------
+# 1.0.8-Y: Google Sheets OAuth refresh must not pass a scope list
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestGoogleSheetsRefreshScopes:
+    """1.0.8-Y: `_fetch_google_sheets()` builds a refresh-only Credentials
+    object to refresh the access token before listing sheet names. Passing
+    `scopes=` there requires an exact match against what Google actually
+    granted (see google.oauth2._client.refresh_grant's docstring), and the
+    stored metadata scope list reflects what was *requested* pre-exchange,
+    not what was *granted* — a mismatch fails with invalid_scope. Regression
+    test: no `scopes` kwarg (or scopes=None) should reach the Credentials
+    constructor.
+
+    Patch target note: `Credentials` is imported lazily inside
+    `_fetch_google_sheets()` (`from google.oauth2.credentials import
+    Credentials`), not at module level in source_wizard.py — so it must be
+    patched on its actual source module (`google.oauth2.credentials.Credentials`),
+    not on `dango.cli.source_wizard.Credentials` (which doesn't exist as a
+    module attribute and would raise AttributeError when patched).
+    """
+
+    @patch("googleapiclient.discovery.build")
+    @patch("google.oauth2.credentials.Credentials")
+    @patch("dango.cli.source_wizard.OAuthStorage")
+    def test_google_sheets_refresh_does_not_pass_scopes(
+        self, mock_storage_cls, mock_credentials_cls, mock_build, tmp_path
+    ):
+        from dango.cli.source_wizard import SourceWizard
+
+        mock_cred = MagicMock()
+        mock_cred.credentials = {
+            "refresh_token": "refresh-token-value",
+            "client_id": "client-id-value",
+            "client_secret": "client-secret-value",
+        }
+        # Metadata still carries the pre-exchange *requested* scopes (storage
+        # of this value is untouched by this fix) — the bug was passing it
+        # into the refresh-only Credentials() call below.
+        mock_cred.metadata = {
+            "scopes": [
+                "https://www.googleapis.com/auth/userinfo.email",
+                "https://www.googleapis.com/auth/spreadsheets.readonly",
+            ]
+        }
+        mock_storage_cls.return_value.get.return_value = mock_cred
+
+        wizard = SourceWizard(tmp_path)
+        # No spreadsheet ID collected yet, so the method returns None right
+        # after the refresh + service-build calls this test asserts on — no
+        # need to mock the Sheets API response itself.
+
+        with patch("dango.cli.source_wizard.console"):
+            wizard._fetch_google_sheets("my_sheets_source")
+
+        mock_credentials_cls.assert_called_once()
+        _, kwargs = mock_credentials_cls.call_args
+        assert "scopes" not in kwargs or kwargs["scopes"] is None, (
+            f"Credentials() must not be called with a scopes list (invalid_scope "
+            f"regression), got scopes={kwargs.get('scopes')!r}"
+        )

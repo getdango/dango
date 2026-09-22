@@ -1,6 +1,6 @@
 """dango/cli/source_wizard.py
 
-Metadata-driven wizard that works for all 27+ data sources. Uses SOURCE_REGISTRY for display names, categories, and parameters.
+Metadata-driven wizard that works for all 34 data sources. Uses SOURCE_REGISTRY for display names, categories, and parameters.
 """
 
 from pathlib import Path
@@ -111,6 +111,24 @@ class SourceWizard:
         self.env_file = project_root / ".env"
         self.secret_params = []  # Track secret parameters for .env setup
 
+    def _print_git_warnings(self) -> None:
+        """Warn (never block) on unsafe git state — on main/master, dirty tree,
+        or detached HEAD — before writing a new source to sources.yml. Non-git
+        projects print nothing (check_mutation_guardrails() returns no warning
+        for them by design — 'not a git repo' isn't actionable for a wizard
+        user). Mirrors the warning style `dango remote push` already uses for
+        check_git_guardrails() (cli/commands/remote.py)."""
+        from dango.utils.git_info import check_mutation_guardrails, collect_git_info
+
+        git_info = collect_git_info(self.project_root)
+        if not git_info.is_git_repo:
+            return
+        result = check_mutation_guardrails(git_info)
+        for w in result.warnings:
+            console.print(f"  [yellow]Warning:[/yellow] {w}")
+        if result.warnings:
+            console.print()
+
     def run(self) -> bool:
         """
         Run the source wizard
@@ -127,6 +145,8 @@ class SourceWizard:
                     border_style="cyan",
                 )
             )
+
+            self._print_git_warnings()
 
             # State machine for navigation with back button support
             source_type = None
@@ -445,7 +465,7 @@ class SourceWizard:
 
             # Unified next steps
             console.print("\n[cyan]Next steps:[/cyan]")
-            console.print(f"  1. Sync your data:    dango sync --source {source_name}")
+            console.print(f"  1. Sync your data:    dango sync {source_name}")
             console.print("  2. Schedule syncs:    dango schedule add")
 
             return True
@@ -760,9 +780,9 @@ class SourceWizard:
             console.print("[cyan]To authenticate later, run:[/cyan]")
             console.print(f"  dango oauth {source_type}")
             console.print(
-                "\n[dim]You can still configure this source, but you won't be able to sync"
+                "\n[dim]You can still configure this source, but you won't be able to sync "
+                "until you set up OAuth credentials.[/dim]\n"
             )
-            console.print("until you set up OAuth credentials.[/dim]\n")
             return "skipped"
 
         # "Set up OAuth now" - run OAuth flow with retry
@@ -1107,7 +1127,7 @@ def {module_name}_resource(api_key: str):
             f"— add your API calls"
         )
         console.print("  2. Add credentials to [cyan].dlt/secrets.toml[/cyan] or [cyan].env[/cyan]")
-        console.print(f"  3. Test: [cyan]dango sync --source {source_name}[/cyan]")
+        console.print(f"  3. Test: [cyan]dango sync {source_name}[/cyan]")
         console.print("\n[dim]dlt docs: https://dlthub.com/docs/general-usage/source[/dim]")
         return True
 
@@ -1919,6 +1939,22 @@ def {module_name}_resource(api_key: str):
 
             return env_var
 
+        elif param_name == "spreadsheet_url_or_id":
+            # inquirer.Text redraws the full question+value line on every keystroke/paste
+            # event; when a pasted value is longer than the terminal width, the renderer's
+            # fixed "move up 1 line" math doesn't account for the line wrapping to 2+ rows,
+            # so each redraw leaves stale content on screen -- visually duplicating the line
+            # dozens of times during a paste. Confirmed still present in the latest inquirer
+            # release (3.4.1) by reading its renderer source directly; not a version-bump fix.
+            # click.prompt() reads the whole line in a single blocking call via the terminal's
+            # native line editing, avoiding the bug entirely for this one field.
+            default_str = str(default) if default is not None else None
+            try:
+                value = click.prompt(prompt, default=default_str, show_default=bool(default_str))
+            except click.Abort:
+                return None  # User cancelled (Ctrl+C) - always abort, same as every other field
+            return value
+
         elif param_type == "boolean" or param_type == "bool":
             questions = [
                 inquirer.Confirm(
@@ -2225,9 +2261,6 @@ def {module_name}_resource(api_key: str):
                 console.print("[yellow]Could not get OAuth tokens[/yellow]")
                 return None
 
-            # Get scopes from metadata (saved during OAuth authentication)
-            scopes = cred.metadata.get("scopes", []) if cred.metadata else []
-
             # Debug: Check what we have
             if not tokens.get("refresh_token"):
                 console.print("[red]Error: No refresh token found in credentials[/red]")
@@ -2247,7 +2280,14 @@ def {module_name}_resource(api_key: str):
                 token_uri="https://oauth2.googleapis.com/token",
                 client_id=tokens.get("client_id"),
                 client_secret=tokens.get("client_secret"),
-                scopes=scopes,
+                # scopes intentionally omitted — passing a scope list to a
+                # refresh-only Credentials object requires it to exactly match
+                # what Google actually granted (see google.oauth2._client.refresh_grant),
+                # which the stored metadata scope list does not reliably do (it
+                # reflects what was *requested* at auth time, not what was
+                # *granted* in the token response). Omitting it lets Google
+                # honor whatever was actually granted, with no exact-match
+                # requirement — this is what fixes the invalid_scope error.
             )
 
             # Refresh credentials to get a new access token

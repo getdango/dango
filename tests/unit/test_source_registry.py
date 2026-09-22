@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from dango.config.models import DataSource, SourceType
 from dango.ingestion.sources.registry import (
     SOURCE_REGISTRY,
     get_source_capabilities,
@@ -102,3 +103,55 @@ class TestSourceCapabilities:
                             f"{source_type}.column_descriptions.{resource_name}.{col_name} "
                             f"contains YAML-unsafe characters: {desc}\nError: {e}"
                         ) from e
+
+
+@pytest.mark.unit
+class TestSourceTypeRegistryDrift:
+    """Regression tests for SourceType/SOURCE_REGISTRY drift (1.0.8-Q3).
+
+    Real bug: SOURCE_REGISTRY["mysql"] had wizard_enabled=True but "mysql" was never
+    added to the SourceType enum, so `dango source add` crashed with a Pydantic
+    ValidationError on save after a user completed the entire MySQL wizard flow.
+    """
+
+    def test_mysql_source_saves_without_error(self) -> None:
+        """DataSource(type='mysql') must construct without raising.
+
+        This is the actual regression test for the bug: before the fix, this raised
+        a Pydantic ValidationError because 'mysql' was not a SourceType enum member.
+        """
+        ds = DataSource(name="test", type="mysql")
+        assert ds.type == SourceType.MYSQL
+
+    def test_every_wizard_enabled_registry_entry_has_matching_enum_value(self) -> None:
+        """Every wizard-enabled registry entry must have a matching SourceType value.
+
+        Catches the exact class of bug that caused the mysql crash: a registry entry
+        with wizard_enabled=True that has no corresponding SourceType enum member.
+        Without a matching enum value, the wizard walks the user through the full
+        flow and then crashes with a ValidationError on save, losing everything they
+        entered.
+        """
+        wizard_enabled_keys = [
+            key for key, metadata in SOURCE_REGISTRY.items() if metadata.get("wizard_enabled")
+        ]
+        assert wizard_enabled_keys, "Expected at least one wizard_enabled registry entry"
+
+        missing = []
+        for key in wizard_enabled_keys:
+            try:
+                SourceType(key)
+            except ValueError:
+                missing.append(key)
+
+        assert not missing, (
+            f"wizard_enabled registry entries with no matching SourceType enum value: "
+            f"{missing}. These would crash `dango source add` with a Pydantic "
+            f"ValidationError after the user completes the wizard."
+        )
+
+    def test_scrapy_no_longer_a_valid_source_type(self) -> None:
+        """scrapy was removed from SourceType — it had zero implementation anywhere
+        (no registry entry, no dlt_runner.py handling) and was vestigial."""
+        with pytest.raises(ValueError):
+            SourceType("scrapy")

@@ -7,13 +7,13 @@
 
 **Open-source data platform for small teams.**
 
-Dango gives you a complete data stack — ingestion, warehouse, transformations, and dashboards — in a single CLI. It combines [dlt](https://dlthub.com/) for data loading, [DuckDB](https://duckdb.org/) as the analytics database, [dbt](https://www.getdbt.com/) for SQL transformations, and [Metabase](https://www.metabase.com/) for dashboards. One `pip install`, one command to start.
+Dango gives you a complete data stack — ingestion, warehouse, transformations, and dashboards — with the operational machinery a self-assembled stack doesn't have: sync queue management, lock recovery, empty-replace protection, schema drift detection, credential health checks, and backups. It combines [dlt](https://dlthub.com/) for data loading, [DuckDB](https://duckdb.org/) as the analytics database, [dbt](https://www.getdbt.com/) for SQL transformations, and [Metabase](https://www.metabase.com/) for dashboards. One `pip install`, one command to start.
 
 > **Upgrading from v0.1.x?** v1.0.0 is a complete rewrite. Back up your data and run `dango init` to create a new v1 project. See the [migration guide](https://docs.getdango.dev) for details.
 
 ## Quick Start
 
-**Prerequisites:** Python 3.10-3.13, [Docker](https://docs.docker.com/desktop/) (for Metabase)
+**Prerequisites:** Python 3.10-3.13, [Docker](https://docs.docker.com/desktop/) (for Metabase and dbt docs)
 
 ```bash
 mkdir my-project && cd my-project
@@ -32,9 +32,20 @@ curl -sSL https://getdango.dev/install.sh | bash
 
 For detailed installation instructions, see the [documentation](https://docs.getdango.dev).
 
+## Use Dango with your coding agent
+
+```bash
+dango mcp setup
+```
+
+Connects Claude Code, Cursor, or Windsurf to your project over MCP — your agent can list sources,
+inspect schemas and lineage, run read-only queries, and (with your permission) trigger syncs, run
+dbt, and scaffold new models. See the [full guide](https://docs.getdango.dev/guides/mcp-claude-code/)
+for the complete tool reference and worked examples.
+
 ## Features
 
-- **33 data sources** — Stripe, Google Sheets, Google Analytics, Shopify, PostgreSQL, MySQL, CSV, REST APIs, and more
+- **35 data sources** — Stripe, Google Sheets, Google Analytics, Shopify, PostgreSQL, MySQL, CSV, REST APIs, and more
 - **Auto-generated dbt models** — staging models created automatically when you add a source
 - **Data catalog** — browse tables, columns, and profiling stats; view dbt lineage and test results
 - **Web dashboard** — monitor syncs, manage sources, and view platform health
@@ -80,7 +91,7 @@ All data stays local in DuckDB. No external warehouse needed.
 
 | Component | Tool | Role |
 |-----------|------|------|
-| Ingestion | [dlt](https://dlthub.com/) | Load data from 33+ sources |
+| Ingestion | [dlt](https://dlthub.com/) | Load data from 35 sources |
 | Warehouse | [DuckDB](https://duckdb.org/) | Embedded analytics database |
 | Transformation | [dbt](https://www.getdbt.com/) | SQL modeling and testing |
 | Dashboards | [Metabase](https://www.metabase.com/) | BI and SQL queries |
@@ -98,6 +109,16 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE) for details.
+
+## Known limitations
+
+Dango is honest about what it doesn't do yet. The short version — full detail at
+[docs.getdango.dev/reference/limitations](https://docs.getdango.dev/reference/limitations):
+
+- Single-writer concurrency until the Quack migration lands (DuckDB 2.0)
+- No streaming, CDC, or reverse ETL
+- 35 sources today, added on demand
+- BYOS deployments need to configure their own backup destination (warned at deploy time)
 
 ## Links
 

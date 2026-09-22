@@ -15,6 +15,7 @@ from dango.utils.git_info import (
     GitInfo,
     _strip_credentials,
     check_git_guardrails,
+    check_mutation_guardrails,
     collect_git_info,
 )
 
@@ -263,6 +264,84 @@ class TestCheckGitGuardrails:
         assert result.passed is True
         assert len(result.warnings) == 2
         assert len(result.errors) == 0
+
+
+# ---------------------------------------------------------------------------
+# check_mutation_guardrails
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCheckMutationGuardrails:
+    """Test warn-only git guardrails for CLI wizard / MCP mutation entry points
+    (1.0.8-OPS-3). Unlike check_git_guardrails() (deploy path), this never
+    blocks — passed is always True — and flags being ON a protected branch,
+    not off an expected one."""
+
+    def test_not_a_git_repo_never_blocks(self) -> None:
+        info = GitInfo(is_git_repo=False)
+        result = check_mutation_guardrails(info)
+        assert result.passed is True
+        assert result.errors == ()
+        assert len(result.warnings) == 1
+        assert "Not a git" in result.warnings[0]
+
+    def test_clean_feature_branch_no_warnings(self) -> None:
+        """On a feature branch with a clean tree — the common case — no warnings."""
+        info = GitInfo(
+            commit_sha="a" * 40,
+            branch="feat/my-feature",
+            is_clean=True,
+            is_git_repo=True,
+        )
+        result = check_mutation_guardrails(info)
+        assert result.passed is True
+        assert result.warnings == ()
+        assert result.errors == ()
+
+    def test_on_main_warns(self) -> None:
+        info = GitInfo(commit_sha="a" * 40, branch="main", is_clean=True, is_git_repo=True)
+        result = check_mutation_guardrails(info)
+        assert result.passed is True
+        assert result.errors == ()
+        assert len(result.warnings) == 1
+        assert "main" in result.warnings[0]
+
+    def test_on_master_warns(self) -> None:
+        info = GitInfo(commit_sha="a" * 40, branch="master", is_clean=True, is_git_repo=True)
+        result = check_mutation_guardrails(info)
+        assert result.passed is True
+        assert len(result.warnings) == 1
+        assert "master" in result.warnings[0]
+
+    def test_dirty_tree_warns_never_blocks(self) -> None:
+        """Dirty tree is an error in check_git_guardrails() by default; here it must
+        only ever warn — this is the warn-don't-block requirement from 1.0.8-OPS-3."""
+        info = GitInfo(commit_sha="a" * 40, branch="feat/x", is_clean=False, is_git_repo=True)
+        result = check_mutation_guardrails(info)
+        assert result.passed is True
+        assert result.errors == ()
+        assert len(result.warnings) == 1
+        assert "uncommitted" in result.warnings[0]
+
+    def test_on_main_and_dirty_both_warn(self) -> None:
+        info = GitInfo(commit_sha="a" * 40, branch="main", is_clean=False, is_git_repo=True)
+        result = check_mutation_guardrails(info)
+        assert result.passed is True
+        assert len(result.warnings) == 2
+
+    def test_detached_head_warns(self) -> None:
+        info = GitInfo(commit_sha="a" * 40, branch="HEAD", is_clean=True, is_git_repo=True)
+        result = check_mutation_guardrails(info)
+        assert result.passed is True
+        assert any("Detached HEAD" in w for w in result.warnings)
+
+    def test_custom_protected_branches(self) -> None:
+        """protected_branches is overridable — e.g. a repo using 'trunk' instead of main."""
+        info = GitInfo(commit_sha="a" * 40, branch="trunk", is_clean=True, is_git_repo=True)
+        result = check_mutation_guardrails(info, protected_branches=("trunk",))
+        assert len(result.warnings) == 1
+        assert "trunk" in result.warnings[0]
 
 
 # ---------------------------------------------------------------------------

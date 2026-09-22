@@ -3,9 +3,10 @@
 Unit tests for dashboard_manager module: _parse_parent_id and _import_collections.
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 
 from dango.visualization.dashboard_manager import DashboardManager
 
@@ -221,3 +222,266 @@ class TestImportCollections:
         # If Metabase returns malformed location with non-numeric parent
         assert dashboard_manager._parse_parent_id("/admin/5/") is None
         assert dashboard_manager._parse_parent_id("/invalid/path/") is None
+
+
+class TestCreateDashboardFromYamlCardAttach:
+    """Tests for _create_dashboard_from_yaml's card-attach step.
+
+    Metabase 0.62 removed POST /api/dashboard/:id/cards (404s now); cards
+    are attached via PUT /api/dashboard/:id with a full `dashcards` array
+    instead. See dango/visualization/dashboard_manager.py.
+    """
+
+    @patch("dango.visualization.dashboard_manager.requests.put")
+    @patch("dango.visualization.dashboard_manager.requests.post")
+    def test_attaches_cards_via_put_with_dashcards_array(
+        self, mock_post, mock_put, dashboard_manager
+    ):
+        """Successful card creation + attach uses PUT with a dashcards array."""
+        # First POST creates the dashboard, second+ POSTs create cards
+        dashboard_response = MagicMock(status_code=200)
+        dashboard_response.json.return_value = {"id": 99}
+        card_response_1 = MagicMock(status_code=200)
+        card_response_1.json.return_value = {"id": 11}
+        card_response_2 = MagicMock(status_code=200)
+        card_response_2.json.return_value = {"id": 12}
+        mock_post.side_effect = [dashboard_response, card_response_1, card_response_2]
+
+        mock_put.return_value = MagicMock(status_code=200)
+
+        with patch.object(dashboard_manager, "get_dashboards", return_value=[]):
+            dashboard_data = {
+                "name": "Test Dashboard",
+                "description": "desc",
+                "cards": [
+                    {
+                        "name": "Card A",
+                        "dataset_query": {"type": "native", "native": {"query": "SELECT 1"}},
+                        "display": "table",
+                        "position": {"row": 0, "col": 0, "size_x": 6, "size_y": 4},
+                    },
+                    {
+                        "name": "Card B",
+                        "dataset_query": {"type": "native", "native": {"query": "SELECT 2"}},
+                        "display": "table",
+                        "position": {"row": 0, "col": 6, "size_x": 6, "size_y": 4},
+                    },
+                ],
+            }
+
+            result = dashboard_manager._create_dashboard_from_yaml(dashboard_data)
+
+        assert result["dashboard_id"] == 99
+        assert set(result["card_ids"]) == {11, 12}
+        mock_put.assert_called_once()
+        put_call = mock_put.call_args
+        assert put_call[0][0] == "http://localhost:3000/api/dashboard/99"
+        dashcards = put_call[1]["json"]["dashcards"]
+        assert len(dashcards) == 2
+        assert {c["card_id"] for c in dashcards} == {11, 12}
+        # Each new dashcard needs a unique negative placeholder id
+        assert {c["id"] for c in dashcards} == {-1, -2}
+        assert dashcards[0]["row"] == 0
+        assert dashcards[0]["col"] == 0
+        assert dashcards[0]["size_x"] == 6
+        assert dashcards[0]["size_y"] == 4
+        # Old removed endpoint must never be hit
+        for call in mock_post.call_args_list:
+            assert not call[0][0].endswith("/cards")
+
+    @patch("dango.visualization.dashboard_manager.requests.put")
+    @patch("dango.visualization.dashboard_manager.requests.post")
+    def test_create_dashboard_from_yaml_returns_card_ids(
+        self, mock_post, mock_put, dashboard_manager
+    ):
+        """Direct test of the changed return shape: _create_dashboard_from_yaml
+        must surface the embedded cards' IDs alongside the dashboard's own ID,
+        not just the dashboard ID, so load_from_files() can track them for
+        rollback (1.0.8-Q10 fix #2)."""
+        dashboard_response = MagicMock(status_code=200)
+        dashboard_response.json.return_value = {"id": 77}
+        card_response_1 = MagicMock(status_code=201)
+        card_response_1.json.return_value = {"id": 201}
+        card_response_2 = MagicMock(status_code=201)
+        card_response_2.json.return_value = {"id": 202}
+        mock_post.side_effect = [dashboard_response, card_response_1, card_response_2]
+        mock_put.return_value = MagicMock(status_code=200)
+
+        with patch.object(dashboard_manager, "get_dashboards", return_value=[]):
+            dashboard_data = {
+                "name": "Card ID Dashboard",
+                "description": "",
+                "cards": [
+                    {
+                        "name": "Card A",
+                        "dataset_query": {"type": "native", "native": {"query": "SELECT 1"}},
+                        "display": "table",
+                        "position": {},
+                    },
+                    {
+                        "name": "Card B",
+                        "dataset_query": {"type": "native", "native": {"query": "SELECT 2"}},
+                        "display": "table",
+                        "position": {},
+                    },
+                ],
+            }
+
+            result = dashboard_manager._create_dashboard_from_yaml(dashboard_data)
+
+        assert result == {"dashboard_id": 77, "card_ids": [201, 202]}
+
+    @patch("dango.visualization.dashboard_manager.requests.put")
+    @patch("dango.visualization.dashboard_manager.requests.post")
+    def test_attach_failure_raises_and_returns_none(self, mock_post, mock_put, dashboard_manager):
+        """A non-200 from the PUT attach call is loud: caught internally,
+        logged, and surfaces as a None return (this file's existing
+        failure convention), not silently reported as a successful import
+        with zero cards."""
+        dashboard_response = MagicMock(status_code=200)
+        dashboard_response.json.return_value = {"id": 99}
+        card_response = MagicMock(status_code=200)
+        card_response.json.return_value = {"id": 11}
+        mock_post.side_effect = [dashboard_response, card_response]
+
+        mock_put.return_value = MagicMock(status_code=404, text="Not Found")
+
+        with patch.object(dashboard_manager, "get_dashboards", return_value=[]):
+            dashboard_data = {
+                "name": "Test Dashboard",
+                "description": "desc",
+                "cards": [
+                    {
+                        "name": "Card A",
+                        "dataset_query": {"type": "native", "native": {"query": "SELECT 1"}},
+                        "display": "table",
+                        "position": {},
+                    },
+                ],
+            }
+
+            result = dashboard_manager._create_dashboard_from_yaml(dashboard_data)
+
+        # Failure must not be silently swallowed into a "successful" import
+        assert result is None
+
+    @patch("dango.visualization.dashboard_manager.requests.put")
+    @patch("dango.visualization.dashboard_manager.requests.post")
+    def test_no_cards_created_skips_put_call(self, mock_post, mock_put, dashboard_manager):
+        """If every card fails to create, there's nothing to attach --
+        the PUT call should be skipped rather than sent with an empty
+        dashcards array."""
+        dashboard_response = MagicMock(status_code=200)
+        dashboard_response.json.return_value = {"id": 99}
+        failed_card_response = MagicMock(status_code=500, text="error")
+        mock_post.side_effect = [dashboard_response, failed_card_response]
+
+        with patch.object(dashboard_manager, "get_dashboards", return_value=[]):
+            dashboard_data = {
+                "name": "Test Dashboard",
+                "description": "desc",
+                "cards": [
+                    {
+                        "name": "Card A",
+                        "dataset_query": {"type": "native", "native": {"query": "SELECT 1"}},
+                        "display": "table",
+                        "position": {},
+                    },
+                ],
+            }
+
+            result = dashboard_manager._create_dashboard_from_yaml(dashboard_data)
+
+        assert result == {"dashboard_id": 99, "card_ids": []}
+        mock_put.assert_not_called()
+
+
+class TestLoadFromFilesRollback:
+    """Tests for load_from_files()'s rollback-on-failure path (1.0.8-Q10 fix #2).
+
+    Live-reproduced incident (2026-09-09/10): a dashboard with embedded
+    cards imports successfully, then a later, unrelated question import
+    fails. The rollback must delete the embedded cards too, not just the
+    dashboard -- pre-fix, the cards were left behind as orphaned, parent-less
+    questions in Metabase while the tool printed a false "Rollback complete
+    - no changes applied."
+    """
+
+    def _write_yaml(self, path, data):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            yaml.safe_dump(data, f)
+
+    @patch("dango.visualization.dashboard_manager.requests.delete")
+    @patch("dango.visualization.dashboard_manager.requests.put")
+    @patch("dango.visualization.dashboard_manager.requests.post")
+    def test_dashboard_rollback_deletes_embedded_cards(
+        self, mock_post, mock_put, mock_delete, dashboard_manager, tmp_path
+    ):
+        """A later import failure must roll back an already-created
+        dashboard's embedded cards, not just the dashboard itself."""
+        metabase_dir = tmp_path / "metabase"
+
+        self._write_yaml(
+            metabase_dir / "dashboards" / "dash1.yml",
+            {
+                "name": "Test Dashboard",
+                "description": "",
+                "cards": [
+                    {
+                        "name": "Card A",
+                        "dataset_query": {"type": "native", "native": {"query": "SELECT 1"}},
+                        "display": "table",
+                        "position": {"row": 0, "col": 0, "size_x": 6, "size_y": 4},
+                    },
+                    {
+                        "name": "Card B",
+                        "dataset_query": {"type": "native", "native": {"query": "SELECT 2"}},
+                        "display": "table",
+                        "position": {"row": 0, "col": 6, "size_x": 6, "size_y": 4},
+                    },
+                ],
+            },
+        )
+        self._write_yaml(
+            metabase_dir / "questions" / "bad_question.yml",
+            {
+                "name": "Bad Question",
+                "dataset_query": {"type": "native", "native": {"query": "SELECT * FROM broken"}},
+                "display": "table",
+            },
+        )
+
+        dashboard_response = MagicMock(status_code=200)
+        dashboard_response.json.return_value = {"id": 500}
+        card_response_1 = MagicMock(status_code=200)
+        card_response_1.json.return_value = {"id": 501}
+        card_response_2 = MagicMock(status_code=200)
+        card_response_2.json.return_value = {"id": 502}
+        failed_question_response = MagicMock(status_code=500, text="error")
+        mock_post.side_effect = [
+            dashboard_response,
+            card_response_1,
+            card_response_2,
+            failed_question_response,
+        ]
+        mock_put.return_value = MagicMock(status_code=200)
+        mock_delete.return_value = MagicMock(status_code=200)
+
+        with (
+            patch.object(dashboard_manager, "get_dashboards", return_value=[]),
+            patch.object(dashboard_manager, "get_cards", return_value=[]),
+        ):
+            result = dashboard_manager.load_from_files(overwrite=False, dry_run=False)
+
+        assert result["success"] is False
+        assert result["errors"]
+
+        deleted_urls = {call.args[0] for call in mock_delete.call_args_list}
+        assert "http://localhost:3000/api/dashboard/500" in deleted_urls
+        # The bug: embedded cards were never tracked, so they survived
+        # rollback as orphans. Both must now be deleted alongside the
+        # dashboard that owned them.
+        assert "http://localhost:3000/api/card/501" in deleted_urls
+        assert "http://localhost:3000/api/card/502" in deleted_urls
+        assert mock_delete.call_count == 3

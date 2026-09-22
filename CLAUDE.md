@@ -86,7 +86,7 @@ dango/                          # Python package source
 │   │   ├── model.py            # model group (add/remove)
 │   │   ├── platform.py         # start/stop/status + port helpers (1136 lines)
 │   │   ├── project.py          # init/rename/info
-│   │   ├── source.py           # source group (add/list/remove/edit) + sync (924 lines)
+│   │   ├── source.py           # source group (add/list/remove/edit/inspect-state) + sync (~1160 lines)
 │   │   ├── transform.py        # run/docs/generate
 │   │   ├── upgrade.py          # local Dango upgrade via pip + migrations
 │   │   ├── web.py              # web dev server
@@ -186,6 +186,7 @@ dango/                          # Python package source
 │   │   ├── ui.py               # /, /health, /logs, /login, /account, /admin/users
 │   │   ├── metabase_proxy.py   # Metabase reverse proxy + SSO session
 │   │   ├── secrets.py          # Secrets + OAuth credential management (admin-only)
+│   │   ├── telemetry.py        # Telemetry status/toggle API + /settings/telemetry page (admin-only)
 │   │   ├── oauth_connect.py    # Web-based OAuth connect/callback
 │   │   ├── catalog.py          # Data catalog: columns, profiling, lineage, impact, models, search (1350 lines)
 │   │   ├── governance.py       # Schema drift + PII results API
@@ -199,6 +200,7 @@ dango/                          # Python package source
 │   │   ├── account.html        # User account settings
 │   │   ├── invite.html         # Invite acceptance page
 │   │   ├── secrets.html        # Secrets management page
+│   │   ├── telemetry.html      # Telemetry settings page (4-provider toggle table)
 │   │   ├── schedules.html      # Schedule management page
 │   │   ├── notebooks.html      # Notebook management page
 │   │   ├── catalog.html        # Data catalog page (1029 lines)
@@ -206,7 +208,7 @@ dango/                          # Python package source
 │   └── static/                 # Frontend HTML/CSS/JS
 │
 ├── visualization/              # Level 2 — Metabase integration
-│   ├── metabase.py             # Metabase API (1251 lines)
+│   ├── metabase.py             # Metabase API (1775 lines)
 │   └── dashboard_manager.py    # Dashboard export/import (1117 lines)
 │
 ├── platform/                   # Level 2 — Docker, network, file watcher, scheduling
@@ -258,7 +260,7 @@ dango/                          # Python package source
 │   ├── dlt_runner.py           # ⚠ 2885 lines — orchestrates full sync pipeline
 │   ├── csv_loader.py           # Multi-format file loading with dedup (922 lines)
 │   ├── sources/
-│   │   └── registry.py         # Source metadata (33 source types)
+│   │   └── registry.py         # Source metadata (34 source types)
 │   └── dlt_sources/            # 127 files — helper files are custom Dango code (safe to modify); vendored connectors should not be changed
 │
 ├── transformation/             # Level 1 — dbt model generation & execution
@@ -340,9 +342,9 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 |------|-------|-----------------|
 | `ingestion/dlt_runner.py` | 2885 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2340 | — (metadata-only) |
-| `cli/source_wizard.py` | 2525 | — |
-| `visualization/metabase.py` | 1251 | — |
-| `cli/init.py` | 1496 | — |
+| `cli/source_wizard.py` | 2610 | — |
+| `visualization/metabase.py` | 1775 | — |
+| `cli/init.py` | 1585 | — |
 | `visualization/dashboard_manager.py` | 1117 | — |
 | `cli/commands/platform.py` | 1136 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 902 | — (split evaluated in DOC-025: exempt, security-critical) |
@@ -360,7 +362,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/routes/upload.py` | 771 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 748 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
-| `cli/commands/source.py` | 924 | — (extracted from main.py by TASK-005) |
+| `cli/commands/source.py` | 1162 | — (extracted from main.py by TASK-005; 1.0.8-Q7 added `inspect-state`) |
 | `cli/commands/remote.py` | 702 | — (remote group + push/rollback/firewall/domain) |
 | `cli/commands/remote_mgmt.py` | 608 | — (remote status/logs/ssh/query + deployment history) |
 | `platform/cloud/deployer.py` | 643 | — (push deploy workflow + deploy lock + journal) |
@@ -379,11 +381,13 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/routes/users.py` | 540 | — (admin user CRUD + invite) |
 | `platform/local/watcher.py` | 524 | — |
 | `cli/commands/schedule.py` | 914 | — (schedule wizard + time customization) |
-| `cli/model_wizard.py` | 547 | — |
+| `cli/model_wizard.py` | 617 | — |
 | `cli/commands/remote_backup.py` | 521 | — (R2-D10: --from-local flag) |
 | `platform/cloud/scheduled_backup.py` | 606 | — (server-side scheduled backup) |
 | `governance/schema_drift.py` | 654 | — (R9-D: breaking drift protection + accept flow) |
 | `governance/pii_detector.py` | 626 | — (BUG-027/BUG-133/BUG-139/BUG-185: spaCy fallback + PERSON threshold + override application + structured data heuristic) |
+| `platform/scheduling/scheduler.py` | 514 | — (1.0.8-Q: `_setup_telemetry_heartbeat()`, a fourth fixed internal scheduler job) |
+| `cli/commands/mcp_mutations.py` | 508 | — (1.0.8-OPS-3: git guardrail wiring pushed an already-near-limit file over 500) |
 
 ## Module Documentation Index
 

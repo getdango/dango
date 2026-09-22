@@ -14,7 +14,7 @@ import time
 from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import dlt
 from dlt.common.pipeline import LoadInfo
@@ -29,6 +29,9 @@ from dango.config.models import (
 from dango.exceptions import SyncTimeoutError
 from dango.ingestion.csv_loader import CSVLoader
 from dango.ingestion.sources.registry import get_source_metadata
+
+if TYPE_CHECKING:
+    import duckdb
 
 console = Console()
 
@@ -65,6 +68,140 @@ def _is_duckdb_lock_error(error: BaseException) -> bool:
     """True if the error message indicates a DuckDB write-lock conflict."""
     error_str = str(error).lower()
     return any(keyword in error_str for keyword in _DUCKDB_LOCK_KEYWORDS)
+
+
+def _connect_with_lock_retry(
+    duckdb_path: Path,
+    source_name: str,
+    operation: str,
+    project_root: Path | None = None,
+) -> "duckdb.DuckDBPyConnection":
+    """Open a write connection to the warehouse, retrying on Metabase-held-lock conflicts.
+
+    Metabase's own DuckDB connection (configured read_only=True — see visualization/metabase.py)
+    can still hold a native file lock that blocks a new writer from opening the file.
+    _load_with_lock() already retries this exact conflict for the dlt-pipeline write path
+    (pipeline.load()); this is the same retry, generalized for every other DuckDB write call site
+    (CSV/local-files loader writes, full-refresh schema drops, post-sync staging cleanup) — all of
+    which previously connected directly with zero retry, so any of them could fail outright the
+    moment Metabase happened to be querying. See BUGS-FOUND.md, 2026-09-21, for the incident this
+    fixes (found via the first-ever real run of the release-readiness CI job).
+
+    If ``project_root`` is given, a final fallback is attempted after retries are
+    exhausted: stop Metabase (forced, regardless of cloud/local mode), connect, then
+    restart Metabase — guaranteeing success instead of propagating the lock error, at
+    the cost of briefly disrupting anyone viewing a live Metabase dashboard (~15-20s).
+    Only pass ``project_root`` for write sites where failing outright is worse than
+    that disruption. Leave it ``None`` (the default) for best-effort bookkeeping that
+    should keep failing softly, same as before this fallback existed.
+    """
+    import duckdb as _duckdb
+
+    _LOCK_MAX_RETRIES = 5
+    _LOCK_RETRY_WAIT = 10  # seconds — matches _load_with_lock()'s existing budget
+    for _attempt in range(_LOCK_MAX_RETRIES):
+        try:
+            return _duckdb.connect(str(duckdb_path))
+        except Exception as _exc:
+            if not _is_duckdb_lock_error(_exc):
+                raise
+            if _attempt >= _LOCK_MAX_RETRIES - 1:
+                if project_root is not None:
+                    return _connect_with_metabase_stopped(
+                        duckdb_path, project_root, source_name, operation
+                    )
+                raise
+            _logging.getLogger(__name__).warning(
+                "duckdb_lock_conflict_retry: attempt=%d/%d wait=%ds source=%s operation=%s",
+                _attempt + 1,
+                _LOCK_MAX_RETRIES,
+                _LOCK_RETRY_WAIT,
+                source_name,
+                operation,
+            )
+            console.print(
+                f"  [yellow]⚠ DuckDB lock conflict (attempt {_attempt + 1}/"
+                f"{_LOCK_MAX_RETRIES}), retrying in {_LOCK_RETRY_WAIT}s...[/yellow]"
+            )
+            time.sleep(_LOCK_RETRY_WAIT)
+    raise AssertionError("unreachable: loop above always returns or raises")
+
+
+def _connect_with_metabase_stopped(
+    duckdb_path: Path, project_root: Path, source_name: str, operation: str
+) -> "duckdb.DuckDBPyConnection":
+    """Last-resort fallback after _connect_with_lock_retry() exhausts its retries.
+
+    Force-stops Metabase (bypassing its usual cloud-only gate — see
+    metabase_lifecycle.py's stop_metabase_for_writes(force=True)), opens the
+    connection, and restarts Metabase. Disrupts anyone viewing a live Metabase
+    dashboard for roughly 15-20 seconds — only called for write sites where failing
+    outright is worse than that disruption.
+    """
+    import duckdb as _duckdb
+
+    from dango.platform.common.metabase_lifecycle import (
+        start_metabase_after_writes,
+        stop_metabase_for_writes,
+    )
+
+    _logging.getLogger(__name__).warning(
+        "duckdb_lock_conflict_escalate_stop_metabase: source=%s operation=%s",
+        source_name,
+        operation,
+    )
+    console.print(
+        "  [yellow]⚠ DuckDB lock conflict persisted after 5 retries — "
+        "stopping Metabase to force a write window...[/yellow]"
+    )
+    _metabase_was_stopped = stop_metabase_for_writes(project_root, force=True)
+    try:
+        return _duckdb.connect(str(duckdb_path))
+    finally:
+        if _metabase_was_stopped:
+            start_metabase_after_writes(project_root)
+
+
+def _apply_dlt_telemetry_env(project_root: Path) -> None:
+    """Set dlt's RUNTIME__DLTHUB_TELEMETRY env var from the machine-level opt-out.
+
+    dlt runs in-process here (`dlt.pipeline(...)` below), not via subprocess
+    like dbt (`_dbt_telemetry_env()` in `transformation/__init__.py`) — so
+    there is no per-invocation env dict to pass. dlt's `EnvironProvider`
+    reads `os.environ` live at config-resolution time
+    (dlt/common/configuration/providers/environ.py), so the only way to
+    inject the machine-level opt-out is to set the actual process env var
+    before creating the pipeline.
+
+    `RUNTIME__DLTHUB_TELEMETRY` is dlt's own env-var override for
+    `RuntimeConfiguration.dlthub_telemetry` — verified empirically against
+    dlt 1.28.1 (not just read from docs, per 1.0.8-OPS-2's verification
+    requirement): `RuntimeConfiguration.__section__ == "runtime"`, and
+    `EnvironProvider.get_key_name()` uppercases `"__".join((*sections,
+    key))`, giving `RUNTIME__DLTHUB_TELEMETRY` — no `DLT__` prefix. Also
+    confirmed the env var overrides an explicit `.dlt/config.toml` value,
+    which is what lets this override a project's stale pre-1.0.8-OPS-2
+    opt-out file without needing to touch or delete that file.
+
+    dlt caches whether telemetry has started per-process
+    (`dlt.common.runtime.telemetry._TELEMETRY_STARTED`) — this only takes
+    effect for the FIRST dlt pipeline created after this call in a given
+    process, identical to the caching behavior before this change (the
+    opt-out lived in `.dlt/config.toml` then, read via the same
+    `RuntimeConfiguration` resolution at the same point in dlt's pipeline
+    lifecycle) — not a new limitation introduced here.
+
+    Args:
+        project_root: Current project root — passed through to
+            `get_dlt_telemetry_state()` so a legacy per-project
+            `.dlt/config.toml` opt-out gets migrated into
+            `~/.dango/config.yml` on first read (see that function's
+            docstring).
+    """
+    from dango.telemetry import get_dlt_telemetry_state
+
+    enabled = get_dlt_telemetry_state(project_root)
+    os.environ["RUNTIME__DLTHUB_TELEMETRY"] = "true" if enabled else "false"
 
 
 class DltPipelineRunner:
@@ -269,7 +406,7 @@ class DltPipelineRunner:
                     console.print(f"\n[red]❌ {error_message}[/red]")
                     console.print("\n[bold]To fix manually, run:[/bold]")
                     console.print("  [cyan]pip install -r requirements.txt[/cyan]")
-                    console.print(f"\nThen retry: [cyan]dango sync --source {source_name}[/cyan]\n")
+                    console.print(f"\nThen retry: [cyan]dango sync {source_name}[/cyan]\n")
 
                     log_activity(
                         project_root=self.project_root,
@@ -289,7 +426,7 @@ class DltPipelineRunner:
                 console.print(f"\n[red]❌ Auto-install failed: {error_message}[/red]")
                 console.print("\n[bold]To fix manually, run:[/bold]")
                 console.print("  [cyan]pip install -r requirements.txt[/cyan]")
-                console.print(f"\nThen retry: [cyan]dango sync --source {source_name}[/cyan]\n")
+                console.print(f"\nThen retry: [cyan]dango sync {source_name}[/cyan]\n")
 
                 log_activity(
                     project_root=self.project_root,
@@ -596,7 +733,9 @@ class DltPipelineRunner:
 
         # Full refresh: backup or drop existing table
         if full_refresh:
-            conn = duckdb.connect(str(self.duckdb_path))
+            conn = _connect_with_lock_retry(
+                self.duckdb_path, source_config.name, "csv-full-refresh-drop"
+            )
             try:
                 if (
                     pre_refresh_rows is not None
@@ -665,7 +804,9 @@ class DltPipelineRunner:
 
         # Empty replace protection: restore backup table + metadata if 0 rows loaded
         if has_backup and merged["rows_loaded"] == 0:
-            conn = duckdb.connect(str(self.duckdb_path))
+            conn = _connect_with_lock_retry(
+                self.duckdb_path, source_config.name, "csv-empty-replace-restore"
+            )
             try:
                 conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
                 conn.execute(
@@ -699,7 +840,9 @@ class DltPipelineRunner:
 
         # Clean up backup table on success
         if has_backup:
-            conn = duckdb.connect(str(self.duckdb_path))
+            conn = _connect_with_lock_retry(
+                self.duckdb_path, source_config.name, "csv-backup-cleanup"
+            )
             try:
                 conn.execute(
                     f"DROP TABLE IF EXISTS "
@@ -751,7 +894,9 @@ class DltPipelineRunner:
 
         # Full refresh: backup or drop existing table
         if full_refresh:
-            conn = duckdb.connect(str(self.duckdb_path))
+            conn = _connect_with_lock_retry(
+                self.duckdb_path, source_config.name, "local-files-full-refresh-drop"
+            )
             try:
                 if (
                     pre_refresh_rows is not None
@@ -818,7 +963,11 @@ class DltPipelineRunner:
 
         # Empty replace protection: restore backup table + metadata if 0 rows loaded
         if has_backup and merged["rows_loaded"] == 0:
-            conn = duckdb.connect(str(self.duckdb_path))
+            conn = _connect_with_lock_retry(
+                self.duckdb_path,
+                source_config.name,
+                "local-files-empty-replace-restore",
+            )
             try:
                 conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
                 conn.execute(
@@ -852,7 +1001,9 @@ class DltPipelineRunner:
 
         # Clean up backup table on success
         if has_backup:
-            conn = duckdb.connect(str(self.duckdb_path))
+            conn = _connect_with_lock_retry(
+                self.duckdb_path, source_config.name, "local-files-backup-cleanup"
+            )
             try:
                 conn.execute(
                     f"DROP TABLE IF EXISTS "
@@ -933,6 +1084,17 @@ class DltPipelineRunner:
         # IMPORTANT: Must happen BEFORE loading source (dlt.secrets.value resolution)
         original_cwd = os.getcwd()
         os.chdir(self.project_root)
+
+        # IMPORTANT: Must happen before ANY dlt config resolution below —
+        # calling the @dlt.source-decorated source_function (a few lines
+        # down) already triggers dlt's RunContext/RuntimeConfiguration
+        # resolution (and, on the first such access in this process,
+        # telemetry init) via dlt's own config-injection machinery, which
+        # then caches on that RunContext for the rest of this sync. Setting
+        # the env var any later (e.g. right before dlt.pipeline() below) is
+        # too late — confirmed empirically while building this: the
+        # opt-out silently didn't apply until this was moved here.
+        _apply_dlt_telemetry_env(self.project_root)
 
         try:
             # Try to import source from custom_sources/ directory first
@@ -1021,9 +1183,12 @@ class DltPipelineRunner:
             if not uses_replace_mode:
                 console.print("  🔄 Full refresh: dropping data and pipeline state")
                 try:
-                    import duckdb
-
-                    db = duckdb.connect(str(self.duckdb_path))
+                    db = _connect_with_lock_retry(
+                        self.duckdb_path,
+                        source_name,
+                        "dlt-native-full-refresh-drop",
+                        project_root=self.project_root,
+                    )
                     try:
                         db.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
                     finally:
@@ -1036,6 +1201,20 @@ class DltPipelineRunner:
                 pipeline.drop()
             except Exception as e:
                 console.print(f"  ⚠️  Could not drop pipeline state: {e}")
+            self._clear_local_pipeline_cache(pipeline_name)
+            # Re-create the pipeline object: the one above was constructed
+            # against the on-disk working directory we just deleted, and dlt's
+            # Pipeline does not lazily recreate that directory before
+            # extract()/normalize()/load() — reusing the stale in-memory
+            # object here raises FileNotFoundError on schemas/ mid-sync
+            # (confirmed via live testing on a scratch project). A fresh
+            # dlt.pipeline() call bootstraps a clean directory exactly like it
+            # would for a pipeline_name that has never been synced before.
+            pipeline = dlt.pipeline(
+                pipeline_name=pipeline_name,
+                destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
+                dataset_name=dataset_name,
+            )
 
         try:
             # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
@@ -1344,6 +1523,11 @@ class DltPipelineRunner:
         original_cwd = os.getcwd()
         os.chdir(self.project_root)
 
+        # IMPORTANT: Must happen before ANY dlt config resolution below — see
+        # the identical comment in _run_dlt_native_source for why this can't
+        # wait until right before dlt.pipeline().
+        _apply_dlt_telemetry_env(self.project_root)
+
         try:
             # Dynamic import of dlt source
             # dlt resolves dlt.secrets.value parameters at this point
@@ -1404,9 +1588,12 @@ class DltPipelineRunner:
             if not uses_replace_mode:
                 console.print("  🔄 Full refresh: dropping data and pipeline state")
                 try:
-                    import duckdb
-
-                    db = duckdb.connect(str(self.duckdb_path))
+                    db = _connect_with_lock_retry(
+                        self.duckdb_path,
+                        source_name,
+                        "dlt-full-refresh-drop",
+                        project_root=self.project_root,
+                    )
                     try:
                         db.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
                     finally:
@@ -1419,6 +1606,23 @@ class DltPipelineRunner:
                 pipeline.drop()
             except Exception as e:
                 console.print(f"  ⚠️  Could not drop pipeline state: {e}")
+            # NOTE: this method's pipeline is always named `source_name` (see
+            # dlt.pipeline(pipeline_name=source_name, ...) above) — unlike
+            # _run_dlt_native_source, there is no separate pipeline_name override.
+            self._clear_local_pipeline_cache(source_name)
+            # Re-create the pipeline object: the one above was constructed
+            # against the on-disk working directory we just deleted, and dlt's
+            # Pipeline does not lazily recreate that directory before
+            # extract()/normalize()/load() — reusing the stale in-memory
+            # object here raises FileNotFoundError on schemas/ mid-sync
+            # (confirmed via live testing on a scratch project). A fresh
+            # dlt.pipeline() call bootstraps a clean directory exactly like it
+            # would for a pipeline_name that has never been synced before.
+            pipeline = dlt.pipeline(
+                pipeline_name=source_name,
+                destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
+                dataset_name=dataset_name,
+            )
 
         try:
             # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
@@ -2321,10 +2525,10 @@ Most sources have these limits:
 
 Next steps:
   # Wait and retry
-  dango sync --source {source_name}
+  dango sync {source_name}
 
-  # Or use smaller date range
-  dango sync --source {source_name} --start-date 2024-12-01 --end-date 2024-12-31
+  # Or use a smaller date range
+  dango sync {source_name} --since 2024-12-01 --until 2024-12-31
 
 Error details: {str(error)}
 """
@@ -2349,7 +2553,7 @@ How to fix:
 
 Fix commands:
   # Reload all data with latest schema
-  dango sync --source {source_name} --full-refresh
+  dango sync {source_name} --full-refresh
 
   # Re-run dbt to update models
   dango run
@@ -2406,7 +2610,7 @@ How to fix:
 
 Next steps:
   # Wait and retry
-  dango sync --source {source_name}
+  dango sync {source_name}
 
   # Check API status
   Visit source's status page (docs.api-provider.com/status)
@@ -2424,7 +2628,7 @@ Troubleshooting steps:
   1. Check logs: dango start → Activity Logs
   2. Verify configuration: .dango/sources.yml
   3. Test with smaller date range
-  4. Try full refresh: dango sync --source {source_name} --full-refresh
+  4. Try full refresh: dango sync {source_name} --full-refresh
   5. Check API documentation for breaking changes
 
 Need help? Visit: https://github.com/getdango/dango/issues
@@ -2585,9 +2789,18 @@ Need help? Visit: https://github.com/getdango/dango/issues
 
         if loaded_tables and dataset_name:
             try:
-                import duckdb
-
-                conn = duckdb.connect(str(self.duckdb_path))
+                # Same unprotected duckdb.connect() pattern as the 10 write sites this task
+                # fixes — this call is read-only (SELECT COUNT(*) below) but doesn't pass
+                # read_only=True, so it's exposed to the identical Metabase-lock failure. Not
+                # part of the original 10-site audit table; included so the acceptance-criteria
+                # grep (which matches on the literal connect-call pattern, not write-vs-read
+                # intent) actually returns zero matches. See AQ-duckdb-lock-retry-all-write-paths.md.
+                _load_stats_source_name = getattr(
+                    getattr(load_info, "pipeline", None), "pipeline_name", "unknown"
+                )
+                conn = _connect_with_lock_retry(
+                    self.duckdb_path, _load_stats_source_name, "load-stats-query"
+                )
 
                 total_rows = 0
                 for table_name in loaded_tables:
@@ -2656,6 +2869,36 @@ Need help? Visit: https://github.com/getdango/dango/issues
         except Exception as e:
             console.print(f"  [dim]⚠️  Could not backup state: {e}[/dim]")
             return None
+
+    def _clear_local_pipeline_cache(self, pipeline_name: str) -> None:
+        """Ensure the local dlt pipeline working directory is actually gone after
+        a full refresh. pipeline.drop() is expected to clear this, but its
+        failure is caught and only logged elsewhere in this file — a full
+        refresh must not silently proceed with stale local incremental cursor
+        state still present, since that state is independent of the destination
+        schema drop and can survive it.
+
+        pipeline_name is always sourced from trusted config (config.pipeline_name
+        or source_name in _run_dlt_native_source; source_name directly in
+        _run_dlt_source) — never raw/unsanitized external input. See
+        _backup_dlt_state above, which already performs filesystem operations
+        (shutil.copytree) on this exact path with these exact inputs.
+        """
+        import shutil
+
+        dlt_home = Path(os.path.expanduser("~/.dlt"))
+        pipeline_state_dir = dlt_home / "pipelines" / pipeline_name
+
+        if not pipeline_state_dir.exists():
+            return
+
+        try:
+            shutil.rmtree(pipeline_state_dir)
+            console.print(
+                f"  [dim]🗑️  Cleared local pipeline cache ({pipeline_state_dir.name})[/dim]"
+            )
+        except Exception as e:
+            console.print(f"  ⚠️  Could not clear local pipeline cache: {e}")
 
     def _restore_dlt_state(self, backup_dir: Path | None):
         """
@@ -2875,9 +3118,9 @@ def run_sync(
     # Clean up empty dlt staging schemas after successful sync
     if success_sources:
         try:
-            import duckdb
-
-            conn = duckdb.connect(str(project_root / "data" / "warehouse.duckdb"))
+            conn = _connect_with_lock_retry(
+                project_root / "data" / "warehouse.duckdb", "multiple", "staging-cleanup"
+            )
             try:
                 schemas = conn.execute(
                     "SELECT schema_name FROM information_schema.schemata "
@@ -3067,13 +3310,13 @@ def run_sync(
                     sync_metabase_schema,
                 )
 
-                mb_ok, _mb_err = refresh_metabase_connection(project_root)
+                mb_ok, _mb_err, mb_session_id = refresh_metabase_connection(project_root)
                 if mb_ok:
                     console.print("[green]✓ Metabase connection refreshed[/green]")
 
                     # Sync schema metadata to ensure all tables are discovered
                     console.print("[dim]Syncing Metabase schema metadata...[/dim]")
-                    if sync_metabase_schema(project_root):
+                    if sync_metabase_schema(project_root, existing_session_id=mb_session_id):
                         console.print("[green]✓ Metabase schema synced[/green]")
                 else:
                     console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")

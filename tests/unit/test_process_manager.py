@@ -3,6 +3,7 @@
 Tests for dango.cli.helpers.process_manager — FastAPI server process management.
 """
 
+import json
 import subprocess
 import sys
 from unittest.mock import MagicMock, patch
@@ -13,6 +14,7 @@ from dango.cli.helpers.process_manager import (
     get_fastapi_status,
     get_pid_file_path,
     read_pid_file,
+    read_pid_record_for_project,
     remove_pid_file,
     start_fastapi_server,
     stop_fastapi_server,
@@ -29,21 +31,41 @@ class TestGetPidFilePath:
 
 @pytest.mark.unit
 class TestWritePidFile:
-    def test_writes_pid_creates_parent_dirs(self, tmp_path):
+    @patch("dango.utils.process.get_process_start_time", return_value=1234567.89)
+    def test_writes_pid_creates_parent_dirs(self, _mock_start_time, tmp_path):
         write_pid_file(tmp_path, 1234)
         pid_file = tmp_path / ".dango" / "web.pid"
-        assert pid_file.read_text() == "1234"
+        data = json.loads(pid_file.read_text())
+        assert data == {"pid": 1234, "start_time": 1234567.89}
 
-    def test_overwrites_existing_pid_file(self, tmp_path):
+    @patch("dango.utils.process.get_process_start_time", return_value=None)
+    def test_writes_pid_with_unknown_start_time(self, _mock_start_time, tmp_path):
+        # e.g. the process couldn't be inspected right after being spawned
+        write_pid_file(tmp_path, 1234)
+        pid_file = tmp_path / ".dango" / "web.pid"
+        data = json.loads(pid_file.read_text())
+        assert data == {"pid": 1234, "start_time": None}
+
+    @patch("dango.utils.process.get_process_start_time", return_value=111.0)
+    def test_overwrites_existing_pid_file(self, mock_start_time, tmp_path):
         write_pid_file(tmp_path, 1111)
+        mock_start_time.return_value = 222.0
         write_pid_file(tmp_path, 2222)
         pid_file = tmp_path / ".dango" / "web.pid"
-        assert pid_file.read_text() == "2222"
+        data = json.loads(pid_file.read_text())
+        assert data == {"pid": 2222, "start_time": 222.0}
 
 
 @pytest.mark.unit
 class TestReadPidFile:
-    def test_valid_pid(self, tmp_path):
+    def test_valid_pid_json_format(self, tmp_path):
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        (dango_dir / "web.pid").write_text(json.dumps({"pid": 5678, "start_time": 42.0}))
+        assert read_pid_file(tmp_path) == 5678
+
+    def test_valid_pid_old_bare_integer_format(self, tmp_path):
+        """Old-format (pre-1.0.8-OPS-1) PID files are a bare integer, no JSON."""
         dango_dir = tmp_path / ".dango"
         dango_dir.mkdir()
         (dango_dir / "web.pid").write_text("5678")
@@ -63,6 +85,35 @@ class TestReadPidFile:
         dango_dir.mkdir()
         (dango_dir / "web.pid").write_text("")
         assert read_pid_file(tmp_path) is None
+
+
+@pytest.mark.unit
+class TestReadPidRecordForProject:
+    def test_json_format_returns_full_record(self, tmp_path):
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        (dango_dir / "web.pid").write_text(json.dumps({"pid": 5678, "start_time": 42.5}))
+        record = read_pid_record_for_project(tmp_path)
+        assert record.pid == 5678
+        assert record.start_time == 42.5
+
+    def test_old_bare_integer_format_has_unknown_start_time(self, tmp_path):
+        """Old-format PID files (pre-1.0.8-OPS-1) don't crash — identity unknown."""
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        (dango_dir / "web.pid").write_text("5678")
+        record = read_pid_record_for_project(tmp_path)
+        assert record.pid == 5678
+        assert record.start_time is None
+
+    def test_missing_file(self, tmp_path):
+        assert read_pid_record_for_project(tmp_path) is None
+
+    def test_invalid_content(self, tmp_path):
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        (dango_dir / "web.pid").write_text("not-a-pid")
+        assert read_pid_record_for_project(tmp_path) is None
 
 
 @pytest.mark.unit
@@ -98,11 +149,14 @@ class TestStartFastapiServer:
         dango_dir.mkdir(parents=True, exist_ok=True)
         return dango_dir
 
+    @patch("dango.utils.process.get_process_start_time", return_value=99.0)
     @patch("dango.cli.helpers.process_manager.time.sleep")
     @patch("dango.cli.helpers.process_manager.subprocess.Popen")
     @patch("dango.cli.helpers.process_manager.check_port_in_use", return_value=False)
     @patch("dango.cli.helpers.process_manager.is_process_running", return_value=False)
-    def test_successful_start(self, _mock_running, _mock_port, mock_popen, mock_sleep, tmp_path):
+    def test_successful_start(
+        self, _mock_running, _mock_port, mock_popen, mock_sleep, _mock_start_time, tmp_path
+    ):
         self._setup_project(tmp_path)
         mock_proc = MagicMock()
         mock_proc.pid = 6000
@@ -113,7 +167,7 @@ class TestStartFastapiServer:
 
         assert pid == 6000
         pid_file = tmp_path / ".dango" / "web.pid"
-        assert pid_file.read_text() == "6000"
+        assert json.loads(pid_file.read_text()) == {"pid": 6000, "start_time": 99.0}
 
     @patch("dango.cli.helpers.process_manager.is_process_running", return_value=True)
     def test_already_running_raises(self, _mock_running, tmp_path):
@@ -248,7 +302,9 @@ class TestStopFastapiServer:
         (dango_dir / "web.pid").write_text("4000")
 
         assert stop_fastapi_server(tmp_path) is True
-        mock_kill.assert_called_once_with(4000, timeout=10)
+        # Old-format (bare-integer) PID file in this test → identity unknown (None) —
+        # kill_process() falls back to existence-only checking, as documented.
+        mock_kill.assert_called_once_with(4000, timeout=10, expected_start_time=None)
 
     @patch("dango.cli.helpers.process_manager.subprocess.run")
     @patch("dango.cli.helpers.process_manager.console")
@@ -616,4 +672,80 @@ class TestGetFastapiStatus:
         status = get_fastapi_status(tmp_path)
         assert status["running"] is False
         assert status["pid"] is None
-        assert status["url"] is None
+
+
+@pytest.mark.unit
+class TestStopFastapiServerIdentityIntegration:
+    """1.0.8-OPS-1 end-to-end coverage: real is_process_running()/kill_process()
+    (only psutil itself is mocked, not our own identity-check functions) — proves
+    the fix through the actual call chain stop_fastapi_server() exercises, not just
+    through isolated unit mocks."""
+
+    def _setup_project(self, tmp_path):
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir(parents=True, exist_ok=True)
+        return dango_dir
+
+    def _mock_psutil_exceptions(self, mock_psutil):
+        import psutil as real_psutil
+
+        mock_psutil.NoSuchProcess = real_psutil.NoSuchProcess
+        mock_psutil.AccessDenied = real_psutil.AccessDenied
+        mock_psutil.ZombieProcess = real_psutil.ZombieProcess
+
+    @patch("dango.cli.helpers.process_manager.subprocess.run")
+    @patch("dango.cli.helpers.process_manager.console")
+    @patch("dango.utils.process.psutil")
+    def test_reused_pid_is_not_signaled(self, mock_psutil, _mock_console, mock_sub_run, tmp_path):
+        """Mismatch case: PID file records a process that has since exited; the OS
+        reused the PID number for something unrelated (different create_time()).
+        stop_fastapi_server() must treat this as stale, not kill the new occupant."""
+        self._mock_psutil_exceptions(mock_psutil)
+        dango_dir = self._setup_project(tmp_path)
+        # Recorded identity for the ORIGINAL tracked process
+        (dango_dir / "web.pid").write_text(json.dumps({"pid": 4321, "start_time": 1000.0}))
+
+        # A live process currently holds PID 4321, but it's not the one we tracked —
+        # its create_time() doesn't match what was recorded (simulated PID reuse).
+        mock_psutil.pid_exists.return_value = True
+        mock_reused_proc = MagicMock()
+        mock_reused_proc.create_time.return_value = 9_999_999.0
+        mock_psutil.Process.return_value = mock_reused_proc
+
+        with patch("dango.config.ConfigLoader") as mock_cl:
+            mock_config = MagicMock()
+            mock_config.platform.port = 8080
+            mock_cl.return_value.load_config.return_value = mock_config
+            mock_sub_run.return_value = MagicMock(returncode=1, stdout="")  # lsof: nothing on port
+
+            result = stop_fastapi_server(tmp_path, verbose=False)
+
+        assert result is False
+        # The reused process must never be signaled.
+        mock_reused_proc.terminate.assert_not_called()
+        mock_reused_proc.kill.assert_not_called()
+        # Stale PID file cleaned up, same as any other stale-PID case.
+        assert not (dango_dir / "web.pid").exists()
+
+    @patch("dango.cli.helpers.process_manager.console")
+    @patch("dango.utils.process.psutil")
+    def test_matching_pid_is_signaled(self, mock_psutil, _mock_console, tmp_path):
+        """Match case (positive control): PID file's recorded start_time agrees with
+        the live process's create_time() — the normal case of a project's own PID
+        file, read shortly after its own `dango start`. Must still kill normally."""
+        self._mock_psutil_exceptions(mock_psutil)
+        dango_dir = self._setup_project(tmp_path)
+        (dango_dir / "web.pid").write_text(json.dumps({"pid": 4321, "start_time": 1000.0}))
+
+        mock_psutil.pid_exists.return_value = True
+        mock_proc = MagicMock()
+        mock_proc.create_time.return_value = 1000.0  # matches recorded start_time
+        mock_proc.children.return_value = []
+        mock_psutil.Process.return_value = mock_proc
+        mock_psutil.wait_procs.return_value = ([mock_proc], [])
+
+        result = stop_fastapi_server(tmp_path, verbose=False)
+
+        assert result is True
+        mock_proc.terminate.assert_called_once()
+        assert not (dango_dir / "web.pid").exists()

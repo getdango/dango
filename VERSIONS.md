@@ -8,10 +8,10 @@ the tested stack and upgrade process.
 | Component | Tested Version | Allowed Range | Source of Truth |
 |-----------|---------------|---------------|-----------------|
 | DuckDB (Python) | 1.5.4 | >=1.5.0,<1.6 | `pyproject.toml` |
-| Metabase JDBC Driver | 1.5.3.0 | pinned | `dango/utils/driver.py` |
-| Metabase | v0.59.1 | pinned | `dango/templates/Dockerfile.metabase` |
-| dbt-core | 1.10.22 | ~=1.10.0 | `pyproject.toml` |
-| dbt-duckdb | 1.10.1 | >=1.10.0,<1.11 | `pyproject.toml` |
+| Metabase JDBC Driver | 1.5.4.0 | pinned | `dango/utils/driver.py` |
+| Metabase | v0.62.18 | pinned | `dango/templates/Dockerfile.metabase` |
+| dbt-core | 1.11.14 | ~=1.11.0 | `pyproject.toml` |
+| dbt-duckdb | 1.11.0 | >=1.11.0,<1.12 | `pyproject.toml` |
 | dlt | 1.28.1 | ~=1.28.0 | `pyproject.toml` |
 
 Tested versions are recorded in `constraints.txt` for reproducible installs.
@@ -31,7 +31,11 @@ Must be changed as a group. A mismatch causes data visibility failures.
 
 Patch upgrades are safe. Minor upgrades need testing.
 
-- **dbt-core** — 1.11 is a breaking release; stay on 1.10.x.
+- **dbt-core** — 1.11 introduced two new opt-in behavior flags
+  (`require_unique_project_resource_names`,
+  `require_ref_searches_node_package_before_root`) that default to `false`;
+  no automatic behavior change. The next real compatibility boundary is
+  1.12, where those two flags flip to `true` by default.
 - **dlt** — generally backwards compatible within a minor series.
 
 ### Tier 3 — Utilities
@@ -59,8 +63,9 @@ within SemVer constraints.
 
 - **DuckDB 1.5.x read-only cannot read 1.4.x files.** Write mode can
   (auto-migrates format), but Metabase connects in read-only mode.
-- **dbt-core 1.11** is a breaking release. Do not upgrade without a
-  dedicated compatibility effort.
+- **dbt-core 1.12** will flip `require_unique_project_resource_names` and
+  `require_ref_searches_node_package_before_root` to `true` by default.
+  Do not upgrade past 1.11.x without a dedicated compatibility effort.
 
 ## Guard Rails
 

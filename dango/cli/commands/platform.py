@@ -3,6 +3,8 @@
 Platform lifecycle commands (start, stop, status) and port helpers.
 """
 
+from pathlib import Path
+
 import click
 
 from dango.cli import console
@@ -144,6 +146,7 @@ def start(ctx: click.Context, yes: bool) -> None:
     Change port in .dango/project.yml under platform.port
     """
     from dango.config import ConfigLoader
+    from dango.exceptions import DockerIdentityCollisionError, format_structured_error
     from dango.platform.common.startup import (
         check_duckdb_version_alignment,
         ensure_dbt_schemas,
@@ -268,8 +271,22 @@ def start(ctx: click.Context, yes: bool) -> None:
                 if result.returncode == 0 and result.stdout.strip():
                     pids = result.stdout.strip().split("\n")
 
-                    # Check each process to see if it's a Dango process
-                    dango_pids = []
+                    from dango.cli.helpers.process_manager import (
+                        read_pid_record_for_project,
+                    )
+                    from dango.utils.process import is_process_running
+
+                    # Identity-verified against THIS project's own previously-recorded
+                    # server (PID + start time, see 1.0.8-OPS-1) — a bare command-line
+                    # match only tells us "some Dango process," not "my process."
+                    my_record = read_pid_record_for_project(project_root)
+
+                    # Check each process to see if it's a Dango process, and — for
+                    # ones that are — whether it's confirmed as this project's own
+                    # (own_pids) or a Dango process this project doesn't recognize as
+                    # its own (foreign_dango_pids, e.g. a different project's server).
+                    own_pids = []
+                    foreign_dango_pids = []
                     other_pids = []
 
                     for proc_pid in pids:
@@ -289,16 +306,23 @@ def start(ctx: click.Context, yes: bool) -> None:
 
                                 # Check if it's a Dango uvicorn process
                                 if "uvicorn" in cmd_line and "dango.web.app" in cmd_line:
-                                    dango_pids.append(proc_pid)
+                                    if (
+                                        my_record is not None
+                                        and proc_pid == my_record.pid
+                                        and is_process_running(proc_pid, my_record.start_time)
+                                    ):
+                                        own_pids.append(proc_pid)
+                                    else:
+                                        foreign_dango_pids.append((proc_pid, cmd_line))
                                 else:
                                     other_pids.append((proc_pid, cmd_line))
                         except (ValueError, Exception):
                             continue
 
-                    # Only auto-kill Dango processes
-                    if dango_pids:
+                    # Only auto-kill this project's own previously-recorded process
+                    if own_pids:
                         console.print(
-                            f"[dim]Found {len(dango_pids)} Dango process(es) using port {port}[/dim]"
+                            f"[dim]Found {len(own_pids)} Dango process(es) using port {port}[/dim]"
                         )
                         console.print("[dim]Attempting to stop zombie Dango processes...[/dim]")
                         console.print()
@@ -306,8 +330,10 @@ def start(ctx: click.Context, yes: bool) -> None:
                         from dango.utils.process import kill_process
 
                         killed_any = False
-                        for proc_pid in dango_pids:
-                            if kill_process(proc_pid, timeout=5):
+                        for proc_pid in own_pids:
+                            if kill_process(
+                                proc_pid, timeout=5, expected_start_time=my_record.start_time
+                            ):
                                 killed_any = True
                                 console.print(f"[green]✓[/green] Stopped Dango process {proc_pid}")
 
@@ -349,6 +375,41 @@ def start(ctx: click.Context, yes: bool) -> None:
                             )
                             console.print()
                             raise click.Abort()
+
+                    # Refuse to kill Dango processes that aren't confirmed as this
+                    # project's own — could be a different project's live server, or
+                    # this project's own server but with the recorded PID reused by
+                    # an unrelated process (see is_process_running()'s docstring)
+                    elif foreign_dango_pids:
+                        console.print(
+                            f"[red]✗[/red] Port {port} is in use by a Dango process from a "
+                            f"different project (or one this project doesn't recognize as its own):"
+                        )
+                        console.print()
+                        for proc_pid, cmd_line in foreign_dango_pids:
+                            # Truncate long command lines
+                            display_cmd = cmd_line if len(cmd_line) <= 60 else cmd_line[:57] + "..."
+                            console.print(f"  [dim]PID {proc_pid}:[/dim] {display_cmd}")
+                        console.print()
+                        console.print(
+                            "[yellow]⚠  Refusing to stop a process that isn't confirmed as this "
+                            "project's own.[/yellow]"
+                        )
+                        console.print()
+                        console.print("[bold]Option 1: Stop the other project[/bold]")
+                        console.print(
+                            "  If you know which project this is, run [cyan]dango stop[/cyan] "
+                            "from its directory, or [cyan]kill <PID>[/cyan] above"
+                        )
+                        console.print()
+                        console.print("[bold]Option 2: Change this project's port[/bold]")
+                        console.print("  Edit [cyan].dango/project.yml[/cyan]:")
+                        console.print("[dim]  platform:[/dim]")
+                        console.print(
+                            f"[dim]    port: 9000  # Change from {port} to any free port[/dim]"
+                        )
+                        console.print()
+                        raise click.Abort()
 
                     # Warn about non-Dango processes and refuse to continue
                     elif other_pids:
@@ -740,6 +801,21 @@ def start(ctx: click.Context, yes: bool) -> None:
         # User cancelled or intentional abort - re-raise without extra cleanup
         # (cleanup already handled where abort was raised)
         raise
+    except DockerIdentityCollisionError as e:
+        # Confirmed project-identity collision (BUGS-FOUND.md 2026-09-09) —
+        # do NOT attempt the generic rollback below, which would call
+        # stop_services() again for the same colliding compose project name.
+        # The whole point of this guard is to refuse to touch that project's
+        # containers at all until a human investigates.
+        console.print()
+        msg = format_structured_error(
+            what_failed="Docker project-identity collision detected",
+            causes=[str(e)],
+            suggested_fix="Run 'dango docker-audit' to investigate before taking any manual Docker action.",
+        )
+        console.print(f"[red]Error:[/red]\n{msg}")
+        console.print()
+        raise click.Abort() from e
     except Exception as e:
         # Unexpected error - roll back everything
         console.print()
@@ -796,6 +872,7 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
     from pathlib import Path
 
     from dango.config import ConfigLoader
+    from dango.exceptions import DockerIdentityCollisionError, format_structured_error
     from dango.platform import DockerManager
     from dango.platform.network import NetworkConfig
 
@@ -871,6 +948,14 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
         console.print("[green]✅ All services stopped[/green]")
         console.print()
 
+    except DockerIdentityCollisionError as e:
+        msg = format_structured_error(
+            what_failed="Docker project-identity collision detected",
+            causes=[str(e)],
+            suggested_fix="Run 'dango docker-audit' to investigate before taking any manual Docker action.",
+        )
+        console.print(f"[red]Error:[/red]\n{msg}")
+        raise click.Abort() from e
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         from dango.exceptions import is_debug_mode
@@ -880,6 +965,63 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
 
             console.print(traceback.format_exc())
         raise click.Abort() from e
+
+
+def _find_mcp_server_process(project_root: Path) -> int | None:
+    """Scan running processes for a `dango mcp run` server matching this
+    project, identified by its DANGO_PROJECT_ROOT environment variable (set
+    by `dango mcp setup` since 1.0.8-OPS-4). Returns the PID if found, None
+    otherwise.
+
+    MCP processes are spawned entirely by the LLM client (Claude Code,
+    Cursor, Windsurf), not by `dango start`, and are never written to any PID
+    file Dango tracks — this is read-only detection, never process
+    management. This function must never attempt to start, stop, or
+    otherwise control what it finds.
+
+    Mirrors `platform.local.watcher_lifecycle.kill_orphan_watchers()`'s scan
+    shape (`psutil.process_iter` over all processes, filtered by cmdline
+    substring, with the same NoSuchProcess/AccessDenied/ZombieProcess guard)
+    rather than shelling out to `pgrep` or `ps`: no new external-tool
+    dependency, and it's the existing tested pattern in this codebase for
+    "scan all processes by cmdline content."
+    """
+    import psutil
+
+    resolved_project_root = project_root.resolve()
+
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            cmdline = proc.info.get("cmdline") or []
+            if not cmdline:
+                continue
+
+            # Identify candidate `dango mcp run` processes by argv shape: see
+            # mcp_setup.py's _resolve_dango_cmd()/_setup_claude_code(), which
+            # always spawns it as [<path>/dango, "mcp", "run"]. Live-verified
+            # this does NOT mean argv[0] is the "dango" script: the console
+            # script has a `#!/path/to/python` shebang, so the kernel
+            # rewrites argv to [<python-interpreter>, <path>/dango, "mcp",
+            # "run"] — the "dango" token can land at any early index, not
+            # just 0. Check the whole cmdline for a "dango"/"dango.exe"
+            # basename instead of assuming a fixed position.
+            has_dango_exe = any(Path(arg).name in ("dango", "dango.exe") for arg in cmdline)
+            has_mcp_run = "mcp" in cmdline and "run" in cmdline
+            if not (has_dango_exe and has_mcp_run):
+                continue
+
+            env = proc.environ()
+            env_root = env.get("DANGO_PROJECT_ROOT")
+            if env_root and Path(env_root).resolve() == resolved_project_root:
+                return int(proc.info["pid"])
+        except (
+            psutil.NoSuchProcess,
+            psutil.AccessDenied,
+            psutil.ZombieProcess,
+        ):
+            continue
+
+    return None
 
 
 @click.command()
@@ -1023,9 +1165,22 @@ def status(ctx: click.Context) -> None:
                 status_text = (
                     f"[{svc_status.value}]● {svc_status.value.capitalize()}[/{svc_status.value}]"
                 )
-            table.add_row("Metabase (port 3000)", status_text)
+            table.add_row(f"Metabase (port {config.platform.metabase_port})", status_text)
         else:
-            table.add_row("Metabase (port 3000)", "[red]● Stopped[/red]")
+            table.add_row(
+                f"Metabase (port {config.platform.metabase_port})", "[red]● Stopped[/red]"
+            )
+
+        # Add MCP server — read-only detection, Dango does not manage this
+        # process's lifecycle (see _find_mcp_server_process docstring).
+        mcp_pid = _find_mcp_server_process(project_root)
+        if mcp_pid is not None:
+            table.add_row("MCP server", f"[green]● Running[/green] (PID {mcp_pid})")
+        else:
+            # Dim/neutral, not red/Stopped: an MCP server not running is the
+            # normal state for a project nobody has an LLM client connected
+            # to right now, not an actionable problem like the other rows.
+            table.add_row("MCP server", "[dim]● Not running[/dim]")
 
         console.print(table)
         console.print()

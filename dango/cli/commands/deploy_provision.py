@@ -303,9 +303,9 @@ def run_provisioning(
         _status("Building Docker images (this may take a few minutes)...")
         ssh.connect(droplet_ip, username="root")
         try:
-            from dango.platform.docker import get_compose_project_name
+            from dango.platform.cloud.backup import get_remote_compose_project_name
 
-            compose_proj = get_compose_project_name("/srv/dango/project")
+            compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
             result = ssh.exec_command(
                 f"cd /srv/dango/project && COMPOSE_PROJECT_NAME={compose_proj} "
                 "sudo -u dango docker compose build",
@@ -516,9 +516,9 @@ def run_byos_setup(
         _status("Building Docker images (this may take a few minutes)...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            from dango.platform.docker import get_compose_project_name
+            from dango.platform.cloud.backup import get_remote_compose_project_name
 
-            compose_proj = get_compose_project_name("/srv/dango/project")
+            compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
             result = ssh.exec_command(
                 f"cd /srv/dango/project && COMPOSE_PROJECT_NAME={compose_proj} "
                 "sudo -u dango docker compose build",

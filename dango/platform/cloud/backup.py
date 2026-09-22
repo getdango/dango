@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
-from dango.platform.docker import get_compose_project_name
+from dango.platform.docker import _legacy_path_hash
 
 _logger = get_logger(__name__)
 
@@ -29,8 +29,40 @@ BACKUP_DIR = "/srv/dango/backups/deploy"
 VENV_PYTHON = "/srv/dango/venv/bin/python"
 MAX_LOCAL_BACKUPS = 1
 
-# Must match DockerManager.compose_project_name for /srv/dango/project
-_COMPOSE_PROJECT = get_compose_project_name(PROJECT_DIR)
+
+def get_remote_compose_project_name(ssh: SSHManager, project_dir: str = PROJECT_DIR) -> str:
+    """Return the Docker Compose project name for ``project_dir`` on the
+    connected remote server.
+
+    1.0.8-Q9: the server's real compose project name comes from its own
+    persisted ``project.id`` (read here via SSH, since the remote id isn't
+    knowable from the local machine — a module-level constant computed at
+    import time, as this used to be, can't see it and silently goes stale
+    the moment a freshly-deployed project's real (random) id diverges from
+    the legacy path hash of the literal string ``project_dir``).
+
+    Falls back to the deterministic legacy path hash if project.yml can't
+    be read remotely or has no persisted id yet — this matches what the
+    server's own ``DockerManager`` migration would adopt if legacy
+    containers already exist there, and is a safe, non-random default even
+    when they don't, since this is a read-only diagnostic/lifecycle helper,
+    not the authoritative migration decision (that only ever happens inside
+    ``DockerManager.start_services()``/``stop_services()`` on the server
+    itself, via ``dango serve``).
+    """
+    try:
+        result = ssh.exec_command(f"cat {project_dir}/.dango/project.yml", timeout=10)
+        if result.success and result.stdout.strip():
+            import yaml
+
+            data = yaml.safe_load(result.stdout) or {}
+            project_id = data.get("project", {}).get("id")
+            if isinstance(project_id, str) and project_id:
+                return f"dango-{project_id[:8]}"
+    except Exception:  # noqa: BLE001
+        pass
+    return f"dango-{_legacy_path_hash(project_dir)}"
+
 
 #: Files to back up, relative to PROJECT_DIR.
 #: NOTE: See also file_sync.py SYNC_CONFIG_FILES/SYNC_DBT_DIRS/SYNC_EXTRA_DIRS
@@ -161,11 +193,12 @@ def stop_services(ssh: SSHManager) -> None:
 
     Best-effort — does not raise if services are already stopped.
     """
+    compose_project = get_remote_compose_project_name(ssh)
     result = ssh.exec_command("systemctl stop dango-web", timeout=60)
     if result.exit_code != 0:
         _logger.warning("service_stop_failed", service="dango-web", stderr=result.stderr)
     result = ssh.exec_command(
-        f"COMPOSE_PROJECT_NAME={_COMPOSE_PROJECT} docker compose -f {PROJECT_DIR}/docker-compose.yml stop metabase 2>/dev/null || true",
+        f"COMPOSE_PROJECT_NAME={compose_project} docker compose -f {PROJECT_DIR}/docker-compose.yml stop metabase 2>/dev/null || true",
         timeout=120,
     )
     if result.exit_code != 0:
@@ -174,8 +207,9 @@ def stop_services(ssh: SSHManager) -> None:
 
 def start_services(ssh: SSHManager) -> None:
     """Start Metabase then dango-web (reverse order of stop)."""
+    compose_project = get_remote_compose_project_name(ssh)
     result = ssh.exec_command(
-        f"COMPOSE_PROJECT_NAME={_COMPOSE_PROJECT} docker compose -f {PROJECT_DIR}/docker-compose.yml start metabase 2>/dev/null || true",
+        f"COMPOSE_PROJECT_NAME={compose_project} docker compose -f {PROJECT_DIR}/docker-compose.yml start metabase 2>/dev/null || true",
         timeout=120,
     )
     if result.exit_code != 0:

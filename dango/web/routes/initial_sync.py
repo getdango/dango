@@ -13,6 +13,7 @@ Other endpoints require a valid session or API key (handled by auth middleware).
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import shutil
@@ -262,7 +263,7 @@ async def _run_initial_sync(project_root: Path, sources: list[dict[str, str]]) -
         # Metabase refresh
         _sync_state.phase = SyncPhase.METABASE
         await _save_and_broadcast()
-        _refresh_metabase(project_root)
+        await asyncio.to_thread(_refresh_metabase, project_root)
 
     _sync_state.phase = SyncPhase.COMPLETE
     _sync_state.completed_at = datetime.now(tz=timezone.utc).isoformat()
@@ -302,9 +303,14 @@ def _generate_dbt_docs(project_root: Path) -> None:
 def _refresh_metabase(project_root: Path) -> None:
     """Trigger Metabase schema refresh."""
     try:
-        from dango.visualization.metabase import sync_metabase_schema
+        from dango.visualization.metabase import (
+            refresh_metabase_connection,
+            sync_metabase_schema,
+        )
 
-        sync_metabase_schema(project_root)
+        mb_ok, _mb_err, mb_session_id = refresh_metabase_connection(project_root)
+        if mb_ok:
+            sync_metabase_schema(project_root, existing_session_id=mb_session_id)
     except Exception:
         logger.warning("initial_sync_metabase_refresh_failed", exc_info=True)
 

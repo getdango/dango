@@ -7,6 +7,11 @@ Tests cover:
 - _restore_dlt_state is called with correct single argument on failure
 - Row count warning when new count < previous count
 - Backup preserved (not cleaned up) when row count drops
+
+See also test_dlt_runner_local_cache.py for 1.0.8-Q6 (--full-refresh must
+clear the local ~/.dlt/pipelines/{pipeline_name}/ cache, not just the
+destination DB schema) — split into its own file to stay under the
+file-size-check line limit.
 """
 
 from __future__ import annotations

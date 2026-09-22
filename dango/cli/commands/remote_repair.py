@@ -92,9 +92,9 @@ def remote_repair(ctx: click.Context) -> None:
         console.print("[bold]Restarting services...[/bold]")
 
         _server_project_dir = "/srv/dango/project"
-        from dango.platform.docker import get_compose_project_name
+        from dango.platform.cloud.backup import get_remote_compose_project_name
 
-        _proj_name = get_compose_project_name(_server_project_dir)
+        _proj_name = get_remote_compose_project_name(ssh, _server_project_dir)
 
         # Start Docker containers
         ssh.exec_command(
@@ -205,9 +205,9 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         ssh.connect(cloud_cfg.droplet_ip)
 
         _server_project_dir = "/srv/dango/project"
-        from dango.platform.docker import get_compose_project_name
+        from dango.platform.cloud.backup import get_remote_compose_project_name
 
-        _proj_name = get_compose_project_name(_server_project_dir)
+        _proj_name = get_remote_compose_project_name(ssh, _server_project_dir)
 
         # 1. Stop dango-web (so it doesn't interfere with Metabase restart)
         console.print("Stopping dango-web...")

@@ -66,6 +66,7 @@ def run_dbt_command(project_root: Path, changed_files: list[Any] | None = None) 
         project_root: Project root path
         changed_files: Optional list of changed file paths for selective runs
     """
+    from dango.transformation import _dbt_telemetry_env
     from dango.utils import DbtLock, DbtLockError
 
     print(f"[FileWatcher] Triggering dbt at {datetime.now().isoformat()}")
@@ -117,6 +118,7 @@ def run_dbt_command(project_root: Path, changed_files: list[Any] | None = None) 
             capture_output=True,
             text=True,
             timeout=3600,  # 1 hour timeout
+            env=_dbt_telemetry_env(),
         )
 
         if result.returncode == 0:

@@ -155,6 +155,12 @@ def start_docker_services(project_root: Path) -> None:
     Raises:
         RuntimeError: If Docker daemon is not running, required ports are
             still occupied after cleanup, or services fail to start
+        DockerIdentityCollisionError: The compose project name for this
+            project root already has containers belonging to a confirmed
+            different project directory (raised by
+            ``DockerManager._assert_no_identity_collision()``, called at the
+            start of the ``stop_services()``/``start_services()`` calls
+            below). Never raised for Docker connectivity issues alone.
     """
     from dango.platform import DockerManager
 
@@ -167,10 +173,29 @@ def start_docker_services(project_root: Path) -> None:
     if not manager.is_docker_daemon_running():
         raise RuntimeError("Docker daemon is not running. Start Docker Desktop and try again.")
 
-    # Pre-flight: Required Docker ports must be free
+    # Pre-flight: Required Docker ports must be free.
+    # Read the project's actual configured ports rather than hardcoding the
+    # defaults — a project with metabase_port/dbt_docs_port customized in
+    # project.yml (e.g. to avoid a conflict) would otherwise have this check
+    # look at the wrong ports entirely. Falls back to the same literal
+    # defaults PlatformSettings itself uses if config can't be loaded (e.g.
+    # no project.yml yet) — this function's own contract only raises
+    # RuntimeError for its own documented pre-flight reasons, so a config
+    # load failure here must not surface as a different exception type.
+    metabase_port = 3000
+    dbt_docs_port = 8081
+    try:
+        from dango.config.helpers import load_config
+
+        config = load_config(project_root)
+        metabase_port = config.platform.metabase_port
+        dbt_docs_port = config.platform.dbt_docs_port
+    except Exception:
+        pass
+
     required_docker_ports = {
-        3000: "Metabase",
-        8081: "dbt-docs",
+        metabase_port: "Metabase",
+        dbt_docs_port: "dbt-docs",
     }
 
     ports_in_use = []
@@ -200,6 +225,19 @@ def start_docker_services(project_root: Path) -> None:
                 f"Required ports are still in use after cleanup: {port_list}. "
                 "Run: lsof -ti:<port> | xargs kill -9"
             )
+
+    # Regenerate docker-compose.yml from current config before starting --
+    # it's rendered once at `dango init` and otherwise never updated, so a
+    # project.yml port change (e.g. to resolve a conflict, per this
+    # function's own error messages) would silently have no effect
+    # otherwise. See BUGS-FOUND.md for the incident this fixes.
+    try:
+        from dango.config.helpers import load_config
+        from dango.platform.docker import render_docker_compose
+
+        render_docker_compose(project_root, load_config(project_root))
+    except Exception:
+        pass  # Best-effort -- if config can't load, start_services() below will fail anyway
 
     # Start Docker services (Metabase, dbt-docs)
     docker_success = manager.start_services()
@@ -282,11 +320,29 @@ def setup_metabase_if_needed(
             )
             return {"already_configured": False, "success": True, "skipped": True}
 
+    # Read the project's actual configured Metabase port rather than relying
+    # on setup_metabase()'s own http://localhost:3000 default — a project
+    # configured on a non-default port (e.g. to avoid a real conflict) would
+    # otherwise have its admin-setup API calls silently target the wrong
+    # Metabase instance entirely. The URL setup_metabase() is called with
+    # gets persisted into .dango/metabase.yml's "metabase_url" key, so every
+    # downstream reader of that file (sync_metabase_schema,
+    # set_metabase_telemetry, etc.) inherits the correct port from this one
+    # fix — no other call site needs to change.
+    metabase_port = 3000
+    try:
+        from dango.config.helpers import load_config
+
+        metabase_port = load_config(project_root).platform.metabase_port
+    except Exception:
+        pass
+
     setup_result = setup_metabase(
         project_root,
         project_name,
         admin_email,
         organization=organization,
+        metabase_url=f"http://localhost:{metabase_port}",
         cloud_mode=is_cloud_mode(project_root),
     )
 
@@ -412,17 +468,25 @@ def _link_metabase_admin(project_root: Path, admin_email: str) -> None:
 
 def import_dashboards(project_root: Path) -> dict[str, Any] | None:
     """
-    Import YAML dashboards if any exist in the dashboards/ directory.
+    Import YAML dashboards if any exist, in either the legacy dashboards/
+    directory or the current metabase/ export directory written by
+    `dango metabase save` (see dashboard_manager.import_dashboards()'s
+    docstring for the dual-path support this delegates to).
 
     Args:
         project_root: Project root directory
 
     Returns:
         Import result dict (with 'imported' and 'skipped' keys), or None if
-        no dashboards directory or no .yml files found.
+        neither directory has any .yml files to import.
     """
-    dashboards_dir = project_root / "dashboards"
-    if not dashboards_dir.exists() or not list(dashboards_dir.glob("*.yml")):
+    legacy_dir = project_root / "dashboards"
+    metabase_dir = project_root / "metabase"
+
+    has_legacy = legacy_dir.exists() and bool(list(legacy_dir.glob("*.yml")))
+    has_current = metabase_dir.exists() and any(metabase_dir.rglob("*.yml"))
+
+    if not has_legacy and not has_current:
         return None
 
     from dango.visualization.dashboard_manager import import_dashboards as _import_dashboards

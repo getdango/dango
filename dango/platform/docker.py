@@ -6,25 +6,149 @@ Handles Docker Compose operations for Dango services.
 import hashlib
 import os
 import subprocess
+import uuid
 from enum import Enum
 from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
 
-from dango.exceptions import format_structured_error
+from dango.config.models import DangoConfig
+from dango.exceptions import DockerIdentityCollisionError, format_structured_error
 
 console = Console()
+
+
+def render_docker_compose(project_root: Path, config: DangoConfig) -> None:
+    """Render docker-compose.yml from the project's current config.
+
+    Safe to call unconditionally, any number of times: the template is a pure
+    function of config.project.name/id and config.platform.metabase_port/
+    dbt_docs_port, with no free-form user-customizable sections (verified
+    2026-09-18, see BUGS-FOUND.md) -- re-rendering from unchanged config
+    produces a byte-for-byte identical file, and from changed config produces
+    the correct one. Called once at `dango init` (cli/init.py) and again by
+    start_docker_services() before every `dango start`, so a project.yml port
+    change takes effect without requiring the user to re-run `dango init`.
+    """
+    from jinja2 import Environment, PackageLoader
+
+    env = Environment(loader=PackageLoader("dango", "templates"))
+    template = env.get_template("docker-compose.yml.j2")
+
+    content = template.render(
+        project_name=config.project.name.lower().replace(" ", "-"),
+        project_id=config.project.id,
+        metabase_port=config.platform.metabase_port,
+        dbt_docs_port=config.platform.dbt_docs_port,
+    )
+
+    docker_compose_path = project_root / "docker-compose.yml"
+    with open(docker_compose_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def _legacy_path_hash(project_root: Path | str) -> str:
+    """Compute the pre-1.0.8-Q9 path-hash compose identity for ``project_root``.
+
+    NOT a general-purpose identity function anymore — ``get_compose_project_name()``
+    reads the persisted ``project.id`` from project.yml instead (1.0.8-Q9). This
+    helper exists solely for:
+
+    1. The one-time migration in ``DockerManager._resolve_or_migrate_project_id()``
+       — adopting this exact value as ``project.id`` if containers already exist
+       under it (zero disruption for a pre-upgrade project).
+    2. A deterministic (never random) fallback in ``get_compose_project_name()``
+       for a project that hasn't been migrated yet, so read-only callers invoked
+       before the first post-upgrade start/stop see a stable name consistent with
+       what migration will itself check for and potentially adopt.
+
+    See ``v1.0.x-planning/1.0.8/Q9-docker-persistent-project-id.md`` for the full
+    background and the 2026-09-09 incident this replaces the root cause of.
+    """
+    return hashlib.md5(str(project_root).encode(), usedforsecurity=False).hexdigest()[:8]
+
+
+def _read_raw_project_id(project_root: Path | str) -> str | None:
+    """Return the persisted ``project.id`` from project.yml's raw YAML, or
+    ``None`` if project.yml doesn't exist or has no ``id`` field.
+
+    Deliberately reads the raw YAML dict rather than constructing a
+    ``ProjectContext`` — Pydantic's ``default_factory`` on the ``id`` field
+    means a constructed model always has *some* id, even when the file
+    itself has none. Checking the raw dict is the only way to distinguish
+    "already migrated" from "never migrated" (see 1.0.8-Q9).
+    """
+    from dango.config.loader import ConfigLoader
+
+    loader = ConfigLoader(Path(project_root))
+    try:
+        data = loader.load_yaml(loader.project_file)
+    except Exception:
+        return None
+    project_id = data.get("project", {}).get("id")
+    return project_id if isinstance(project_id, str) and project_id else None
 
 
 def get_compose_project_name(project_root: Path | str) -> str:
     """Return the Docker Compose project name for the given project root.
 
-    Deterministic name derived from path hash to avoid collisions between
-    multiple Dango projects on the same machine or server.
+    Reads the persisted ``project.id`` from project.yml (1.0.8-Q9) — no
+    longer hashes the path. A persisted id travels with project.yml even if
+    the project directory is later moved or renamed, fixing the root cause
+    of the 2026-09-09 identity-collision incident (see
+    ``DockerManager._assert_no_identity_collision()`` and
+    ``v1.0.x-planning/1.0.8/Q9-docker-persistent-project-id.md``).
+
+    For a project that hasn't yet gone through the one-time migration in
+    ``DockerManager._resolve_or_migrate_project_id()`` (run only inside
+    ``start_services()``/``stop_services()``), falls back to the
+    deterministic legacy path hash — the exact value migration will itself
+    adopt if legacy containers exist — rather than generating a fresh
+    random id on every call, which would be worse than the bug this fixes.
     """
-    path_hash = hashlib.md5(str(project_root).encode(), usedforsecurity=False).hexdigest()[:8]
-    return f"dango-{path_hash}"
+    project_id = _read_raw_project_id(project_root)
+    if project_id is None:
+        project_id = _legacy_path_hash(project_root)
+    return f"dango-{project_id[:8]}"
+
+
+def _get_existing_container_working_dirs(compose_project_name: str) -> set[str]:
+    """Return the distinct com.docker.compose.project.working_dir label
+    values of any containers (running or stopped) that already exist under
+    this compose project name.
+
+    Empty set if none exist or if the check itself fails — this fails open
+    on Docker connectivity issues (unreachable daemon, missing CLI, slow
+    response) because this check exists to catch a *confirmed* mismatch, not
+    to add a general reliability dependency on Docker being reachable.
+
+    NOTE on ``--format`` syntax: the Go template helper for reading a single
+    label on ``docker ps`` is the ``.Label "<key>"`` method, NOT
+    ``index .Labels "<key>"`` (the latter fails at runtime — live-verified
+    against Docker 28.5.1: ``.Labels`` is a pre-joined ``k=v,k=v`` string on
+    this subcommand, not a map, so ``index`` cannot operate on it).
+    """
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                f"label=com.docker.compose.project={compose_project_name}",
+                "--format",
+                '{{.Label "com.docker.compose.project.working_dir"}}',
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return set()
+        return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return set()
 
 
 class ServiceStatus(str, Enum):
@@ -46,11 +170,14 @@ class DockerManager:
 
     @property
     def compose_project_name(self) -> str:
-        """Deterministic project name derived from path to avoid collisions.
+        """Deterministic project name derived from this project's persisted
+        ``project.id`` (1.0.8-Q9) — stable across moves/renames of the
+        project directory.
 
-        NOTE: Containers started before this change used Docker's default
-        naming (directory-based) and will be orphaned.  ``dango stop --all``
-        cleans those up via ``docker ps --filter name=``.
+        NOTE: Containers started before the original hash-based naming
+        scheme used Docker's default naming (directory-based) and will be
+        orphaned.  ``dango stop --all`` cleans those up via
+        ``docker ps --filter name=``.
         """
         return get_compose_project_name(self.project_root)
 
@@ -59,6 +186,97 @@ class DockerManager:
         env = os.environ.copy()
         env["COMPOSE_PROJECT_NAME"] = self.compose_project_name
         return env
+
+    def _resolve_or_migrate_project_id(self) -> str:
+        """Resolve this project's persisted ``project.id``, migrating a
+        pre-1.0.8-Q9 project (no ``id`` in project.yml) exactly once.
+
+        Must only be called from ``start_services()``/``stop_services()`` —
+        never from a general config-load path or the ``dango/migrations/``
+        framework. The whole point of this being "lazy" is that it only
+        ever runs at a moment when real Docker state can be checked and
+        acted on safely (see Q9-docker-persistent-project-id.md).
+
+        Safe to call from either method first, in either order — the check
+        for an already-persisted id makes repeat calls (including from the
+        other method) a no-op.
+
+        Migration logic:
+        1. No project.yml at all (e.g. a bare directory, not a real Dango
+           project) — nothing to migrate or persist. Returns the
+           deterministic legacy hash so callers still get a stable name.
+        2. ``project.id`` already present in the raw YAML — already
+           migrated (or created fresh by ``dango init`` after this fix
+           shipped). Return it unchanged. Never overwritten.
+        3. ``project.id`` missing from the raw YAML (pre-upgrade project) —
+           compute the legacy path hash, check via Q8's
+           ``_get_existing_container_working_dirs()`` whether containers
+           already exist under that legacy compose name:
+           - If yes: adopt the legacy hash as ``project.id`` — zero
+             disruption, the exact same compose project name continues to
+             be used.
+           - If no: generate a fresh ``uuid.uuid4().hex``.
+           Either way, persist the resolved id back to project.yml
+           immediately via ``ConfigLoader.save_project_context()``.
+        """
+        from dango.config.loader import ConfigLoader
+
+        loader = ConfigLoader(self.project_root)
+        if not loader.project_file.exists():
+            return _legacy_path_hash(self.project_root)
+
+        raw = loader.load_yaml(loader.project_file)
+        existing_id = raw.get("project", {}).get("id")
+        if isinstance(existing_id, str) and existing_id:
+            return existing_id
+
+        legacy_hash = _legacy_path_hash(self.project_root)
+        legacy_name = f"dango-{legacy_hash}"
+        if _get_existing_container_working_dirs(legacy_name):
+            resolved_id = legacy_hash
+        else:
+            resolved_id = uuid.uuid4().hex
+
+        project = loader.load_project_context()
+        project.id = resolved_id
+        loader.save_project_context(project)
+        return resolved_id
+
+    def _assert_no_identity_collision(self) -> None:
+        """Refuse to proceed if this compose project name already belongs to
+        a different project directory.
+
+        Background: ``compose_project_name`` (above) used to be an MD5 hash
+        of the project's path string, truncated to 8 hex chars — not a
+        stable identifier (path casing, symlink resolution, or directory
+        reuse could change or collide it). On 2026-09-09 this class of bug
+        destroyed a real project's Metabase data: a scratch project's
+        containers were assumed-orphaned and torn down manually, but the
+        compose project name actually belonged to ``tests/beta-1``. 1.0.8-Q9
+        fixed the root cause (a persisted ``project.id`` in project.yml
+        instead of a path hash — see ``get_compose_project_name()``), but
+        this guard remains as defense in depth: it checks Docker's own
+        ``com.docker.compose.project.working_dir`` label — the literal path
+        used to create the existing containers — against this instance's own
+        resolved path before any start/stop subprocess call proceeds.
+
+        Fails open (returns without raising) if the Docker check itself
+        can't be performed — see ``_get_existing_container_working_dirs()``.
+        Only a confirmed mismatch raises.
+        """
+        existing = _get_existing_container_working_dirs(self.compose_project_name)
+        if not existing:
+            return
+        current = str(self.project_root.resolve())
+        mismatched = existing - {current}
+        if mismatched:
+            raise DockerIdentityCollisionError(
+                f"Compose project '{self.compose_project_name}' already has containers "
+                f"belonging to a different project directory: {sorted(mismatched)}. "
+                f"Refusing to proceed — this is almost certainly a project-identity "
+                f"collision, not your project. Run 'dango docker-audit' to "
+                f"investigate before taking any manual action."
+            )
 
     def _metabase_image_exists(self) -> bool:
         """Check if the dango-metabase Docker image already exists locally."""
@@ -130,7 +348,17 @@ class DockerManager:
 
         Returns:
             True if successful, False otherwise
+
+        Raises:
+            DockerIdentityCollisionError: This compose project name already
+                has containers belonging to a different project directory
+                (confirmed via Docker's own working_dir label). Never raised
+                for Docker connectivity issues — see
+                ``_assert_no_identity_collision()``.
         """
+        self._resolve_or_migrate_project_id()
+        self._assert_no_identity_collision()
+
         if not self.compose_file.exists():
             msg = format_structured_error(
                 what_failed="docker-compose.yml not found",
@@ -245,7 +473,17 @@ class DockerManager:
 
         Returns:
             True if successful, False otherwise
+
+        Raises:
+            DockerIdentityCollisionError: This compose project name already
+                has containers belonging to a different project directory
+                (confirmed via Docker's own working_dir label). Never raised
+                for Docker connectivity issues — see
+                ``_assert_no_identity_collision()``.
         """
+        self._resolve_or_migrate_project_id()
+        self._assert_no_identity_collision()
+
         if not self.compose_file.exists():
             console.print("[yellow]Warning:[/yellow] docker-compose.yml not found")
             return True  # Nothing to stop
@@ -265,6 +503,19 @@ class DockerManager:
             )
 
             if result.returncode == 0:
+                # Honest reporting: `docker compose down` exiting 0 is not
+                # proof nothing is left running (BUGS-FOUND.md 2026-09-09 —
+                # this exact assumption contributed to the incident this
+                # module's identity guard exists to prevent). Re-verify via
+                # the same label-based check before claiming success.
+                survivors = _get_existing_container_working_dirs(self.compose_project_name)
+                if survivors:
+                    console.print(
+                        "[yellow]⚠[/yellow]  'docker compose down' exited successfully, but "
+                        f"container(s) still exist for project '{self.compose_project_name}'. "
+                        "Run 'docker ps -a' to inspect, or 'dango docker-audit' to investigate."
+                    )
+                    return False
                 console.print("[green]✓[/green] Services stopped")
                 self._warn_orphaned_containers()
                 return True

@@ -5,6 +5,86 @@ All notable changes to Dango will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+### Fixed
+
+### Security
+
+### Changed
+
+## [1.0.8] - 2026-09-22
+
+### Added
+
+- Telemetry — `dango init` now asks for one-time, anonymous opt-in consent before sending an install ping; declining, running in CI, or setting `DO_NOT_TRACK`/`DANGO_TELEMETRY` skips it silently
+- `dango telemetry` command (`status` / `on` / `off`) — control telemetry for Dango, dbt, dlt, and Metabase together with `--all`, or one at a time with `--provider`
+- `/settings/telemetry` page — toggle telemetry status from the web UI, matching the CLI command
+- MCP server — `dango mcp setup` configures Claude Code, Cursor, or Windsurf to talk to your Dango project; 15 tools cover reading (sources, schema, catalog, lineage, models, SQL, sync history, ad-hoc queries) and making changes (running syncs/transforms/doctor, adding sources/schedules, creating models) through the same functions the CLI itself uses
+- `dango init` now generates both `CLAUDE.md` and `AGENTS.md` (identical content) in the project, so Cursor, Windsurf, and other AGENTS.md-aware tools get the same onboarding guidance Claude Code does — not just Claude Code
+- `dango validate` now warns when model or column descriptions are missing or left as `# TODO` placeholders
+- Deploy output now warns when backups aren't configured for BYOS/self-hosted deploys, with a link to the backup setup docs
+- Data Pipeline Health dashboard now shows real sync history, dbt test results, and source counts instead of placeholder queries
+- Git guardrail warnings (previously only on `dango remote push`) now also cover model/source/schedule creation — CLI wizards and MCP's mutation tools warn when run on a protected branch
+- `dango status` now shows whether an MCP server process is running for the current project, alongside the existing web server, watcher, and Metabase rows
+- `dango source inspect-state <name>` — a new read-only command that decodes and displays a source's dlt incremental sync state (the cursor value it's tracking per resource), useful for diagnosing why an incremental sync isn't picking up data you'd expect it to
+- `dango docker-audit` — a new diagnostic command that lists every Dango-managed Docker resource on the machine (not just the current project), grouped by real Compose project identity, and classifies each as live, safe to clean, or needing manual attention
+
+### Fixed
+
+- dbt-core 1.10.22 → 1.11.14, dbt-duckdb 1.10.1 → 1.11.0, Metabase v0.59.1 → v0.62.18, Metabase DuckDB JDBC driver 1.5.3.0 → 1.5.4.0
+- `dango generate` no longer rewrites every staging model file (and its timestamp) on every sync when nothing actually changed — previously this produced diff noise on every run even with no real schema changes. Manually customized models are also no longer overwritten by default; use the new `--force` flag to regenerate them anyway
+- Sync progress: the UI no longer looks like it's stuck for up to ~90 seconds between a sync finishing and dbt starting — a "data loaded, running transforms" update now appears in between
+- Metabase: `dango start`'s port pre-flight check now reads the project's configured Metabase/dbt-docs ports instead of always checking 3000/8081
+- Metabase: first-run setup now targets the project's configured Metabase port instead of always defaulting to `localhost:3000`
+- Metabase: dashboard card attachment fixed — the API endpoint it called was removed as of Metabase 0.47, so cards silently failed to attach while the CLI reported the dashboard as successfully provisioned
+- `dango dashboard provision`: no longer hardcodes port 3000 or fails to find the project's DuckDB database in Metabase (name-based lookup never matched the actual connection name)
+- MCP's `run_transform` tool now acquires the same DuckDB write lock as every other transform path, preventing warehouse corruption if it runs concurrently with a sync or scheduled job
+- Process management: a tracked PID's start time is now verified before signaling it, so a stale PID file can no longer kill an unrelated process that has since reused the same PID
+- Telemetry: dlt's telemetry setting now lives in machine-level config alongside dango/dbt/Metabase, instead of the project's own `.dlt/config.toml` — toggling telemetry no longer produces a git diff
+- `dango init`: project names containing a dot (e.g. `my.project`) no longer produce a broken dbt project
+- Scripts page: per-script execution timeout is now configurable per script instead of a hardcoded 5 minutes
+- `dango source add`: selecting MySQL no longer crashes with a validation error and losing all entered configuration
+- Scripts page: a script that times out or is killed now correctly shows the output it had already printed, instead of an empty log — a race between two competing reads of the same process output was discarding it
+- `dango sync ... --full-refresh` on a merge-based source now actually clears cached incremental sync state, instead of only resetting the destination tables and leaving stale state behind that could prevent a full reload
+- Docker project identity: a project's Compose identity is now a stable ID persisted once in `project.yml` at `dango init`, instead of a hash of its filesystem path — moving or renaming a project directory could previously produce a different identity and orphan its existing containers/volumes. Existing projects migrate automatically and losslessly on their next `dango start`/`dango stop`. `dango start`/`dango stop` also now verify a project's identity against Docker's own record of which directory actually created a given container before operating on it, and `dango stop` no longer reports success when containers were left running
+- Metabase: the local `/metabase/` proxy could show a blank page (JS assets served as HTML instead of JavaScript) because Metabase's own Site URL setting never matched the path it was actually being served under — now set automatically during setup and on the first sync after upgrading
+- Metabase: a second (and later) data source's tables could fail to appear in Metabase without manually clicking "Sync database schema now," even though the sync itself succeeded — the automatic post-sync refresh was polling the wrong readiness signal and could report a re-sync complete before it had actually finished
+- Metabase: `dango sync`'s automatic post-Metabase-restart check could report the container ready before it could actually accept a login, causing the schema refresh that depends on that login to silently fail — the readiness check now confirms a real login succeeds, not just that the container is listening
+- Metabase: `dango start`'s automatic dashboard restore no longer silently skips projects using the current `metabase/` export directory (it previously only checked for the legacy `dashboards/` path)
+- `dango metabase load`'s rollback-on-failure no longer leaves orphaned cards behind in Metabase while reporting "Rollback complete - no changes applied"
+- Google Sheets OAuth: `dango source add` no longer fails with `invalid_scope` immediately after completing the browser consent flow, when the very next step (listing sheet names) needed to refresh the just-issued token
+- Google OAuth setup instructions (CLI panel and docs) now match Google's current "Google Auth Platform" Console UI (renamed and restructured from the old "OAuth consent screen" flow) instead of describing a UI that no longer exists
+- CSV/local-files sources: a file with a value that can't convert to an existing column's type (e.g. text landing in a numeric column) is now rejected with a clear error, instead of being silently skipped while the sync still reports success
+- CSV/local-files sources: the same type-mismatch check now also applies when syncing with `--allow-schema-changes`, which previously had no type protection at all
+- CSV/local-files sources: a source directory or filename containing an apostrophe no longer breaks loading with a raw database error
+- `dango source add`: pasting a long Google Sheets URL into the "Spreadsheet ID or URL" prompt no longer causes the terminal to redraw the line dozens of times
+- `dango source add`: pressing Ctrl+C at the "Spreadsheet ID or URL" prompt now cancels cleanly like every other field, instead of showing a bare error message
+- `dango source add`: choosing "Skip for now" at the OAuth setup prompt no longer crashes
+- Metabase: schema sync triggered by `dango metabase refresh`, `dango model remove`, `dango sync`, and initial cloud onboarding now refreshes Metabase's connection first, so newly-changed tables reliably become visible — previously only 3 of 7 call sites did this
+- Metabase: first-run setup no longer fails with "Metabase not ready after 60 seconds" on a slow cold start — readiness now confirms Metabase's own startup-complete log line first, with a realistic (measured, not guessed) timeout as a fallback
+- Metabase: `refresh_metabase_connection()`'s post-restart readiness check now uses the same proven log-based signal as first-run setup, with a realistic timeout — previously a fixed 20-second budget was often too short for a real restart, silently skipping the post-sync schema refresh that makes new tables visible in Metabase
+- `dango start` no longer kills another project's live server when the configured port is already in use — it now verifies the process is this project's own before stopping it, and shows a clear error if it can't confirm that instead
+- `docker-compose.yml` is now regenerated from current config before every `dango start` — previously it was only written once at `dango init`, so changing `metabase_port`/`dbt_docs_port` afterward (including via this project's own suggested port-conflict fix) silently had no effect
+- CSV and local-files sources (and a few related write paths) could fail a sync outright if Metabase happened to be querying the database at that exact moment — now retried automatically, and as a last resort Metabase is temporarily stopped to force a write window through rather than giving up
+- `dango source add`'s final hint for how to sync a newly added source referenced a `--source` flag that doesn't exist (`dango sync --source my_api`), which errored immediately — the correct syntax, `dango sync my_api`, is used everywhere now (11 sites across 4 files had the same wrong pattern)
+- A few error-recovery hints referenced commands that were renamed and never updated — `dango transform` (dbt build failures) is now `dango run`, and `dango restore <path>` (a failed-migration rollback hint) is now `dango backup restore <path>`
+
+### Security
+
+- Metabase: `MetabaseProvisioner` no longer defaults to a guessable admin username/password when none is supplied
+- postcss-selector-parser updated 6.1.2 → 6.1.4, resolving Dependabot alert #7
+
+### Changed
+
+- MCP server setup (`dango mcp setup`) now configures Claude Code via its own `claude mcp add --scope local` command instead of writing directly into `~/.claude/settings.json` — the entry is now private to the current project instead of shared machine-wide across every Dango project. Cursor gets a project-scoped, git-committable `.cursor/mcp.json`. Windsurf keeps a machine-wide config (no per-project option exists in Windsurf itself), now with the current project's path included so at least one project is unambiguous. New `dango mcp remove` command reverses whatever `dango mcp setup` configured
+- `dango source add --help` and `dango status`'s Metabase row no longer show a stale source count or a hardcoded port — both now read from the live configuration/registry
+- `/settings/telemetry` and `dango telemetry status` now state plainly that the dango/dbt/dlt toggles apply machine-wide (shared across every Dango project) while the Metabase toggle applies only to the current project; `dango init` on any project after the first now prints a one-line note when it silently inherits a telemetry decision made elsewhere, instead of staying completely silent
+- The first-run telemetry consent prompt no longer defaults to declining if you just press Enter — it keeps asking until you give a real yes/no. It also now states plainly that agreeing enables an ongoing periodic heartbeat, not just a one-time install ping
+- `dango model add`/`dango source add` no longer print two separate warnings for the same "you're on a protected branch" condition — only the more complete one remains
+
 ## [1.0.7] - 2026-08-27
 
 ### Added

@@ -215,6 +215,44 @@ class TestSyncBackfillValidation:
         mock_run_sync.assert_called_once()
         assert mock_run_sync.call_args.kwargs["limit"] == 500
 
+    def test_source_sync_metabase_refresh_calls_refresh_connection_first(self) -> None:
+        """1.0.8-AC: sync's post-sync Metabase update calls
+        refresh_metabase_connection() before sync_metabase_schema() and
+        threads existing_session_id through, matching the pattern already
+        used by dlt_runner.py/jobs.py/transform.py."""
+        mock_run_sync = MagicMock(
+            return_value={"failed_count": 0, "success_count": 1, "oauth_warnings": []}
+        )
+        call_order: list[str] = []
+
+        def _fake_refresh(project_root, metabase_url=None):
+            call_order.append("refresh")
+            return True, None, "sess-123"
+
+        def _fake_sync(project_root, metabase_url=None, existing_session_id=None):
+            call_order.append("sync")
+            assert existing_session_id == "sess-123"
+            return True
+
+        mock_validate = patch("dango.oauth.validation.validate_before_sync")
+        result = self._invoke(
+            ["--yes"],
+            extra_patches=[
+                patch("dango.ingestion.run_sync", mock_run_sync),
+                patch(
+                    "dango.visualization.metabase.refresh_metabase_connection",
+                    side_effect=_fake_refresh,
+                ),
+                patch(
+                    "dango.visualization.metabase.sync_metabase_schema",
+                    side_effect=_fake_sync,
+                ),
+                mock_validate,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert call_order == ["refresh", "sync"]
+
 
 def _make_cloud_config(droplet_ip: str = "1.2.3.4", domain: str | None = None) -> MagicMock:
     """Create a mock CloudConfig."""
