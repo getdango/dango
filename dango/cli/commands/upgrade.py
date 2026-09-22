@@ -219,10 +219,9 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
                     )
     except Exception as exc:
         console.print(f"[red]Migration error:[/red] {exc}")
-        # NOTE: ``dango restore`` is planned for Phase 8 (local backup).
         console.print(
             "\n[yellow]The package was upgraded but migrations failed.[/yellow]\n"
-            "If you have a backup, run [bold]dango restore <path>[/bold] to roll back.\n"
+            "If you have a backup, run [bold]dango backup restore <path>[/bold] to roll back.\n"
             "Otherwise, try running [bold]dango migrate run[/bold] manually."
         )
         raise SystemExit(1) from exc
