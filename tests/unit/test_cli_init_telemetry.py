@@ -104,6 +104,21 @@ class TestAskTelemetryConsent:
         monkeypatch.setattr("sys.stdin", io.StringIO("maybe\nyes\n"))
         assert _ask_telemetry_consent() is True
 
+    def test_bare_enter_reprompts_instead_of_silently_defaulting_to_no(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A bare Enter press (empty line, not EOF) must not resolve to "no".
+
+        1.0.8-AS: the prompt previously had default="no", so a user
+        blasting through init with Enter would silently opt out without
+        ever making a real choice. There is now no default at all — an
+        empty line re-prompts (click.prompt()'s own behavior with no
+        default: "it will prompt until it's aborted") until a real
+        yes/no is given or the input is genuinely exhausted.
+        """
+        monkeypatch.setattr("sys.stdin", io.StringIO("\nyes\n"))
+        assert _ask_telemetry_consent() is True
+
 
 @pytest.mark.unit
 class TestPromptTelemetryConsent:

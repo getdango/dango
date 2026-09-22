@@ -142,10 +142,11 @@ class ProjectInitializer:
         # Print success message
         self._print_success_message(warnings=warnings, auth_success=auth_success)
 
-        # First-run anonymous telemetry consent (install ping only — no
-        # heartbeat). Skipped for --skip-wizard blank-project creation,
-        # non-interactive sessions, CI environments, and any prior opt-out
-        # or stored answer.
+        # First-run anonymous telemetry consent (install ping now, plus a
+        # periodic heartbeat while the project exists — one consent answer
+        # gates both, see telemetry.py's ping()/heartbeat()). Skipped for
+        # --skip-wizard blank-project creation, non-interactive sessions,
+        # CI environments, and any prior opt-out or stored answer.
         if not skip_wizard:
             self._prompt_telemetry_consent(config)
 
@@ -1625,12 +1626,19 @@ def _ask_telemetry_consent() -> bool | None:
     import click
 
     text = (
-        "Help improve Dango by sending anonymous usage data "
-        "(no source names, credentials, or data — just install count)?"
+        "Help improve Dango by sending anonymous usage data — an install "
+        "ping now, plus a periodic heartbeat (version, OS, configured "
+        "source types) while this project exists. Never source names, "
+        "credentials, or data."
     )
     while True:
         try:
-            result = click.prompt(f"{text} (yes/no)", default="no", show_default=True)
+            # No default on purpose — this is a real consent decision, not
+            # a prompt to blast through with Enter. click.prompt() with no
+            # default keeps re-asking on an empty line until it gets a real
+            # answer or a genuine abort (Ctrl+C/EOF), which the except
+            # below already handles correctly.
+            result = click.prompt(f"{text} (yes/no)")
         except Exception:
             return None
         normalised = str(result).lower().strip()
