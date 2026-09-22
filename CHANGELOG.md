@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Fixed
+
+### Security
+
+### Changed
+
+## [1.0.8] - 2026-09-22
+
+### Added
+
 - Telemetry — `dango init` now asks for one-time, anonymous opt-in consent before sending an install ping; declining, running in CI, or setting `DO_NOT_TRACK`/`DANGO_TELEMETRY` skips it silently
 - `dango telemetry` command (`status` / `on` / `off`) — control telemetry for Dango, dbt, dlt, and Metabase together with `--all`, or one at a time with `--provider`
 - `/settings/telemetry` page — toggle telemetry status from the web UI, matching the CLI command
