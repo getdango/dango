@@ -906,7 +906,7 @@ sources:
 api_key = "your_api_key_here"
 ```
 
-4. **Sync**: `dango sync --source my_api`
+4. **Sync**: `dango sync my_api`
 
 ## Using dlt Verified Sources (Not in Registry)
 

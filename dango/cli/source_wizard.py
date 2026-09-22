@@ -465,7 +465,7 @@ class SourceWizard:
 
             # Unified next steps
             console.print("\n[cyan]Next steps:[/cyan]")
-            console.print(f"  1. Sync your data:    dango sync --source {source_name}")
+            console.print(f"  1. Sync your data:    dango sync {source_name}")
             console.print("  2. Schedule syncs:    dango schedule add")
 
             return True
@@ -1127,7 +1127,7 @@ def {module_name}_resource(api_key: str):
             f"— add your API calls"
         )
         console.print("  2. Add credentials to [cyan].dlt/secrets.toml[/cyan] or [cyan].env[/cyan]")
-        console.print(f"  3. Test: [cyan]dango sync --source {source_name}[/cyan]")
+        console.print(f"  3. Test: [cyan]dango sync {source_name}[/cyan]")
         console.print("\n[dim]dlt docs: https://dlthub.com/docs/general-usage/source[/dim]")
         return True
 
