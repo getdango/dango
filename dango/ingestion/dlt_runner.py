@@ -406,7 +406,7 @@ class DltPipelineRunner:
                     console.print(f"\n[red]❌ {error_message}[/red]")
                     console.print("\n[bold]To fix manually, run:[/bold]")
                     console.print("  [cyan]pip install -r requirements.txt[/cyan]")
-                    console.print(f"\nThen retry: [cyan]dango sync --source {source_name}[/cyan]\n")
+                    console.print(f"\nThen retry: [cyan]dango sync {source_name}[/cyan]\n")
 
                     log_activity(
                         project_root=self.project_root,
@@ -426,7 +426,7 @@ class DltPipelineRunner:
                 console.print(f"\n[red]❌ Auto-install failed: {error_message}[/red]")
                 console.print("\n[bold]To fix manually, run:[/bold]")
                 console.print("  [cyan]pip install -r requirements.txt[/cyan]")
-                console.print(f"\nThen retry: [cyan]dango sync --source {source_name}[/cyan]\n")
+                console.print(f"\nThen retry: [cyan]dango sync {source_name}[/cyan]\n")
 
                 log_activity(
                     project_root=self.project_root,
@@ -2525,10 +2525,10 @@ Most sources have these limits:
 
 Next steps:
   # Wait and retry
-  dango sync --source {source_name}
+  dango sync {source_name}
 
-  # Or use smaller date range
-  dango sync --source {source_name} --start-date 2024-12-01 --end-date 2024-12-31
+  # Or use a smaller date range
+  dango sync {source_name} --since 2024-12-01 --until 2024-12-31
 
 Error details: {str(error)}
 """
@@ -2553,7 +2553,7 @@ How to fix:
 
 Fix commands:
   # Reload all data with latest schema
-  dango sync --source {source_name} --full-refresh
+  dango sync {source_name} --full-refresh
 
   # Re-run dbt to update models
   dango run
@@ -2610,7 +2610,7 @@ How to fix:
 
 Next steps:
   # Wait and retry
-  dango sync --source {source_name}
+  dango sync {source_name}
 
   # Check API status
   Visit source's status page (docs.api-provider.com/status)
@@ -2628,7 +2628,7 @@ Troubleshooting steps:
   1. Check logs: dango start → Activity Logs
   2. Verify configuration: .dango/sources.yml
   3. Test with smaller date range
-  4. Try full refresh: dango sync --source {source_name} --full-refresh
+  4. Try full refresh: dango sync {source_name} --full-refresh
   5. Check API documentation for breaking changes
 
 Need help? Visit: https://github.com/getdango/dango/issues

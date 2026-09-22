@@ -310,7 +310,7 @@ def handle_validation_result(
         console.print("\n[cyan]Next steps:[/cyan]")
         console.print("  1. Edit .env and add missing credentials")
         console.print("  2. Validate with: [bold]dango config validate[/bold]")
-        console.print(f"  3. Or try syncing: [bold]dango sync --source {source_name}[/bold]\n")
+        console.print(f"  3. Or try syncing: [bold]dango sync {source_name}[/bold]\n")
         return True  # Allow wizard to complete
 
     else:  # Cancel
