@@ -128,7 +128,7 @@ def run_dbt_models(
                 "DuckDB write lock held by another process",
                 "Database file corrupted",
             ]
-            fix = "Stop other syncs, then retry: dango transform"
+            fix = "Stop other syncs, then retry: dango run"
         else:
             causes = ["dbt model logic error", "Missing dependency or configuration"]
             fix = "Review the error output and check dbt model files in dbt/models/"
@@ -147,7 +147,7 @@ def run_dbt_models(
                     "Complex SQL queries",
                     "DuckDB lock contention",
                 ],
-                suggested_fix="Run a subset: dango transform --select model_name",
+                suggested_fix="Run a subset: dango run --select model_name",
             ),
         )
     except Exception as e:
