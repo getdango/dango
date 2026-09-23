@@ -32,10 +32,12 @@ local proxy or sync pipeline.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
 import socket
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -55,6 +57,45 @@ def _free_port() -> int:
         s.bind(("127.0.0.1", 0))
         port: int = s.getsockname()[1]
         return port
+
+
+def _configure_unique_docker_ports(project_root: Path) -> None:
+    """Assign isolated ports and re-render the real Compose file for a test project."""
+    from dango.cli.init import ProjectInitializer
+    from dango.config import ConfigLoader
+
+    loader = ConfigLoader(project_root)
+    config = loader.load_config()
+    config.platform.port = _free_port()
+    config.platform.metabase_port = _free_port()
+    config.platform.dbt_docs_port = _free_port()
+    loader.save_config(config)
+    ProjectInitializer(project_root)._create_docker_compose(config)
+
+
+def _inspect_docker_volume(name: str) -> dict[str, Any]:
+    """Read a real Docker volume or fail with Docker's diagnostic output."""
+    result = subprocess.run(
+        ["docker", "volume", "inspect", name], capture_output=True, text=True, timeout=20
+    )
+    assert result.returncode == 0, f"Could not inspect Docker volume {name!r}: {result.stderr}"
+    volumes = json.loads(result.stdout)
+    assert len(volumes) == 1, f"Expected exactly one Docker volume named {name!r}: {volumes}"
+    return volumes[0]
+
+
+def _compose_down_and_remove_volume(project_root: Path, compose_project_name: str) -> None:
+    """Best-effort cleanup for a temporary release-readiness Compose project only."""
+    env = os.environ.copy()
+    env["COMPOSE_PROJECT_NAME"] = compose_project_name
+    subprocess.run(
+        ["docker", "compose", "-f", str(project_root / "docker-compose.yml"), "down", "-v"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
+    )
 
 
 def _write_csv_source(project_root: Path, name: str) -> None:
@@ -132,7 +173,7 @@ class TestReleaseReadinessCleanFlow:
         fastapi_started = False
         base_url = ""
         try:
-            from dango.cli.init import ProjectInitializer, init_project
+            from dango.cli.init import init_project
 
             # 1. Scaffold a real project (docker-compose.yml, Dockerfile.metabase,
             #    dbt project, auth.db + admin user, dbt docs — the real `dango
@@ -142,15 +183,11 @@ class TestReleaseReadinessCleanFlow:
             # 2. Give this project unique ports so it can't collide with any
             #    other Dango project (e.g. tests/beta-1) already running on
             #    this machine, then re-render docker-compose.yml with them.
+            _configure_unique_docker_ports(project_root)
             from dango.config import ConfigLoader
 
             loader = ConfigLoader(project_root)
             config = loader.load_config()
-            config.platform.port = _free_port()
-            config.platform.metabase_port = _free_port()
-            config.platform.dbt_docs_port = _free_port()
-            loader.save_config(config)
-            ProjectInitializer(project_root)._create_docker_compose(config)
 
             # 3. Set a known password on the auto-generated admin user so this
             #    test can actually log in (skip-wizard mode always generates a
@@ -248,10 +285,47 @@ class TestReleaseReadinessCleanFlow:
                 stop_fastapi_server(project_root, verbose=False)
             if docker_manager is not None:
                 docker_manager.stop_services()
+                _compose_down_and_remove_volume(project_root, docker_manager.compose_project_name)
             if prev_admin_email is None:
                 os.environ.pop("DANGO_ADMIN_EMAIL", None)
             else:
                 os.environ["DANGO_ADMIN_EMAIL"] = prev_admin_email
+
+    def test_fresh_project_reuses_identity_and_metabase_volume_after_restart(
+        self, project: dict[str, Any]
+    ) -> None:
+        """A normal stop/start keeps a fresh project's Compose identity and data volume.
+
+        This is deliberately a real Docker assertion, not a mock of Compose's
+        naming rules.  It protects the lifecycle contract introduced in 1.0.8:
+        a fresh project gets one persisted identity, and `dango stop` must not
+        make its Metabase volume disappear or change names on the next start.
+        """
+        from dango.config import ConfigLoader
+        from dango.platform import DockerManager
+
+        project_root: Path = project["root"]
+        manager = DockerManager(project_root)
+        compose_name = manager.compose_project_name
+        volume_name = f"{compose_name}_metabase-data"
+        initial_volume = _inspect_docker_volume(volume_name)
+        persisted_id = ConfigLoader(project_root).load_yaml(
+            project_root / ".dango" / "project.yml"
+        )["project"]["id"]
+
+        assert initial_volume["Labels"]["com.dango.project_id"] == persisted_id
+        assert manager.stop_services(), "The real first stop failed"
+        stopped_volume = _inspect_docker_volume(volume_name)
+        assert stopped_volume["Mountpoint"] == initial_volume["Mountpoint"], (
+            "dango stop removed and recreated the Metabase volume"
+        )
+
+        assert manager.start_services(), "The real restart failed"
+        restarted_volume = _inspect_docker_volume(volume_name)
+        assert manager.compose_project_name == compose_name
+        assert restarted_volume["Mountpoint"] == initial_volume["Mountpoint"], (
+            "Restart switched to a different Metabase volume"
+        )
 
     def test_metabase_proxy_serves_valid_js(self, project: dict[str, Any]) -> None:
         """Every JS asset referenced by the real /metabase/ proxy page loads as JS, not HTML.
