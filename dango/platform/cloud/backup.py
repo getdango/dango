@@ -250,9 +250,11 @@ def _checkpoint_auth_db(ssh: SSHManager) -> bool:
 
 
 def _get_metabase_volume_path(ssh: SSHManager) -> str | None:
-    """Discover the host path of the Metabase H2 Docker volume."""
+    """Discover the host path of the project's Metabase H2 Docker volume."""
+    compose_project = get_remote_compose_project_name(ssh)
     result = ssh.exec_command(
-        "docker volume inspect project_metabase-data --format '{{.Mountpoint}}' 2>/dev/null"
+        f"docker volume inspect {compose_project}_metabase-data "
+        "--format '{{.Mountpoint}}' 2>/dev/null"
     )
     return result.stdout.strip() if result.success and result.stdout.strip() else None
 
