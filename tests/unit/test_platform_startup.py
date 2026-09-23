@@ -235,6 +235,22 @@ class TestStartDockerServices:
                 with pytest.raises(RuntimeError, match="failed to start"):
                     start_docker_services(tmp_path)
 
+        assert manager.stop_services.call_count == 2
+
+    def test_reconciled_timeout_does_not_trigger_cleanup(self, tmp_path):
+        """A manager that reconciles a late timeout to success is not stopped again."""
+        manager = self._make_manager()
+        mock_sock = MagicMock()
+        mock_sock.connect_ex.return_value = 1
+
+        with patch("dango.platform.DockerManager", return_value=manager):
+            with patch("dango.platform.common.startup.socket.socket", return_value=mock_sock):
+                start_docker_services(tmp_path)
+
+        # The first call is the normal pre-start cleanup. A reconciled
+        # ``start_services() is True`` must not cause a second cleanup.
+        assert manager.stop_services.call_count == 1
+
     def test_success(self, tmp_path):
         """start_docker_services completes without error when all checks pass."""
         manager = self._make_manager()

@@ -17,7 +17,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - run: pip install -c constraints.txt -e ".[dev]"
-      - name: Run release-readiness integration test
+      - name: Run release-readiness integration tests
         env:
           DANGO_RUN_DOCKER_TESTS: "1"
-        run: pytest tests/integration/test_release_readiness.py -v
+        run: >-
+          pytest tests/integration/test_release_readiness.py
+          tests/integration/test_docker_identity_migration.py -v

@@ -20,6 +20,7 @@ from typing import Any
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.docker import get_compose_project_name
 
 _logger = get_logger(__name__)
 
@@ -95,8 +96,10 @@ def _stop_services() -> None:
         shell=True,
         timeout=60,
     )
+    compose_project = get_compose_project_name(PROJECT_DIR)
     subprocess.run(
-        f"docker compose -f {PROJECT_DIR}/docker-compose.yml stop metabase 2>/dev/null || true",
+        f"COMPOSE_PROJECT_NAME={compose_project} docker compose -f "
+        f"{PROJECT_DIR}/docker-compose.yml stop metabase 2>/dev/null || true",
         shell=True,
         timeout=120,
     )
@@ -104,8 +107,10 @@ def _stop_services() -> None:
 
 def _start_services() -> None:
     """Start Metabase then dango-web."""
+    compose_project = get_compose_project_name(PROJECT_DIR)
     subprocess.run(
-        f"docker compose -f {PROJECT_DIR}/docker-compose.yml start metabase 2>/dev/null || true",
+        f"COMPOSE_PROJECT_NAME={compose_project} docker compose -f "
+        f"{PROJECT_DIR}/docker-compose.yml start metabase 2>/dev/null || true",
         shell=True,
         timeout=120,
     )
@@ -144,9 +149,11 @@ def _checkpoint_databases() -> list[str]:
 
 def _get_metabase_volume_path() -> str | None:
     """Discover the host path of the Metabase H2 Docker volume."""
+    compose_project = get_compose_project_name(PROJECT_DIR)
     try:
         result = subprocess.run(
-            "docker volume inspect project_metabase-data --format '{{.Mountpoint}}' 2>/dev/null",
+            f"docker volume inspect {compose_project}_metabase-data "
+            "--format '{{.Mountpoint}}' 2>/dev/null",
             shell=True,
             capture_output=True,
             text=True,

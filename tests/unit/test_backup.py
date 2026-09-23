@@ -163,8 +163,16 @@ class TestBackupHelpers:
         ssh = make_ssh_mock_configurable(
             exec_results={"docker volume inspect": ("/var/lib/docker/volumes/vol/_data", "", 0)}
         )
-        path = _get_metabase_volume_path(ssh)
+        with patch(
+            "dango.platform.cloud.backup.get_remote_compose_project_name",
+            return_value="dango-59f02899",
+        ):
+            path = _get_metabase_volume_path(ssh)
         assert path == "/var/lib/docker/volumes/vol/_data"
+        commands = [call.args[0] for call in ssh.exec_command.call_args_list]
+        assert any(
+            "docker volume inspect dango-59f02899_metabase-data" in command for command in commands
+        )
 
     def test_get_metabase_volume_path_not_found(self):
         """Returns None when docker volume doesn't exist."""

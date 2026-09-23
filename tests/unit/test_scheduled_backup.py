@@ -49,6 +49,54 @@ class TestScheduledBackupDataClasses:
             info.name = "changed"  # type: ignore[misc]
 
 
+@pytest.mark.unit
+class TestScheduledBackupComposeIdentity:
+    def test_stop_and_start_use_project_scoped_compose_name(self):
+        """Scheduled backups stop and restart the same scoped Compose project."""
+        from dango.platform.cloud.scheduled_backup import _start_services, _stop_services
+
+        with (
+            patch(
+                "dango.platform.cloud.scheduled_backup.get_compose_project_name",
+                return_value="dango-59f02899",
+            ),
+            patch("subprocess.run") as mock_run,
+        ):
+            _stop_services()
+            _start_services()
+
+        commands = [call.args[0] for call in mock_run.call_args_list]
+        assert any(
+            "COMPOSE_PROJECT_NAME=dango-59f02899 docker compose" in command
+            and "stop metabase" in command
+            for command in commands
+        )
+        assert any(
+            "COMPOSE_PROJECT_NAME=dango-59f02899 docker compose" in command
+            and "start metabase" in command
+            for command in commands
+        )
+
+    def test_volume_lookup_uses_project_scoped_volume_name(self):
+        """Scheduled backups find the Compose-generated Metabase H2 volume."""
+        from dango.platform.cloud.scheduled_backup import _get_metabase_volume_path
+
+        with (
+            patch(
+                "dango.platform.cloud.scheduled_backup.get_compose_project_name",
+                return_value="dango-59f02899",
+            ),
+            patch(
+                "subprocess.run", return_value=MagicMock(returncode=0, stdout="/volume\n")
+            ) as mock_run,
+        ):
+            assert _get_metabase_volume_path() == "/volume"
+
+        assert mock_run.call_args.args[0].startswith(
+            "docker volume inspect dango-59f02899_metabase-data "
+        )
+
+
 # ---------------------------------------------------------------------------
 # 2. Retention policy
 # ---------------------------------------------------------------------------
