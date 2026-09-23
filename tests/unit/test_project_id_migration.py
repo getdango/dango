@@ -5,11 +5,11 @@ Tests for the persisted project.id + lazy migration added in 1.0.8-Q9.
 Background: get_compose_project_name() used to derive a project's Docker
 Compose identity from an MD5 hash of its path string — not a stable
 identifier (see 1.0.8-Q8's test_docker_identity_guard.py for the incident
-writeup). 1.0.8-Q9 replaces this with a persisted `project.id` (UUID) stored
+writeup). 1.0.8-Q9 replaces this with a persisted `project.id` (UUID for new projects) stored
 in project.yml, read directly instead of hashed. A pre-upgrade project
 without `project.id` is migrated lazily, exactly once, only inside
-DockerManager.start_services()/stop_services(), driven by real Docker state
-(reusing 1.0.8-Q8's _get_existing_container_working_dirs()).
+DockerManager.start_services()/stop_services(), retaining the legacy hash so
+stopped projects with volume-only Docker state are never orphaned.
 """
 
 from __future__ import annotations
@@ -50,25 +50,18 @@ class TestNewProjectGetsIdAtInit:
 
 
 @pytest.mark.unit
-class TestMigrationAdoptsLegacyHash:
-    def test_existing_project_without_id_adopts_legacy_hash_if_containers_exist(
+class TestMigrationRetainsLegacyHash:
+    def test_existing_project_without_id_retains_legacy_hash_without_docker_evidence(
         self, tmp_project_dir
     ):
-        """A pre-upgrade project.yml (no `id`) whose legacy-hash compose name
-        already has containers adopts that exact legacy hash as project.id —
-        zero disruption. This is the highest-blast-radius branch in the
-        whole task: getting it wrong orphans every existing running Dango
-        project on upgrade."""
+        """No Docker evidence is not proof that legacy volume-only state is absent."""
         manager = DockerManager(tmp_project_dir)
         legacy_hash = _legacy_path_hash(tmp_project_dir)
 
-        with patch(
-            "dango.platform.docker._get_existing_container_working_dirs",
-            return_value={str(tmp_project_dir.resolve())},
-        ) as mock_check:
+        with patch("dango.platform.docker._get_existing_container_working_dirs") as mock_check:
             resolved_id = manager._resolve_or_migrate_project_id()
 
-        mock_check.assert_called_once_with(f"dango-{legacy_hash}")
+        mock_check.assert_not_called()
         assert resolved_id == legacy_hash
 
         loader = ConfigLoader(tmp_project_dir)
@@ -78,31 +71,6 @@ class TestMigrationAdoptsLegacyHash:
         # The resulting compose project name is unchanged from what it was
         # pre-migration (the whole point: zero disruption).
         assert get_compose_project_name(tmp_project_dir) == f"dango-{legacy_hash}"
-
-
-@pytest.mark.unit
-class TestMigrationGeneratesFreshId:
-    def test_existing_project_without_id_generates_fresh_id_if_no_containers_exist(
-        self, tmp_project_dir
-    ):
-        """No containers under the legacy-hash name -> a fresh UUID is
-        generated and persisted, not the legacy hash."""
-        manager = DockerManager(tmp_project_dir)
-        legacy_hash = _legacy_path_hash(tmp_project_dir)
-
-        with patch(
-            "dango.platform.docker._get_existing_container_working_dirs",
-            return_value=set(),
-        ) as mock_check:
-            resolved_id = manager._resolve_or_migrate_project_id()
-
-        mock_check.assert_called_once_with(f"dango-{legacy_hash}")
-        assert resolved_id != legacy_hash
-        assert _UUID_HEX_RE.match(resolved_id)
-
-        loader = ConfigLoader(tmp_project_dir)
-        raw = loader.load_yaml(loader.project_file)
-        assert raw["project"]["id"] == resolved_id
 
 
 @pytest.mark.unit
@@ -118,11 +86,11 @@ class TestMigrationRunsOnlyOnce:
             return_value=set(),
         ) as mock_check:
             first_id = manager._resolve_or_migrate_project_id()
-            assert mock_check.call_count == 1
+            assert mock_check.call_count == 0
 
             second_id = manager._resolve_or_migrate_project_id()
             # No new call to the containers-exist check on the second run.
-            assert mock_check.call_count == 1
+            assert mock_check.call_count == 0
 
         assert second_id == first_id
 

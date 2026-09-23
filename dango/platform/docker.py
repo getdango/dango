@@ -6,7 +6,6 @@ Handles Docker Compose operations for Dango services.
 import hashlib
 import os
 import subprocess
-import uuid
 from enum import Enum
 from pathlib import Path
 
@@ -17,6 +16,13 @@ from dango.config.models import DangoConfig
 from dango.exceptions import DockerIdentityCollisionError, format_structured_error
 
 console = Console()
+
+
+def _timeout_output_text(output: str | bytes | None) -> str:
+    """Return subprocess timeout output as printable text."""
+    if isinstance(output, bytes):
+        return output.decode(errors="replace")
+    return output or ""
 
 
 def render_docker_compose(project_root: Path, config: DangoConfig) -> None:
@@ -209,15 +215,12 @@ class DockerManager:
            migrated (or created fresh by ``dango init`` after this fix
            shipped). Return it unchanged. Never overwritten.
         3. ``project.id`` missing from the raw YAML (pre-upgrade project) —
-           compute the legacy path hash, check via Q8's
-           ``_get_existing_container_working_dirs()`` whether containers
-           already exist under that legacy compose name:
-           - If yes: adopt the legacy hash as ``project.id`` — zero
-             disruption, the exact same compose project name continues to
-             be used.
-           - If no: generate a fresh ``uuid.uuid4().hex``.
-           Either way, persist the resolved id back to project.yml
-           immediately via ``ConfigLoader.save_project_context()``.
+           persist the deterministic legacy path hash as ``project.id``.
+           This retains the exact Compose identity that pre-1.0.8 used,
+           including when its containers are stopped and only its Metabase
+           volume remains. An unavailable Docker daemon is not evidence that
+           legacy resources do not exist. New projects receive a UUID during
+           ``dango init`` instead.
         """
         from dango.config.loader import ConfigLoader
 
@@ -230,17 +233,10 @@ class DockerManager:
         if isinstance(existing_id, str) and existing_id:
             return existing_id
 
-        legacy_hash = _legacy_path_hash(self.project_root)
-        legacy_name = f"dango-{legacy_hash}"
-        if _get_existing_container_working_dirs(legacy_name):
-            resolved_id = legacy_hash
-        else:
-            resolved_id = uuid.uuid4().hex
-
         project = loader.load_project_context()
-        project.id = resolved_id
+        project.id = _legacy_path_hash(self.project_root)
         loader.save_project_context(project)
-        return resolved_id
+        return project.id
 
     def _assert_no_identity_collision(self) -> None:
         """Refuse to proceed if this compose project name already belongs to
@@ -279,10 +275,17 @@ class DockerManager:
             )
 
     def _metabase_image_exists(self) -> bool:
-        """Check if the dango-metabase Docker image already exists locally."""
+        """Check whether this project's Compose-built Metabase image exists.
+
+        Compose names images built without an explicit ``image:`` field as
+        ``<compose-project>-<service>``.  The compose project name is
+        project-scoped, so checking the former generic ``dango-metabase``
+        name would classify every existing project as a first run.
+        """
+        image_name = f"{self.compose_project_name}-metabase"
         try:
             result = subprocess.run(
-                ["docker", "images", "--filter", "reference=dango-metabase", "-q"],
+                ["docker", "images", "--filter", f"reference={image_name}", "-q"],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -448,7 +451,21 @@ class DockerManager:
                     console.print(f"\nFull output:\n{result.stderr}")
                 return False
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
+            partial_stdout = _timeout_output_text(exc.stdout)
+            partial_stderr = _timeout_output_text(exc.stderr)
+            statuses = self.get_service_status()
+            expected_services = {"metabase", "dbt-docs"}
+            if expected_services.issubset(statuses) and all(
+                statuses[service] in {ServiceStatus.RUNNING, ServiceStatus.STARTING}
+                for service in expected_services
+            ):
+                console.print(
+                    "[yellow]⚠[/yellow] Docker Compose timed out, but both services are "
+                    "present and starting or running; continuing without cleanup."
+                )
+                return True
+
             causes = [
                 "Docker image download is slow",
                 "Insufficient system resources",
@@ -462,6 +479,10 @@ class DockerManager:
                 suggested_fix="Check Docker status with 'docker ps' and retry",
             )
             console.print(f"[red]Error:[/red]\n{msg}")
+            if partial_stdout:
+                console.print(f"\nPartial output before timeout:\n{partial_stdout}")
+            if partial_stderr:
+                console.print(f"\nPartial error output before timeout:\n{partial_stderr}")
             return False
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")
