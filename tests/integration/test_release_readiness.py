@@ -151,7 +151,8 @@ class TestReleaseReadinessCleanFlow:
             pytest.skip("Docker not available")
 
     @pytest.fixture(scope="class")
-    def project(self, tmp_path_factory: pytest.TempPathFactory) -> Any:
+    @classmethod
+    def project(cls, tmp_path_factory: pytest.TempPathFactory) -> Any:
         """Build a real dango project, start its real Docker + FastAPI stack, log in.
 
         Equivalent to `dango init --skip-wizard` (project scaffold) + `dango
@@ -320,7 +321,15 @@ class TestReleaseReadinessCleanFlow:
             "dango stop removed and recreated the Metabase volume"
         )
 
-        assert manager.start_services(), "The real restart failed"
+        from tests.integration.release_readiness_support import start_services_and_wait_for_metabase
+
+        start_services_and_wait_for_metabase(
+            manager,
+            project_root,
+            project["metabase_url"],
+            project["base_url"],
+            project["session"],
+        )
         restarted_volume = _inspect_docker_volume(volume_name)
         assert manager.compose_project_name == compose_name
         assert restarted_volume["Mountpoint"] == initial_volume["Mountpoint"], (
