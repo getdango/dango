@@ -23,3 +23,4 @@ jobs:
         run: >-
           pytest tests/integration/test_release_readiness.py
           tests/integration/test_docker_identity_migration.py -v
+          -W error::pytest.PytestRemovedIn10Warning
