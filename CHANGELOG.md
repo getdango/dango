@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+## [1.0.9] - 2026-09-25
+
+### Fixed
+
+- Docker project identity upgrades now preserve a pre-1.0.8 project's existing Metabase volume even when its containers were previously stopped or Docker Desktop is temporarily unavailable, preventing an accidental empty replacement Metabase instance
+- `dango start` now recognizes each project's actual Compose-built Metabase image instead of incorrectly reporting every existing project as a first-time build
+- If Docker Compose times out after services have already started, Dango retains those services instead of immediately tearing them down and shows captured Compose output for actionable diagnosis
+- Cloud backup and scheduled backup operations now use the project's persisted Compose identity for Metabase volumes and remote lifecycle commands
+
 ## [1.0.8] - 2026-09-22
 
 ### Added
