@@ -329,7 +329,7 @@ class DltPipelineRunner:
         full_refresh: bool = False,
         timeout_minutes: int = 60,
         limit: int | None = None,
-        allow_empty_replace: bool = False,
+        allow_empty_replace: bool | None = None,
         max_lock_wait: int = 300,
     ) -> dict[str, Any]:
         """
@@ -342,11 +342,15 @@ class DltPipelineRunner:
             full_refresh: Drop existing data and reload from scratch
             timeout_minutes: Timeout in minutes (default: 60)
             limit: Max rows to load (dev testing, applies to dlt sources only)
-            allow_empty_replace: If True, allow 0-row syncs to replace existing data
+            allow_empty_replace: If True, allow 0-row syncs to replace existing data.
+                If None, falls back to the source's persisted `empty_sync_policy`.
 
         Returns:
             Dictionary with load statistics and status
         """
+        if allow_empty_replace is None:
+            allow_empty_replace = source_config.empty_sync_policy == "allow"
+
         from dango.exceptions import DiskSpaceError
         from dango.utils.activity_log import log_activity
         from dango.utils.db_health import check_disk_space, check_duckdb_health
@@ -3022,7 +3026,7 @@ def run_sync(
     *,
     skip_sync_notification: bool = False,
     progress_callback: Callable[[str, str], None] | None = None,
-    allow_empty_replace: bool = False,
+    allow_empty_replace: bool | None = None,
 ) -> dict[str, Any]:
     """
     Sync multiple sources and return summary
@@ -3042,6 +3046,7 @@ def run_sync(
             (phase, message). Phases: ``data_load_complete``, ``dbt_started``,
             ``dbt_complete`` (on success), ``dbt_failed`` (on failure).
         allow_empty_replace: If True, allow 0-row syncs to replace existing data.
+            If None, falls back to each source's persisted `empty_sync_policy`.
 
     Returns:
         Summary dictionary with success/failed counts

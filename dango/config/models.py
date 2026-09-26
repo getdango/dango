@@ -412,6 +412,11 @@ class DataSource(BaseModel):
     # to pick up late-arriving records.  Ignored during full refresh.
     lookback_days: int | None = None
 
+    # Empty-sync policy: whether a 0-row replace-mode sync is allowed to replace
+    # existing data ("allow") or should block and preserve prior data ("block",
+    # the default — matches pre-1.0.10 behavior for every existing sources.yml).
+    empty_sync_policy: Literal["block", "allow"] = "block"
+
     @field_validator("name")
     @classmethod
     def validate_name_format(cls, v: str) -> str:
