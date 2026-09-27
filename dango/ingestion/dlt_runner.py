@@ -838,6 +838,7 @@ class DltPipelineRunner:
                 "status": "failed",
                 "source": source_config.name,
                 "error": error_msg,
+                "error_type": "empty_replace_protection",
                 "rows_loaded": 0,
                 "uses_replace_mode": True,
             }
@@ -999,6 +1000,7 @@ class DltPipelineRunner:
                 "status": "failed",
                 "source": source_config.name,
                 "error": error_msg,
+                "error_type": "empty_replace_protection",
                 "rows_loaded": 0,
                 "uses_replace_mode": True,
             }
@@ -1257,6 +1259,7 @@ class DltPipelineRunner:
                     "status": "failed",
                     "source": source_name,
                     "error": error_msg,
+                    "error_type": "empty_replace_protection",
                     "rows_loaded": 0,
                     "uses_replace_mode": uses_replace_mode,
                 }
@@ -1295,6 +1298,7 @@ class DltPipelineRunner:
                             "status": "failed",
                             "source": source_name,
                             "error": error_msg,
+                            "error_type": "empty_replace_protection",
                             "rows_loaded": rows_loaded,
                             "uses_replace_mode": uses_replace_mode,
                         }
@@ -1665,6 +1669,7 @@ class DltPipelineRunner:
                     "status": "failed",
                     "source": source_name,
                     "error": error_msg,
+                    "error_type": "empty_replace_protection",
                     "rows_loaded": 0,
                     "uses_replace_mode": uses_replace_mode,
                 }
@@ -1705,6 +1710,7 @@ class DltPipelineRunner:
                             "source": source_name,
                             "error": error_msg,
                             "rows_loaded": rows_loaded,
+                            "error_type": "empty_replace_protection",
                             "uses_replace_mode": uses_replace_mode,
                         }
 
@@ -3080,7 +3086,11 @@ def run_sync(
             success_sources.append(source_config.name)
         else:
             failed_sources.append(
-                {"name": source_config.name, "error": result.get("error", "Unknown error")}
+                {
+                    "name": source_config.name,
+                    "error": result.get("error", "Unknown error"),
+                    "error_type": result.get("error_type"),
+                }
             )
 
     # Print detailed summary

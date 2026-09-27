@@ -287,13 +287,20 @@ def run_manual_sync(
             error_msg = "; ".join(f["error"] for f in failed_sources if isinstance(f, dict))
             record_failure(db_path, record_id, error_msg)
             _progress("failed", f"Sync failed: {error_msg}", error=error_msg)
-            return {
+            result: dict[str, Any] = {
                 "record_id": record_id,
                 "status": "failed",
                 "duration_seconds": duration,
                 "error": error_msg,
                 "rows_loaded": rows_loaded,
             }
+            # Only meaningful when exactly one source is in this batch — jobs.py's scheduled-sync
+            # loop is the only caller that relies on this key, and it always calls with a single
+            # source. Do not extend this to multi-source batches without a real per-source schema
+            # change.
+            if len(failed_sources) == 1:
+                result["error_type"] = failed_sources[0].get("error_type")
+            return result
 
         record_completion(db_path, record_id)
         # Always write phase="completed" so poll_sync_status_blocking recognises
