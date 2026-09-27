@@ -94,7 +94,7 @@ async def run_sync_task(
     full_refresh: bool,
     start_date: str | None,
     end_date: str | None,
-    allow_empty_replace: bool = False,
+    allow_empty_replace: bool | None = None,
 ) -> None:
     """Run sync task in a subprocess, polling for status and broadcasting updates."""
     from dango.platform.sync_process import (
@@ -308,7 +308,7 @@ async def _run_manual_sync(
     backfill_days: int | None,
     record_id: int,
     db_path: Any,
-    allow_empty_replace: bool = False,
+    allow_empty_replace: bool | None = None,
 ) -> None:
     """Background task that executes a manual sync in a subprocess and records the result."""
     from dango.platform.sync_process import (
