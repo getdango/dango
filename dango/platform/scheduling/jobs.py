@@ -508,6 +508,7 @@ def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: A
         total_rows = 0
         succeeded_sources: list[str] = []
         failed_source_errors: dict[str, str] = {}
+        failed_source_error_types: dict[str, str | None] = {}
 
         # Sync each source in a subprocess with skip_dbt=True
         # (dbt coalesced after all sources)
@@ -539,6 +540,7 @@ def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: A
                     _result.get("error", "Unknown error") if _result else "Subprocess failed"
                 )
                 failed_source_errors[src.name] = error_msg
+                failed_source_error_types[src.name] = _result.get("error_type") if _result else None
                 log_activity(project_root, "error", src.name, f"Scheduled sync failed: {error_msg}")
                 logger.warning(
                     "scheduled_source_sync_failed",
@@ -573,9 +575,15 @@ def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: A
             )
             # Mark downstream dbt models as stale
             try:
+                from dango.ingestion.dlt_runner import EMPTY_REPLACE_PROTECTION_ERROR_TYPE
                 from dango.utils.dbt_status import mark_source_models_stale
 
-                mark_source_models_stale(project_root, list(failed_source_errors.keys()))
+                stale_candidates = [
+                    n
+                    for n in failed_source_errors
+                    if failed_source_error_types.get(n) != EMPTY_REPLACE_PROTECTION_ERROR_TYPE
+                ]
+                mark_source_models_stale(project_root, stale_candidates)
             except Exception:  # noqa: BLE001
                 logger.debug("mark_stale_after_all_failed", exc_info=True)
             _try_finish_record(
@@ -614,9 +622,15 @@ def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: A
             source_error = "; ".join(f"{n}: {e}" for n, e in failed_source_errors.items())
             # Mark downstream dbt models as stale for failed sources
             try:
+                from dango.ingestion.dlt_runner import EMPTY_REPLACE_PROTECTION_ERROR_TYPE
                 from dango.utils.dbt_status import mark_source_models_stale
 
-                mark_source_models_stale(project_root, list(failed_source_errors.keys()))
+                stale_candidates = [
+                    n
+                    for n in failed_source_errors
+                    if failed_source_error_types.get(n) != EMPTY_REPLACE_PROTECTION_ERROR_TYPE
+                ]
+                mark_source_models_stale(project_root, stale_candidates)
             except Exception:  # noqa: BLE001
                 logger.debug("mark_stale_after_partial_failure", exc_info=True)
 

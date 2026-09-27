@@ -1652,3 +1652,195 @@ class TestPerTableProtection:
         assert "would be lost" in result["error"]
         assert "--allow-empty-replace" in result["error"]
         mock_restore.assert_called_once()
+
+
+# ============================================================================
+# error_type propagation (1.0.10-S11)
+# ============================================================================
+#
+# Empty-replace-protection failures carry a structured "error_type" through
+# dlt_runner._run_*_source() -> run_sync()'s failed_sources aggregation ->
+# sync_trigger.run_manual_sync()'s failed-sources-to-error_msg flattening, so
+# jobs.py can later exclude these failures from stale-marking (see
+# test_sync_jobs.py TestScheduledSyncStaleMarking for the consumer side).
+
+
+@pytest.mark.unit
+class TestErrorTypePropagation:
+    """Verify error_type flows from dlt_runner failures through run_sync() and
+    run_manual_sync()."""
+
+    def test_failed_sources_carries_error_type(self, tmp_path):
+        """run_sync()'s failed_sources aggregation carries error_type through
+        from the per-source result dict returned by run_source()."""
+        from dango.ingestion.dlt_runner import run_sync
+
+        mock_source = _make_source_config()
+
+        with (
+            patch("dango.ingestion.dlt_runner.DltPipelineRunner") as mock_runner_cls,
+            patch("dango.ingestion.dlt_runner.console"),
+        ):
+            mock_runner = MagicMock()
+            mock_runner.run_source.return_value = {
+                "status": "failed",
+                "source": mock_source.name,
+                "error": "Sync returned 0 rows",
+                "error_type": "empty_replace_protection",
+                "rows_loaded": 0,
+            }
+            mock_runner_cls.return_value = mock_runner
+
+            result = run_sync(project_root=tmp_path, sources=[mock_source])
+
+        assert result["failed_sources"][0]["error_type"] == "empty_replace_protection"
+
+    def test_run_manual_sync_single_failure_carries_error_type(self, tmp_path):
+        """run_manual_sync() surfaces error_type on its returned dict when
+        exactly one source fails with that error_type set."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+
+        config = MagicMock()
+        src = MagicMock()
+        src.name = "src1"
+        src.type.value = "chess"
+        config.sources.get_source.side_effect = lambda n: src if n == "src1" else None
+
+        with (
+            patch("dango.ingestion.run_sync") as mock_sync,
+            patch("dango.config.helpers.load_config", return_value=config),
+            patch("dango.platform.scheduling.sync_trigger.record_start", return_value=1),
+            patch("dango.platform.scheduling.sync_trigger.record_failure"),
+            patch("dango.platform.scheduling.sync_trigger.get_scheduler_db_path"),
+            patch("dango.oauth.validation.validate_before_sync"),
+        ):
+            mock_sync.return_value = {
+                "results": [],
+                "failed_sources": [
+                    {
+                        "name": "src1",
+                        "error": "Sync returned 0 rows",
+                        "error_type": "empty_replace_protection",
+                    }
+                ],
+            }
+
+            result = run_manual_sync(tmp_path, sources=["src1"])
+
+        assert result["status"] == "failed"
+        assert result["error_type"] == "empty_replace_protection"
+
+    def test_run_manual_sync_generic_failure_has_no_error_type(self, tmp_path):
+        """A normal OAuth/timeout-style failure (no error_type set) must not be
+        misreported as empty-replace protection — the key is absent or None."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+
+        config = MagicMock()
+        src = MagicMock()
+        src.name = "src1"
+        src.type.value = "chess"
+        config.sources.get_source.side_effect = lambda n: src if n == "src1" else None
+
+        with (
+            patch("dango.ingestion.run_sync") as mock_sync,
+            patch("dango.config.helpers.load_config", return_value=config),
+            patch("dango.platform.scheduling.sync_trigger.record_start", return_value=1),
+            patch("dango.platform.scheduling.sync_trigger.record_failure"),
+            patch("dango.platform.scheduling.sync_trigger.get_scheduler_db_path"),
+            patch("dango.oauth.validation.validate_before_sync"),
+        ):
+            mock_sync.return_value = {
+                "results": [],
+                "failed_sources": [
+                    {"name": "src1", "error": "OAuth token expired"},
+                ],
+            }
+
+            result = run_manual_sync(tmp_path, sources=["src1"])
+
+        assert result["status"] == "failed"
+        assert result.get("error_type") is None
+
+    def test_error_type_reaches_status_file_not_just_return_value(self, tmp_path):
+        """jobs.py's scheduled-sync loop runs run_manual_sync() in a subprocess
+        (via launch_sync_subprocess) and never sees this function's Python
+        return value — it only ever reads the sync_status_{sync_id}.json file
+        via poll_sync_status_blocking() -> read_sync_status(). error_type must
+        be written into that file (via write_progress=True), not only set on
+        the in-memory return dict, or the stale-marking exclusion in jobs.py
+        is a no-op in production."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+        from dango.platform.sync_process import read_sync_status
+
+        config = MagicMock()
+        src = MagicMock()
+        src.name = "src1"
+        src.type.value = "chess"
+        config.sources.get_source.side_effect = lambda n: src if n == "src1" else None
+
+        with (
+            patch("dango.ingestion.run_sync") as mock_sync,
+            patch("dango.config.helpers.load_config", return_value=config),
+            patch("dango.platform.scheduling.sync_trigger.record_start", return_value=1),
+            patch("dango.platform.scheduling.sync_trigger.record_failure"),
+            patch("dango.platform.scheduling.sync_trigger.get_scheduler_db_path"),
+            patch("dango.oauth.validation.validate_before_sync"),
+        ):
+            mock_sync.return_value = {
+                "results": [],
+                "failed_sources": [
+                    {
+                        "name": "src1",
+                        "error": "Sync returned 0 rows",
+                        "error_type": "empty_replace_protection",
+                    }
+                ],
+            }
+
+            run_manual_sync(
+                tmp_path,
+                sources=["src1"],
+                write_progress=True,
+                sync_id="test-wire-check",
+            )
+
+        status = read_sync_status(tmp_path, sync_id="test-wire-check")
+        assert status is not None
+        assert status["phase"] == "failed"
+        assert status.get("error_type") == "empty_replace_protection"
+
+    def test_generic_failure_status_file_has_no_error_type(self, tmp_path):
+        """Companion to the above: a generic failure's status file must not
+        carry a stray error_type key that could be misread downstream."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+        from dango.platform.sync_process import read_sync_status
+
+        config = MagicMock()
+        src = MagicMock()
+        src.name = "src1"
+        src.type.value = "chess"
+        config.sources.get_source.side_effect = lambda n: src if n == "src1" else None
+
+        with (
+            patch("dango.ingestion.run_sync") as mock_sync,
+            patch("dango.config.helpers.load_config", return_value=config),
+            patch("dango.platform.scheduling.sync_trigger.record_start", return_value=1),
+            patch("dango.platform.scheduling.sync_trigger.record_failure"),
+            patch("dango.platform.scheduling.sync_trigger.get_scheduler_db_path"),
+            patch("dango.oauth.validation.validate_before_sync"),
+        ):
+            mock_sync.return_value = {
+                "results": [],
+                "failed_sources": [{"name": "src1", "error": "OAuth token expired"}],
+            }
+
+            run_manual_sync(
+                tmp_path,
+                sources=["src1"],
+                write_progress=True,
+                sync_id="test-wire-check-generic",
+            )
+
+        status = read_sync_status(tmp_path, sync_id="test-wire-check-generic")
+        assert status is not None
+        assert status.get("error_type") is None
