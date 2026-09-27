@@ -286,7 +286,22 @@ def run_manual_sync(
         if failed_sources:
             error_msg = "; ".join(f["error"] for f in failed_sources if isinstance(f, dict))
             record_failure(db_path, record_id, error_msg)
-            _progress("failed", f"Sync failed: {error_msg}", error=error_msg)
+            # Only meaningful when exactly one source is in this batch — jobs.py's scheduled-sync
+            # loop is the only caller that relies on this key, and it always calls with a single
+            # source. Do not extend this to multi-source batches without a real per-source schema
+            # change.
+            error_type: str | None = None
+            if len(failed_sources) == 1 and isinstance(failed_sources[0], dict):
+                error_type = failed_sources[0].get("error_type")
+            # jobs.py's scheduled-sync loop runs this in a subprocess and only ever sees the
+            # sync_status_{sync_id}.json file written by _progress()/_write_status() below — it
+            # never sees this function's Python return value. error_type MUST be passed to
+            # _progress() (not only set on the return dict) or it never crosses the process
+            # boundary and stale-marking exclusion silently becomes a no-op.
+            progress_extra: dict[str, Any] = {"error": error_msg}
+            if error_type is not None:
+                progress_extra["error_type"] = error_type
+            _progress("failed", f"Sync failed: {error_msg}", **progress_extra)
             result: dict[str, Any] = {
                 "record_id": record_id,
                 "status": "failed",
@@ -294,12 +309,8 @@ def run_manual_sync(
                 "error": error_msg,
                 "rows_loaded": rows_loaded,
             }
-            # Only meaningful when exactly one source is in this batch — jobs.py's scheduled-sync
-            # loop is the only caller that relies on this key, and it always calls with a single
-            # source. Do not extend this to multi-source batches without a real per-source schema
-            # change.
-            if len(failed_sources) == 1:
-                result["error_type"] = failed_sources[0].get("error_type")
+            if error_type is not None:
+                result["error_type"] = error_type
             return result
 
         record_completion(db_path, record_id)

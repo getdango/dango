@@ -1760,3 +1760,87 @@ class TestErrorTypePropagation:
 
         assert result["status"] == "failed"
         assert result.get("error_type") is None
+
+    def test_error_type_reaches_status_file_not_just_return_value(self, tmp_path):
+        """jobs.py's scheduled-sync loop runs run_manual_sync() in a subprocess
+        (via launch_sync_subprocess) and never sees this function's Python
+        return value — it only ever reads the sync_status_{sync_id}.json file
+        via poll_sync_status_blocking() -> read_sync_status(). error_type must
+        be written into that file (via write_progress=True), not only set on
+        the in-memory return dict, or the stale-marking exclusion in jobs.py
+        is a no-op in production."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+        from dango.platform.sync_process import read_sync_status
+
+        config = MagicMock()
+        src = MagicMock()
+        src.name = "src1"
+        src.type.value = "chess"
+        config.sources.get_source.side_effect = lambda n: src if n == "src1" else None
+
+        with (
+            patch("dango.ingestion.run_sync") as mock_sync,
+            patch("dango.config.helpers.load_config", return_value=config),
+            patch("dango.platform.scheduling.sync_trigger.record_start", return_value=1),
+            patch("dango.platform.scheduling.sync_trigger.record_failure"),
+            patch("dango.platform.scheduling.sync_trigger.get_scheduler_db_path"),
+            patch("dango.oauth.validation.validate_before_sync"),
+        ):
+            mock_sync.return_value = {
+                "results": [],
+                "failed_sources": [
+                    {
+                        "name": "src1",
+                        "error": "Sync returned 0 rows",
+                        "error_type": "empty_replace_protection",
+                    }
+                ],
+            }
+
+            run_manual_sync(
+                tmp_path,
+                sources=["src1"],
+                write_progress=True,
+                sync_id="test-wire-check",
+            )
+
+        status = read_sync_status(tmp_path, sync_id="test-wire-check")
+        assert status is not None
+        assert status["phase"] == "failed"
+        assert status.get("error_type") == "empty_replace_protection"
+
+    def test_generic_failure_status_file_has_no_error_type(self, tmp_path):
+        """Companion to the above: a generic failure's status file must not
+        carry a stray error_type key that could be misread downstream."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+        from dango.platform.sync_process import read_sync_status
+
+        config = MagicMock()
+        src = MagicMock()
+        src.name = "src1"
+        src.type.value = "chess"
+        config.sources.get_source.side_effect = lambda n: src if n == "src1" else None
+
+        with (
+            patch("dango.ingestion.run_sync") as mock_sync,
+            patch("dango.config.helpers.load_config", return_value=config),
+            patch("dango.platform.scheduling.sync_trigger.record_start", return_value=1),
+            patch("dango.platform.scheduling.sync_trigger.record_failure"),
+            patch("dango.platform.scheduling.sync_trigger.get_scheduler_db_path"),
+            patch("dango.oauth.validation.validate_before_sync"),
+        ):
+            mock_sync.return_value = {
+                "results": [],
+                "failed_sources": [{"name": "src1", "error": "OAuth token expired"}],
+            }
+
+            run_manual_sync(
+                tmp_path,
+                sources=["src1"],
+                write_progress=True,
+                sync_id="test-wire-check-generic",
+            )
+
+        status = read_sync_status(tmp_path, sync_id="test-wire-check-generic")
+        assert status is not None
+        assert status.get("error_type") is None

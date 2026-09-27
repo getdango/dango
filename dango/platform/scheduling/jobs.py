@@ -575,12 +575,13 @@ def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: A
             )
             # Mark downstream dbt models as stale
             try:
+                from dango.ingestion.dlt_runner import EMPTY_REPLACE_PROTECTION_ERROR_TYPE
                 from dango.utils.dbt_status import mark_source_models_stale
 
                 stale_candidates = [
                     n
                     for n in failed_source_errors
-                    if failed_source_error_types.get(n) != "empty_replace_protection"
+                    if failed_source_error_types.get(n) != EMPTY_REPLACE_PROTECTION_ERROR_TYPE
                 ]
                 mark_source_models_stale(project_root, stale_candidates)
             except Exception:  # noqa: BLE001
@@ -621,12 +622,13 @@ def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: A
             source_error = "; ".join(f"{n}: {e}" for n, e in failed_source_errors.items())
             # Mark downstream dbt models as stale for failed sources
             try:
+                from dango.ingestion.dlt_runner import EMPTY_REPLACE_PROTECTION_ERROR_TYPE
                 from dango.utils.dbt_status import mark_source_models_stale
 
                 stale_candidates = [
                     n
                     for n in failed_source_errors
-                    if failed_source_error_types.get(n) != "empty_replace_protection"
+                    if failed_source_error_types.get(n) != EMPTY_REPLACE_PROTECTION_ERROR_TYPE
                 ]
                 mark_source_models_stale(project_root, stale_candidates)
             except Exception:  # noqa: BLE001

@@ -63,6 +63,12 @@ _DUCKDB_LOCK_KEYWORDS = (
     "another process",
 )
 
+# error_type value for empty-replace-protection failures (1.0.10-S11). Shared
+# between the 6 failure-return blocks below (the producer) and
+# platform/scheduling/jobs.py's stale-marking exclusion filter (the consumer)
+# so the two can't silently drift apart on a rename/typo.
+EMPTY_REPLACE_PROTECTION_ERROR_TYPE = "empty_replace_protection"
+
 
 def _is_duckdb_lock_error(error: BaseException) -> bool:
     """True if the error message indicates a DuckDB write-lock conflict."""
@@ -838,7 +844,7 @@ class DltPipelineRunner:
                 "status": "failed",
                 "source": source_config.name,
                 "error": error_msg,
-                "error_type": "empty_replace_protection",
+                "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
                 "rows_loaded": 0,
                 "uses_replace_mode": True,
             }
@@ -1000,7 +1006,7 @@ class DltPipelineRunner:
                 "status": "failed",
                 "source": source_config.name,
                 "error": error_msg,
-                "error_type": "empty_replace_protection",
+                "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
                 "rows_loaded": 0,
                 "uses_replace_mode": True,
             }
@@ -1259,7 +1265,7 @@ class DltPipelineRunner:
                     "status": "failed",
                     "source": source_name,
                     "error": error_msg,
-                    "error_type": "empty_replace_protection",
+                    "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
                     "rows_loaded": 0,
                     "uses_replace_mode": uses_replace_mode,
                 }
@@ -1298,7 +1304,7 @@ class DltPipelineRunner:
                             "status": "failed",
                             "source": source_name,
                             "error": error_msg,
-                            "error_type": "empty_replace_protection",
+                            "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
                             "rows_loaded": rows_loaded,
                             "uses_replace_mode": uses_replace_mode,
                         }
@@ -1669,7 +1675,7 @@ class DltPipelineRunner:
                     "status": "failed",
                     "source": source_name,
                     "error": error_msg,
-                    "error_type": "empty_replace_protection",
+                    "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
                     "rows_loaded": 0,
                     "uses_replace_mode": uses_replace_mode,
                 }
@@ -1710,7 +1716,7 @@ class DltPipelineRunner:
                             "source": source_name,
                             "error": error_msg,
                             "rows_loaded": rows_loaded,
-                            "error_type": "empty_replace_protection",
+                            "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
                             "uses_replace_mode": uses_replace_mode,
                         }
 
