@@ -226,11 +226,14 @@ class TestSyncStatusEndpoint:
 
 
 @pytest.mark.unit
-def test_sync_request_allow_empty_replace_defaults_to_none():
-    """SyncRequest built from a dict that omits allow_empty_replace must default
-    to None (falls through to the source's empty_sync_policy), not False."""
-    sync_request = SyncRequest.model_validate({})
-    assert sync_request.allow_empty_replace is None
+class TestSyncRequestAllowEmptyReplaceDefault:
+    """SyncRequest's allow_empty_replace default (1.0.10-S10)."""
+
+    def test_defaults_to_none(self):
+        """SyncRequest built from a dict that omits allow_empty_replace must default
+        to None (falls through to the source's empty_sync_policy), not False."""
+        sync_request = SyncRequest.model_validate({})
+        assert sync_request.allow_empty_replace is None
 
 
 @pytest.mark.unit
