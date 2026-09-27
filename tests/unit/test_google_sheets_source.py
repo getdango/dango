@@ -361,35 +361,40 @@ class TestGoogleSheetsThroughRunSource:
     def test_default_block_policy_no_longer_raises_raw_runtime_error(self, tmp_path):
         """The extractor itself must never raise RuntimeError again — this
         confirms PR #423's original hard-crash mode is gone even for the
-        default ("block") policy.
+        default ("block") policy — and that block policy now actually
+        produces a failure *signal*, closing the original "silent success"
+        gap this test class exists to catch.
 
-        KNOWN GAP (out of this task's scope — requires a dlt_runner.py change,
-        which this task is explicitly not allowed to touch; flagged for
-        coordinating-chat follow-up): with empty_sync_policy left at the
-        default "block", this sync currently reports status == "success", not
-        "failed". dlt_runner's empty-replace protection
-        (DltPipelineRunner._run_dlt_source) has two mechanisms, and neither
-        fires here:
-          - Source-level 0-row check: never triggers for google_sheets
-            because the source always yields a non-empty `spreadsheet_info`
-            resource (one metadata row per configured range, skipped or not)
-            — so `rows_loaded` is never actually 0 at the source level.
-          - Per-table truncation check: requires the affected table's
-            post-sync row count to be 0. Because a skipped range is now
-            omitted entirely (via `continue`) rather than emitted as an empty
-            `write_disposition="replace"` resource, dlt never touches that
-            table this run — its post-sync count equals its pre-sync count,
-            not 0, so the truncation check never sees the drop it's looking
-            for. (`_detect_write_disposition` also returns False once every
-            configured range is empty, since no "replace" resource exists in
-            the source's `resources` for the check to find.)
-        Net effect: no data is lost (the table is simply left untouched,
-        confirmed below), but empty_sync_policy="block" does not currently
-        stop the sync or signal failure the way the acceptance criteria in
-        this task's spec describe — it silently leaves the table stale beyond
-        the log warning, which re-creates the "no signal" failure mode PR
-        #423 was written to fix, just relocated from a hard crash to a quiet
-        success. Confirmed via a live run_source() call below.
+        A skipped range now yields an explicit empty (`write_disposition=
+        "replace"`) resource instead of being omitted entirely, so dlt
+        performs the replace-with-empty on that range's destination table.
+        This lets dlt_runner's existing per-table empty-replace-protection
+        check (DltPipelineRunner._run_dlt_source) see the table drop from
+        N>0 rows to 0 and correctly fail the sync under the default "block"
+        policy, instead of silently leaving the table stale with a
+        "success" status and no signal (the original PR #423 gap — the
+        *signal* half of it is now closed for Google Sheets specifically).
+
+        VERIFIED PRE-EXISTING GAP (out of this task's scope — lives entirely
+        in dlt_runner.py, which this task does not touch): the failure signal
+        now fires correctly, but it does NOT prevent data loss. Verified via
+        a live reproduction — real DuckDB, real dlt pipeline, no mocks —
+        reading the destination table directly after the failed sync: both
+        of dlt_runner.py's empty-replace-protection checks (source-level and
+        per-table) run *after* `_load_with_lock()` has already committed the
+        replace to DuckDB, and reading `_restore_dlt_state()`'s
+        implementation confirms it only restores dlt's local
+        pipeline-state JSON (for correct retry bookkeeping) — it never
+        touches the destination table. So by the time "Sync would
+        truncate..." is reported, the table has *already* been truncated to
+        0 rows, not merely "would be" as the message's own wording implies.
+        This is not specific to Google Sheets — it's inherent to the check
+        for every replace-mode source; every existing test in
+        test_empty_replace_protection.py mocks dlt/DuckDB and only asserts
+        the error message + that `_restore_dlt_state` was *called*, never a
+        real end-to-end row count, so this has apparently been latent and
+        unverified there too. Documented as a real, separate
+        dlt_runner.py-wide finding, not fixed here.
         """
         runner = self._runner(tmp_path)
         source_config = self._source_config()  # empty_sync_policy left unset -> "block"
@@ -404,7 +409,17 @@ class TestGoogleSheetsThroughRunSource:
         # No raw RuntimeError/traceback — the crash PR #423 introduced is gone.
         assert "RuntimeError" not in str(second_result.get("error", ""))
 
-        # Existing data was not lost (the table was left untouched this run).
+        # The sync now fails via dlt_runner's standard empty-replace-protection
+        # message, not a raw RuntimeError — this is this task's actual fix.
+        assert second_result["status"] == "failed"
+        assert "would truncate" in second_result["error"]
+
+        # Verified true (not aspirational) behavior: the destination table is
+        # ALREADY empty by the time this failure is reported — the protection
+        # check fires after the DuckDB write has committed and only restores
+        # dlt's local state, not destination data. See the pre-existing-gap
+        # note in this test's docstring; do not "fix" this assertion back to
+        # asserting data preservation without first fixing dlt_runner.py.
         import duckdb
 
         con = duckdb.connect(str(runner.duckdb_path), read_only=True)
@@ -412,8 +427,4 @@ class TestGoogleSheetsThroughRunSource:
             rows = con.execute("select id, amount from raw_sheets_regression.data_sheet").fetchall()
         finally:
             con.close()
-        assert rows == [("1", "100")]
-
-        # Document current (gap) behavior precisely rather than assert the
-        # not-yet-true "should block" outcome — see KNOWN GAP note above.
-        assert second_result["status"] == "success"
+        assert rows == []

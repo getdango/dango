@@ -102,6 +102,7 @@ def google_spreadsheet(
             logger.warning(
                 f"Range {name!r} returned no data from Google Sheets. Skipped for this sync."
             )
+            yield dlt.resource([], name=name, write_disposition="replace")
             continue
         if len(values) == 1:
             skipped_ranges.append(name)
@@ -109,6 +110,7 @@ def google_spreadsheet(
                 f"Range {name!r} contains only a header row and no data rows. "
                 "Skipped for this sync."
             )
+            yield dlt.resource([], name=name, write_disposition="replace")
             continue
         if len(values[0]) == 0:
             logger.warning(
