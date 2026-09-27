@@ -1007,7 +1007,10 @@ class TestWebScheduler:
         from dango.web.models import SyncRequest
 
         req = SyncRequest()
-        assert req.allow_empty_replace is False
+        # 1.0.10-S10: defaults to None (falls through to the source's stored
+        # empty_sync_policy), not False — an explicit False would silently
+        # override every source's "allow" policy on every web-triggered sync.
+        assert req.allow_empty_replace is None
 
         req = SyncRequest(allow_empty_replace=True)
         assert req.allow_empty_replace is True
@@ -1017,7 +1020,8 @@ class TestWebScheduler:
         from dango.web.models import SyncTriggerRequest
 
         req = SyncTriggerRequest(sources=["test"])
-        assert req.allow_empty_replace is False
+        # 1.0.10-S10: defaults to None, same rationale as SyncRequest above.
+        assert req.allow_empty_replace is None
 
         req = SyncTriggerRequest(sources=["test"], allow_empty_replace=True)
         assert req.allow_empty_replace is True

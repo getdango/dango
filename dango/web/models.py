@@ -57,7 +57,7 @@ class SyncRequest(BaseModel):
     full_refresh: bool = False
     start_date: str | None = None
     end_date: str | None = None
-    allow_empty_replace: bool = False
+    allow_empty_replace: bool | None = None
 
 
 class SyncResponse(BaseModel):
@@ -246,4 +246,4 @@ class SyncTriggerRequest(BaseModel):
     sources: list[str]
     full_refresh: bool = False
     backfill: str | None = None  # "7d", "2w", "1m"
-    allow_empty_replace: bool = False
+    allow_empty_replace: bool | None = None

@@ -218,6 +218,27 @@ class TestLaunchSyncSubprocess:
         _, id2, _ = launch_sync_subprocess(project_root=tmp_path, sources=["src"])
         assert id1 != id2
 
+    @patch("subprocess.Popen")
+    def test_launch_subprocess_args_preserve_explicit_false(self, mock_popen, tmp_path):
+        """1.0.10-S10 regression test: allow_empty_replace=False must be preserved
+        in args_dict (not dropped like the old `if allow_empty_replace:` check did),
+        and allow_empty_replace=None must be omitted entirely so the subprocess
+        falls through to the source's stored empty_sync_policy (S6)."""
+        from dango.platform.sync_process import launch_sync_subprocess
+
+        mock_popen.return_value = MagicMock(pid=1)
+
+        launch_sync_subprocess(project_root=tmp_path, sources=["src"], allow_empty_replace=False)
+        json_str = mock_popen.call_args[0][0][3]
+        args = json.loads(json_str)
+        assert args["allow_empty_replace"] is False
+
+        mock_popen.reset_mock()
+        launch_sync_subprocess(project_root=tmp_path, sources=["src"], allow_empty_replace=None)
+        json_str = mock_popen.call_args[0][0][3]
+        args = json.loads(json_str)
+        assert "allow_empty_replace" not in args
+
 
 @pytest.mark.unit
 class TestPollSyncStatus:
