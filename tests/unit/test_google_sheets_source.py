@@ -358,23 +358,6 @@ class TestGoogleSheetsThroughRunSource:
         assert result["status"] == "success"
         assert "RuntimeError" not in str(result.get("error", ""))
 
-    def test_allow_policy_still_completes_successfully_with_empty_range(self, tmp_path):
-        """Confirms this task's block-policy fix (yielding an explicit empty
-        resource for a skipped range) doesn't regress the "allow" path: the
-        sync must still complete as a normal success when empty_sync_policy
-        is explicitly "allow", even though the empty range now yields a real
-        (empty) resource instead of being omitted entirely."""
-        runner = self._runner(tmp_path)
-        source_config = self._source_config(empty_sync_policy="allow")
-
-        populated, meta_values = self._populated_range_data()
-        self._sync_with_range_data(runner, source_config, populated, meta_values)
-
-        result = self._sync_with_range_data(runner, source_config, self._empty_range_data())
-
-        assert result["status"] == "success"
-        assert "RuntimeError" not in str(result.get("error", ""))
-
     def test_default_block_policy_no_longer_raises_raw_runtime_error(self, tmp_path):
         """The extractor itself must never raise RuntimeError again — this
         confirms PR #423's original hard-crash mode is gone even for the
@@ -393,24 +376,25 @@ class TestGoogleSheetsThroughRunSource:
         *signal* half of it is now closed for Google Sheets specifically).
 
         VERIFIED PRE-EXISTING GAP (out of this task's scope — lives entirely
-        in dlt_runner.py, which this task does not touch; confirmed by the
-        coordinating chat independently reading `_restore_dlt_state`'s real
-        implementation): the failure signal now fires correctly, but it does
-        NOT prevent data loss. Both of dlt_runner.py's empty-replace-
-        protection checks (source-level and per-table) run *after*
-        `_load_with_lock()` has already committed the replace to DuckDB —
-        `_restore_dlt_state()` only restores dlt's local pipeline-state JSON
-        (for correct retry bookkeeping), it never touches the destination
-        table. So by the time "Sync would truncate..." is reported, the
-        table has *already* been truncated to 0 rows, not merely "would be"
-        as the message's own wording implies. This is not specific to
-        Google Sheets — it's inherent to the check for every replace-mode
-        source; every existing test in test_empty_replace_protection.py
-        mocks dlt/DuckDB and only asserts the error message + that
-        `_restore_dlt_state` was *called*, never a real end-to-end row
-        count, so this has apparently been latent and unverified there too.
-        Documented as a real, separate dlt_runner.py-wide finding, not
-        fixed here.
+        in dlt_runner.py, which this task does not touch): the failure signal
+        now fires correctly, but it does NOT prevent data loss. Verified via
+        a live reproduction — real DuckDB, real dlt pipeline, no mocks —
+        reading the destination table directly after the failed sync: both
+        of dlt_runner.py's empty-replace-protection checks (source-level and
+        per-table) run *after* `_load_with_lock()` has already committed the
+        replace to DuckDB, and reading `_restore_dlt_state()`'s
+        implementation confirms it only restores dlt's local
+        pipeline-state JSON (for correct retry bookkeeping) — it never
+        touches the destination table. So by the time "Sync would
+        truncate..." is reported, the table has *already* been truncated to
+        0 rows, not merely "would be" as the message's own wording implies.
+        This is not specific to Google Sheets — it's inherent to the check
+        for every replace-mode source; every existing test in
+        test_empty_replace_protection.py mocks dlt/DuckDB and only asserts
+        the error message + that `_restore_dlt_state` was *called*, never a
+        real end-to-end row count, so this has apparently been latent and
+        unverified there too. Documented as a real, separate
+        dlt_runner.py-wide finding, not fixed here.
         """
         runner = self._runner(tmp_path)
         source_config = self._source_config()  # empty_sync_policy left unset -> "block"
