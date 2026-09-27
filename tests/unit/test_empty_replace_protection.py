@@ -973,13 +973,21 @@ class TestCLIFlag:
             call_kwargs = mock_runner.run_source.call_args
             assert call_kwargs[1].get("allow_empty_replace") is False
 
-    def test_flag_is_hidden(self):
-        """Test 21: --allow-empty-replace is hidden (not in --help)."""
+    def test_flag_is_documented_boolean_pair(self):
+        """Test 21 (1.0.10-S9): --allow-empty-replace/--block-empty-replace is a
+        documented boolean-pair override (no longer the hidden single flag from
+        PR #334), defaulting to None so it falls through to the source's saved
+        empty_sync_policy unless explicitly passed."""
         from dango.cli.commands.source import sync
 
         for param in sync.params:
             if param.name == "allow_empty_replace":
-                assert param.hidden is True, "--allow-empty-replace should be hidden"
+                assert param.hidden is False, (
+                    "--allow-empty-replace/--block-empty-replace should not be hidden"
+                )
+                assert param.default is None
+                assert "--allow-empty-replace" in param.opts
+                assert "--block-empty-replace" in param.secondary_opts
                 break
         else:
             pytest.fail("--allow-empty-replace param not found on sync command")
