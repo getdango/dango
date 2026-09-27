@@ -888,7 +888,11 @@ def source_inspect_state(ctx: click.Context, source_name: str) -> None:
     help="Allow CSV schema changes (add columns, treat missing as NULL)",
 )
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
-@click.option("--allow-empty-replace", is_flag=True, hidden=True)
+@click.option(
+    "--allow-empty-replace/--block-empty-replace",
+    default=None,
+    help="Override this source's saved empty-sync policy for this run only.",
+)
 @click.pass_context
 def sync(
     ctx: click.Context,
@@ -901,7 +905,7 @@ def sync(
     dry_run: bool,
     allow_schema_changes: bool,
     yes: bool,
-    allow_empty_replace: bool,
+    allow_empty_replace: bool | None,
 ) -> None:
     """
     Load data from all sources (or specific source).
@@ -914,6 +918,7 @@ def sync(
       dango sync --limit 1000                  Dev mode: limit rows per source
       dango sync --full-refresh                Reset state and reload all data
       dango sync --dry-run                     Preview what would be synced
+      dango sync chess --allow-empty-replace   Override empty-sync policy for this run
 
     This command:
       1. Runs CSV loaders (incremental)

@@ -35,6 +35,39 @@ from dango.oauth.storage import OAuthStorage
 
 console = Console()
 
+# Source types whose sync can fully replace a table (either always, like CSV/Local Files, or as
+# the common default of dlt's write_disposition — verified 2026-09-27 against
+# dango/ingestion/dlt_sources/*/__init__.py's write_disposition="replace" resources, plus
+# Postgres/MySQL's dlt sql_database default). Sources not in this set are merge/append-only and
+# never see the empty-sync-policy prompt.
+REPLACE_MODE_SOURCE_TYPES = frozenset(
+    {
+        "csv",
+        "local_files",
+        "postgres",
+        "mysql",
+        "airtable",
+        "asana",
+        "chess",
+        "facebook_ads",
+        "github",
+        "google_analytics",
+        "google_sheets",
+        "hubspot",
+        "jira",
+        "mux",
+        "notion",
+        "personio",
+        "pipedrive",
+        "salesforce",
+        "slack",
+        "strapi",
+        "stripe_analytics",
+        "workable",
+        "zendesk",
+    }
+)
+
 
 def _suggest_data_path(response: Any) -> str | None:
     """Suggest a data_selector path by scanning the response for list values.
@@ -2566,6 +2599,29 @@ def {module_name}_resource(api_key: str):
     def _save_source(self, source_config: dict[str, Any]) -> None:
         """Save source to sources.yml"""
         config = load_config(self.project_root)
+
+        if source_config.get("type") in REPLACE_MODE_SOURCE_TYPES:
+            console.print(
+                "\nThis source replaces its entire table on every sync. "
+                "If a sync ever returns 0 rows:\n"
+            )
+            questions = [
+                inquirer.List(
+                    "empty_sync_choice",
+                    message="Choose what happens",
+                    choices=[
+                        "Keep the existing data, fail the sync, and alert you (recommended)",
+                        "Replace the existing data — the table becomes empty too",
+                    ],
+                    carousel=True,
+                    default="Keep the existing data, fail the sync, and alert you (recommended)",
+                )
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if answers and answers["empty_sync_choice"].startswith("Replace"):
+                source_config["empty_sync_policy"] = "allow"
+            else:
+                source_config["empty_sync_policy"] = "block"
 
         # Add new source
         config.sources.sources.append(DataSource(**source_config))
