@@ -19,7 +19,7 @@ User authentication and access control for Dango. Handles password-based login w
 | `admin.py` | 129 | Bootstrap + path helpers | `ensure_admin()`, `is_auth_enabled()`, `get_auth_db_path()` |
 | `totp.py` | 220 | TOTP 2FA: setup/verify/enable/disable, recovery codes | `generate_totp_secret()`, `verify_totp_code()`, `setup_totp()`, `enable_totp()`, `consume_recovery_code()` |
 | `oauth_login.py` | 314 | OAuth provider ABC + Google/GitHub implementations | `OAuthLoginProvider`, `GoogleOAuthProvider`, `GitHubOAuthProvider`, `get_provider()` |
-| `metabase_sync.py` | 552 | Sync users/roles to Metabase (encrypted passwords) | `sync_user_to_metabase()`, `sync_all_users_to_metabase()`, `sync_user_role()`, `decrypt_metabase_password()` |
+| `metabase_sync.py` | 552 | Sync users/roles to Metabase; admin sessions use the security credential boundary | `sync_user_to_metabase()`, `sync_all_users_to_metabase()`, `sync_user_role()`, `decrypt_metabase_password()` |
 | `metabase_bridge.py` | 187 | Async SSO session bridging on login/logout | `bridge_metabase_login()`, `bridge_metabase_logout()`, `ensure_metabase_synced()` |
 
 ## Architecture
@@ -257,6 +257,7 @@ Session bridging syncs Dango auth state to Metabase so users get single sign-on.
 - `exceptions` — `UserExistsError`, `UserNotFoundError`, `AuthenticationError`, `AuthorizationError`
 - `logging` — `get_logger` (audit.py, lockout.py)
 - `security.token_storage` — `SecureTokenStorage` (metabase_sync.py: Fernet encryption for Metabase passwords)
+- `security.metabase_config` — `load_metabase_admin_credentials()` (metabase_sync.py: the only source for the Metabase administrator session credential)
 
 **External packages:** `pwdlib[bcrypt]`, `pyotp`, `httpx`, `requests`, `pydantic`, `rich`
 
@@ -281,7 +282,7 @@ pytest tests/unit/test_auth_models.py tests/unit/test_auth_database.py \
   tests/unit/test_auth_permissions.py tests/unit/test_auth_lockout.py \
   tests/unit/test_auth_audit.py tests/unit/test_auth_admin.py \
   tests/unit/test_auth_totp.py tests/unit/test_auth_oauth_login.py \
-  tests/unit/test_auth_api_keys.py tests/unit/test_metabase_sync.py \
+  tests/unit/test_auth_api_keys.py tests/unit/test_metabase_sync.py tests/unit/test_metabase_sync_credentials.py \
   tests/unit/test_metabase_bridge.py
 ```
 

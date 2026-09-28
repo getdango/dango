@@ -11,10 +11,13 @@ from pathlib import Path
 from typing import Any
 
 import requests
-import yaml
 
 from dango.auth.database import get_user_by_id, list_users, update_user
 from dango.auth.models import Role, UserUpdate
+from dango.security.metabase_config import (
+    load_metabase_admin_credentials,
+    load_metabase_metadata,
+)
 from dango.security.token_storage import SecureTokenStorage
 
 logger = logging.getLogger(__name__)
@@ -26,30 +29,21 @@ _ADMIN_GROUP_ID = 2
 
 
 def _load_metabase_credentials(project_root: Path) -> dict[str, Any] | None:
-    """Read ``.dango/metabase.yml``. Returns ``None`` if missing."""
-    path = project_root / ".dango" / "metabase.yml"
-    if not path.exists():
-        logger.warning("metabase.yml not found: %s", path)
-        return None
-    try:
-        with open(path) as f:
-            data: dict[str, Any] = yaml.safe_load(f)
-        return data
-    except Exception:
-        logger.exception("Failed to read metabase.yml")
-        return None
+    """Return non-secret Metabase metadata for legacy metadata callers.
+
+    This compatibility shim remains while web and CLI callers are migrated to
+    ``load_metabase_metadata``. It never resolves the administrator password.
+    """
+    return load_metabase_metadata(project_root)
 
 
 def _get_admin_session(metabase_url: str, project_root: Path) -> str | None:
     """Authenticate as the Metabase admin and return a session token."""
-    creds = _load_metabase_credentials(project_root)
-    if creds is None:
+    credentials = load_metabase_admin_credentials(project_root)
+    if credentials is None:
+        logger.error("Metabase administrator credentials are unavailable")
         return None
-    admin = creds.get("admin", {})
-    email, password = admin.get("email"), admin.get("password")
-    if not email or not password:
-        logger.error("Metabase admin credentials missing in metabase.yml")
-        return None
+    email, password = credentials
     try:
         resp = requests.post(
             f"{metabase_url}/api/session",
