@@ -226,6 +226,32 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
         )
         raise SystemExit(1) from exc
 
+    # Record the offline half of the legacy Metabase credential migration.
+    # Completion deliberately waits for ``dango start`` when Docker and
+    # Metabase are available; preparation must never make the package upgrade
+    # fail after its database migrations have succeeded.
+    try:
+        from dango.platform.common.metabase_credential_migration import (
+            prepare_metabase_credential_migration,
+        )
+
+        preparation = prepare_metabase_credential_migration(project_root)
+        if preparation.get("status") == "prepared":
+            console.print(
+                "[yellow]Legacy Metabase credentials will be secured on the next "
+                "[bold]dango start[/bold].[/yellow]"
+            )
+        elif preparation.get("status") == "failed_non_destructive":
+            console.print(
+                "[yellow]Warning:[/yellow] Metabase credential preparation did not "
+                "complete. Run [bold]dango start[/bold] after upgrade to retry safely."
+            )
+    except Exception:
+        console.print(
+            "[yellow]Warning:[/yellow] Metabase credential preparation did not complete. "
+            "Run [bold]dango start[/bold] after upgrade to retry safely."
+        )
+
     # Success
     console.print()
     console.print(
