@@ -105,6 +105,24 @@ def _make_new_droplet(droplet_id: int = 99, ip: str = "5.6.7.8") -> dict[str, An
     }
 
 
+def _write_project_with_metabase(project_root: Path) -> None:
+    """Create a local project whose Metabase secret must be recovered."""
+    dango_dir = project_root / ".dango"
+    dango_dir.mkdir(parents=True, exist_ok=True)
+    (dango_dir / "project.yml").write_text(
+        "project:\n"
+        "  name: test-project\n"
+        "  id: migration-project-id\n"
+        "  created_by: test@example.com\n"
+        "  purpose: replacement-host recovery test\n",
+        encoding="utf-8",
+    )
+    (dango_dir / "metabase.yml").write_text(
+        "metabase_url: http://localhost:3000\nadmin:\n  email: admin@example.com\n",
+        encoding="utf-8",
+    )
+
+
 @pytest.mark.unit
 class TestUploadBackupToSpaces:
     """Tests for _upload_backup_to_spaces()."""
@@ -304,6 +322,116 @@ class TestMigrateServer:
         assert result.new_region == "sfo3"
         assert result.new_size == "s-4vcpu-8gb"
         assert result.old_droplet_destroyed is True
+
+    def test_transfers_local_metabase_secret_before_restore_auto_start(
+        self, tmp_path: Path
+    ) -> None:
+        from dango.platform.cloud.migrate import migrate_server
+
+        _write_project_with_metabase(tmp_path)
+        old_ssh = _make_ssh_mock()
+        new_ssh = _make_ssh_mock()
+        config = _make_cloud_config(domain=None, firewall_id=None)
+        client = _make_do_client()
+        patches = _setup_migrate_patches(tmp_path, new_ssh=new_ssh)
+        events: list[str] = []
+        new_ssh.write_remote_file.side_effect = lambda *args, **kwargs: events.append("secret")
+
+        with (
+            patch(
+                "dango.security.metabase_credentials.keyring.get_password",
+                return_value="operator-secret",
+            ),
+            patches["backup"],
+            patches["upload"],
+            patches["provision"],
+            patches["ssh_cls"],
+            patches["setup"],
+            patches["download"],
+            patches["restore"] as restore,
+            patches["save_meta"],
+        ):
+            restore.side_effect = lambda *args, **kwargs: events.append("restore")
+            migrate_server(
+                client,
+                old_ssh,
+                config,
+                "s-4vcpu-8gb",
+                "sfo3",
+                project_root=tmp_path,
+            )
+
+        assert events == ["secret", "restore"]
+        new_ssh.write_remote_file.assert_called_once_with(
+            "/srv/dango/secrets/metabase/migration-project-id.json",
+            '{"password": "operator-secret"}',
+            mode=0o600,
+        )
+        commands = [call.args[0] for call in new_ssh.exec_command.call_args_list]
+        assert (
+            "install -d -m 0700 -o dango -g dango /srv/dango/secrets "
+            "/srv/dango/secrets/metabase && chmod 0700 /srv/dango/secrets "
+            "/srv/dango/secrets/metabase"
+        ) in commands
+        assert (
+            "chown dango:dango /srv/dango/secrets/metabase/migration-project-id.json "
+            "&& chmod 0600 /srv/dango/secrets/metabase/migration-project-id.json"
+        ) in commands
+
+    def test_stops_before_backup_when_metabase_secret_is_unavailable(self, tmp_path: Path) -> None:
+        from dango.platform.cloud.migrate import migrate_server
+
+        _write_project_with_metabase(tmp_path)
+        old_ssh = _make_ssh_mock()
+        config = _make_cloud_config(domain=None, firewall_id=None)
+        client = _make_do_client()
+        patches = _setup_migrate_patches(tmp_path)
+
+        with (
+            patch("dango.security.metabase_credentials.keyring.get_password", return_value=None),
+            patches["backup"] as backup,
+            pytest.raises(CloudProvisioningError, match="reset-metabase"),
+        ):
+            migrate_server(
+                client,
+                old_ssh,
+                config,
+                "s-4vcpu-8gb",
+                "sfo3",
+                project_root=tmp_path,
+            )
+
+        backup.assert_not_called()
+        client.delete_droplet.assert_not_called()
+
+    def test_no_metabase_metadata_preserves_existing_no_secret_migration(
+        self, tmp_path: Path
+    ) -> None:
+        from dango.platform.cloud.migrate import migrate_server
+
+        old_ssh = _make_ssh_mock()
+        config = _make_cloud_config(domain=None, firewall_id=None)
+        client = _make_do_client()
+        patches = _setup_migrate_patches(tmp_path)
+
+        with (
+            patches["backup"],
+            patches["upload"],
+            patches["provision"],
+            patches["ssh_cls"],
+            patches["setup"],
+            patches["download"],
+            patches["restore"],
+            patches["save_meta"],
+        ):
+            migrate_server(
+                client,
+                old_ssh,
+                config,
+                "s-4vcpu-8gb",
+                "sfo3",
+                project_root=tmp_path,
+            )
 
     def test_keeps_both_on_health_failure(self, tmp_path: Path) -> None:
         from dango.platform.cloud.migrate import migrate_server

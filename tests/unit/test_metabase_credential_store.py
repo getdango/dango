@@ -123,6 +123,38 @@ class TestMetabaseCredentialStore:
         assert store.load() is None
         assert store.secret_path is None
 
+    def test_prepare_cloud_recovery_uses_local_keyring_and_canonical_cloud_path(
+        self, monkeypatch: pytest.MonkeyPatch, project_root: Path
+    ) -> None:
+        keyring = Mock()
+        keyring.get_password.return_value = "operator-secret"
+        monkeypatch.setattr(credentials, "keyring", keyring)
+
+        store = MetabaseCredentialStore(project_root, cloud_mode=False)
+
+        recovery = store.prepare_cloud_recovery()
+
+        assert recovery == (
+            Path("/srv/dango/secrets/metabase") / f"{PROJECT_ID}.json",
+            '{"password": "operator-secret"}',
+        )
+        keyring.get_password.assert_called_once_with("dango-metabase", PROJECT_ID)
+
+    def test_prepare_cloud_recovery_returns_none_without_local_credential(
+        self, monkeypatch: pytest.MonkeyPatch, project_root: Path
+    ) -> None:
+        keyring = Mock()
+        keyring.get_password.return_value = None
+        monkeypatch.setattr(credentials, "keyring", keyring)
+
+        assert (
+            MetabaseCredentialStore(project_root, cloud_mode=False).prepare_cloud_recovery() is None
+        )
+
+    def test_prepare_cloud_recovery_rejects_cloud_store(self, project_root: Path) -> None:
+        with pytest.raises(MetabaseCredentialStoreError, match="operator-local"):
+            MetabaseCredentialStore(project_root, cloud_mode=True).prepare_cloud_recovery()
+
     def test_fallback_permissions_are_restricted(
         self, monkeypatch: pytest.MonkeyPatch, project_root: Path, local_fallback_dir: Path
     ) -> None:

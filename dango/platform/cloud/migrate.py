@@ -14,6 +14,7 @@ migration.
 
 from __future__ import annotations
 
+import shlex
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -34,6 +35,82 @@ _SECRETS_FILES = [
     f"{_PROJECT_DIR}/.env",
     f"{_PROJECT_DIR}/.dlt/secrets.toml",
 ]
+
+
+def _prepare_replacement_metabase_credential(project_root: Path) -> tuple[Path, str] | None:
+    """Read a replacement-host credential only from local protected storage.
+
+    No Metabase metadata means this project has not configured Metabase, so
+    migration retains its existing no-secret path. Once metadata exists, a
+    missing local protected credential cannot be reconstructed safely from a
+    server or archive and must stop before any replacement-host auto-start.
+    """
+    from dango.security.metabase_credentials import (
+        MetabaseCredentialStore,
+        MetabaseCredentialStoreError,
+    )
+
+    if not (Path(project_root) / ".dango" / "metabase.yml").exists():
+        return None
+
+    try:
+        credential = MetabaseCredentialStore(
+            project_root, cloud_mode=False
+        ).prepare_cloud_recovery()
+    except MetabaseCredentialStoreError as exc:
+        raise CloudProvisioningError(
+            "Cannot migrate this Metabase host because the protected local operator "
+            "credential is unavailable. Restore that credential and retry. If it is "
+            "unrecoverable, cancel the migration and run `dango remote reset-metabase` "
+            "on the current host before retrying; that resets Metabase dashboards but "
+            "does not delete warehouse data."
+        ) from exc
+
+    if credential is None:
+        raise CloudProvisioningError(
+            "Cannot migrate this Metabase host because the protected local operator "
+            "credential is unavailable. Restore that credential and retry. If it is "
+            "unrecoverable, cancel the migration and run `dango remote reset-metabase` "
+            "on the current host before retrying; that resets Metabase dashboards but "
+            "does not delete warehouse data."
+        )
+    return credential
+
+
+def _write_replacement_metabase_credential(
+    ssh: SSHManager,
+    credential: tuple[Path, str],
+) -> None:
+    """Install a local recovery credential before archive restore restarts services."""
+    secret_path, payload = credential
+    secrets_root = shlex.quote(str(secret_path.parent.parent))
+    secret_dir = shlex.quote(str(secret_path.parent))
+    path = shlex.quote(str(secret_path))
+
+    directory_result = ssh.exec_command(
+        f"install -d -m 0700 -o dango -g dango {secrets_root} {secret_dir} && "
+        f"chmod 0700 {secrets_root} {secret_dir}",
+        timeout=30,
+    )
+    if not directory_result.success:
+        raise CloudProvisioningError(
+            "Could not prepare protected Metabase credential storage on the replacement host."
+        )
+
+    try:
+        ssh.write_remote_file(str(secret_path), payload, mode=0o600)
+    except Exception as exc:
+        raise CloudProvisioningError(
+            "Could not transfer the protected Metabase credential to the replacement host."
+        ) from exc
+
+    ownership_result = ssh.exec_command(
+        f"chown dango:dango {path} && chmod 0600 {path}", timeout=30
+    )
+    if not ownership_result.success:
+        raise CloudProvisioningError(
+            "Could not secure the Metabase credential on the replacement host."
+        )
 
 
 @dataclass
@@ -315,6 +392,7 @@ def migrate_server(
         )
 
     old_droplet_id = old_config.droplet_id
+    replacement_metabase_credential = _prepare_replacement_metabase_credential(project_root)
 
     try:
         # 2. Create backup on old server
@@ -361,6 +439,14 @@ def migrate_server(
         secret_warnings = _copy_secrets_between_servers(old_ssh, new_ssh)
         warnings.extend(secret_warnings)
         _notify(on_progress, "copy_secrets", "done")
+
+        # restore_from_archive() starts Metabase and dango-web in its finally
+        # block, so write the authenticated operator's credential before it
+        # can auto-start. Never obtain this value from old_ssh or the archive.
+        if replacement_metabase_credential is not None:
+            _notify(on_progress, "recover_metabase_credential", "running")
+            _write_replacement_metabase_credential(new_ssh, replacement_metabase_credential)
+            _notify(on_progress, "recover_metabase_credential", "done")
 
         # 8. Download backup from Spaces on new server
         _notify(on_progress, "download_spaces", "running")

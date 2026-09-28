@@ -53,6 +53,17 @@ class MetabaseCredentialStore:
         return self._fallback_path_for(pending=False)
 
     @property
+    def cloud_secret_path(self) -> Path:
+        """Return this credential's canonical destination on a cloud host.
+
+        This path is intentionally available even for a workstation-backed
+        store. Replacement-host recovery reads the password from the
+        authenticated operator's local store, then writes the canonical cloud
+        payload over SSH without consulting an old server or an archive.
+        """
+        return _CLOUD_SECRETS_DIR / f"{self.project_id}.json"
+
+    @property
     def _pending_fallback_path(self) -> Path:
         return self._fallback_path_for(pending=True)
 
@@ -90,6 +101,23 @@ class MetabaseCredentialStore:
     def load(self) -> str | None:
         """Load the password, returning ``None`` when no credential exists."""
         return self._load_credential(self.project_id, self._fallback_path)
+
+    def prepare_cloud_recovery(self) -> tuple[Path, str] | None:
+        """Return a cloud destination and canonical payload from local storage.
+
+        This operation is deliberately unavailable in cloud mode. A
+        replacement host must receive a credential from the authenticated
+        operator's protected local store, never from the old host, project
+        metadata, or a backup archive.
+        """
+        if self.cloud_mode:
+            raise MetabaseCredentialStoreError(
+                "Cloud recovery credentials must be read from operator-local protected storage."
+            )
+        password = self.load()
+        if password is None:
+            return None
+        return self.cloud_secret_path, json.dumps({"password": password})
 
     def load_pending(self) -> str | None:
         """Load only a pending credential candidate, if one exists."""
