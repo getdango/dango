@@ -12,6 +12,8 @@ import requests
 import yaml
 from rich.console import Console
 
+from dango.security.metabase_config import load_metabase_admin_credentials
+
 console = Console()
 
 
@@ -37,34 +39,29 @@ class DashboardManager:
         self.project_root = project_root
         self.metabase_url = metabase_url.rstrip("/")
         self.state_file = project_root / ".dango" / "state" / "dashboard_sync.json"
-        self.credentials_file = project_root / ".dango" / "metabase.yml"
 
         self.session_token = session_token
         if not self.session_token:
             self._load_credentials()
 
     def _load_credentials(self) -> None:
-        """Load Metabase credentials from config"""
-        if self.credentials_file.exists():
-            with open(self.credentials_file) as f:
-                creds = yaml.safe_load(f)
-                email = creds.get("admin", {}).get("email")
-                password = creds.get("admin", {}).get("password")
+        """Load a Metabase session using the protected credential boundary."""
+        credentials = load_metabase_admin_credentials(self.project_root)
+        if credentials is None:
+            return
 
-                if email and password:
-                    # Login to get session token
-                    try:
-                        response = requests.post(
-                            f"{self.metabase_url}/api/session",
-                            json={"username": email, "password": password},
-                            timeout=10,
-                        )
-                        if response.status_code == 200:
-                            self.session_token = response.json().get("id")
-                    except Exception as e:
-                        console.print(
-                            f"[yellow]Warning: Could not authenticate with Metabase: {e}[/yellow]"
-                        )
+        email, password = credentials
+        # Login to get session token
+        try:
+            response = requests.post(
+                f"{self.metabase_url}/api/session",
+                json={"username": email, "password": password},
+                timeout=10,
+            )
+            if response.status_code == 200:
+                self.session_token = response.json().get("id")
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not authenticate with Metabase: {e}[/yellow]")
 
     def _get_headers(self) -> dict[str, str]:
         """Get API headers with session token"""
