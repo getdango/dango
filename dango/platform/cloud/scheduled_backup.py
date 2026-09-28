@@ -191,7 +191,13 @@ def _create_local_archive(
         metabase_vol = _get_metabase_volume_path()
         staging.mkdir(parents=True, exist_ok=True)
 
-        from dango.platform.cloud.backup import BACKUP_DIRS, BACKUP_FILES, SECRET_FILES
+        from dango.platform.cloud.backup import (
+            BACKUP_DIRS,
+            BACKUP_FILES,
+            METABASE_CONFIG_FILE,
+            SECRET_FILES,
+            _write_sanitized_metabase_yaml,
+        )
 
         # Build runtime file list — secrets excluded by default
         file_list = list(BACKUP_FILES)
@@ -204,6 +210,15 @@ def _create_local_archive(
                 dest = staging / fpath
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 _run_local(f"cp '{src}' '{dest}'", step="copy_files")
+        metabase_source = PROJECT_DIR / METABASE_CONFIG_FILE
+        if metabase_source.exists():
+            try:
+                _write_sanitized_metabase_yaml(metabase_source, staging / METABASE_CONFIG_FILE)
+            except ValueError:
+                warnings.append(
+                    "Metabase metadata omitted because its YAML could not be safely sanitized"
+                )
+                _logger.warning("metabase_backup_metadata_omitted")
         for dpath in BACKUP_DIRS:
             src = PROJECT_DIR / dpath
             if src.exists():
@@ -579,7 +594,12 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
     _stop_services()
     try:
         _run_local(f"rm -rf '{staging}' && tar -xzf '{local_path}' -C /tmp", step="extract")
-        from dango.platform.cloud.backup import BACKUP_DIRS, BACKUP_FILES
+        from dango.platform.cloud.backup import (
+            BACKUP_DIRS,
+            BACKUP_FILES,
+            METABASE_CONFIG_FILE,
+            _write_sanitized_metabase_yaml,
+        )
 
         for fpath in BACKUP_FILES:
             src = staging / fpath
@@ -587,6 +607,12 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                 dest = PROJECT_DIR / fpath
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 _run_local(f"cp '{src}' '{dest}'", step="restore_files")
+        metabase_source = staging / METABASE_CONFIG_FILE
+        if metabase_source.exists():
+            try:
+                _write_sanitized_metabase_yaml(metabase_source, PROJECT_DIR / METABASE_CONFIG_FILE)
+            except ValueError:
+                _logger.warning("metabase_restore_metadata_omitted")
         for dpath in BACKUP_DIRS:
             src = staging / dpath
             if src.exists():
