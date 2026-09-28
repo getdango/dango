@@ -116,7 +116,7 @@ dango (top-level group)
 │   ├── status, logs, ssh, query, history ← commands/remote_mgmt.py
 │   ├── sync                     ← commands/remote_sync.py
 │   ├── upgrade, resize, migrate ← commands/remote_ops.py
-│   ├── repair, reset-metabase   ← commands/remote_repair.py
+│   ├── repair, reset-metabase   ← commands/remote_repair.py (repair's remote schema scan resolves admin credentials through `dango.security.metabase_config`, with cloud mode explicit because SSH does not inherit the systemd environment)
 │   ├── env (subgroup)          ← commands/remote_env.py
 │   │   ├── set, get, list, delete
 │   ├── auth (subgroup)         ← commands/remote_auth.py

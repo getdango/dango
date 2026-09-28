@@ -9,10 +9,70 @@ triggers registration by importing this module at the bottom of ``remote.py``.
 
 from __future__ import annotations
 
+import shlex
+
 import click
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
+
+
+def _metabase_schema_scan_script() -> str:
+    """Build the server-side script that triggers a Metabase schema scan.
+
+    The command runs from the cloud project directory.  Credential resolution
+    is intentionally delegated to the installed Dango security boundary so a
+    protected cloud credential is used when one exists, with the narrowly
+    scoped legacy compatibility behavior retained there during migration.
+    """
+    return """
+from pathlib import Path
+
+from dango.security.metabase_config import (
+    load_metabase_admin_credentials,
+    load_metabase_metadata,
+)
+
+project_root = Path(".")
+metadata = load_metabase_metadata(project_root)
+credentials = load_metabase_admin_credentials(project_root)
+database = metadata.get("database") if metadata else None
+database_id = database.get("id") if isinstance(database, dict) else None
+if not credentials or not database_id:
+    raise SystemExit(0)
+
+email, password = credentials
+import requests
+
+response = requests.post(
+    "http://localhost:3000/api/session",
+    json={"username": email, "password": password},
+    timeout=10,
+)
+session_id = response.json().get("id") if response.status_code == 200 else None
+if not session_id:
+    raise SystemExit(0)
+
+requests.post(
+    f"http://localhost:3000/api/database/{database_id}/sync_schema",
+    headers={"X-Metabase-Session": session_id},
+    timeout=10,
+)
+""".strip()
+
+
+def _metabase_schema_scan_command(server_project_dir: str) -> str:
+    """Return the SSH shell command for the non-fatal schema scan.
+
+    SSH commands do not inherit the ``dango-web`` systemd unit environment.
+    Set cloud mode explicitly so ``MetabaseCredentialStore`` uses the
+    server-owned ``/srv/dango/secrets`` path rather than a local fallback.
+    """
+    return (
+        f"cd {shlex.quote(server_project_dir)} && "
+        "DANGO_CLOUD_MODE=true /srv/dango/venv/bin/python -c "
+        f"{shlex.quote(_metabase_schema_scan_script())}"
+    )
 
 
 @remote.command("repair")
@@ -130,21 +190,7 @@ def remote_repair(ctx: click.Context) -> None:
             # Trigger schema scan
             console.print("[bold]Triggering Metabase schema scan...[/bold]")
             scan_result = ssh.exec_command(
-                f"cd {_server_project_dir} && "
-                f'/srv/dango/venv/bin/python -c "'
-                "import yaml, requests, time; "
-                "creds = yaml.safe_load(open('.dango/metabase.yml')); "
-                "email = creds.get('admin', {}).get('email'); "
-                "pw = creds.get('admin', {}).get('password'); "
-                "db_id = creds.get('database', {}).get('id'); "
-                "[exit(0) for _ in range(1) if not all([email, pw, db_id])]; "
-                "r = requests.post('http://localhost:3000/api/session', "
-                "json={'username': email, 'password': pw}, timeout=10); "
-                "sid = r.json().get('id') if r.status_code == 200 else None; "
-                "[exit(0) for _ in range(1) if not sid]; "
-                "requests.post(f'http://localhost:3000/api/database/{db_id}/sync_schema', "
-                "headers={'X-Metabase-Session': sid}, timeout=10)"
-                '"',
+                _metabase_schema_scan_command(_server_project_dir),
                 timeout=30,
             )
             if scan_result.success:
