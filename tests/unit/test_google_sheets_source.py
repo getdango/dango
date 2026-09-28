@@ -368,33 +368,26 @@ class TestGoogleSheetsThroughRunSource:
         A skipped range now yields an explicit empty (`write_disposition=
         "replace"`) resource instead of being omitted entirely, so dlt
         performs the replace-with-empty on that range's destination table.
-        This lets dlt_runner's existing per-table empty-replace-protection
-        check (DltPipelineRunner._run_dlt_source) see the table drop from
+        This lets dlt_runner's empty-replace-protection check
+        (DltPipelineRunner._run_dlt_source) see the table would drop from
         N>0 rows to 0 and correctly fail the sync under the default "block"
         policy, instead of silently leaving the table stale with a
         "success" status and no signal (the original PR #423 gap — the
         *signal* half of it is now closed for Google Sheets specifically).
 
-        VERIFIED PRE-EXISTING GAP (out of this task's scope — lives entirely
-        in dlt_runner.py, which this task does not touch): the failure signal
-        now fires correctly, but it does NOT prevent data loss. Verified via
-        a live reproduction — real DuckDB, real dlt pipeline, no mocks —
-        reading the destination table directly after the failed sync: both
-        of dlt_runner.py's empty-replace-protection checks (source-level and
-        per-table) run *after* `_load_with_lock()` has already committed the
-        replace to DuckDB, and reading `_restore_dlt_state()`'s
-        implementation confirms it only restores dlt's local
-        pipeline-state JSON (for correct retry bookkeeping) — it never
-        touches the destination table. So by the time "Sync would
-        truncate..." is reported, the table has *already* been truncated to
-        0 rows, not merely "would be" as the message's own wording implies.
-        This is not specific to Google Sheets — it's inherent to the check
-        for every replace-mode source; every existing test in
-        test_empty_replace_protection.py mocks dlt/DuckDB and only asserts
-        the error message + that `_restore_dlt_state` was *called*, never a
-        real end-to-end row count, so this has apparently been latent and
-        unverified there too. Documented as a real, separate
-        dlt_runner.py-wide finding, not fixed here.
+        UPDATED by 1.0.10-S13: this test previously documented a VERIFIED
+        PRE-EXISTING GAP — the failure signal fired correctly, but did NOT
+        actually prevent data loss, because both of dlt_runner.py's
+        empty-replace-protection checks ran *after* `_load_with_lock()` had
+        already committed the replace to DuckDB. 1.0.10-S13 closed that gap
+        by moving the check to *after* `pipeline.normalize()` but *before*
+        `_load_with_lock()`/`pipeline.load()` — using dlt's own
+        `NormalizeInfo.row_counts` (which reports staged per-table row
+        counts before any DuckDB write) and `pipeline.drop_pending_packages()`
+        to cleanly discard the aborted load package. The assertion below is
+        flipped from the old negative result (table ends up empty) to the
+        real fix: the destination table's original data survives, verified
+        via a real, non-mocked DuckDB read — not just an error-message check.
         """
         runner = self._runner(tmp_path)
         source_config = self._source_config()  # empty_sync_policy left unset -> "block"
@@ -403,6 +396,17 @@ class TestGoogleSheetsThroughRunSource:
         populated, meta_values = self._populated_range_data()
         first_result = self._sync_with_range_data(runner, source_config, populated, meta_values)
         assert first_result["status"] == "success"
+
+        import duckdb
+
+        con = duckdb.connect(str(runner.duckdb_path), read_only=True)
+        try:
+            rows_before = con.execute(
+                "select id, amount from raw_sheets_regression.data_sheet"
+            ).fetchall()
+        finally:
+            con.close()
+        assert rows_before != []  # sanity: the first sync actually landed real data
 
         second_result = self._sync_with_range_data(runner, source_config, self._empty_range_data())
 
@@ -414,17 +418,15 @@ class TestGoogleSheetsThroughRunSource:
         assert second_result["status"] == "failed"
         assert "would truncate" in second_result["error"]
 
-        # Verified true (not aspirational) behavior: the destination table is
-        # ALREADY empty by the time this failure is reported — the protection
-        # check fires after the DuckDB write has committed and only restores
-        # dlt's local state, not destination data. See the pre-existing-gap
-        # note in this test's docstring; do not "fix" this assertion back to
-        # asserting data preservation without first fixing dlt_runner.py.
-        import duckdb
-
+        # 1.0.10-S13 fix, verified for real: the destination table's original
+        # data is UNCHANGED after the blocked sync — the write never happened,
+        # because the check now aborts before `_load_with_lock()`/
+        # `pipeline.load()` ever runs. This is a real DuckDB read, not a mock.
         con = duckdb.connect(str(runner.duckdb_path), read_only=True)
         try:
-            rows = con.execute("select id, amount from raw_sheets_regression.data_sheet").fetchall()
+            rows_after = con.execute(
+                "select id, amount from raw_sheets_regression.data_sheet"
+            ).fetchall()
         finally:
             con.close()
-        assert rows == []
+        assert rows_after == rows_before

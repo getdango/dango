@@ -64,9 +64,10 @@ _DUCKDB_LOCK_KEYWORDS = (
 )
 
 # error_type value for empty-replace-protection failures (1.0.10-S11). Shared
-# between the 6 failure-return blocks below (the producer) and
-# platform/scheduling/jobs.py's stale-marking exclusion filter (the consumer)
-# so the two can't silently drift apart on a rename/typo.
+# between the 8 failure-return blocks below (the producer, incl. the two
+# pre-load blocks added by 1.0.10-S13) and platform/scheduling/jobs.py's
+# stale-marking exclusion filter (the consumer) so the two can't silently
+# drift apart on a rename/typo.
 EMPTY_REPLACE_PROTECTION_ERROR_TYPE = "empty_replace_protection"
 
 
@@ -1234,7 +1235,46 @@ class DltPipelineRunner:
 
             # Phase 2: Normalize (in-memory, NO LOCK)
             console.print("  ⏳ Normalizing data...")
-            pipeline.normalize()
+            norm_info = pipeline.normalize()
+
+            # Pre-load empty-replace protection (1.0.10-S13): abort BEFORE any DuckDB
+            # write if a replace-mode table with existing data is about to be emptied.
+            # This is additive — it does not change what happens below when it doesn't
+            # fire. Scoped to `uses_replace_mode` only, NOT `full_refresh or
+            # uses_replace_mode` — for merge/append sources under --full-refresh, the
+            # schema was already intentionally dropped above (before extract), so
+            # there's nothing left here to prevent; that path keeps relying on the
+            # existing post-load checks below, unchanged.
+            if pre_table_counts is not None and uses_replace_mode and not allow_empty_replace:
+                staged_counts = {
+                    k: v for k, v in norm_info.row_counts.items() if not k.startswith("_dlt")
+                }
+                would_truncate: list[tuple[str, int]] = []
+                for table_name, pre_count in pre_table_counts.items():
+                    if pre_count > 0 and staged_counts.get(table_name, 0) == 0:
+                        would_truncate.append((table_name, pre_count))
+                if would_truncate:
+                    pipeline.drop_pending_packages()
+                    self._restore_dlt_state(state_backup)
+                    table_details = "\n  - ".join(
+                        f"{name}: {count:,} rows → 0 rows (table would be lost)"
+                        for name, count in would_truncate
+                    )
+                    error_msg = (
+                        f"Sync would truncate {len(would_truncate)} table(s) with "
+                        f"existing data:\n  - {table_details}\n"
+                        f"To force sync with empty data, use: "
+                        f"dango sync {source_name} --allow-empty-replace"
+                    )
+                    console.print(f"  [red]❌ {error_msg}[/red]")
+                    return {
+                        "status": "failed",
+                        "source": source_name,
+                        "error": error_msg,
+                        "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
+                        "rows_loaded": 0,
+                        "uses_replace_mode": uses_replace_mode,
+                    }
 
             # Phase 3: Load (DuckDB write, UNDER LOCK)
             console.print("  ⏳ Loading data to DuckDB...")
@@ -1644,7 +1684,46 @@ class DltPipelineRunner:
 
             # Phase 2: Normalize (in-memory, NO LOCK)
             console.print("  ⏳ Normalizing data...")
-            pipeline.normalize()
+            norm_info = pipeline.normalize()
+
+            # Pre-load empty-replace protection (1.0.10-S13): abort BEFORE any DuckDB
+            # write if a replace-mode table with existing data is about to be emptied.
+            # This is additive — it does not change what happens below when it doesn't
+            # fire. Scoped to `uses_replace_mode` only, NOT `full_refresh or
+            # uses_replace_mode` — for merge/append sources under --full-refresh, the
+            # schema was already intentionally dropped above (before extract), so
+            # there's nothing left here to prevent; that path keeps relying on the
+            # existing post-load checks below, unchanged.
+            if pre_table_counts is not None and uses_replace_mode and not allow_empty_replace:
+                staged_counts = {
+                    k: v for k, v in norm_info.row_counts.items() if not k.startswith("_dlt")
+                }
+                would_truncate: list[tuple[str, int]] = []
+                for table_name, pre_count in pre_table_counts.items():
+                    if pre_count > 0 and staged_counts.get(table_name, 0) == 0:
+                        would_truncate.append((table_name, pre_count))
+                if would_truncate:
+                    pipeline.drop_pending_packages()
+                    self._restore_dlt_state(state_backup)
+                    table_details = "\n  - ".join(
+                        f"{name}: {count:,} rows → 0 rows (table would be lost)"
+                        for name, count in would_truncate
+                    )
+                    error_msg = (
+                        f"Sync would truncate {len(would_truncate)} table(s) with "
+                        f"existing data:\n  - {table_details}\n"
+                        f"To force sync with empty data, use: "
+                        f"dango sync {source_name} --allow-empty-replace"
+                    )
+                    console.print(f"  [red]❌ {error_msg}[/red]")
+                    return {
+                        "status": "failed",
+                        "source": source_name,
+                        "error": error_msg,
+                        "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
+                        "rows_loaded": 0,
+                        "uses_replace_mode": uses_replace_mode,
+                    }
 
             # Phase 3: Load (DuckDB write, UNDER LOCK)
             console.print("  ⏳ Loading data to DuckDB...")

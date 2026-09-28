@@ -895,6 +895,11 @@ class TestSchemaInteraction:
                 "dlt_function": "test_func",
             }
             mock_dlt.pipeline.return_value = MagicMock()
+            # 1.0.10-S13: the new pre-load check reads norm_info.row_counts
+            # (pipeline.normalize()'s return value) directly — configure it
+            # to a non-empty staged count so the check doesn't false-positive
+            # block on a bare, unconfigured MagicMock's default empty iteration.
+            mock_dlt.pipeline.return_value.normalize.return_value.row_counts = {"t1": 1000}
             mock_dlt.destinations.duckdb.return_value = MagicMock()
             mock_source.return_value = MagicMock()
 
@@ -1375,6 +1380,13 @@ class TestPerTableProtection:
                 "dlt_function": "test_func",
             }
             mock_dlt.pipeline.return_value = MagicMock()
+            # 1.0.10-S13: configure the new pre-load check's data source
+            # (norm_info.row_counts) to match this test's "table_c only"
+            # scenario -- without this, an unconfigured MagicMock's
+            # row_counts.items() iterates empty, making every pre-existing
+            # table look like it's going to 0, masking the single table
+            # this test is meant to isolate.
+            mock_dlt.pipeline.return_value.normalize.return_value.row_counts = dict(post_table)
             mock_dlt.destinations.duckdb.return_value = MagicMock()
             mock_source.return_value = MagicMock()
 
@@ -1425,6 +1437,9 @@ class TestPerTableProtection:
                 "dlt_function": "test_func",
             }
             mock_dlt.pipeline.return_value = MagicMock()
+            # 1.0.10-S13: configure the new pre-load check's data source
+            # (norm_info.row_counts) to match this test's "all populated" scenario.
+            mock_dlt.pipeline.return_value.normalize.return_value.row_counts = dict(post_table)
             mock_dlt.destinations.duckdb.return_value = MagicMock()
             mock_source.return_value = MagicMock()
 
@@ -1470,6 +1485,10 @@ class TestPerTableProtection:
                 "dlt_function": "test_func",
             }
             mock_dlt.pipeline.return_value = MagicMock()
+            # 1.0.10-S13: configure the new pre-load check's data source
+            # (norm_info.row_counts) to match this test's "new table, previously
+            # tracked table still populated" scenario.
+            mock_dlt.pipeline.return_value.normalize.return_value.row_counts = dict(post_table)
             mock_dlt.destinations.duckdb.return_value = MagicMock()
             mock_source.return_value = MagicMock()
 
@@ -1569,7 +1588,21 @@ class TestPerTableProtection:
         mock_restore.assert_not_called()
 
     def test_source_level_check_catches_all_empty(self, tmp_path):
-        """Test 37: Source-level check fires first when ALL tables empty (rows_loaded=0)."""
+        """Test 37: ALL tables empty (rows_loaded=0) still blocks and preserves data.
+
+        UPDATED by 1.0.10-S13: before this task, this scenario was caught by
+        the post-load source-level check ("existing N rows preserved" wording)
+        — but only *after* dlt's replace-mode load had already truncated the
+        destination table (see PLAN.md's "S13 finding"). The new pre-load
+        per-table check (gated on `uses_replace_mode`) now intercepts this
+        exact case first, before `_load_with_lock()`/`pipeline.load()` ever
+        runs, using the per-table "would truncate" message instead. The
+        post-load source-level check this test originally named remains as
+        an unchanged fallback for the `pre_table_counts is None` case (see
+        `test_first_sync_none_pre_counts_succeeds`) — it just no longer fires
+        for this specific fully-populated-then-fully-empty scenario, because
+        the new check now catches it first.
+        """
         runner = _make_runner(tmp_path)
 
         pre_table = {"table_a": 1000}
@@ -1586,7 +1619,7 @@ class TestPerTableProtection:
             patch.object(runner, "_check_oauth_token_expiry", return_value=None),
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
-            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)) as mock_load,
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -1597,6 +1630,8 @@ class TestPerTableProtection:
                 "dlt_function": "test_func",
             }
             mock_dlt.pipeline.return_value = MagicMock()
+            # Everything staged as 0 rows -- the scenario this test simulates.
+            mock_dlt.pipeline.return_value.normalize.return_value.row_counts = {"table_a": 0}
             mock_dlt.destinations.duckdb.return_value = MagicMock()
             mock_source.return_value = MagicMock()
 
@@ -1606,8 +1641,12 @@ class TestPerTableProtection:
             )
 
         assert result["status"] == "failed"
-        assert "existing 1,000 rows preserved" in result["error"]
+        assert "table_a" in result["error"]
+        assert "1,000 rows" in result["error"]
+        assert "would be lost" in result["error"]
         mock_restore.assert_called_once()
+        # Core behavioral change under test: load is never reached on the block path.
+        mock_load.assert_not_called()
 
     def test_native_source_per_table_protection(self, tmp_path):
         """Test 38: _run_dlt_native_source per-table check catches partial empty."""
@@ -1639,6 +1678,9 @@ class TestPerTableProtection:
 
             mock_pipeline = MagicMock()
             mock_dlt.pipeline.return_value = mock_pipeline
+            # 1.0.10-S13: same fix as test_partial_empty_fails -- configure
+            # the new pre-load check's row_counts to the intended scenario.
+            mock_pipeline.normalize.return_value.row_counts = dict(post_table)
             mock_dlt.destinations.duckdb.return_value = MagicMock()
 
             result = runner._run_dlt_native_source(
