@@ -147,6 +147,9 @@ def start(ctx: click.Context, yes: bool) -> None:
     """
     from dango.config import ConfigLoader
     from dango.exceptions import DockerIdentityCollisionError, format_structured_error
+    from dango.platform.common.metabase_credential_migration import (
+        complete_metabase_credential_migration,
+    )
     from dango.platform.common.startup import (
         check_duckdb_version_alignment,
         ensure_dbt_schemas,
@@ -554,6 +557,22 @@ def start(ctx: click.Context, yes: bool) -> None:
                 console.print("  2. Try again: '[cyan]dango start[/cyan]'")
             console.print()
             raise click.Abort() from e
+
+        # Docker assigns/repairs the persisted project ID during service start.
+        # Complete a pending legacy credential migration only after that identity
+        # exists, and before setup decides whether Metabase needs configuration.
+        try:
+            credential_migration = complete_metabase_credential_migration(project_root)
+            if credential_migration.get("status") == "failed_non_destructive":
+                console.print(
+                    "[yellow]⚠[/yellow] Metabase credential migration is incomplete; "
+                    "existing configuration is unchanged and will retry on the next start."
+                )
+        except Exception:
+            console.print(
+                "[yellow]⚠[/yellow] Metabase credential migration is incomplete; "
+                "existing configuration is unchanged and will retry on the next start."
+            )
 
         # Metabase auto-setup (first-time only)
         console.print()
