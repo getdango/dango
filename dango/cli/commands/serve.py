@@ -39,6 +39,9 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
       - Minimal console output (no Rich formatting)
     """
     from dango.config import ConfigLoader
+    from dango.platform.common.metabase_credential_migration import (
+        complete_metabase_credential_migration,
+    )
     from dango.platform.common.startup import (
         check_duckdb_version_alignment,
         cleanup_stale_dbt_lock,
@@ -137,6 +140,24 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
         print(f"Docker services failed: {exc}", file=sys.stderr)
         _stop_docker_quiet(project_root)
         raise SystemExit(1) from exc
+
+    # Docker assigns/repairs the persisted project ID during service start.
+    # Complete a pending legacy credential migration only after that identity
+    # exists, and before setup decides whether Metabase needs configuration.
+    try:
+        credential_migration = complete_metabase_credential_migration(project_root)
+        if credential_migration.get("status") == "failed_non_destructive":
+            print(
+                "WARNING: Metabase credential migration is incomplete; "
+                "existing configuration is unchanged and will retry on the next restart.",
+                file=sys.stderr,
+            )
+    except Exception:
+        print(
+            "WARNING: Metabase credential migration is incomplete; "
+            "existing configuration is unchanged and will retry on the next restart.",
+            file=sys.stderr,
+        )
 
     # 5. Metabase setup (non-fatal — BUG-103: prevents systemd crash loop)
     # setup_metabase_if_needed returns a dict even on failure — inspect the result.
