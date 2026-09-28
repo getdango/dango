@@ -7,6 +7,10 @@ import click
 
 from dango.cli import console
 from dango.cli.utils import safe_confirm
+from dango.security.metabase_config import (
+    load_metabase_admin_credentials,
+    load_metabase_metadata,
+)
 
 
 @click.group()
@@ -320,7 +324,6 @@ def metabase_refresh(ctx: click.Context) -> None:
       dango metabase refresh    # Refresh to discover new schemas
     """
     import requests
-    import yaml
 
     from dango.visualization.metabase import sync_metabase_schema
 
@@ -330,18 +333,14 @@ def metabase_refresh(ctx: click.Context) -> None:
 
     try:
         project_root = require_project_context(ctx)
-        credentials_file = project_root / ".dango" / "metabase.yml"
-
-        if not credentials_file.exists():
+        metadata = load_metabase_metadata(project_root)
+        if metadata is None:
             console.print("[red]✗[/red] Metabase not configured. Run 'dango start' first.")
             raise click.Abort()
 
-        # Load credentials for health check and display
-        with open(credentials_file) as f:
-            credentials = yaml.safe_load(f)
-
-        metabase_url = credentials.get("metabase_url", "http://localhost:3000")
-        db_id = credentials.get("database", {}).get("id")
+        metabase_url = metadata.get("metabase_url", "http://localhost:3000")
+        database = metadata.get("database", {})
+        db_id = database.get("id") if isinstance(database, dict) else None
 
         # Check if Metabase is running
         try:
@@ -380,35 +379,44 @@ def metabase_refresh(ctx: click.Context) -> None:
 
         # Show discovered schemas/tables for user feedback
         if db_id:
-            admin = credentials.get("admin", {})
-            login_response = requests.post(
-                f"{metabase_url}/api/session",
-                json={"username": admin.get("email"), "password": admin.get("password")},
-                timeout=10,
-            )
-
-            if login_response.status_code == 200:
-                session_id = login_response.json().get("id")
-                headers = {"X-Metabase-Session": session_id}
-
-                metadata_response = requests.get(
-                    f"{metabase_url}/api/database/{db_id}/metadata",
-                    headers=headers,
+            credentials = load_metabase_admin_credentials(project_root)
+            if credentials is None:
+                console.print(
+                    "[yellow]![/yellow] Metabase administrator credentials are unavailable; "
+                    "skipping discovered-schema display."
+                )
+            else:
+                email, password = credentials
+                login_response = requests.post(
+                    f"{metabase_url}/api/session",
+                    json={"username": email, "password": password},
                     timeout=10,
                 )
 
-                if metadata_response.status_code == 200:
-                    tables = metadata_response.json().get("tables", [])
-                    schemas = {t.get("schema") for t in tables}
+                if login_response.status_code == 200:
+                    session_id = login_response.json().get("id")
+                    headers = {"X-Metabase-Session": session_id}
 
-                    console.print(
-                        f"\n[bold]Discovered schemas:[/bold] {', '.join(sorted(schemas))}"
+                    metadata_response = requests.get(
+                        f"{metabase_url}/api/database/{db_id}/metadata",
+                        headers=headers,
+                        timeout=10,
                     )
-                    console.print(f"[bold]Total tables:[/bold] {len(tables)}\n")
 
-                    for schema in sorted(schemas):
-                        schema_tables = [t.get("name") for t in tables if t.get("schema") == schema]
-                        console.print(f"  [cyan]{schema}[/cyan]: {', '.join(schema_tables)}")
+                    if metadata_response.status_code == 200:
+                        tables = metadata_response.json().get("tables", [])
+                        schemas = {t.get("schema") for t in tables}
+
+                        console.print(
+                            f"\n[bold]Discovered schemas:[/bold] {', '.join(sorted(schemas))}"
+                        )
+                        console.print(f"[bold]Total tables:[/bold] {len(tables)}\n")
+
+                        for schema in sorted(schemas):
+                            schema_tables = [
+                                t.get("name") for t in tables if t.get("schema") == schema
+                            ]
+                            console.print(f"  [cyan]{schema}[/cyan]: {', '.join(schema_tables)}")
 
         console.print("\n[green]✨ Metabase schema refreshed successfully![/green]\n")
 
