@@ -487,9 +487,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_empty_replace_protection.py
-    lines: 1179
+    lines: 1888
     category: exempt
-    reason: "41 test cases covering empty replace protection across all source types, CLI, web, scheduler, error messages, and edge cases."
+    reason: "49 test cases covering empty replace protection across all source types, CLI, web, scheduler, error messages, and edge cases."
     review_by: "v1.1"
 
   # --- Scripts ---
