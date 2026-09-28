@@ -24,8 +24,9 @@ Integrates with Metabase for dashboard provisioning, auto-setup, schema synchron
 ## Dependencies
 
 **Imports from:**
-- Mostly isolated (uses `requests` to call Metabase API, reads credentials from
-  `.dango/metabase.yml` at runtime), with one exception: `metabase.py`'s Site URL
+- Mostly isolated (uses `requests` to call Metabase API and resolves administrator
+  credentials through `dango.security.metabase_config` at runtime), with one exception:
+  `metabase.py`'s Site URL
   handling (1.0.8-W — `_should_apply_local_site_url()`, `_apply_metabase_site_url_catchup()`)
   lazy-imports `dango.config.ConfigLoader`, `dango.config.helpers.is_cloud_mode`, and
   `dango.platform.local.network.NetworkConfig` to check deployment topology (cloud mode,

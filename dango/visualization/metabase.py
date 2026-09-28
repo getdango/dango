@@ -16,6 +16,8 @@ from typing import Any
 import requests
 import yaml
 
+from dango.security.metabase_config import load_metabase_admin_credentials
+
 logger = logging.getLogger(__name__)
 
 
@@ -482,13 +484,11 @@ def _apply_metabase_site_url_catchup(
         if not _should_apply_local_site_url(project_root, is_cloud_mode(project_root)):
             return
 
-        admin = creds.get("admin", {})
-        email = admin.get("email")
-        password = admin.get("password")
-
         if not session_id:
-            if not email or not password:
+            admin_credentials = load_metabase_admin_credentials(project_root)
+            if admin_credentials is None:
                 return
+            email, password = admin_credentials
             session_id = _metabase_login(session, metabase_url, email, password)
         if not session_id:
             return
@@ -1586,17 +1586,14 @@ def sync_metabase_schema(
         if not database_id:
             return False
 
-        # Get admin credentials
-        admin = credentials.get("admin", {})
-        email = admin.get("email")
-        password = admin.get("password")
-
         # Reuse a pre-authenticated token if the caller already has one
         # (1.0.8-Q17) -- otherwise log in ourselves, same as before.
         session_id = existing_session_id
         if not session_id:
-            if not email or not password:
+            admin_credentials = load_metabase_admin_credentials(project_root)
+            if admin_credentials is None:
                 return False
+            email, password = admin_credentials
             session_id = _metabase_login(session, metabase_url, email, password)
         if not session_id:
             return False
@@ -1838,13 +1835,12 @@ def set_metabase_telemetry(
         with open(credentials_file) as f:
             credentials = yaml.safe_load(f) or {}
 
-        admin = credentials.get("admin", {})
-        email = admin.get("email")
-        password = admin.get("password")
-        if not email or not password:
+        admin_credentials = load_metabase_admin_credentials(project_root)
+        if admin_credentials is None:
             raise click.ClickException(
-                "Metabase admin credentials missing from .dango/metabase.yml"
+                "Metabase admin credentials are unavailable. Run dango start first."
             )
+        email, password = admin_credentials
 
         resolved_url = metabase_url or credentials.get("metabase_url", "http://localhost:3000")
 
@@ -2086,13 +2082,9 @@ def refresh_metabase_connection(
             # to their own login, same as before this change.
             session_id: str | None = None
             try:
-                creds_file = project_root / ".dango" / "metabase.yml"
-                with open(creds_file) as f:
-                    creds = yaml.safe_load(f) or {}
-                admin = creds.get("admin", {})
-                email = admin.get("email")
-                password = admin.get("password")
-                if email and password:
+                admin_credentials = load_metabase_admin_credentials(project_root)
+                if admin_credentials is not None:
+                    email, password = admin_credentials
                     session_id = _metabase_login(session, metabase_url, email, password)
             except Exception:  # noqa: BLE001
                 pass  # Best-effort — downstream callers fall back to their own login
