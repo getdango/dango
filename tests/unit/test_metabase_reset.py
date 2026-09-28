@@ -10,6 +10,25 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
+
+
+def _write_project_identity(tmp_path: Path) -> None:
+    """Create the persisted-id precondition guaranteed by dango start."""
+    dango_dir = tmp_path / ".dango"
+    dango_dir.mkdir(exist_ok=True)
+    (dango_dir / "project.yml").write_text(
+        yaml.safe_dump(
+            {
+                "project": {
+                    "name": "Test Project",
+                    "id": "test-project-identity",
+                    "created_by": "test@example.com",
+                    "purpose": "Unit test",
+                }
+            }
+        )
+    )
 
 
 @pytest.mark.unit
@@ -94,6 +113,7 @@ class TestSetupMetabaseErrorMessages:
 
     def test_reset_failed_error_includes_compose_name(self, tmp_path: Path) -> None:
         """When _reset_metabase_volume returns False, error includes compose name."""
+        _write_project_identity(tmp_path)
         credentials_file = tmp_path / ".dango" / "metabase.yml"
         # Ensure credentials file does NOT exist (triggers setup flow)
         assert not credentials_file.exists()
@@ -109,7 +129,9 @@ class TestSetupMetabaseErrorMessages:
             patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
             patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
             patch("dango.visualization.metabase._reset_metabase_volume", return_value=False),
+            patch("dango.visualization.metabase.MetabaseCredentialStore") as store_class,
         ):
+            store_class.return_value.load_pending.return_value = None
             import requests
 
             mock_session = MagicMock(spec=requests.Session)
@@ -137,6 +159,7 @@ class TestSetupMetabaseErrorMessages:
 
     def test_setup_api_failure_error_includes_compose_name(self, tmp_path: Path) -> None:
         """When setup API returns non-200 and login fails, error includes compose name."""
+        _write_project_identity(tmp_path)
         with (
             patch(
                 "dango.platform.docker.get_compose_project_name",
@@ -144,7 +167,9 @@ class TestSetupMetabaseErrorMessages:
             ),
             patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
             patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
+            patch("dango.visualization.metabase.MetabaseCredentialStore") as store_class,
         ):
+            store_class.return_value.load_pending.return_value = None
             import requests
 
             mock_session = MagicMock(spec=requests.Session)

@@ -70,6 +70,11 @@ class TestServeHappyPath:
         """All startup helpers are called in order, uvicorn runs."""
         mock_ctx.return_value = tmp_path
         mock_loader_cls.return_value = _make_config_mock(port=8800)
+        startup_order: list[str] = []
+        mock_docker.side_effect = lambda _project_root: startup_order.append("docker")
+        mock_metabase.side_effect = lambda *_args: (
+            startup_order.append("metabase") or {"success": True}
+        )
 
         runner = CliRunner()
         result = runner.invoke(serve, [], obj={})
@@ -80,6 +85,9 @@ class TestServeHappyPath:
         mock_driver.assert_called_once_with(tmp_path)
         mock_docker.assert_called_once_with(tmp_path)
         mock_metabase.assert_called_once_with(tmp_path, "test-project", None)
+        # Docker's start_services() owns persisted project-id migration, so
+        # Metabase setup must begin only after that lifecycle step completes.
+        assert startup_order == ["docker", "metabase"]
         mock_dashboards.assert_called_once_with(tmp_path)
         mock_check_port.assert_called_once_with(8800)
         mock_uvicorn_run.assert_called_once_with(
