@@ -5,6 +5,7 @@ Verify credential-migration completion ordering in local and cloud commands.
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -49,6 +50,7 @@ def _run_local(project_root: Path, migration_result: dict[str, object]) -> tuple
     events: list[str] = []
 
     with (
+        patch.dict(os.environ, {}, clear=False),
         patch("dango.cli.utils.check_v01x_project"),
         patch("dango.cli.utils.require_project_context", return_value=project_root),
         patch("dango.config.ConfigLoader", return_value=config_loader),
@@ -90,6 +92,7 @@ def _run_cloud(project_root: Path, migration_result: dict[str, object]) -> tuple
     events: list[str] = []
 
     with (
+        patch.dict(os.environ, {}, clear=False),
         patch("dango.cli.utils.require_project_context", return_value=project_root),
         patch("dango.config.ConfigLoader", return_value=config_loader),
         patch(f"{_STARTUP}.check_duckdb_version_alignment"),
@@ -160,3 +163,25 @@ def test_not_required_completion_is_silent_and_non_disruptive(
     assert result.exit_code == 0, result.output
     assert events == ["docker", "completion", "setup"]
     assert "Metabase credential migration is incomplete" not in result.output
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("original_project_root", [None, "/existing/project"])
+def test_cloud_runner_restores_project_root_environment(
+    tmp_path: Path,
+    original_project_root: str | None,
+) -> None:
+    """Cloud command test isolation restores serve's process-wide project-root env var."""
+    with patch.dict(os.environ, {}, clear=False):
+        if original_project_root is None:
+            os.environ.pop("DANGO_PROJECT_ROOT", None)
+        else:
+            os.environ["DANGO_PROJECT_ROOT"] = original_project_root
+        result, events = _run_cloud(tmp_path, {"status": "not_required"})
+
+        assert result.exit_code == 0, result.output
+        assert events == ["docker", "completion", "setup"]
+        if original_project_root is None:
+            assert "DANGO_PROJECT_ROOT" not in os.environ
+        else:
+            assert os.environ["DANGO_PROJECT_ROOT"] == original_project_root
