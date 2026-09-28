@@ -10,10 +10,14 @@ All functions require an already-connected ``SSHManager`` (as root).
 from __future__ import annotations
 
 import json
+import shlex
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import yaml
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
@@ -76,13 +80,14 @@ BACKUP_FILES = [
     ".dango/project.yml",
     ".dango/sources.yml",
     ".dango/cloud.yml",
-    ".dango/metabase.yml",
     ".dango/logs/audit.jsonl",
     ".dango/logs/activity.jsonl",
     "dbt/profiles.yml",
     "dbt/dbt_project.yml",
     "dbt/packages.yml",
 ]
+
+METABASE_CONFIG_FILE = ".dango/metabase.yml"
 
 #: Directories to back up (recursively), relative to PROJECT_DIR.
 BACKUP_DIRS = [
@@ -101,6 +106,78 @@ SECRET_FILES = [
     ".dlt/secrets.toml",
     ".env",
 ]
+
+
+def _sanitized_metabase_yaml_text(raw_config: str) -> str:
+    """Return password-free Metabase metadata from YAML text.
+
+    Backups intentionally retain URLs, database IDs, and other non-secret
+    configuration, but never the Metabase administrator password.  Treat an
+    invalid YAML document or non-mapping document as unsafe rather than
+    guessing how to preserve it.
+    """
+    try:
+        config = yaml.safe_load(raw_config)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"invalid Metabase config: {exc}") from exc
+    if not isinstance(config, dict):
+        raise ValueError("invalid Metabase config: expected a YAML mapping")
+
+    sanitized = dict(config)
+    admin = sanitized.get("admin")
+    if isinstance(admin, dict):
+        sanitized_admin = dict(admin)
+        sanitized_admin.pop("password", None)
+        sanitized["admin"] = sanitized_admin
+    return yaml.safe_dump(sanitized, sort_keys=False)
+
+
+def _sanitized_metabase_yaml(source: Path) -> str:
+    """Return password-free Metabase metadata read from *source*."""
+    try:
+        return _sanitized_metabase_yaml_text(source.read_text())
+    except OSError as exc:
+        raise ValueError(f"invalid Metabase config: {exc}") from exc
+
+
+def _write_sanitized_metabase_yaml(source: Path, destination: Path) -> None:
+    """Write password-free Metabase metadata from *source* to *destination*."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(_sanitized_metabase_yaml(source))
+
+
+def _sanitize_remote_metabase_yaml(ssh: SSHManager, source: str, destination: str) -> str | None:
+    """Sanitize remote Metabase metadata, returning a non-secret warning on error."""
+    script = """
+from pathlib import Path
+import sys
+import yaml
+
+source, destination = map(Path, sys.argv[1:3])
+try:
+    config = yaml.safe_load(source.read_text())
+    if not isinstance(config, dict):
+        raise ValueError("expected a YAML mapping")
+    sanitized = dict(config)
+    admin = sanitized.get("admin")
+    if isinstance(admin, dict):
+        sanitized_admin = dict(admin)
+        sanitized_admin.pop("password", None)
+        sanitized["admin"] = sanitized_admin
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(yaml.safe_dump(sanitized, sort_keys=False))
+except (OSError, yaml.YAMLError, ValueError) as exc:
+    print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+"""
+    command = (
+        f"{VENV_PYTHON} -c {shlex.quote(script)} {shlex.quote(source)} {shlex.quote(destination)}"
+    )
+    result = ssh.exec_command(command, timeout=30)
+    if result.success:
+        return None
+    _logger.warning("metabase_backup_metadata_omitted")
+    return "Metabase metadata omitted because its YAML could not be safely sanitized"
 
 
 @dataclass(frozen=True)
@@ -268,6 +345,7 @@ def _create_archive(
     git_commit: str | None = None,
     git_branch: str | None = None,
     include_secrets: bool = False,
+    warnings: list[str] | None = None,
 ) -> tuple[str, BackupManifest]:
     """Create a tar.gz archive in BACKUP_DIR.  Returns (archive_path, manifest)."""
     archive_name = f"backup-{timestamp}"
@@ -291,6 +369,12 @@ def _create_archive(
         for dpath in BACKUP_DIRS:
             src, dest = f"{PROJECT_DIR}/{dpath}", f"{staging}/{dpath}"
             copy_cmds.append(f"mkdir -p {dest} && cp -r {src}/. {dest}/ 2>/dev/null || true")
+        metabase_source = f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}"
+        metabase_destination = f"{staging}/{METABASE_CONFIG_FILE}"
+        if ssh.exec_command(f"test -f {metabase_source}").success:
+            warning = _sanitize_remote_metabase_yaml(ssh, metabase_source, metabase_destination)
+            if warning and warnings is not None:
+                warnings.append(warning)
         if metabase_vol_path:
             copy_cmds.append(
                 f"mkdir -p {staging}/metabase"
@@ -422,6 +506,7 @@ def create_backup(
             git_commit=git_commit,
             git_branch=git_branch,
             include_secrets=include_secrets,
+            warnings=warnings,
         )
         _notify(on_progress, "create_archive", "done")
     finally:
@@ -555,6 +640,12 @@ def restore_from_archive(
             restore_cmds.append(
                 f"test -f {src} && (mkdir -p {dest_dir} && cp {src} {dest_dir}/) || true"
             )
+        metabase_source = f"{staging}/{METABASE_CONFIG_FILE}"
+        metabase_destination = f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}"
+        if ssh.exec_command(f"test -f {metabase_source}").success:
+            warning = _sanitize_remote_metabase_yaml(ssh, metabase_source, metabase_destination)
+            if warning:
+                warnings.append(warning)
         for dpath in BACKUP_DIRS:
             src, dest = f"{staging}/{dpath}", f"{PROJECT_DIR}/{dpath}"
             restore_cmds.append(
