@@ -10,7 +10,6 @@ Integrates with Metabase for dashboard provisioning, auto-setup, schema synchron
 |------|---------|----------------------|
 | `__init__.py` | Public exports | `provision_dashboard` |
 | `metabase.py` | Metabase auto-setup, DuckDB connection, schema sync | `MetabaseProvisioner`, `setup_metabase`, `sync_metabase_schema`, `refresh_metabase_connection`, `set_metabase_telemetry`, `get_metabase_telemetry_state` |
-| `metabase_config.py` | Metabase metadata and administrator credential access boundary | `load_metabase_metadata`, `load_metabase_admin_credentials`, `write_metabase_metadata` |
 | `dashboard_manager.py` | YAML-based dashboard/question export and import with rollback | `DashboardManager`, `import_dashboards` |
 
 ## Common Tasks
@@ -34,10 +33,10 @@ Integrates with Metabase for dashboard provisioning, auto-setup, schema synchron
   URL — all Level 0–2 imports, consistent with this module's Level 2 position in the
   dependency hierarchy.
 - `DASHBOARD_QUERIES`' SQL (not Python imports) reads the `_dango_meta` schema tables written by `dango.utils.pipeline_health.materialize_pipeline_health()` (1.0.8-DASH-1) — `cli/commands/dashboard.py` calls that function (and `refresh_metabase_connection()`, below) before provisioning, not this module.
-- `metabase_config.py` imports only the S1 `MetabaseCredentialStore`. It is the only
-  access boundary for Metabase metadata and the administrator credential: callers must
-  not write `admin.password` back to `.dango/metabase.yml`. Lifecycle migration owns
-  deleting legacy password fields after rotation succeeds.
+- Metabase metadata and administrator credentials are accessed through
+  `dango.security.metabase_config`. Callers must not write `admin.password` back to
+  `.dango/metabase.yml`; lifecycle migration owns deleting legacy password fields after
+  rotation succeeds.
 
 **Used by:**
 - `dango/cli/main.py` — Metabase CLI commands (`dango metabase setup/sync/export/import/provision/refresh`)
@@ -47,8 +46,6 @@ Integrates with Metabase for dashboard provisioning, auto-setup, schema synchron
 
 ## Testing
 
-- **Unit:** `tests/unit/test_metabase_config.py` covers metadata validation, protected
-  credential preference, read-only legacy compatibility, and atomic metadata writes.
 - **Integration:** None yet (will be `tests/integration/test_visualization.py`)
 - **Manual:** `dango start` then `dango metabase export` / `dango metabase import`
 

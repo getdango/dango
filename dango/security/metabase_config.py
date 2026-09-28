@@ -1,9 +1,9 @@
-"""dango/visualization/metabase_config.py
+"""dango/security/metabase_config.py
 
-Non-secret Metabase configuration and administrator-credential access.
+Metabase metadata and administrator-credential access boundary.
 
 The project-local ``.dango/metabase.yml`` file is metadata only for new
-writes.  During the staged 1.0.10 migration, reads retain a narrowly scoped
+writes. During the staged 1.0.10 migration, reads retain a narrowly scoped
 legacy fallback for existing ``admin.password`` values when the protected
 credential store does not yet contain a password.
 """
@@ -17,7 +17,7 @@ from uuid import uuid4
 
 import yaml
 
-from dango.security import MetabaseCredentialStore
+from dango.security.metabase_credentials import MetabaseCredentialStore
 
 
 class MetabaseConfigurationError(RuntimeError):
@@ -60,16 +60,21 @@ def load_metabase_admin_credentials(project_root: Path) -> tuple[str, str] | Non
         return None
 
     project_file = Path(project_root) / ".dango" / "project.yml"
-    with project_file.open(encoding="utf-8") as config_file:
-        project_config = yaml.safe_load(config_file)
-    project = project_config.get("project") if isinstance(project_config, dict) else None
-    project_id = project.get("id") if isinstance(project, dict) else None
+    project_id: object = None
+    if project_file.exists():
+        with project_file.open(encoding="utf-8") as config_file:
+            project_config = yaml.safe_load(config_file)
+        project = project_config.get("project") if isinstance(project_config, dict) else None
+        project_id = project.get("id") if isinstance(project, dict) else None
 
     if isinstance(project_id, str) and project_id:
+        # Do not catch store errors here: a malformed protected credential must
+        # be repaired explicitly rather than falling back to plaintext YAML.
         protected_password = MetabaseCredentialStore(project_root).load()
     else:
-        # Pre-1.0.8 projects may not have a persisted id yet. Their legacy
-        # credential remains readable until lifecycle migration establishes it.
+        # Pre-1.0.8 projects may have no project.yml or no persisted id yet.
+        # Their legacy credential remains readable until lifecycle migration
+        # establishes the project identity.
         protected_password = None
     if isinstance(protected_password, str) and protected_password:
         return email, protected_password

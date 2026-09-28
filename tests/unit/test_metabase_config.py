@@ -14,7 +14,7 @@ import yaml
 
 import dango.security.metabase_credentials as credentials
 from dango.security import MetabaseCredentialStoreError
-from dango.visualization.metabase_config import (
+from dango.security.metabase_config import (
     MetabaseConfigurationError,
     load_metabase_admin_credentials,
     load_metabase_metadata,
@@ -108,6 +108,27 @@ class TestMetabaseConfig:
         project = yaml.safe_load(project_file.read_text(encoding="utf-8"))
         del project["project"]["id"]
         project_file.write_text(yaml.safe_dump(project), encoding="utf-8")
+        _write_metadata(
+            project_root,
+            {"admin": {"email": "admin@example.com", "password": "legacy-password"}},
+        )
+        keyring = Mock()
+        monkeypatch.setattr(credentials, "keyring", keyring)
+
+        assert load_metabase_admin_credentials(project_root) == (
+            "admin@example.com",
+            "legacy-password",
+        )
+        assert not local_fallback_dir.exists()
+        keyring.get_password.assert_not_called()
+
+    def test_load_admin_credentials_uses_legacy_secret_without_project_file(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        project_root: Path,
+        local_fallback_dir: Path,
+    ) -> None:
+        (project_root / ".dango" / "project.yml").unlink()
         _write_metadata(
             project_root,
             {"admin": {"email": "admin@example.com", "password": "legacy-password"}},
