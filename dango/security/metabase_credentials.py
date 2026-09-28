@@ -50,35 +50,78 @@ class MetabaseCredentialStore:
 
     @property
     def _fallback_path(self) -> Path:
+        return self._fallback_path_for(pending=False)
+
+    @property
+    def _pending_fallback_path(self) -> Path:
+        return self._fallback_path_for(pending=True)
+
+    def _fallback_path_for(self, *, pending: bool) -> Path:
         base_dir = _CLOUD_SECRETS_DIR if self.cloud_mode else _LOCAL_SECRETS_DIR
-        return base_dir / f"{self.project_id}.json"
+        suffix = ".pending.json" if pending else ".json"
+        return base_dir / f"{self.project_id}{suffix}"
 
     def save(self, password: str) -> None:
         """Persist ``password`` in the selected protected credential store."""
+        self._save_credential(password, self.project_id, self._fallback_path)
+
+    def save_pending(self, password: str) -> None:
+        """Persist a non-active password candidate for a recoverable rotation."""
+        self._save_credential(password, self._pending_username, self._pending_fallback_path)
+
+    @property
+    def _pending_username(self) -> str:
+        return f"{self.project_id}:pending"
+
+    def _save_credential(self, password: str, username: str, fallback_path: Path) -> None:
         if not isinstance(password, str):
             raise TypeError("Metabase administrator password must be a string")
 
         if not self.cloud_mode:
             try:
-                keyring.set_password(_SERVICE_NAME, self.project_id, password)
+                keyring.set_password(_SERVICE_NAME, username, password)
                 self._using_fallback = False
                 return
             except Exception:  # noqa: BLE001 - keyring backends have varied exception types
                 self._using_fallback = True
 
-        self._write_fallback(password)
+        self._write_fallback(password, fallback_path)
 
     def load(self) -> str | None:
         """Load the password, returning ``None`` when no credential exists."""
+        return self._load_credential(self.project_id, self._fallback_path)
+
+    def load_pending(self) -> str | None:
+        """Load only a pending credential candidate, if one exists."""
+        return self._load_credential(self._pending_username, self._pending_fallback_path)
+
+    def _load_credential(self, username: str, fallback_path: Path) -> str | None:
         if not self.cloud_mode:
             try:
-                password = keyring.get_password(_SERVICE_NAME, self.project_id)
+                password = keyring.get_password(_SERVICE_NAME, username)
                 self._using_fallback = False
                 return password or None
             except Exception:  # noqa: BLE001 - use fallback only when keyring is unavailable
                 self._using_fallback = True
 
-        return self._load_fallback()
+        return self._load_fallback(fallback_path)
+
+    def promote_pending(self) -> str:
+        """Make the pending candidate active before attempting pending cleanup."""
+        password = self.load_pending()
+        if password is None:
+            raise MetabaseCredentialStoreError("No pending Metabase credential is available.")
+
+        self.save(password)
+        try:
+            self.discard_pending()
+        except Exception:  # noqa: BLE001 - active credential is already durable
+            pass
+        return password
+
+    def discard_pending(self) -> None:
+        """Remove a pending candidate without affecting the active credential."""
+        self._delete_credential(self._pending_username, self._pending_fallback_path)
 
     def delete(self) -> None:
         """Delete the stored password if present."""
@@ -92,6 +135,19 @@ class MetabaseCredentialStore:
 
         try:
             self._fallback_path.unlink()
+        except FileNotFoundError:
+            pass
+
+    def _delete_credential(self, username: str, fallback_path: Path) -> None:
+        if not self.cloud_mode:
+            try:
+                keyring.delete_password(_SERVICE_NAME, username)
+                self._using_fallback = False
+            except Exception:  # noqa: BLE001 - absent and unavailable keyrings both use fallback
+                self._using_fallback = True
+
+        try:
+            fallback_path.unlink()
         except FileNotFoundError:
             pass
 
@@ -135,9 +191,8 @@ class MetabaseCredentialStore:
             current = current.parent
         return list(reversed(paths))
 
-    def _write_fallback(self, password: str) -> None:
+    def _write_fallback(self, password: str, target: Path) -> None:
         directory = self._ensure_fallback_directory()
-        target = self._fallback_path
         temporary = directory / f".{target.name}.{uuid4().hex}.tmp"
         payload = json.dumps({"password": password})
 
@@ -161,8 +216,7 @@ class MetabaseCredentialStore:
             if fd is not None:
                 os.close(fd)
 
-    def _load_fallback(self) -> str | None:
-        path = self._fallback_path
+    def _load_fallback(self, path: Path) -> str | None:
         if not path.exists():
             return None
 
