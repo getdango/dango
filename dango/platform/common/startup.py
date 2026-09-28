@@ -254,7 +254,8 @@ def setup_metabase_if_needed(
     """
     Configure Metabase on first run.
 
-    No-op if credentials file already exists. On first run, performs
+    No-op if Metabase metadata already exists, including the password-free
+    metadata written by the protected credential flow. On first run, performs
     auto-setup and configures DuckDB connection.
 
     Args:
@@ -275,8 +276,8 @@ def setup_metabase_if_needed(
     from dango.config.helpers import is_cloud_mode
     from dango.visualization.metabase import setup_metabase
 
-    credentials_file = project_root / ".dango" / "metabase.yml"
-    if credentials_file.exists():
+    metadata_file = project_root / ".dango" / "metabase.yml"
+    if metadata_file.exists():
         return {"already_configured": True, "success": True}
 
     # Resolve admin email: env var > auth DB > fallback

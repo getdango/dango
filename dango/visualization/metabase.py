@@ -16,7 +16,8 @@ from typing import Any
 import requests
 import yaml
 
-from dango.security.metabase_config import load_metabase_admin_credentials
+from dango.security.metabase_config import load_metabase_admin_credentials, write_metabase_metadata
+from dango.security.metabase_credentials import MetabaseCredentialStore
 
 logger = logging.getLogger(__name__)
 
@@ -1174,61 +1175,117 @@ def setup_metabase(
 
         import secrets as _secrets
 
+        credential_store = MetabaseCredentialStore(project_root)
         admin_password = _secrets.token_urlsafe(32)
         org_name = organization or project_name
+        pending_staged = False
 
         if not setup_token:
             # Metabase already has admin user (likely from previous init with same volume)
-            # Save default credentials and try to continue setup
-            print("  ⚠ Metabase already initialized, using default credentials")
+            # A previous first-time setup may have created the remote user and
+            # then stopped before metadata was written.  Its pending candidate
+            # is the only safe credential to try: generating a replacement or
+            # resetting the volume would destroy that recoverable state.
+            pending_password = credential_store.load_pending()
+            if pending_password is not None:
+                admin_password = pending_password
+                pending_staged = True
+                print("  ⚠ Recovering interrupted Metabase setup")
+                try:
+                    login_response = session.post(
+                        f"{metabase_url}/api/session",
+                        json={"username": admin_email, "password": admin_password},
+                        timeout=10,
+                    )
+                except Exception as e:
+                    summary["errors"].append(
+                        f"Could not verify pending Metabase setup credential: {e}"
+                    )
+                    return summary
 
-            # Try to login with default credentials to verify they work
-            try:
-                login_response = session.post(
-                    f"{metabase_url}/api/session",
-                    json={"username": admin_email, "password": admin_password},
-                    timeout=10,
-                )
+                if login_response.status_code != 200:
+                    summary["errors"].append(
+                        "Pending Metabase setup credential was not accepted. "
+                        "The recovery candidate was retained; retry without resetting the volume."
+                    )
+                    return summary
 
-                if login_response.status_code == 200:
-                    session_token = login_response.json().get("id")
-                    print("  ✓ Login successful with default credentials")
+                session_token = login_response.json().get("id")
+                if not session_token:
+                    summary["errors"].append(
+                        "Pending Metabase setup credential did not return a session. "
+                        "The recovery candidate was retained; retry without resetting the volume."
+                    )
+                    return summary
 
-                    summary["admin_created"] = True  # Already existed
+                print("  ✓ Recovered pending Metabase setup credential")
+                summary["admin_created"] = True
+                headers = {"X-Metabase-Session": session_token}
 
-                    # Set headers for DuckDB connection below
-                    headers = {"X-Metabase-Session": session_token}
-                    # Credentials will be saved at the end with DuckDB info
+            else:
+                # Retain the existing initialized-volume/reset behavior when
+                # there is no protected recovery candidate.
+                print("  ⚠ Metabase already initialized, using default credentials")
 
-                else:
-                    # Stale volume from a different project — reset and retry
-                    print("  ⚠ Stale Metabase volume detected, resetting...")
-                    if _reset_metabase_volume(project_root):
-                        print("  ⏳ Waiting for Metabase to restart...")
-                        if wait_for_metabase_ready(metabase_url, timeout=120):
-                            # Get fresh setup token after reset
-                            props_resp = session.get(
-                                f"{metabase_url}/api/session/properties", timeout=10
-                            )
-                            if props_resp.status_code == 200:
-                                setup_token = props_resp.json().get("setup-token")
-                        if not setup_token:
+                # Try to login with default credentials to verify they work
+                try:
+                    login_response = session.post(
+                        f"{metabase_url}/api/session",
+                        json={"username": admin_email, "password": admin_password},
+                        timeout=10,
+                    )
+
+                    if login_response.status_code == 200:
+                        session_token = login_response.json().get("id")
+                        print("  ✓ Login successful with default credentials")
+
+                        summary["admin_created"] = True  # Already existed
+
+                        # Set headers for DuckDB connection below
+                        headers = {"X-Metabase-Session": session_token}
+                        # Credentials will be saved at the end with DuckDB info
+
+                    else:
+                        # Stale volume from a different project — reset and retry
+                        print("  ⚠ Stale Metabase volume detected, resetting...")
+                        if _reset_metabase_volume(project_root):
+                            print("  ⏳ Waiting for Metabase to restart...")
+                            if wait_for_metabase_ready(metabase_url, timeout=120):
+                                # Get fresh setup token after reset
+                                props_resp = session.get(
+                                    f"{metabase_url}/api/session/properties", timeout=10
+                                )
+                                if props_resp.status_code == 200:
+                                    setup_token = props_resp.json().get("setup-token")
+                            if not setup_token:
+                                summary["errors"].append(
+                                    "Metabase volume reset but setup token not available."
+                                )
+                                return summary
+                        else:
                             summary["errors"].append(
-                                "Metabase volume reset but setup token not available."
+                                "Metabase already initialized but default credentials don't work. "
+                                f"To reset: docker volume rm {compose_name}_metabase-data && dango start"
                             )
                             return summary
-                    else:
-                        summary["errors"].append(
-                            "Metabase already initialized but default credentials don't work. "
-                            f"To reset: docker volume rm {compose_name}_metabase-data && dango start"
-                        )
-                        return summary
 
-            except Exception as e:
-                summary["errors"].append(f"Could not login to existing Metabase: {e}")
-                return summary
+                except Exception as e:
+                    summary["errors"].append(f"Could not login to existing Metabase: {e}")
+                    return summary
 
         if setup_token:
+            # Persist the candidate before Metabase creates or accepts it.  A
+            # process stop after /api/setup can then recover without resetting
+            # the volume or writing a plaintext project-local password.
+            try:
+                credential_store.save_pending(admin_password)
+                pending_staged = True
+            except Exception as e:
+                summary["errors"].append(
+                    f"Could not protect Metabase setup credential before setup: {e}"
+                )
+                return summary
+
             # Fresh Metabase - create admin user with default credentials
             setup_data = {
                 "token": setup_token,
@@ -1261,6 +1318,10 @@ def setup_metabase(
                         summary["admin_created"] = True
                         headers = {"X-Metabase-Session": session_token}
                     else:
+                        try:
+                            credential_store.discard_pending()
+                        except Exception:  # noqa: BLE001 - preserve original setup failure
+                            pass
                         summary["errors"].append(
                             f"Failed to create admin user: {response.text}\n"
                             "And could not login with default credentials.\n"
@@ -1268,6 +1329,10 @@ def setup_metabase(
                         )
                         return summary
                 else:
+                    try:
+                        credential_store.discard_pending()
+                    except Exception:  # noqa: BLE001 - preserve original setup failure
+                        pass
                     summary["errors"].append(f"Failed to create admin user: {response.text}")
                     return summary
             else:
@@ -1502,10 +1567,42 @@ def setup_metabase(
             summary["success"] = False
             return summary
 
-        # Save credentials to .dango/metabase.yml (gitignored)
-        credentials = {
+        # A fresh candidate must remain non-active until the remote password is
+        # verified after the required DuckDB connection.  The initialized
+        # volume path without a candidate stages the verified password here;
+        # it did not perform a remote password mutation in this invocation.
+        if not pending_staged:
+            try:
+                credential_store.save_pending(admin_password)
+                pending_staged = True
+            except Exception as e:
+                summary["errors"].append(
+                    f"Could not protect Metabase setup credential before saving metadata: {e}"
+                )
+                return summary
+
+        try:
+            verification_response = session.post(
+                f"{metabase_url}/api/session",
+                json={"username": admin_email, "password": admin_password},
+                timeout=10,
+            )
+            if verification_response.status_code != 200 or not verification_response.json().get(
+                "id"
+            ):
+                summary["errors"].append(
+                    "Could not verify Metabase setup credential; the recovery candidate was retained."
+                )
+                return summary
+            credential_store.promote_pending()
+        except Exception as e:
+            summary["errors"].append(f"Could not promote verified Metabase setup credential: {e}")
+            return summary
+
+        # Persist non-secret configuration only after the password is active.
+        metadata = {
             "metabase_url": metabase_url,
-            "admin": {"email": admin_email, "password": admin_password},
+            "admin": {"email": admin_email},
             "database": {"id": summary.get("duckdb_id"), "name": f"{org_name} Analytics"},
             "setup_completed_at": datetime.now(tz=timezone.utc).isoformat(),
             # 1.0.8-W: lets refresh_metabase_connection() skip its own login+PUT once
@@ -1513,13 +1610,15 @@ def setup_metabase(
             "site_url_set": site_url_set,
         }
 
-        credentials_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(credentials_file, "w") as f:
-            yaml.safe_dump(credentials, f, default_flow_style=False)
+        try:
+            write_metabase_metadata(project_root, metadata)
+        except Exception as e:
+            summary["errors"].append(f"Could not save Metabase metadata: {e}")
+            return summary
 
         summary["credentials_saved"] = True
         summary["credentials_file"] = str(credentials_file)
-        print(f"  ✓ Saved credentials to {credentials_file}")
+        print(f"  ✓ Saved Metabase configuration to {credentials_file}")
 
         summary["success"] = True
         summary["admin_email"] = admin_email
