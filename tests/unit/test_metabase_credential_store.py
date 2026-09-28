@@ -98,9 +98,13 @@ class TestMetabaseCredentialStore:
 
         store = MetabaseCredentialStore(project_root, cloud_mode=True)
         store.save("cloud-secret")
+        store.save_pending("cloud-candidate")
 
         assert store.secret_path == cloud_dir / f"{PROJECT_ID}.json"
         assert store.load() == "cloud-secret"
+        assert store.load_pending() == "cloud-candidate"
+        store.discard_pending()
+        assert store.load_pending() is None
         assert stat.S_IMODE(cloud_dir.stat().st_mode) == 0o700
         assert stat.S_IMODE(cloud_dir.parent.stat().st_mode) == 0o700
         assert stat.S_IMODE(cloud_dir.parent.parent.stat().st_mode) != 0o700
@@ -167,3 +171,134 @@ class TestMetabaseCredentialStore:
 
         assert not local_fallback_dir.exists()
         assert PROJECT_ID not in project_file.read_text(encoding="utf-8")
+
+    def test_pending_credential_is_not_returned_by_load(
+        self, monkeypatch: pytest.MonkeyPatch, project_root: Path
+    ) -> None:
+        keyring = Mock()
+        credentials_by_username: dict[str, str] = {}
+        keyring.set_password.side_effect = lambda service, username, password: (
+            credentials_by_username.__setitem__(username, password)
+        )
+        keyring.get_password.side_effect = lambda service, username: credentials_by_username.get(
+            username
+        )
+        monkeypatch.setattr(credentials, "keyring", keyring)
+
+        store = MetabaseCredentialStore(project_root, cloud_mode=False)
+        store.save_pending("candidate-secret")
+
+        assert store.load() is None
+        assert store.load_pending() == "candidate-secret"
+
+    def test_promote_pending_makes_candidate_active_and_removes_pending(
+        self, monkeypatch: pytest.MonkeyPatch, project_root: Path
+    ) -> None:
+        keyring = Mock()
+        credentials_by_username: dict[str, str] = {}
+        keyring.set_password.side_effect = lambda service, username, password: (
+            credentials_by_username.__setitem__(username, password)
+        )
+        keyring.get_password.side_effect = lambda service, username: credentials_by_username.get(
+            username
+        )
+        keyring.delete_password.side_effect = lambda service, username: credentials_by_username.pop(
+            username, None
+        )
+        monkeypatch.setattr(credentials, "keyring", keyring)
+
+        store = MetabaseCredentialStore(project_root, cloud_mode=False)
+        store.save_pending("candidate-secret")
+
+        assert store.promote_pending() == "candidate-secret"
+        assert store.load() == "candidate-secret"
+        assert store.load_pending() is None
+
+    def test_promote_pending_requires_candidate(
+        self, monkeypatch: pytest.MonkeyPatch, project_root: Path
+    ) -> None:
+        keyring = Mock()
+        keyring.get_password.return_value = None
+        monkeypatch.setattr(credentials, "keyring", keyring)
+
+        with pytest.raises(MetabaseCredentialStoreError, match="No pending"):
+            MetabaseCredentialStore(project_root, cloud_mode=False).promote_pending()
+
+    def test_discard_pending_never_deletes_active_credential(
+        self, monkeypatch: pytest.MonkeyPatch, project_root: Path
+    ) -> None:
+        keyring = Mock()
+        credentials_by_username: dict[str, str] = {}
+        keyring.set_password.side_effect = lambda service, username, password: (
+            credentials_by_username.__setitem__(username, password)
+        )
+        keyring.get_password.side_effect = lambda service, username: credentials_by_username.get(
+            username
+        )
+        keyring.delete_password.side_effect = lambda service, username: credentials_by_username.pop(
+            username, None
+        )
+        monkeypatch.setattr(credentials, "keyring", keyring)
+
+        store = MetabaseCredentialStore(project_root, cloud_mode=False)
+        store.save("active-secret")
+        store.save_pending("candidate-secret")
+        store.discard_pending()
+
+        assert store.load() == "active-secret"
+        assert store.load_pending() is None
+
+    def test_fallback_pending_file_is_private_and_outside_project(
+        self, monkeypatch: pytest.MonkeyPatch, project_root: Path, local_fallback_dir: Path
+    ) -> None:
+        keyring = Mock()
+        keyring.set_password.side_effect = RuntimeError("keychain unavailable")
+        monkeypatch.setattr(credentials, "keyring", keyring)
+
+        store = MetabaseCredentialStore(project_root, cloud_mode=False)
+        store.save_pending("candidate-secret")
+        pending_path = local_fallback_dir / f"{PROJECT_ID}.pending.json"
+
+        assert pending_path.exists()
+        assert stat.S_IMODE(pending_path.stat().st_mode) == 0o600
+        assert project_root not in pending_path.parents
+        assert not list(project_root.rglob("*.json"))
+
+    def test_pending_fallback_is_not_loaded_when_keyring_is_available(
+        self, monkeypatch: pytest.MonkeyPatch, project_root: Path, local_fallback_dir: Path
+    ) -> None:
+        keyring = Mock()
+        keyring.set_password.side_effect = RuntimeError("keychain unavailable")
+        monkeypatch.setattr(credentials, "keyring", keyring)
+        store = MetabaseCredentialStore(project_root, cloud_mode=False)
+        store.save_pending("orphaned-candidate")
+
+        keyring.get_password.return_value = None
+
+        assert (local_fallback_dir / f"{PROJECT_ID}.pending.json").exists()
+        assert store.load_pending() is None
+
+    def test_promote_pending_cleanup_failure_keeps_active_credential(
+        self, monkeypatch: pytest.MonkeyPatch, project_root: Path
+    ) -> None:
+        keyring = Mock()
+        credentials_by_username: dict[str, str] = {}
+        keyring.set_password.side_effect = lambda service, username, password: (
+            credentials_by_username.__setitem__(username, password)
+        )
+        keyring.get_password.side_effect = lambda service, username: credentials_by_username.get(
+            username
+        )
+        keyring.delete_password.side_effect = lambda service, username: (
+            (_ for _ in ()).throw(OSError("cleanup failed"))
+            if username == f"{PROJECT_ID}:pending"
+            else credentials_by_username.pop(username, None)
+        )
+        monkeypatch.setattr(credentials, "keyring", keyring)
+
+        store = MetabaseCredentialStore(project_root, cloud_mode=False)
+        store.save_pending("candidate-secret")
+
+        assert store.promote_pending() == "candidate-secret"
+        assert store.load() == "candidate-secret"
+        assert store.load_pending() == "candidate-secret"
