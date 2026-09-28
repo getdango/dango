@@ -1371,6 +1371,18 @@ class DltPipelineRunner:
                 result["oauth_warning"] = self._current_oauth_warning
             return result
 
+        except KeyboardInterrupt:
+            # User interrupted — keep current state (progress saved by dlt)
+            console.print("\n  [yellow]Sync interrupted[/yellow]")
+            console.print("  [green]Progress saved — resume with the same command[/green]")
+            self._cleanup_state_backup(state_backup)
+            return {
+                "status": "interrupted",
+                "source": source_name,
+                "rows_loaded": 0,
+                "uses_replace_mode": uses_replace_mode,
+            }
+
         except Exception:
             # Restore state on failure
             if state_backup:
