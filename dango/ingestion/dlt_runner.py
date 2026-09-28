@@ -3140,6 +3140,17 @@ Need help? Visit: https://github.com/getdango/dango/issues
             # absent from the new extraction are correctly purged. Tables present in
             # pre_table_counts but absent from staged_counts (a resource that yielded
             # zero rows this run -- see docstring) are dropped outright, not skipped.
+            #
+            # Explicit transaction around the whole loop: DuckDB's connection
+            # auto-commits each statement individually, so a multi-table source with
+            # no transaction wrapping would leave a real gap for exactly the sources
+            # this task most needs to protect (HubSpot, Salesforce, Jira, Pipedrive,
+            # etc. are multi-table, merge-mode by default) -- a swap that fails
+            # partway through (table 2's CREATE, say) would have already committed
+            # table 1's drop+recreate AND table 2's DROP TABLE IF EXISTS, leaving
+            # table 2 gone and table 1 half-migrated instead of "untouched." Verified
+            # live: BEGIN TRANSACTION / COMMIT / ROLLBACK around this loop restores
+            # every table to its exact pre-swap state on a mid-loop failure.
             console.print("  🔄 Swapping staged data into destination...")
             db = _connect_with_lock_retry(
                 self.duckdb_path,
@@ -3148,15 +3159,21 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 project_root=self.project_root,
             )
             try:
-                db.execute(f'CREATE SCHEMA IF NOT EXISTS "{dataset_name}"')
-                all_table_names = set(staged_counts) | set(pre_table_counts or {})
-                for table_name in all_table_names:
-                    db.execute(f'DROP TABLE IF EXISTS "{dataset_name}"."{table_name}"')
-                    if table_name in staged_counts:
-                        db.execute(
-                            f'CREATE TABLE "{dataset_name}"."{table_name}" AS '
-                            f'SELECT * FROM "{staging_dataset_name}"."{table_name}"'
-                        )
+                db.execute("BEGIN TRANSACTION")
+                try:
+                    db.execute(f'CREATE SCHEMA IF NOT EXISTS "{dataset_name}"')
+                    all_table_names = set(staged_counts) | set(pre_table_counts or {})
+                    for table_name in all_table_names:
+                        db.execute(f'DROP TABLE IF EXISTS "{dataset_name}"."{table_name}"')
+                        if table_name in staged_counts:
+                            db.execute(
+                                f'CREATE TABLE "{dataset_name}"."{table_name}" AS '
+                                f'SELECT * FROM "{staging_dataset_name}"."{table_name}"'
+                            )
+                    db.execute("COMMIT")
+                except Exception:
+                    db.execute("ROLLBACK")
+                    raise
             finally:
                 db.close()
 

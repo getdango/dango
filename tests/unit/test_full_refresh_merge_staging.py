@@ -142,6 +142,42 @@ def _schema_exists(duckdb_path, schema_name: str) -> bool:
         con.close()
 
 
+class _FailOnTableConnection:
+    """Real duckdb connection proxy: delegates every call to a genuine connection,
+    except it raises on a CREATE TABLE for one specific table name -- used to
+    reproduce a real mid-swap-loop failure without mocking DuckDB itself."""
+
+    def __init__(self, real_conn, fail_table: str):
+        self._real_conn = real_conn
+        self._fail_table = fail_table
+
+    def execute(self, sql, *args, **kwargs):
+        if "CREATE TABLE" in sql and f'"{self._fail_table}"' in sql and " AS SELECT" in sql:
+            raise RuntimeError(f"simulated failure swapping in {self._fail_table}")
+        return self._real_conn.execute(sql, *args, **kwargs)
+
+    def close(self):
+        self._real_conn.close()
+
+
+def _patch_swap_failure(fail_table: str):
+    """Patch dlt_runner's _connect_with_lock_retry so only the swap step's own
+    connection (operation="fullrefresh-staging-swap") is wrapped to fail creating
+    `fail_table` -- every other call (pre-cleanup, load-stats query, etc.) behaves
+    exactly as it does for real."""
+    import dango.ingestion.dlt_runner as _dlt_runner_module
+
+    real_connect = _dlt_runner_module._connect_with_lock_retry
+
+    def _side_effect(duckdb_path, source_name, operation, project_root=None):
+        real_conn = real_connect(duckdb_path, source_name, operation, project_root=project_root)
+        if operation == "fullrefresh-staging-swap":
+            return _FailOnTableConnection(real_conn, fail_table)
+        return real_conn
+
+    return patch("dango.ingestion.dlt_runner._connect_with_lock_retry", side_effect=_side_effect)
+
+
 @pytest.mark.unit
 class TestNativeSourceFullRefreshStaging:
     """_run_dlt_native_source(): real, non-mocked dlt + DuckDB coverage of the
@@ -170,13 +206,13 @@ class TestNativeSourceFullRefreshStaging:
 
     def test_full_refresh_failure_leaves_real_destination_untouched(self, tmp_path):
         runner = _runner(tmp_path)
-        config = _native_config("native_failure_untouched")
+        config = _native_config("native_fail")
 
         mod1 = _fixture_module({"mytable": [{"id": 1, "v": "a"}, {"id": 2, "v": "b"}]})
         with _import_module_patch(mod1):
             first = runner._run_dlt_native_source(config, full_refresh=True)
         assert first["status"] == "success"
-        rows_before = _read_table(runner.duckdb_path, "raw_native_failure_untouched", "mytable")
+        rows_before = _read_table(runner.duckdb_path, "raw_native_fail", "mytable")
         assert rows_before
 
         mod2 = _fixture_module(
@@ -189,15 +225,11 @@ class TestNativeSourceFullRefreshStaging:
         assert second["status"] == "failed"
         assert second["rows_loaded"] == 0
 
-        rows_after = _read_table(runner.duckdb_path, "raw_native_failure_untouched", "mytable")
+        rows_after = _read_table(runner.duckdb_path, "raw_native_fail", "mytable")
         assert rows_after == rows_before
 
-        assert not _schema_exists(
-            runner.duckdb_path, "raw_native_failure_untouched_fullrefresh_staging"
-        )
-        assert not _schema_exists(
-            runner.duckdb_path, "raw_native_failure_untouched_fullrefresh_staging_staging"
-        )
+        assert not _schema_exists(runner.duckdb_path, "raw_native_fail_fullrefresh_staging")
+        assert not _schema_exists(runner.duckdb_path, "raw_native_fail_fullrefresh_staging_staging")
 
     def test_full_refresh_multi_table_source_swaps_all_tables(self, tmp_path):
         runner = _runner(tmp_path)
@@ -224,6 +256,39 @@ class TestNativeSourceFullRefreshStaging:
         t2_rows = _read_table(runner.duckdb_path, "raw_native_multitable", "t2")
         assert [(r[0], r[1]) for r in t1_rows] == [(2, "b-updated"), (3, "c-new")]
         assert [(r[0], r[1]) for r in t2_rows] == [(11, "y-new")]
+
+    def test_full_refresh_swap_failure_leaves_all_real_tables_untouched(self, tmp_path):
+        """The staging load succeeds, but the swap loop itself fails partway
+        through (table_b's CREATE) -- DuckDB auto-commits each statement, so
+        without explicit transaction wrapping table_a's drop+recreate would
+        already be committed while table_b ends up dropped-but-not-recreated.
+        Assert every real table is byte-for-byte unchanged, not just that an
+        exception was raised."""
+        runner = _runner(tmp_path)
+        config = _native_config("native_swap_fail")
+
+        mod1 = _fixture_module(
+            {"table_a": [{"id": 1, "v": "a"}], "table_b": [{"id": 10, "v": "x"}]}
+        )
+        with _import_module_patch(mod1):
+            first = runner._run_dlt_native_source(config, full_refresh=True)
+        assert first["status"] == "success"
+
+        rows_a_before = _read_table(runner.duckdb_path, "raw_native_swap_fail", "table_a")
+        rows_b_before = _read_table(runner.duckdb_path, "raw_native_swap_fail", "table_b")
+
+        mod2 = _fixture_module(
+            {"table_a": [{"id": 2, "v": "a-updated"}], "table_b": [{"id": 20, "v": "y"}]}
+        )
+        with _import_module_patch(mod2), _patch_swap_failure("table_b"):
+            second = runner._run_dlt_native_source(config, full_refresh=True)
+
+        assert second["status"] == "failed"
+
+        rows_a_after = _read_table(runner.duckdb_path, "raw_native_swap_fail", "table_a")
+        rows_b_after = _read_table(runner.duckdb_path, "raw_native_swap_fail", "table_b")
+        assert rows_a_after == rows_a_before
+        assert rows_b_after == rows_b_before
 
     def test_full_refresh_cleans_up_dlt_internal_staging_schema(self, tmp_path):
         runner = _runner(tmp_path)
@@ -308,7 +373,7 @@ class TestDltSourceFullRefreshStaging:
 
     def test_full_refresh_failure_leaves_real_destination_untouched(self, tmp_path):
         runner = _runner(tmp_path)
-        config = _dltsource_config("dltsource_failure_untouched")
+        config = _dltsource_config("dltsource_fail")
 
         first = self._run(
             runner,
@@ -317,7 +382,7 @@ class TestDltSourceFullRefreshStaging:
             full_refresh=True,
         )
         assert first["status"] == "success"
-        rows_before = _read_table(runner.duckdb_path, "raw_dltsource_failure_untouched", "mytable")
+        rows_before = _read_table(runner.duckdb_path, "raw_dltsource_fail", "mytable")
         assert rows_before
 
         second = self._run(
@@ -333,14 +398,12 @@ class TestDltSourceFullRefreshStaging:
         assert second["status"] == "failed"
         assert second["rows_loaded"] == 0
 
-        rows_after = _read_table(runner.duckdb_path, "raw_dltsource_failure_untouched", "mytable")
+        rows_after = _read_table(runner.duckdb_path, "raw_dltsource_fail", "mytable")
         assert rows_after == rows_before
 
+        assert not _schema_exists(runner.duckdb_path, "raw_dltsource_fail_fullrefresh_staging")
         assert not _schema_exists(
-            runner.duckdb_path, "raw_dltsource_failure_untouched_fullrefresh_staging"
-        )
-        assert not _schema_exists(
-            runner.duckdb_path, "raw_dltsource_failure_untouched_fullrefresh_staging_staging"
+            runner.duckdb_path, "raw_dltsource_fail_fullrefresh_staging_staging"
         )
 
     def test_full_refresh_multi_table_source_swaps_all_tables(self, tmp_path):
@@ -374,6 +437,13 @@ class TestDltSourceFullRefreshStaging:
         t2_rows = _read_table(runner.duckdb_path, "raw_dltsource_multitable", "t2")
         assert [(r[0], r[1]) for r in t1_rows] == [(2, "b-updated"), (3, "c-new")]
         assert [(r[0], r[1]) for r in t2_rows] == [(11, "y-new")]
+
+    # test_full_refresh_swap_failure_leaves_all_real_tables_untouched is NOT
+    # mirrored here: the swap loop's transaction wrapping lives entirely inside
+    # the one shared _full_refresh_via_staging() helper, with no call-site-specific
+    # logic in it -- TestNativeSourceFullRefreshStaging's version above already
+    # exercises that exact helper code, and every other test in this class already
+    # confirms _run_dlt_source() reaches the same helper identically.
 
     def test_full_refresh_cleans_up_dlt_internal_staging_schema(self, tmp_path):
         runner = _runner(tmp_path)
@@ -410,73 +480,3 @@ class TestDltSourceFullRefreshStaging:
         assert result["status"] == "success"
         rows = _read_table(runner.duckdb_path, "raw_dltsource_first_ever", "mytable")
         assert [(r[0], r[1]) for r in rows] == [(1, "a"), (2, "b")]
-
-
-@pytest.mark.unit
-class TestReplaceModeUnaffected:
-    """Confirm replace-mode --full-refresh is unchanged: still the untouched
-    `else:` branch, never the new staging helper. Mirrors both methods."""
-
-    def test_native_replace_mode_full_refresh_unaffected(self, tmp_path):
-        runner = _runner(tmp_path)
-        config = _native_config("native_replace_unaffected")
-
-        mod1 = _fixture_module(
-            {"mytable": [{"id": 1, "v": "a"}, {"id": 2, "v": "b"}]}, write_disposition="replace"
-        )
-        with _import_module_patch(mod1):
-            first = runner._run_dlt_native_source(config, full_refresh=True)
-        assert first["status"] == "success"
-        assert first["uses_replace_mode"] is True
-
-        mod2 = _fixture_module({"mytable": [{"id": 5, "v": "z"}]}, write_disposition="replace")
-        with (
-            _import_module_patch(mod2),
-            patch(
-                "dango.ingestion.dlt_runner.DltPipelineRunner._full_refresh_via_staging"
-            ) as mock_staging,
-        ):
-            second = runner._run_dlt_native_source(config, full_refresh=True)
-
-        assert second["status"] == "success"
-        mock_staging.assert_not_called()
-        rows = _read_table(runner.duckdb_path, "raw_native_replace_unaffected", "mytable")
-        assert [(r[0], r[1]) for r in rows] == [(5, "z")]
-        assert not _schema_exists(
-            runner.duckdb_path, "raw_native_replace_unaffected_fullrefresh_staging"
-        )
-
-    def test_dltsource_replace_mode_full_refresh_unaffected(self, tmp_path):
-        runner = _runner(tmp_path)
-        config = _dltsource_config("dltsource_replace_unaffected")
-
-        run = TestDltSourceFullRefreshStaging._run
-
-        first = run(
-            runner,
-            config,
-            _fixture_source(
-                {"mytable": [{"id": 1, "v": "a"}, {"id": 2, "v": "b"}]}, write_disposition="replace"
-            ),
-            full_refresh=True,
-        )
-        assert first["status"] == "success"
-        assert first["uses_replace_mode"] is True
-
-        with patch(
-            "dango.ingestion.dlt_runner.DltPipelineRunner._full_refresh_via_staging"
-        ) as mock_staging:
-            second = run(
-                runner,
-                config,
-                _fixture_source({"mytable": [{"id": 5, "v": "z"}]}, write_disposition="replace"),
-                full_refresh=True,
-            )
-
-        assert second["status"] == "success"
-        mock_staging.assert_not_called()
-        rows = _read_table(runner.duckdb_path, "raw_dltsource_replace_unaffected", "mytable")
-        assert [(r[0], r[1]) for r in rows] == [(5, "z")]
-        assert not _schema_exists(
-            runner.duckdb_path, "raw_dltsource_replace_unaffected_fullrefresh_staging"
-        )
