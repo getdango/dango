@@ -1,10 +1,9 @@
 """tests/unit/test_full_refresh_merge_staging.py
 
-Regression coverage for 1.0.10-S15: `--full-refresh` on merge/append sources now
-stages the reload into a separate pipeline and swaps it into the real destination
-only once known-good, via `_full_refresh_via_staging()` (called identically by both
-`_run_dlt_native_source()` and `_run_dlt_source()` -- see PLAN.md's "S15 finding").
-Real, non-mocked dlt + DuckDB throughout, mirroring `test_empty_replace_real_prevention.py`.
+Regression coverage for 1.0.10-S15: `--full-refresh` on merge/append sources stages
+the reload into a separate pipeline and swaps it into the real destination only once
+known-good, via `_full_refresh_via_staging()` (called identically by both
+`_run_dlt_native_source()` and `_run_dlt_source()`). Real, non-mocked dlt + DuckDB.
 """
 
 from __future__ import annotations
@@ -62,8 +61,7 @@ def _dltsource_config(name: str) -> DataSource:
 
 
 def _make_resource(table_name, rows, write_disposition, primary_key, fail_after=None):
-    # A separate function call per resource -- each call gets its own local scope/
-    # cell for `rows`/`fail_after`, avoiding the classic late-binding closure bug.
+    # Separate call per resource -- own closure cell per `rows`/`fail_after`.
     resource_kwargs = {"name": table_name, "write_disposition": write_disposition}
     if primary_key:
         resource_kwargs["primary_key"] = primary_key
@@ -106,9 +104,8 @@ def _fixture_module(table_rows, write_disposition="merge", primary_key="id", fai
 
 
 def _import_module_patch(fake_module):
-    """Patch import_module narrowly (see the identical helper in
-    test_empty_replace_real_prevention.py) -- a naive return_value= patch breaks
-    pendulum's own internal importlib usage during dlt.pipeline() construction."""
+    """Patch import_module narrowly -- a naive return_value= patch breaks
+    pendulum's own importlib usage during dlt.pipeline() construction."""
     real_import_module = _real_importlib.import_module
 
     def _side_effect(name, *args, **kwargs):
@@ -143,9 +140,8 @@ def _schema_exists(duckdb_path, schema_name: str) -> bool:
 
 
 class _FailOnTableConnection:
-    """Real duckdb connection proxy: delegates every call to a genuine connection,
-    except it raises on a CREATE TABLE for one specific table name -- used to
-    reproduce a real mid-swap-loop failure without mocking DuckDB itself."""
+    """Real duckdb connection proxy: delegates to a genuine connection, except
+    raises on CREATE TABLE for one table -- a real mid-swap-loop failure."""
 
     def __init__(self, real_conn, fail_table: str):
         self._real_conn = real_conn
@@ -161,10 +157,9 @@ class _FailOnTableConnection:
 
 
 def _patch_swap_failure(fail_table: str):
-    """Patch dlt_runner's _connect_with_lock_retry so only the swap step's own
-    connection (operation="fullrefresh-staging-swap") is wrapped to fail creating
-    `fail_table` -- every other call (pre-cleanup, load-stats query, etc.) behaves
-    exactly as it does for real."""
+    """Patch _connect_with_lock_retry so only the swap step's own connection
+    (operation="fullrefresh-staging-swap") fails creating `fail_table` --
+    every other call stays real."""
     import dango.ingestion.dlt_runner as _dlt_runner_module
 
     real_connect = _dlt_runner_module._connect_with_lock_retry
@@ -258,12 +253,9 @@ class TestNativeSourceFullRefreshStaging:
         assert [(r[0], r[1]) for r in t2_rows] == [(11, "y-new")]
 
     def test_full_refresh_swap_failure_leaves_all_real_tables_untouched(self, tmp_path):
-        """The staging load succeeds, but the swap loop itself fails partway
-        through (table_b's CREATE) -- DuckDB auto-commits each statement, so
-        without explicit transaction wrapping table_a's drop+recreate would
-        already be committed while table_b ends up dropped-but-not-recreated.
-        Assert every real table is byte-for-byte unchanged, not just that an
-        exception was raised."""
+        """Staging load succeeds, swap loop fails partway (table_b's CREATE) --
+        without transaction wrapping, table_a's drop+recreate would already be
+        committed. Assert every real table is byte-for-byte unchanged."""
         runner = _runner(tmp_path)
         config = _native_config("native_swap_fail")
 
@@ -326,10 +318,9 @@ class TestNativeSourceFullRefreshStaging:
 
 @pytest.mark.unit
 class TestDltSourceFullRefreshStaging:
-    """_run_dlt_source(): real, non-mocked dlt + DuckDB coverage of the
-    stage-then-swap full-refresh path. get_source_metadata/_load_dlt_source are
-    mocked to bypass registry/dynamic-import wiring; everything downstream
-    (dlt.pipeline, extract/normalize/load, real DuckDB writes) runs for real."""
+    """_run_dlt_source(): real, non-mocked dlt + DuckDB coverage. Only
+    get_source_metadata/_load_dlt_source are mocked (registry/dynamic-import
+    wiring); everything downstream runs for real."""
 
     @staticmethod
     def _run(runner, config, source, **kwargs):
@@ -438,12 +429,39 @@ class TestDltSourceFullRefreshStaging:
         assert [(r[0], r[1]) for r in t1_rows] == [(2, "b-updated"), (3, "c-new")]
         assert [(r[0], r[1]) for r in t2_rows] == [(11, "y-new")]
 
-    # test_full_refresh_swap_failure_leaves_all_real_tables_untouched is NOT
-    # mirrored here: the swap loop's transaction wrapping lives entirely inside
-    # the one shared _full_refresh_via_staging() helper, with no call-site-specific
-    # logic in it -- TestNativeSourceFullRefreshStaging's version above already
-    # exercises that exact helper code, and every other test in this class already
-    # confirms _run_dlt_source() reaches the same helper identically.
+    def test_full_refresh_swap_failure_leaves_all_real_tables_untouched(self, tmp_path):
+        """See the identical-intent native test above for the full rationale --
+        mirrored here for _run_dlt_source()."""
+        runner = _runner(tmp_path)
+        config = _dltsource_config("dltsource_swap_fail")
+
+        first = self._run(
+            runner,
+            config,
+            _fixture_source({"table_a": [{"id": 1, "v": "a"}], "table_b": [{"id": 10, "v": "x"}]}),
+            full_refresh=True,
+        )
+        assert first["status"] == "success"
+
+        rows_a_before = _read_table(runner.duckdb_path, "raw_dltsource_swap_fail", "table_a")
+        rows_b_before = _read_table(runner.duckdb_path, "raw_dltsource_swap_fail", "table_b")
+
+        with _patch_swap_failure("table_b"):
+            second = self._run(
+                runner,
+                config,
+                _fixture_source(
+                    {"table_a": [{"id": 2, "v": "a2"}], "table_b": [{"id": 20, "v": "y"}]}
+                ),
+                full_refresh=True,
+            )
+
+        assert second["status"] == "failed"
+
+        rows_a_after = _read_table(runner.duckdb_path, "raw_dltsource_swap_fail", "table_a")
+        rows_b_after = _read_table(runner.duckdb_path, "raw_dltsource_swap_fail", "table_b")
+        assert rows_a_after == rows_a_before
+        assert rows_b_after == rows_b_before
 
     def test_full_refresh_cleans_up_dlt_internal_staging_schema(self, tmp_path):
         runner = _runner(tmp_path)
