@@ -297,12 +297,17 @@ class TestNativeSourceRealPrevention:
         assert rows_a_after == rows_a_before
         assert rows_b_after == rows_b_before
 
-    def test_full_refresh_merge_mode_unaffected(self, tmp_path):
-        """A merge/append source run with --full-refresh behaves identically
-        to before this task: the new pre-load check is gated on
-        uses_replace_mode only, so it never fires for merge mode -- this
-        falls through unchanged to the existing post-load check, which
-        already gates on `full_refresh or uses_replace_mode`."""
+    def test_full_refresh_merge_mode_still_protected_by_1_0_10_s15(self, tmp_path):
+        """A merge/append source run with --full-refresh + 0 new rows still fails
+        with empty-replace protection -- but the mechanism changed under 1.0.10-S15
+        (see PLAN.md's "S15 finding"). Before S15, this test asserted the OLD
+        post-load check's message ("existing 1 rows preserved"), which was actually
+        FALSE for merge mode: the real schema had already been dropped before
+        extraction, so nothing was in fact preserved. S15 replaced the whole
+        merge/append full-refresh path with stage-then-swap, so this now fails
+        during staging (before the real destination is ever touched) with an
+        honest message -- and, unlike before, that claim is verified here against
+        a real DuckDB read, not just asserted from the error string."""
         runner = _runner(tmp_path)
         config = _native_config("native_merge_full_refresh")
 
@@ -314,16 +319,20 @@ class TestNativeSourceRealPrevention:
         assert first["status"] == "success"
         assert first["uses_replace_mode"] is False
 
+        rows_before = _read_table(runner.duckdb_path, "raw_native_merge_full_refresh", "mytable")
+        assert rows_before
+
         mod2 = _fixture_module({"mytable": []}, write_disposition="merge", primary_key="id")
         with _import_module_patch(mod2):
             second = runner._run_dlt_native_source(config, full_refresh=True)
 
-        # Pre-existing behavior (unchanged by this task): full_refresh + 0
-        # rows + previously-existing data still fails via the OLD post-load
-        # check, since that check gates on `full_refresh or uses_replace_mode`.
         assert second["status"] == "failed"
         assert second["error_type"] == EMPTY_REPLACE_PROTECTION_ERROR_TYPE
-        assert "existing 1 rows preserved" in second["error"]
+        assert "existing 1 rows" in second["error"]
+        assert "never touched" in second["error"]
+
+        rows_after = _read_table(runner.duckdb_path, "raw_native_merge_full_refresh", "mytable")
+        assert rows_after == rows_before
 
 
 @pytest.mark.unit
@@ -453,7 +462,9 @@ class TestDltSourceRealPrevention:
         assert rows_a_after == rows_a_before
         assert rows_b_after == rows_b_before
 
-    def test_full_refresh_merge_mode_unaffected(self, tmp_path):
+    def test_full_refresh_merge_mode_still_protected_by_1_0_10_s15(self, tmp_path):
+        """See the identical-intent native test above for the full rationale --
+        mirrored here for _run_dlt_source()."""
         runner = _runner(tmp_path)
         config = _dltsource_config("dltsource_merge_full_refresh")
 
@@ -466,6 +477,9 @@ class TestDltSourceRealPrevention:
         assert first["status"] == "success"
         assert first["uses_replace_mode"] is False
 
+        rows_before = _read_table(runner.duckdb_path, "raw_dltsource_merge_full_refresh", "mytable")
+        assert rows_before
+
         second = self._run(
             runner,
             config,
@@ -475,4 +489,8 @@ class TestDltSourceRealPrevention:
 
         assert second["status"] == "failed"
         assert second["error_type"] == EMPTY_REPLACE_PROTECTION_ERROR_TYPE
-        assert "existing 1 rows preserved" in second["error"]
+        assert "existing 1 rows" in second["error"]
+        assert "never touched" in second["error"]
+
+        rows_after = _read_table(runner.duckdb_path, "raw_dltsource_merge_full_refresh", "mytable")
+        assert rows_after == rows_before

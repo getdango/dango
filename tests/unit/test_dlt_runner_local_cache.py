@@ -96,6 +96,16 @@ class TestFullRefreshClearsLocalPipelineCacheNative:
     ~/.dlt/pipelines/{pipeline_name}/. Its failure was caught and only logged,
     so a full refresh could silently proceed with stale local incremental
     cursor state intact even though the destination schema was dropped.
+
+    1.0.10-S15 note: for merge/append sources, --full-refresh now delegates
+    to `_full_refresh_via_staging()` (see PLAN.md's "S15 finding") instead of
+    running this method's own pipeline.drop()/_clear_local_pipeline_cache
+    sequence at all -- the primary pipeline object is never touched, only a
+    separate staging pipeline is. The two pipeline.drop()-execution tests
+    below use replace-mode sources (the still-untouched `else:` branch) so
+    they keep exercising this exact 1.0.8-Q6 regression on the one path
+    where it's still live; the staging pipeline's own equivalent cache-clear
+    is covered in test_full_refresh_merge_staging.py.
     """
 
     def _make_runner(self, tmp_path):
@@ -154,6 +164,9 @@ class TestFullRefreshClearsLocalPipelineCacheNative:
 
         mock_pipeline = MagicMock()  # pipeline.drop() succeeds by default
         mock_dlt.pipeline.return_value = mock_pipeline
+        # Replace-mode source (see class docstring): merge/append full refresh
+        # no longer runs this method's pipeline.drop() path at all.
+        runner._detect_write_disposition = MagicMock(return_value=True)
 
         runner._extract_load_stats = MagicMock(return_value={"rows_loaded": 5})
 
@@ -202,6 +215,9 @@ class TestFullRefreshClearsLocalPipelineCacheNative:
         mock_pipeline = MagicMock()
         mock_pipeline.drop.side_effect = RuntimeError("simulated pipeline.drop() failure")
         mock_dlt.pipeline.return_value = mock_pipeline
+        # Replace-mode source (see class docstring): merge/append full refresh
+        # no longer runs this method's pipeline.drop() path at all.
+        runner._detect_write_disposition = MagicMock(return_value=True)
 
         runner._extract_load_stats = MagicMock(return_value={"rows_loaded": 5})
 
@@ -264,6 +280,11 @@ class TestFullRefreshClearsLocalPipelineCacheDltSource:
     Unlike _run_dlt_native_source, this method has no separate `pipeline_name`
     config override — dlt.pipeline(pipeline_name=source_name, ...) always uses
     source_name directly, so the local cache directory is keyed on source_name.
+
+    1.0.10-S15 note: see the identical note on
+    TestFullRefreshClearsLocalPipelineCacheNative -- _stub_runner_methods()
+    below sets replace mode so the two pipeline.drop()-execution tests keep
+    exercising the 1.0.8-Q6 regression on the path where it's still live.
     """
 
     def _make_runner(self, tmp_path):
@@ -292,6 +313,12 @@ class TestFullRefreshClearsLocalPipelineCacheDltSource:
         runner._get_dataset_name = MagicMock(return_value="raw_test_source2")
         runner._load_dlt_source = MagicMock(return_value=MagicMock())
         runner._extract_load_stats = MagicMock(return_value={"rows_loaded": 5})
+        # Replace-mode source (see class docstring): merge/append full refresh
+        # delegates to _full_refresh_via_staging() and never runs this
+        # method's own pipeline.drop() path (1.0.10-S15). Harmless for
+        # test_non_full_refresh_sync_never_touches_local_pipeline_cache,
+        # which never enters the full_refresh branch at all.
+        runner._detect_write_disposition = MagicMock(return_value=True)
 
     def _make_stale_cache_dir(self, tmp_path, monkeypatch, source_name="test_source2"):
         fake_home = tmp_path / "home"

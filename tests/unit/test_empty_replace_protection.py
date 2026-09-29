@@ -799,26 +799,41 @@ class TestSchemaInteraction:
         assert result["rows_loaded"] == 1200
 
     def test_drop_schema_present_and_conditional(self):
-        """Test 18: DROP SCHEMA present in _run_dlt_source, guarded by uses_replace_mode."""
-        source = inspect.getsource(
-            __import__(
-                "dango.ingestion.dlt_runner", fromlist=["DltPipelineRunner"]
-            ).DltPipelineRunner._run_dlt_source
-        )
-        assert "DROP SCHEMA" in source
+        """Test 18 (updated 1.0.10-S15): merge/append full refresh no longer drops
+        the real schema unconditionally inside _run_dlt_source -- it delegates to
+        _full_refresh_via_staging (see PLAN.md's "S15 finding"), guarded by the same
+        uses_replace_mode check. DROP SCHEMA still happens, just against the staging
+        dataset inside the shared helper, not the real one inline here."""
+        from dango.ingestion.dlt_runner import DltPipelineRunner
+
+        source = inspect.getsource(DltPipelineRunner._run_dlt_source)
+        assert "_full_refresh_via_staging" in source
         assert "if not uses_replace_mode:" in source
 
+        staging_source = inspect.getsource(DltPipelineRunner._full_refresh_via_staging)
+        assert "DROP SCHEMA" in staging_source
+
     def test_merge_source_full_refresh_drops_schema(self, tmp_path):
-        """Merge source full refresh calls duckdb to drop schema."""
+        """Merge source full refresh delegates to _full_refresh_via_staging (updated
+        1.0.10-S15 -- see PLAN.md's "S15 finding"). The staging helper's own DROP
+        SCHEMA/swap mechanics are covered by real, non-mocked DuckDB reads in
+        test_full_refresh_merge_staging.py; this test verifies _run_dlt_source's
+        delegation itself: called with uses_replace_mode=False and the right
+        source/dataset identity, and its return value passed straight through."""
         runner = _make_runner(tmp_path)
-        runner.duckdb_path.parent.mkdir(parents=True, exist_ok=True)
-        runner.duckdb_path.touch()
+
+        staging_result = {
+            "status": "success",
+            "source": "test_source",
+            "rows_loaded": 1200,
+            "uses_replace_mode": False,
+        }
 
         with (
             patch.object(runner, "_get_source_total_rows", return_value=1000),
             patch.object(runner, "_get_source_table_rows", return_value={"t1": 1000}),
             patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
-            patch.object(runner, "_cleanup_state_backup"),
+            patch.object(runner, "_cleanup_state_backup") as mock_cleanup_backup,
             patch.object(runner, "_build_source_config", return_value={}),
             patch.object(runner, "_load_dlt_source") as mock_source,
             patch.object(runner, "_detect_write_disposition", return_value=False),
@@ -826,17 +841,12 @@ class TestSchemaInteraction:
             patch.object(runner, "_check_oauth_token_expiry", return_value=None),
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(
-                runner,
-                "_extract_load_stats",
-                return_value={"rows_loaded": 1200, "loaded_tables": ["t1"]},
-            ),
-            patch.object(runner, "_check_row_count_anomaly", return_value=None),
-            patch.object(runner, "_load_with_lock", return_value=_mock_load_info()),
+                runner, "_full_refresh_via_staging", return_value=staging_result
+            ) as mock_staging,
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
             patch("os.chdir"),
-            patch("duckdb.connect") as mock_connect,
         ):
             mock_meta.return_value = {
                 "dlt_package": "test",
@@ -845,22 +855,29 @@ class TestSchemaInteraction:
             mock_dlt.pipeline.return_value = MagicMock()
             mock_dlt.destinations.duckdb.return_value = MagicMock()
             mock_source.return_value = MagicMock()
-            mock_db = MagicMock()
-            mock_connect.return_value = mock_db
 
             result = runner._run_dlt_source(
                 _make_source_config(),
                 full_refresh=True,
             )
 
-        assert result["status"] == "success"
-        mock_connect.assert_called_once_with(str(runner.duckdb_path))
-        mock_db.execute.assert_called_once()
-        call_args = mock_db.execute.call_args[0][0]
-        assert "DROP SCHEMA" in call_args
-        assert "raw_test" in call_args
-        assert "CASCADE" in call_args
-        mock_db.close.assert_called_once()
+        assert result == staging_result
+        mock_staging.assert_called_once()
+        _, kwargs = mock_staging.call_args
+        assert kwargs["source_name"] == "test_source"
+        assert kwargs["dataset_name"] == "raw_test"
+        assert kwargs["uses_replace_mode"] is False
+        # The primary pipeline's own state backup is cleaned up before delegating --
+        # nothing in the primary pipeline's local state is touched by this path.
+        mock_cleanup_backup.assert_called_once()
+
+        staging_source_code = inspect.getsource(
+            __import__(
+                "dango.ingestion.dlt_runner", fromlist=["DltPipelineRunner"]
+            ).DltPipelineRunner._full_refresh_via_staging
+        )
+        assert "DROP SCHEMA" in staging_source_code
+        assert "CASCADE" in staging_source_code
 
     def test_replace_source_full_refresh_skips_schema_drop(self, tmp_path):
         """Replace source full refresh does NOT call duckdb to drop schema."""
@@ -1321,15 +1338,24 @@ class TestDropSchemaPresent:
 
     @pytest.mark.parametrize("method_name", ["_run_dlt_source", "_run_dlt_native_source"])
     def test_drop_schema_cascade_present_and_conditional(self, method_name):
-        """DROP SCHEMA CASCADE must be present, guarded by not uses_replace_mode."""
+        """Updated 1.0.10-S15: both parallel methods delegate merge/append full
+        refresh to the shared _full_refresh_via_staging() helper (guarded by the
+        same uses_replace_mode check) instead of dropping the real schema inline --
+        see PLAN.md's "S15 finding". DROP SCHEMA CASCADE still happens, against the
+        staging dataset, inside that one shared helper."""
         from dango.ingestion.dlt_runner import DltPipelineRunner
 
         source = inspect.getsource(getattr(DltPipelineRunner, method_name))
-        assert "DROP SCHEMA" in source, (
-            f"{method_name} missing DROP SCHEMA — must be present for merge/append full refresh"
+        assert "_full_refresh_via_staging" in source, (
+            f"{method_name} must delegate merge/append full refresh to _full_refresh_via_staging"
         )
         assert "if not uses_replace_mode:" in source, (
-            f"{method_name} DROP SCHEMA must be guarded by uses_replace_mode check"
+            f"{method_name}'s full-refresh delegation must be guarded by uses_replace_mode check"
+        )
+
+        staging_source = inspect.getsource(DltPipelineRunner._full_refresh_via_staging)
+        assert "DROP SCHEMA" in staging_source, (
+            "_full_refresh_via_staging missing DROP SCHEMA CASCADE for staging cleanup"
         )
 
 
