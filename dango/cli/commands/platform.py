@@ -559,6 +559,21 @@ def start(ctx: click.Context, yes: bool) -> None:
             raise click.Abort() from e
 
         # Docker assigns/repairs the persisted project ID during service start.
+        # Apply the additive local-artifact protections for direct-pip users
+        # too.  This must not prevent a project from starting.
+        try:
+            from dango.config.credentials import ensure_sensitive_artifact_gitignores
+
+            if ensure_sensitive_artifact_gitignores(project_root):
+                console.print(
+                    "[dim]Added sensitive local-artifact ignore rules to .gitignore.[/dim]"
+                )
+        except Exception:
+            console.print(
+                "[yellow]⚠[/yellow] Could not update .gitignore with sensitive local-artifact "
+                "rules. Dango will retry safely on the next start."
+            )
+
         # Complete a pending legacy credential migration only after that identity
         # exists, and before setup decides whether Metabase needs configuration.
         try:

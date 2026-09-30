@@ -43,11 +43,27 @@ def _response() -> MagicMock:
     return response
 
 
-def _run_local(project_root: Path, migration_result: dict[str, object]) -> tuple[Result, list[str]]:
+def _run_local(
+    project_root: Path,
+    migration_result: dict[str, object],
+    ignore_result: bool | Exception = False,
+) -> tuple[Result, list[str]]:
     """Run ``dango start`` with all external services replaced by ordered fakes."""
     config_loader = MagicMock()
     config_loader.load_config.return_value = _config()
     events: list[str] = []
+
+    def _harden_gitignore(_root: Path) -> bool:
+        events.append("gitignore")
+        if isinstance(ignore_result, Exception):
+            raise ignore_result
+        return ignore_result
+
+    ignore_patcher = patch(
+        "dango.config.credentials.ensure_sensitive_artifact_gitignores",
+        side_effect=_harden_gitignore,
+    )
+    ignore_patcher.start()
 
     with (
         patch.dict(os.environ, {}, clear=False),
@@ -82,14 +98,31 @@ def _run_local(project_root: Path, migration_result: dict[str, object]) -> tuple
     ):
         socket_cls.return_value.connect_ex.return_value = 1
         result = CliRunner().invoke(start, ["--yes"], obj={})
+    ignore_patcher.stop()
     return result, events
 
 
-def _run_cloud(project_root: Path, migration_result: dict[str, object]) -> tuple[Result, list[str]]:
+def _run_cloud(
+    project_root: Path,
+    migration_result: dict[str, object],
+    ignore_result: bool | Exception = False,
+) -> tuple[Result, list[str]]:
     """Run ``dango serve`` with all external services replaced by ordered fakes."""
     config_loader = MagicMock()
     config_loader.load_config.return_value = _config()
     events: list[str] = []
+
+    def _harden_gitignore(_root: Path) -> bool:
+        events.append("gitignore")
+        if isinstance(ignore_result, Exception):
+            raise ignore_result
+        return ignore_result
+
+    ignore_patcher = patch(
+        "dango.config.credentials.ensure_sensitive_artifact_gitignores",
+        side_effect=_harden_gitignore,
+    )
+    ignore_patcher.start()
 
     with (
         patch.dict(os.environ, {}, clear=False),
@@ -119,6 +152,7 @@ def _run_cloud(project_root: Path, migration_result: dict[str, object]) -> tuple
         patch("uvicorn.run"),
     ):
         result = CliRunner().invoke(serve, [], obj={})
+    ignore_patcher.stop()
     return result, events
 
 
@@ -132,7 +166,7 @@ def test_completion_runs_after_docker_and_before_setup(
     result, events = run_command(tmp_path, {"status": "secure_rotated"})
 
     assert result.exit_code == 0, result.output
-    assert events == ["docker", "completion", "setup"]
+    assert events == ["docker", "gitignore", "completion", "setup"]
 
 
 @pytest.mark.unit
@@ -146,9 +180,29 @@ def test_completion_failure_warns_and_preserves_setup(
     plain_output = _ANSI_RE.sub("", result.output)
 
     assert result.exit_code == 0, result.output
-    assert events == ["docker", "completion", "setup"]
+    assert events == ["docker", "gitignore", "completion", "setup"]
     assert "Metabase credential migration is incomplete" in plain_output
     assert re.search(r"existing\s+configuration\s+is\s+unchanged", plain_output)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("run_command", [_run_local, _run_cloud])
+def test_gitignore_hardening_failure_does_not_prevent_startup(
+    tmp_path: Path,
+    run_command: Callable[[Path, dict[str, object], bool | Exception], tuple[Result, list[str]]],
+) -> None:
+    """Both commands retain their startup path when Git-ignore hardening fails."""
+    result, events = run_command(
+        tmp_path,
+        {"status": "not_required"},
+        OSError("permission denied"),
+    )
+
+    plain_output = _ANSI_RE.sub("", result.output)
+    assert result.exit_code == 0, result.output
+    assert events == ["docker", "gitignore", "completion", "setup"]
+    assert "Could not update .gitignore" in plain_output
+    assert "permission denied" not in plain_output
 
 
 @pytest.mark.unit
@@ -161,7 +215,7 @@ def test_not_required_completion_is_silent_and_non_disruptive(
     result, events = run_command(tmp_path, {"status": "not_required"})
 
     assert result.exit_code == 0, result.output
-    assert events == ["docker", "completion", "setup"]
+    assert events == ["docker", "gitignore", "completion", "setup"]
     assert "Metabase credential migration is incomplete" not in result.output
 
 
@@ -180,7 +234,7 @@ def test_cloud_runner_restores_project_root_environment(
         result, events = _run_cloud(tmp_path, {"status": "not_required"})
 
         assert result.exit_code == 0, result.output
-        assert events == ["docker", "completion", "setup"]
+        assert events == ["docker", "gitignore", "completion", "setup"]
         if original_project_root is None:
             assert "DANGO_PROJECT_ROOT" not in os.environ
         else:
