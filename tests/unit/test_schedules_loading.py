@@ -283,6 +283,110 @@ class TestReloadSchedules:
         assert call_kwargs["kwargs"]["dbt_command"] == "run --select daily_models"
         assert call_kwargs["id"] == "schedule:nightly_dbt"
 
+    def test_script_schedule_forwards_timeout_to_script_job(self, tmp_path):
+        """SCRIPT jobs use the internal timeout kwargs contract."""
+        from dango.config.schedules import ScheduleConfig, ScheduleType, reload_schedules
+        from dango.platform.scheduling.jobs import run_scheduled_script
+
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir()
+        (scripts_dir / "daily.py").write_text("print('hello')")
+        scheduler = self._make_scheduler()
+        scheds = [
+            ScheduleConfig(
+                name="daily_script",
+                type=ScheduleType.SCRIPT,
+                cron="0 6 * * *",
+                script_path="daily.py",
+                timeout_minutes=60,
+            )
+        ]
+
+        result = reload_schedules(scheduler, scheds, tmp_path)
+
+        assert result.added == ["daily_script"]
+        args, call_kwargs = scheduler.add_job.call_args
+        assert args[0] is run_scheduled_script
+        assert call_kwargs["kwargs"] == {
+            "schedule_name": "daily_script",
+            "script_path": "daily.py",
+            "project_root": str(tmp_path),
+            "_timeout_minutes": 60,
+        }
+
+    def test_legacy_script_job_missing_timeout_is_recreated(self, tmp_path):
+        """Existing SCRIPT jobs receive the new timeout key once on reload."""
+        from datetime import datetime
+
+        from dango.config.schedules import ScheduleConfig, ScheduleType, reload_schedules
+
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir()
+        (scripts_dir / "daily.py").write_text("print('hello')")
+        next_run_time = datetime.fromisoformat("2025-01-15T06:00:00")
+        existing_kwargs = {
+            "kwargs": {
+                "schedule_name": "daily_script",
+                "script_path": "daily.py",
+                "project_root": str(tmp_path),
+            },
+            "next_run_time": next_run_time,
+        }
+        scheduler = self._make_scheduler(
+            existing_jobs=[("schedule:daily_script", "0 6 * * *", existing_kwargs)]
+        )
+        scheds = [
+            ScheduleConfig(
+                name="daily_script",
+                type=ScheduleType.SCRIPT,
+                cron="0 6 * * *",
+                script_path="daily.py",
+                timeout_minutes=60,
+            )
+        ]
+
+        result = reload_schedules(scheduler, scheds, tmp_path)
+
+        assert result.updated == ["daily_script"]
+        scheduler.remove_job.assert_called_once_with("schedule:daily_script")
+        _, call_kwargs = scheduler.add_job.call_args
+        assert call_kwargs["kwargs"]["_timeout_minutes"] == 60
+        assert call_kwargs["next_run_time"] == next_run_time
+
+    def test_script_job_with_timeout_stays_unchanged(self, tmp_path):
+        """The legacy SCRIPT timeout repair does not churn updated jobs."""
+        from dango.config.schedules import ScheduleConfig, ScheduleType, reload_schedules
+
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir()
+        (scripts_dir / "daily.py").write_text("print('hello')")
+        existing_kwargs = {
+            "kwargs": {
+                "schedule_name": "daily_script",
+                "script_path": "daily.py",
+                "project_root": str(tmp_path),
+                "_timeout_minutes": 60,
+            }
+        }
+        scheduler = self._make_scheduler(
+            existing_jobs=[("schedule:daily_script", "0 6 * * *", existing_kwargs)]
+        )
+        scheds = [
+            ScheduleConfig(
+                name="daily_script",
+                type=ScheduleType.SCRIPT,
+                cron="0 6 * * *",
+                script_path="daily.py",
+                timeout_minutes=60,
+            )
+        ]
+
+        result = reload_schedules(scheduler, scheds, tmp_path)
+
+        assert result.unchanged == ["daily_script"]
+        scheduler.remove_job.assert_not_called()
+        scheduler.add_job.assert_not_called()
+
     def test_changed_sources_updates_job(self):
         """Job with different sources is removed and re-added, preserving next_run_time."""
         from datetime import datetime

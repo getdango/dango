@@ -1229,7 +1229,10 @@ def run_scheduled_script(
 
     sender = WebhookSender(load_notification_config(project_root))
     script_label = f"script:{script_path or schedule_name}"
-    timeout_minutes = int(kwargs.get("timeout_minutes", 30))
+    configured_timeout = kwargs.get("_timeout_minutes")
+    if configured_timeout is None:
+        configured_timeout = kwargs.get("timeout_minutes")
+    timeout_minutes = int(configured_timeout if configured_timeout is not None else 30)
 
     record_id: int | None = None
 

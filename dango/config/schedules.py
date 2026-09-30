@@ -585,6 +585,7 @@ def reload_schedules(
                 "schedule_name": sched.name,
                 "script_path": sched.script_path,
                 "project_root": str(project_root),
+                "_timeout_minutes": sched.timeout_minutes,
             }
         else:
             func = run_scheduled_dbt
@@ -615,6 +616,11 @@ def reload_schedules(
             }
             new_kwargs = {k: v for k, v in func_kwargs.items() if k not in _RELOAD_KWARGS_EXCLUDE}
             kwargs_changed = existing_kwargs != new_kwargs
+            legacy_script_timeout = (
+                sched.type == ScheduleType.SCRIPT
+                and "_timeout_minutes" not in (getattr(existing_job, "kwargs", None) or {})
+            )
+            kwargs_changed = kwargs_changed or legacy_script_timeout
 
             if trigger_changed or kwargs_changed:
                 scheduler.remove_job(job_id)
