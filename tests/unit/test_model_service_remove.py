@@ -148,3 +148,18 @@ def test_remove_model_docs_keeps_file_with_other_keys(proj: Path) -> None:
     )
     remove_model(proj, "fct_b")
     assert not b.exists()
+
+
+def test_remove_model_unreadable_warehouse_still_drops_under_lock(proj: Path) -> None:
+    from dango.transformation import model_service as ms
+    from dango.utils import DbtLock
+
+    _write(proj, "dbt/models/marts/fct_a.sql", "select 1")
+    db = _warehouse(proj, "marts", "fct_a")
+    with patch.object(ms, "_warehouse_has_table", return_value=None):
+        dry = remove_model(proj, "fct_a", dry_run=True)
+        assert any("Could not read the warehouse" in w for w in dry.warnings)
+        with patch.object(DbtLock, "acquire", return_value=True) as acq:
+            res = remove_model(proj, "fct_a")
+        assert acq.called
+    assert "fct_a" not in _tables(db) and res.dropped_table is True

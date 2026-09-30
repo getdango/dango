@@ -407,3 +407,38 @@ def test_create_model_parse_success(proj: Path) -> None:
     with patch.object(ms, "parse_project", return_value=(True, "")) as p:
         res = create_model(proj, "fct_a", "marts", sql=_SQL)
     assert res.parse_ok is True and p.call_count == 2
+
+
+def test_render_description_cannot_inject_sql_or_jinja() -> None:
+    out = render_model_sql("fct_x", "marts", sql="select 1", description="a\nDROP TABLE t;{{ x }}")
+    header = out.split("{{ config(")[0]
+    assert header.count("\n") == 4  # name, created, one description line, blank
+    assert "{{ x" not in header and "DROP TABLE t;" in header.splitlines()[2]
+
+
+def test_render_config_in_comment_does_not_suppress_header() -> None:
+    out = render_model_sql("fct_x", "marts", sql="-- config(foo)\nselect 1")
+    assert "schema='marts'" in out
+
+
+def test_find_cycle_handles_reconverging_dag(proj: Path) -> None:
+    prev = ["stg_orders__orders"]
+    for i in range(25):
+        names = [f"m{i}a", f"m{i}b"]
+        for n in names:
+            refs = " ".join("{{ ref('" + p + "') }}" for p in prev)
+            _write(proj, f"dbt/models/intermediate/{n}.sql", f"select * from {refs}")
+        prev = names
+    refs = " ".join("{{ ref('" + p + "') }}" for p in prev)
+    validate_model_sql(proj, "fct_top", "marts", f"select * from {refs}")  # must return quickly
+
+
+def test_update_docs_only_leaves_sql_bytes_untouched(proj: Path) -> None:
+    path = proj / "dbt/models/marts/fct_a.sql"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"{{ config(materialized='table') }}\r\nselect 1\r\n")
+    res = update_model(proj, "fct_a", description="d", parse=False)
+    assert path.read_bytes() == b"{{ config(materialized='table') }}\r\nselect 1\r\n"
+    assert res.path not in res.files_changed
+    with pytest.raises(ModelServiceError):
+        update_model(proj, "fct_a", columns=[], parse=False)

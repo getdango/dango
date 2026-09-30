@@ -86,3 +86,12 @@ def test_update_schema_uses_nested_docs_file_and_nested_model(tmp_path: Path) ->
     data = yaml.safe_load(docs.read_text())
     assert data["models"][0]["columns"][0]["name"] == "id"
     assert not (tmp_path / "dbt" / "models" / "marts" / "schema.yml").exists()
+
+
+def test_merge_keeps_keys_when_file_has_no_models_key() -> None:
+    existing = {"version": 2, "exposures": [{"name": "e"}], "sources": [{"name": "s"}]}
+    schema, changes = _mgr(Path("/nonexistent"))._merge_schema(
+        "int_a", [{"name": "id", "type": "INTEGER"}], existing, "intermediate"
+    )
+    assert schema["exposures"] == [{"name": "e"}] and schema["sources"] == [{"name": "s"}]
+    assert schema["models"][0]["name"] == "int_a" and changes["is_new"] is True

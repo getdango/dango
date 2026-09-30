@@ -60,12 +60,15 @@ def _find_cycle(project_root: Path, model_name: str, refs: list[str]) -> list[st
                 continue
     graph[model_name] = refs
 
+    visited: set[str] = set()
+
     def walk(node: str, trail: list[str]) -> list[str] | None:
-        """DFS for a path back to model_name."""
+        """DFS for a path back to model_name (each node visited once)."""
         for nxt in graph.get(node, []):
             if nxt == model_name:
                 return [*trail, nxt]
-            if nxt not in trail:
+            if nxt not in visited:
+                visited.add(nxt)
                 found = walk(nxt, [*trail, nxt])
                 if found:
                     return found
@@ -137,6 +140,10 @@ def _header_lines(model_name: str, layer: str, description: str, materialization
         f"-- {model_name}",
         f"-- Created: {timestamp}",
     ]
+    # One comment line; Jinja delimiters would be evaluated even inside a SQL comment
+    description = " ".join(description.split())
+    for token in ("{{", "{%", "{#"):
+        description = description.replace(token, token[0] + " " + token[1])
     if description:
         lines.append(f"-- {description}")
     lines.append("")
@@ -166,7 +173,7 @@ def render_model_sql(
 
     if sql is not None:
         body = sql.rstrip() + "\n"
-        if layer == "staging" or _CONFIG_RE.search(sql):
+        if layer == "staging" or any(_CONFIG_RE.search(b) for b in _jinja_blocks(sql)):
             return body
         header = _header_lines(model_name, layer, description, materialization)
         return "\n".join(header) + "\n" + body.lstrip("\n")

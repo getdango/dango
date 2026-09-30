@@ -114,7 +114,7 @@ def _apply(
     project_root: Path,
     result: ModelChangeResult,
     sql_path: Path,
-    content: str,
+    content: str | None,
     layer: str,
     name: str,
     description: str | None,
@@ -132,16 +132,17 @@ def _apply(
     if docs_wanted:
         snap.take(resolve_docs_path(project_root, layer, name))
     try:
-        sql_path.parent.mkdir(parents=True, exist_ok=True)
-        sql_path.write_text(content)
-        result.files_changed.append(rel_path(project_root, sql_path))
+        if content is not None:
+            sql_path.parent.mkdir(parents=True, exist_ok=True)
+            sql_path.write_text(content)
+            result.files_changed.append(rel_path(project_root, sql_path))
         if docs_wanted:
             docs_rel = upsert_model_docs(
                 project_root, layer, name, description=description, columns=columns
             )
             if docs_rel:
                 result.files_changed.append(docs_rel)
-    except Exception:
+    except BaseException:
         snap.restore()
         raise
 
@@ -258,7 +259,7 @@ def update_model(
             msg += f" (did you mean '{close[0]}'?)"
         raise ModelServiceError([msg])
     sql_path, layer = found
-    if sql is None and description is None and columns is None:
+    if sql is None and description is None and not columns:
         raise ModelServiceError(["nothing to update: pass sql, description or columns"])
 
     warnings: list[str] = []
@@ -296,20 +297,18 @@ def update_model(
         project_root,
         result,
         sql_path,
-        rendered if rendered is not None else sql_path.read_text(),
+        rendered,
         layer,
         model_name,
         description,
         columns,
         parse,
     )
-    if rendered is None and result.files_changed[:1] == [result.path]:
-        # sql file content is unchanged when only docs were updated
-        result.files_changed.pop(0)
     return result
 
 
-def _warehouse_has_table(project_root: Path, layer: str, name: str) -> bool:
+def _warehouse_has_table(project_root: Path, layer: str, name: str) -> bool | None:
+    """True/False, or None when the warehouse exists but could not be read (e.g. locked)."""
     import duckdb
 
     duckdb_path = project_root / "data" / "warehouse.duckdb"
@@ -327,7 +326,7 @@ def _warehouse_has_table(project_root: Path, layer: str, name: str) -> bool:
         finally:
             conn.close()
     except Exception:  # noqa: BLE001
-        return False
+        return None
 
 
 def remove_model(
@@ -364,7 +363,9 @@ def remove_model(
         if model_name in other_refs:
             downstream.append(f"{other_layer}.{path.stem}")
 
-    table_existed = _warehouse_has_table(project_root, layer, model_name)
+    table_state = _warehouse_has_table(project_root, layer, model_name)
+    table_existed = table_state is True
+    table_unknown = table_state is None
 
     monitors: list[str] = []
     try:
@@ -394,13 +395,18 @@ def remove_model(
         table_existed=table_existed,
         monitors_removed=monitors,
     )
+    if table_unknown:
+        result.warnings.append(
+            "Could not read the warehouse (it may be locked by a running sync or server); "
+            "the model's table may still exist"
+        )
     if dry_run:
         return result
     if downstream and not force:
         raise ModelServiceError([f"Other models depend on '{model_name}': {', '.join(downstream)}"])
 
     lock = None
-    if drop_table and table_existed:
+    if drop_table and (table_existed or table_unknown):
         from dango.utils import DbtLock, DbtLockError
 
         lock = DbtLock(

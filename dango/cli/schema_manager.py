@@ -244,30 +244,22 @@ class SchemaManager:
         new_model["description"] = description
         new_model["columns"] = new_columns
 
-        # Build full schema structure
-        if existing_schema and "models" in existing_schema:
-            # Update existing model or add new
-            updated_models = []
-            found = False
-            for model in existing_schema["models"]:
-                if model.get("name") == model_name:
-                    updated_models.append(new_model)
-                    found = True
-                else:
-                    updated_models.append(model)
-
-            if not found:
+        # Build full schema structure, keeping other top-level keys (sources, exposures, ...)
+        updated_schema = dict(existing_schema) if existing_schema else {}
+        existing_models = updated_schema.get("models")
+        updated_models = []
+        found = False
+        for model in existing_models if isinstance(existing_models, list) else []:
+            if isinstance(model, dict) and model.get("name") == model_name:
                 updated_models.append(new_model)
-                changes["is_new"] = True
-
-            # Keep other top-level keys (sources, exposures, ...)
-            updated_schema = dict(existing_schema)
-            updated_schema["version"] = existing_schema.get("version", 2)
-            updated_schema["models"] = updated_models
-        else:
-            # Create new schema file
-            updated_schema = {"version": 2, "models": [new_model]}
+                found = True
+            else:
+                updated_models.append(model)
+        if not found:
+            updated_models.append(new_model)
             changes["is_new"] = True
+        updated_schema["version"] = updated_schema.get("version", 2)
+        updated_schema["models"] = updated_models
 
         return updated_schema, changes
 
