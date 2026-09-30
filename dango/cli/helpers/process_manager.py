@@ -61,6 +61,21 @@ def read_pid_record_for_project(project_root: Path) -> PidRecord | None:
     return read_pid_record(get_pid_file_path(project_root))
 
 
+def is_project_server_running(project_root: Path) -> bool:
+    """True only if THIS project's web server (per .dango/web.pid) is alive.
+
+    Never infer from "the configured port is in use" — another Dango project
+    may be listening on the default port.
+    """
+    try:
+        record = read_pid_record_for_project(project_root)
+    except Exception:  # noqa: BLE001
+        return False
+    if record is None:
+        return False
+    return is_process_running(record.pid, expected_start_time=record.start_time)
+
+
 def read_pid_file(project_root: Path) -> int | None:
     """
     Read PID from file.
