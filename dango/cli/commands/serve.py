@@ -156,6 +156,11 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
             file=sys.stderr,
         )
 
+    from dango.security.legacy_backup_artifacts import legacy_backup_artifact_warning
+
+    if warning := legacy_backup_artifact_warning(project_root):
+        print(f"WARNING: {warning}", file=sys.stderr)
+
     # Complete a pending legacy credential migration only after that identity
     # exists, and before setup decides whether Metabase needs configuration.
     try:
