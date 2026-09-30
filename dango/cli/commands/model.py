@@ -64,7 +64,6 @@ def model_add(ctx: click.Context) -> None:
 
 
 _VALID_MODEL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
-_VALID_LAYERS = ("intermediate", "marts")
 
 
 @model.command("remove")
@@ -84,8 +83,9 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
       dango model remove int_orders --yes
       dango model remove fct_daily_sales --dry-run
     """
-    import duckdb
     from rich.prompt import Confirm
+
+    from dango.transformation.model_service import ModelServiceError, remove_model
 
     from ..utils import require_project_context
 
@@ -101,91 +101,35 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
 
     try:
         project_root = require_project_context(ctx)
-        dbt_dir = project_root / "dbt" / "models"
 
-        # Find model file (check intermediate and marts)
-        model_file = None
-        layer = None
-
-        for layer_name in _VALID_LAYERS:
-            potential_path = dbt_dir / layer_name / f"{model_name}.sql"
-            if potential_path.exists():
-                model_file = potential_path
-                layer = layer_name
-                break
-
-        if not model_file:
-            console.print(f"[red]Error:[/red] Model '{model_name}' not found")
-            console.print("[dim]Searched in dbt/models/intermediate/ and dbt/models/marts/[/dim]")
-            raise click.Abort()
+        # Gather everything first (dry run writes nothing)
+        try:
+            preview = remove_model(project_root, model_name, dry_run=True)
+        except ModelServiceError as e:
+            for err in e.errors:
+                console.print(f"[red]Error:[/red] {err}")
+            raise click.Abort() from e
+        layer = preview.layer
+        table_exists = preview.table_existed
+        downstream_models = preview.downstream
+        monitor_refs = preview.monitors_removed
 
         # Show model details
         console.print("[bold]Model Details:[/bold]")
         console.print(f"  Name: {model_name}")
         console.print(f"  Layer: {layer}")
-        console.print(f"  File: {model_file.relative_to(project_root)}")
+        console.print(f"  File: {preview.path}")
         console.print()
-
-        # Check if table exists in DuckDB (read-only connection)
-        duckdb_path = project_root / "data" / "warehouse.duckdb"
-        table_exists = False
-
-        if duckdb_path.exists():
-            try:
-                conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
-                result = conn.execute(
-                    """
-                    SELECT COUNT(*) FROM information_schema.tables
-                    WHERE table_schema = ? AND table_name = ?
-                    """,
-                    [layer, model_name],
-                ).fetchone()
-                table_exists = (result[0] > 0) if result else False
-                conn.close()
-            except Exception:  # noqa: BLE001
-                pass
-
-        # Check for downstream dependencies
-        downstream_models = []
-        for layer_to_check in _VALID_LAYERS:
-            layer_dir = dbt_dir / layer_to_check
-            if layer_dir.exists():
-                for sql_file in layer_dir.glob("*.sql"):
-                    if sql_file.stem != model_name:  # Don't check self
-                        try:
-                            content = sql_file.read_text()
-                            # Check if this file references the model being removed
-                            if (
-                                f"ref('{model_name}')" in content
-                                or f'ref("{model_name}")' in content
-                            ):
-                                downstream_models.append(f"{layer_to_check}.{sql_file.stem}")
-                        except Exception:  # noqa: BLE001
-                            pass
-
-        # Check monitors.yml for references
-        monitor_refs: list[str] = []
-        try:
-            from dango.analysis.config import load_monitors_config
-
-            monitors_cfg = load_monitors_config(project_root)
-            for m in monitors_cfg.monitors:
-                # source_table is "layer.table_name", check if model_name matches
-                if m.source_table.endswith(f".{model_name}"):
-                    monitor_refs.append(m.name)
-        except Exception:  # noqa: BLE001
-            pass
 
         # Dry run: show what would be removed and exit
         if dry_run:
-            if layer is None:
-                raise click.Abort()  # unreachable — defensive guard
             console.print("[bold cyan]Dry run — no changes will be made[/bold cyan]\n")
             console.print("[bold]Would remove:[/bold]")
-            console.print(f"  • Model file: {model_file.relative_to(project_root)}")
-            schema_path = dbt_dir / layer / "schema.yml"
-            if schema_path.exists():
-                console.print(f"  • schema.yml entry in {schema_path.relative_to(project_root)}")
+            console.print(f"  • Model file: {preview.path}")
+            for changed in preview.files_changed[1:]:
+                if changed.endswith("monitors.yml"):
+                    continue
+                console.print(f"  • schema.yml entry in {changed}")
             if monitor_refs:
                 console.print(f"  • Monitor references: {', '.join(monitor_refs)}")
             if table_exists:
@@ -230,95 +174,48 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
                 console.print("[yellow]Cancelled[/yellow]")
                 return
 
-        # Delete model file
-        model_file.unlink()
-        console.print(
-            f"[green]✓[/green] Deleted model file: {model_file.relative_to(project_root)}"
-        )
-
-        # Remove model entry from schema.yml (layer guaranteed set by model_file check)
-        if layer is None:
-            raise click.Abort()  # unreachable — defensive guard
-        schema_path = dbt_dir / layer / "schema.yml"
-        if schema_path.exists():
-            import yaml
-
-            try:
-                with open(schema_path) as f:
-                    schema_data = yaml.safe_load(f) or {}
-                if "models" in schema_data and isinstance(schema_data["models"], list):
-                    before = len(schema_data["models"])
-                    schema_data["models"] = [
-                        m for m in schema_data["models"] if m.get("name") != model_name
-                    ]
-                    if len(schema_data["models"]) < before:
-                        if schema_data["models"]:
-                            with open(schema_path, "w") as f:
-                                yaml.dump(
-                                    schema_data,
-                                    f,
-                                    default_flow_style=False,
-                                    sort_keys=False,
-                                )
-                        else:
-                            schema_path.unlink()
-                        console.print(
-                            f"[green]✓[/green] Removed from {schema_path.relative_to(project_root)}"
-                        )
-            except Exception:  # noqa: BLE001
-                pass  # Non-critical — don't block removal
-
-        # Remove monitor references from monitors.yml
-        if monitor_refs:
-            try:
-                from dango.analysis.config import load_monitors_config, save_monitors_config
-                from dango.analysis.models import MonitorsConfig
-
-                monitors_cfg = load_monitors_config(project_root)
-                original_count = len(monitors_cfg.monitors)
-                filtered = [m for m in monitors_cfg.monitors if m.name not in monitor_refs]
-                if len(filtered) < original_count:
-                    # MonitorsConfig is frozen — create a new instance
-                    updated = MonitorsConfig(monitors=filtered)
-                    save_monitors_config(project_root, updated)
-                    removed_count = original_count - len(filtered)
-                    console.print(
-                        f"[green]✓[/green] Removed {removed_count} monitor(s) from monitors.yml"
-                    )
-            except Exception:  # noqa: BLE001
-                pass  # Non-critical
-
-        # Handle table deletion if it exists
-        dropped_table = False
+        # Ask every question before acting
+        drop_table = False
         if table_exists:
             console.print()
-            if yes or Confirm.ask(f"Also drop the table from DuckDB ({layer}.{model_name})?"):
-                try:
-                    # layer and model_name are validated: layer from _VALID_LAYERS,
-                    # model_name matches _VALID_MODEL_NAME_RE — safe to interpolate
-                    conn = duckdb.connect(str(duckdb_path))
-                    conn.execute(f'DROP TABLE IF EXISTS "{layer}"."{model_name}"')
-                    conn.close()
-                    console.print(f"[green]✓[/green] Dropped table: {layer}.{model_name}")
-                    dropped_table = True
-                except Exception as e:
-                    console.print(f"[red]✗[/red] Failed to drop table: {e}")
-                    from dango.exceptions import is_debug_mode
+            drop_table = yes or Confirm.ask(
+                f"Also drop the table from DuckDB ({layer}.{model_name})?"
+            )
 
-                    if is_debug_mode():
-                        import traceback
+        try:
+            result = remove_model(
+                project_root,
+                model_name,
+                drop_table=drop_table,
+                force=True,
+                lock_source="cli",
+            )
+        except ModelServiceError as e:
+            for err in e.errors:
+                console.print(f"[red]Error:[/red] {err}")
+            raise click.Abort() from e
 
-                        console.print(traceback.format_exc())
+        console.print(f"[green]✓[/green] Deleted model file: {result.path}")
+        for changed in result.files_changed[1:]:
+            if changed.endswith("monitors.yml"):
+                console.print(
+                    f"[green]✓[/green] Removed {len(result.monitors_removed)} monitor(s) from monitors.yml"
+                )
             else:
-                console.print(
-                    f"[yellow]⚠[/yellow]  Table {layer}.{model_name} still exists in DuckDB"
-                )
-                console.print(
-                    "[dim]    Run 'cd dbt && dbt run' to rebuild project without this model[/dim]"
-                )
+                console.print(f"[green]✓[/green] Removed from {changed}")
+        for warning in result.warnings:
+            console.print(f"[red]✗[/red] {warning}")
+
+        if result.dropped_table:
+            console.print(f"[green]✓[/green] Dropped table: {layer}.{model_name}")
+        elif table_exists:
+            console.print(f"[yellow]⚠[/yellow]  Table {layer}.{model_name} still exists in DuckDB")
+            console.print(
+                "[dim]    Run 'cd dbt && dbt run' to rebuild project without this model[/dim]"
+            )
 
         # Refresh Metabase schema if table was dropped
-        if dropped_table:
+        if result.dropped_table:
             try:
                 from dango.visualization.metabase import (
                     refresh_metabase_connection,

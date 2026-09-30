@@ -234,7 +234,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/model_wizard.py
-    lines: 617
+    lines: 510
     category: exempt
     reason: "Interactive dbt model creation wizard. Sequential prompting, stable. 1.0.7-1: Added table selection + CTE scaffold generation. 1.0.8-OPS-3 added _print_git_warnings() (+~16 lines)."
     review_by: "v1.1"
