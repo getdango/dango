@@ -130,6 +130,20 @@ class ScheduleConfig(BaseModel):
             raise ValueError(msg)
         return resolved
 
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        from zoneinfo import ZoneInfo
+
+        try:
+            ZoneInfo(v)
+        except Exception:  # noqa: BLE001 -- ZoneInfoNotFoundError, ValueError, OSError
+            msg = f"Unknown timezone: {v!r}"
+            raise ValueError(msg) from None
+        return v
+
     @field_validator("timeout_minutes")
     @classmethod
     def _validate_timeout_minutes(cls, v: int | None) -> int | None:
