@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from dango.config import ConfigLoader, DangoConfig, ProjectContext, SourcesConfig
+from dango.config.credentials import ensure_sensitive_artifact_gitignores
 
 from .utils import print_error, print_success
 from .wizard import ProjectWizard
@@ -249,6 +250,11 @@ class ProjectInitializer:
 .dango/logs/
 .dango/auth.db
 .dango/metabase.yml
+.dango/backups/
+dango-backup-*
+.dango/metabase.yml*
+.dango/credentials
+.dlt/.encryption_key
 .dango/dev/
 .dango/snapshots/
 .dango/*.pid
@@ -324,6 +330,8 @@ secrets/
                 with open(gitignore_path, "a", encoding="utf-8") as f:
                     f.write("\n" + gitignore_content)
                 print_success("Updated .gitignore")
+            else:
+                ensure_sensitive_artifact_gitignores(self.project_dir)
         else:
             with open(gitignore_path, "w", encoding="utf-8") as f:
                 f.write(gitignore_content)
