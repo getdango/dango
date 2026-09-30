@@ -110,7 +110,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
         for layer in ["intermediate", "marts"]:
             layer_dir = dbt_dir / "models" / layer
             if layer_dir.exists():
-                for sql_file in layer_dir.glob("*.sql"):
+                for sql_file in layer_dir.rglob("*.sql"):
                     if not sql_file.name.startswith("_"):
                         models_to_update.append(sql_file.stem)
 

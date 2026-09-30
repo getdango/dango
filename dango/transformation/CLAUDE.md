@@ -10,6 +10,10 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 |------|---------|----------------------|
 | `__init__.py` | dbt CLI execution functions | `run_dbt_models`, `run_dbt_snapshots`, `generate_dbt_docs`, `_get_dbt_executable`, `_dbt_telemetry_env` |
 | `generator.py` | Auto-generates dbt staging models from data sources | `DbtModelGenerator`, `generate_staging_models` |
+| `model_service.py` | Non-interactive create/update/remove of dbt models (naming, lineage validation, SQL rendering, `dbt parse` gate with rollback, `DbtLock`-guarded table drop); used by the model wizard, `dango model remove`, and MCP model tools | `create_model`, `update_model`, `remove_model`, `validate_model_sql`, `render_model_sql`, `extract_refs`, `find_model`, `list_models`, `parse_project`, `ModelServiceError` |
+| `model_common.py` | Shared types (`ModelServiceError`, `ModelChangeResult`), naming normalisation and recursive model lookup | `normalize_model_name`, `find_model`, `list_models` |
+| `model_sql.py` | `ref()`/`source()` extraction, lineage validation, SQL file rendering | `extract_refs`, `validate_model_sql`, `render_model_sql` |
+| `model_docs.py` | schema.yml helpers that preserve every other key (tests, config, other models, top-level keys) | `locate_model_docs`, `upsert_model_docs`, `remove_model_docs`, `resolve_docs_path` |
 
 ## Common Tasks
 
@@ -33,7 +37,7 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 - `dango/ingestion/dlt_runner.py` — `DbtModelGenerator`, `run_dbt_models`, `generate_dbt_docs` for post-sync auto-transform
 - `dango/web/app.py` — `run_dbt_models` via API endpoint
 - `dango/platform/watcher_runner.py` — `generate_dbt_docs` for watch-triggered doc generation
-- `_dbt_telemetry_env()` specifically is also imported directly by every other dbt-invoking `subprocess.run` call site outside this module, so the dbt telemetry opt-out (`dango telemetry off --provider dbt`) covers all of them, not just the three functions above: `dango/cli/commands/transform.py` (`dango run`, `dango docs`), `dango/platform/local/watcher_runner.py` (`run_dbt_command`, file-watcher-triggered), `dango/web/routes/dbt.py` (`run_dbt_model_task`, web UI model run), `dango/cli/commands/dev.py` (`_run_dev_dbt`), `dango/cli/init.py` (`_generate_dbt_docs`), `dango/cli/model_wizard.py` (`_regenerate_manifest`), `dango/cli/validate.py` (`_validate_dbt_models`)
+- `_dbt_telemetry_env()` specifically is also imported directly by every other dbt-invoking `subprocess.run` call site outside this module, so the dbt telemetry opt-out (`dango telemetry off --provider dbt`) covers all of them, not just the three functions above: `dango/cli/commands/transform.py` (`dango run`, `dango docs`), `dango/platform/local/watcher_runner.py` (`run_dbt_command`, file-watcher-triggered), `dango/web/routes/dbt.py` (`run_dbt_model_task`, web UI model run), `dango/cli/commands/dev.py` (`_run_dev_dbt`), `dango/cli/init.py` (`_generate_dbt_docs`), `dango/transformation/model_service.py` (`parse_project`, also used by `dango/cli/model_wizard.py`), `dango/cli/validate.py` (`_validate_dbt_models`)
 
 ## Testing
 

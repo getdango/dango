@@ -25,7 +25,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/data.py` (388 lines) | `db` group (`status`, `clean`) + `validate` | `db`, `validate()` |
 | `commands/config_cmd.py` (240 lines) | `config` group (`validate`, `show`, `do-token`) | `config` |
 | `commands/metabase_cmd.py` (412 lines) | `metabase` group (`save`, `load`, `refresh`) | `metabase` |
-| `commands/model.py` (258 lines) | `model` group (`add`, `remove`) | `model` |
+| `commands/model.py` (244 lines) | `model` group (`add`, `remove`) | `model` |
 | `commands/seed.py` (135 lines) | `seed` group (`add`, `list`) — dbt seed CSV management | `seed` |
 | `commands/dashboard.py` (215 lines) | `dashboard` group (`provision`) — materializes pipeline-health state via `dango.utils.pipeline_health` before provisioning (1.0.8-DASH-1) | `dashboard` |
 | `commands/mcp_server.py` (~485 lines) | `mcp` group + `run` command; FastMCP stdio server with 8 read-only tools (list_sources, get_table_schema, get_catalog, get_lineage, list_models, get_model_sql, query, get_sync_history). `mcp_run()` calls `_check_version_compatibility()` (1.0.8-OPS-4) once at startup, stderr-only | `mcp_group`, `mcp`, `mcp_run()` |
@@ -58,14 +58,14 @@ Click-based command-line interface for all Dango operations — project init, so
 | `init.py` (1585 lines) | Project initialization wizard, incl. first-run telemetry consent prompt | `ProjectInitializer` |
 | `wizard.py` (307 lines) | Interactive setup wizards | `ProjectWizard` |
 | `source_wizard.py` (2610 lines) | Source configuration wizard. `run()` calls `_print_git_warnings()` (1.0.8-OPS-3) right after the intro panel | `add_source()` |
-| `model_wizard.py` (617 lines) | dbt model creation wizard. `run()` calls `_print_git_warnings()` (1.0.8-OPS-3) right after the intro banner | `add_model()` |
+| `model_wizard.py` (510 lines) | dbt model creation wizard (template, collision check and `dbt parse` delegate to `transformation/model_service.py`). `run()` calls `_print_git_warnings()` (1.0.8-OPS-3) right after the intro banner | `add_model()` |
 | **Helpers** | | |
 | `utils.py` (164 lines) | Display helpers + project context | `require_project_context()` |
 | `validate.py` (787 lines) | Project validation logic | `validate_project()` |
 | `db_helpers.py` (11 lines) | Re-exports from `utils/db_health.py` for backwards compatibility | `build_schema_table_mapping()`, `is_table_configured()` |
 | `env_helpers.py` (319 lines) | `.env` file management | `create_env_template()`, `validate_env_file()`, `guide_env_setup()` |
 | `oauth.py` (439 lines) | OAuth CLI flows | `authenticate_facebook()`, `authenticate_google()`, `check_token_expiry()` |
-| `schema_manager.py` (338 lines) | dbt `schema.yml` auto-generation | `update_model_schemas()` |
+| `schema_manager.py` (352 lines) | dbt `schema.yml` auto-generation | `update_model_schemas()` |
 | `helpers/__init__.py` (6 lines) | Package marker | — |
 | `helpers/port_manager.py` (49 lines) | Port checking | `check_port_in_use()` |
 | `helpers/process_manager.py` (345 lines) | FastAPI server process management | `start_fastapi_server()` |
