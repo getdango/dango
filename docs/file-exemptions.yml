@@ -388,12 +388,6 @@ exemptions:
     reason: "1.0.8-Q: Added _setup_telemetry_heartbeat(), a fourth fixed internal job (weekly telemetry heartbeat) following the existing _setup_history_cleanup/_setup_login_attempts_cleanup/_setup_sync_log_cleanup pattern. Pushed the file ~14 lines over the 500-line limit."
     review_by: "v1.1"
 
-  - file: dango/cli/commands/mcp_mutations.py
-    lines: 508
-    category: exempt
-    reason: "1.0.8-OPS-3: Wired check_mutation_guardrails() (git-state warnings) into add_source/create_model/add_schedule, surfacing a git_warning key on their return dicts. The file was already at 499/500 lines before this change (5 mutation tools is a lot of surface area, per its own module docstring on why it was split out of mcp_server.py) — the actual _git_warnings() helper itself lives in mcp_helpers.py, not here, to keep the addition minimal. Pushed the file ~8 lines over the 500-line limit."
-    review_by: "v1.1"
-
   - file: dango/utils/post_sync.py
     lines: 815
     category: exempt

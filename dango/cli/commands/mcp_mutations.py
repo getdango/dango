@@ -1,8 +1,8 @@
 """dango/cli/commands/mcp_mutations.py
 
 MCP mutation tools for Dango: the tools that let an LLM actually operate
-Dango (sync data, run transforms, create sources, create models, add
-schedules), as opposed to the read-only tools in mcp_server.py.
+Dango (sync data, run transforms, create sources, create models), as opposed to the read-only tools in mcp_server.py.
+Schedule tools live in mcp_schedules.py.
 
 Split out of mcp_server.py (Session E's read tools + FastMCP server
 definition already sit at 454 lines) to keep both files under the project's
@@ -225,7 +225,7 @@ def list_source_types() -> list[dict[str, Any]]:
     return [
         {
             "type": k,
-            "name": v.get("name", k),
+            "name": v.get("display_name", k),
             "description": v.get("description", ""),
             "auth_type": v.get("auth_type", "none"),
             "category": v.get("category", "other"),
@@ -398,75 +398,6 @@ select * from {first_alias}
             f"Edit {model_path.name} to add your business logic",
             "Run: dango run to test",
         ],
-    }
-    if git_warning := _git_warnings(project_root):
-        result["git_warning"] = git_warning
-    return result
-
-
-@mcp.tool()
-def add_schedule(
-    schedule_name: str,
-    cron: str,
-    sources: list[str],
-    timezone: str = "UTC",
-    skip_dbt: bool = False,
-) -> dict[str, Any]:
-    """Add a new sync schedule.
-
-    Args:
-        schedule_name: Unique name for this schedule (lowercase_with_underscores)
-        cron: Cron expression (e.g. "0 7 * * *" for 7am daily).
-              Common presets: "0 * * * *" (hourly), "0 7 * * *" (daily 7am),
-              "0 7 * * 1-5" (weekdays 7am)
-        sources: List of source names to sync on this schedule
-        timezone: Timezone for the cron (e.g. "Asia/Singapore", "US/Eastern"). Default UTC.
-        skip_dbt: If True, sync only — do not run dbt transforms after sync.
-
-    Returns dict with: status, schedule_name, next_run_approx, git_warning.
-    """
-    project_root = _get_project_root()
-    from dango.config.helpers import load_config
-    from dango.config.schedules import (
-        ScheduleConfig,
-        ScheduleType,
-        load_schedules_config,
-        save_schedules_config,
-    )
-
-    # Validate sources exist
-    config = load_config(project_root)
-    if config:
-        for s in sources:
-            if config.sources.get_source(s) is None:
-                return {
-                    "error": f"Source '{s}' not found in sources.yml. Add it first with add_source()."
-                }
-
-    # Load existing schedules
-    schedules_config = load_schedules_config(project_root)
-    existing_names = {s.name for s in schedules_config.schedules}
-    if schedule_name in existing_names:
-        return {"error": f"Schedule '{schedule_name}' already exists"}
-
-    new_schedule = ScheduleConfig(
-        name=schedule_name,
-        cron=cron,
-        sources=sources,
-        timezone=timezone,
-        type=ScheduleType.SYNC_ONLY if skip_dbt else ScheduleType.SYNC,
-        enabled=True,
-    )
-    schedules_config.schedules.append(new_schedule)
-    save_schedules_config(project_root, schedules_config)
-
-    result = {
-        "status": "created",
-        "schedule_name": schedule_name,
-        "cron": cron,
-        "timezone": timezone,
-        "sources": sources,
-        "next_steps": ["Run: dango schedule reload (or restart dango) to activate"],
     }
     if git_warning := _git_warnings(project_root):
         result["git_warning"] = git_warning

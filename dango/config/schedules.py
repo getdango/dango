@@ -130,6 +130,20 @@ class ScheduleConfig(BaseModel):
             raise ValueError(msg)
         return resolved
 
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        from zoneinfo import ZoneInfo
+
+        try:
+            ZoneInfo(v)
+        except Exception:  # noqa: BLE001 -- ZoneInfoNotFoundError, ValueError, OSError
+            msg = f"Unknown timezone: {v!r}"
+            raise ValueError(msg) from None
+        return v
+
     @field_validator("timeout_minutes")
     @classmethod
     def _validate_timeout_minutes(cls, v: int | None) -> int | None:
@@ -245,14 +259,27 @@ def save_schedules_config(project_root: Path, config: SchedulesConfig) -> None:
     """Save schedule config to ``.dango/schedules.yml``.
 
     Serialises the config with ``mode="json"`` so datetimes become ISO strings.
+    Only the ``schedules`` key is replaced — every other top-level section
+    (e.g. ``notifications.webhooks``) is preserved. The write is atomic.
+
+    Raises:
+        ConfigValidationError: If the existing file is not valid YAML (the file
+            is left untouched rather than overwritten).
     """
+    from dango.config.loader import ConfigLoader
+
     path = project_root / ".dango" / "schedules.yml"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    data: dict[str, Any] = {
-        "schedules": [s.model_dump(exclude_none=True, mode="json") for s in config.schedules]
-    }
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    data: dict[str, Any] = {}
+    if path.exists():
+        try:
+            with open(path, encoding="utf-8") as f:
+                loaded = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ConfigValidationError(f"Invalid YAML in {path}:\n{e}") from e
+        if isinstance(loaded, dict):
+            data = loaded
+    data["schedules"] = [s.model_dump(exclude_none=True, mode="json") for s in config.schedules]
+    ConfigLoader(project_root).save_yaml(data, path)
 
 
 # ---------------------------------------------------------------------------

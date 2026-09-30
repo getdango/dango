@@ -8,6 +8,7 @@ their LLM client.
 
 Session E: read tools + setup
 Session F: mutation tools (add_source, create_model, add_schedule, run_sync, run_transform)
+  (add_schedule moved to mcp_schedules.py in 1.0.10-M1, alongside the other schedule tools)
 
 CRITICAL: all *dango.* imports that touch real project/database/config state
 are lazy (inside function bodies), never at module top level. The MCP server
@@ -477,8 +478,9 @@ def mcp_run(ctx: click.Context) -> None:
 # mcp_mutations.py (Session F) follows the same bottom-of-file import pattern,
 # but registers onto `mcp` (the FastMCP instance) via @mcp.tool() rather than
 # onto `mcp_group` (the Click group) — it adds mutation tools (run_sync,
-# run_transform, run_doctor, add_source, list_source_types, create_model,
-# add_schedule), not CLI subcommands.
+# run_transform, run_doctor, add_source, list_source_types, create_model),
+# not CLI subcommands. mcp_schedules.py registers the schedule tools the same way.
 
 import dango.cli.commands.mcp_mutations as _mcp_mutations  # noqa: E402, F401
+import dango.cli.commands.mcp_schedules as _mcp_schedules  # noqa: E402, F401
 import dango.cli.commands.mcp_setup as _mcp_setup  # noqa: E402, F401
