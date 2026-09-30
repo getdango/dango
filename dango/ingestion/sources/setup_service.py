@@ -84,7 +84,6 @@ def build_source_config(
         "enabled": True,
         "description": description or f"{metadata.get('display_name')} - added via wizard",
     }
-    # Sources with a dedicated DataSource field use that field name; others use generic_config.
     if source_type in DataSource.model_fields:
         config[source_type] = params or {}
     else:
@@ -117,11 +116,9 @@ def write_default_config(
         default_config = (get_source_metadata(source_type) or {}).get("default_config", {})
         if not default_config:
             return False
-
         dlt_dir = project_root / ".dlt"
         config_path = dlt_dir / "config.toml"
         dlt_dir.mkdir(parents=True, exist_ok=True)
-
         if config_path.exists():
             doc = tomlkit.parse(config_path.read_text())
         else:
@@ -162,7 +159,6 @@ def provision_geo_targets(project_root: Path, source_name: str) -> list[str]:
     """Provision the geo_targets seed + staging join model (Google Ads). Returns new paths."""
     templates_dir = Path(__file__).resolve().parents[2] / "templates" / "dbt"
     created: list[str] = []
-
     seeds_dir = project_root / "dbt" / "seeds"
     seed_dest = seeds_dir / "geo_targets.csv"
     if not seed_dest.exists():
@@ -170,7 +166,6 @@ def provision_geo_targets(project_root: Path, source_name: str) -> list[str]:
         seed_src = templates_dir / "seeds" / "geo_targets.csv"
         seed_dest.write_text(seed_src.read_text(encoding="utf-8"), encoding="utf-8")
         created.append("dbt/seeds/geo_targets.csv")
-
     staging_dir = project_root / "dbt" / "models" / "staging"
     model_dest = staging_dir / f"stg_{source_name}__geo_names.sql"
     if not model_dest.exists():
@@ -191,7 +186,6 @@ def prepare_source_directory(
     raw_directory = params["directory"]
     raw_path = Path(raw_directory)
 
-    # Relativize absolute paths inside the project (they break on other machines/cloud)
     if raw_path.is_absolute():
         try:
             rel_path: Path | None = raw_path.relative_to(project_root)
@@ -233,7 +227,6 @@ def write_secrets_toml_template(
     existing = secrets_path.read_text() if secrets_path.exists() else ""
     if f"[sources.{source_name}." in existing:
         return None
-    # defaultdict(str) returns "" for unknown placeholders (registry template typos)
     template_vars = defaultdict(str, source_name=source_name, **params)
     template_text = secrets_template.format_map(template_vars)
     prefix = existing.rstrip() + "\n\n" if existing.strip() else ""
@@ -325,7 +318,7 @@ def prepare_source(
         else:
             from dango.oauth.storage import OAuthStorage
 
-            # OAuthStorage() creates .dlt/secrets.toml on construction; prepare must not write.
+            # OAuthStorage() writes secrets.toml on construction; prepare must not write
             has_secrets = (project_root / ".dlt" / "secrets.toml").exists()
             cred = OAuthStorage(project_root).get(source_type) if has_secrets else None
             if cred is None or cred.is_expired():
@@ -338,6 +331,12 @@ def prepare_source(
                     )
                 )
 
+    directory = norm_params.get("directory")
+    if source_type in ("csv", "local_files") and isinstance(directory, str):
+        root = project_root.resolve()
+        if not (root / directory).resolve().is_relative_to(root):
+            errors.append(f"directory '{directory}' must be inside the project")
+
     source_config: dict[str, Any] = {}
     try:
         source_config = build_source_config(
@@ -349,6 +348,11 @@ def prepare_source(
         )
     except SourceSetupError as exc:
         errors.extend(exc.errors)
+    if source_config and not errors:
+        try:
+            DataSource(**source_config)
+        except ValidationError as exc:
+            errors.extend(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors())
     if errors:
         raise SourceSetupError(errors)
     return PreparedSource(source_type, source_name, norm_params, source_config, reqs, metadata)

@@ -238,6 +238,21 @@ class TestPrepare:
         assert [r.kind for r in prepared.credentials_required] == ["oauth"]
         assert "access_token_env" not in prepared.params
 
+    def test_prepare_rejects_directory_outside_project(self, project):
+        for bad in ("../escape", "/etc/dango_probe"):
+            with pytest.raises(SourceSetupError, match="inside the project"):
+                prepare_source(project, "local_files", "orders", {"directory": bad})
+        inside = str(project / "data" / "uploads" / "x")
+        prepared = prepare_source(project, "local_files", "orders", {"directory": inside})
+        assert prepared.params["directory"] == inside  # relativised at apply time
+
+    def test_prepare_validates_datasource_before_any_write(self, project):
+        before = _snapshot(project)
+        with pytest.raises(SourceSetupError):
+            # start_date passes normalisation ('90daysAgo') but is not a valid datetime for Stripe
+            create_source(project, "stripe", "st", {"start_date": "90daysAgo"})
+        assert _snapshot(project) == before
+
     def test_prepare_writes_nothing(self, project):
         before = _snapshot(project)
         prepare_source(project, "local_files", "orders", {})
