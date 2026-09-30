@@ -266,6 +266,11 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
             "rules. Run [bold]dango start[/bold] to retry safely."
         )
 
+    from dango.security.legacy_backup_artifacts import legacy_backup_artifact_warning
+
+    if warning := legacy_backup_artifact_warning(project_root):
+        console.print(f"[yellow]Warning:[/yellow] {warning}")
+
     # Success
     console.print()
     console.print(

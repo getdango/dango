@@ -574,6 +574,11 @@ def start(ctx: click.Context, yes: bool) -> None:
                 "rules. Dango will retry safely on the next start."
             )
 
+        from dango.security.legacy_backup_artifacts import legacy_backup_artifact_warning
+
+        if warning := legacy_backup_artifact_warning(project_root):
+            console.print(f"[yellow]⚠[/yellow] {warning}")
+
         # Complete a pending legacy credential migration only after that identity
         # exists, and before setup decides whether Metabase needs configuration.
         try:
