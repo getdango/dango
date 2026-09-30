@@ -13,6 +13,7 @@ Data governance module: schema drift detection and PII scanning. Monitors DuckDB
 | `schema_drift.py` (~654 lines) | Schema drift detection + breaking drift protection | `detect_drift_for_sources()`, `detect_table_drift()`, `get_drift_history()`, `accept_drift()`, `get_sources_needing_attention()`, `_send_drift_webhook()` |
 | `pii_detector.py` (~626 lines) | PII scanning engine (Presidio + spaCy) | `scan_sources_for_pii()`, `scan_table_for_pii()`, `get_pii_findings()`, `_send_pii_webhook()`, `_register_intl_phone_recognizer()` |
 | `pii_overrides.py` (~296 lines) | PII override CRUD (YAML-based, `.dango/pii-overrides.yml`) | `get_overrides_for_table()`, `get_pii_overrides()`, `set_pii_override()`, `delete_pii_override()` |
+| `pii_masking.py` (~90 lines) | Resolve PII-flagged column names (findings - not_pii overrides + pii overrides) and mask them in MCP query results by output column name | `get_pii_column_names()`, `mask_query_result()`, `MASK_VALUE` |
 
 ## Common Tasks
 
@@ -54,6 +55,7 @@ Data governance module: schema drift detection and PII scanning. Monitors DuckDB
 - `dango/utils/post_sync.py` — `_run_pii_scan()` calls `scan_sources_for_pii()`
 - `dango/web/routes/governance.py` — `GET /api/governance/schema-drift` calls `get_drift_history()`, `POST /api/governance/drift/{source}/accept` calls `accept_drift()`, `GET /api/governance/attention` calls `get_sources_needing_attention()`, `GET /api/governance/pii` calls `get_pii_findings()`
 - `dango/web/routes/sources.py` — enriches `/api/sources` with attention state via `get_sources_needing_attention()`
+- `dango/cli/commands/mcp_governance.py` / `mcp_server.py` — MCP governance tools and `query()` PII masking (`pii_masking.py`)
 - `dango/cli/commands/governance.py` — `dango governance drift-report` calls `get_drift_history()`, `dango governance accept` calls `accept_drift()`, `dango governance pii-report` calls `get_pii_findings()`
 
 ## Testing

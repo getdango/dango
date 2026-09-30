@@ -336,6 +336,9 @@ async def query(sql: str, row_limit: int = 500) -> dict[str, Any]:
     web query endpoint) — the tool call returns an error at that point *and*
     the in-flight DuckDB query is interrupted, not just abandoned in the
     background.
+
+    PII-flagged columns are masked by default by output name only (aliases, expressions,
+    filters, aggregates are not covered; see pii_masking); opt out: api.mcp_mask_pii: false.
     """
     if len(sql) > _MAX_QUERY_SQL_LENGTH:
         return {"error": f"SQL query too long (max {_MAX_QUERY_SQL_LENGTH} characters)"}
@@ -353,6 +356,11 @@ async def query(sql: str, row_limit: int = 500) -> dict[str, Any]:
         return {"error": "No warehouse found. Run dango sync first."}
 
     timeout_seconds = _get_query_timeout_seconds(project_root)
+
+    from dango.cli.commands.mcp_governance import _mcp_pii_mask_columns
+    from dango.governance.pii_masking import mask_query_result
+
+    mask = await asyncio.to_thread(_mcp_pii_mask_columns, project_root)
 
     try:
         conn = await asyncio.to_thread(_connect_readonly_with_retry, db_path)
@@ -372,7 +380,8 @@ async def query(sql: str, row_limit: int = 500) -> dict[str, Any]:
         asyncio.to_thread(_execute_query_on_connection, conn, sql, row_limit)
     )
     try:
-        return await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
+        result = await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
+        return mask_query_result(result, mask) if mask is not None else result
     except asyncio.TimeoutError:
         conn.interrupt()
         try:
@@ -481,6 +490,8 @@ def mcp_run(ctx: click.Context) -> None:
 # run_transform, run_doctor, add_source, list_source_types, create_model),
 # not CLI subcommands. mcp_schedules.py registers the schedule tools the same way.
 
+# mcp_governance.py registers governance tools (drift, PII) and owns query()'s PII masking helper.
+import dango.cli.commands.mcp_governance as _mcp_governance  # noqa: E402, F401
 import dango.cli.commands.mcp_mutations as _mcp_mutations  # noqa: E402, F401
 import dango.cli.commands.mcp_schedules as _mcp_schedules  # noqa: E402, F401
 import dango.cli.commands.mcp_setup as _mcp_setup  # noqa: E402, F401
