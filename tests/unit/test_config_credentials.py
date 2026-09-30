@@ -6,7 +6,57 @@ Tests for dango.config.credentials — CredentialManager.
 import pytest
 import toml
 
-from dango.config.credentials import CredentialManager, init_dlt_directory
+from dango.config.credentials import (
+    SENSITIVE_ARTIFACT_GITIGNORE_PATTERNS,
+    CredentialManager,
+    ensure_sensitive_artifact_gitignores,
+    init_dlt_directory,
+)
+
+
+@pytest.mark.unit
+class TestEnsureSensitiveArtifactGitignores:
+    def test_creates_missing_gitignore(self, tmp_path):
+        assert ensure_sensitive_artifact_gitignores(tmp_path) is True
+
+        content = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+        assert content.startswith("# Dango sensitive artifacts\n")
+        for pattern in SENSITIVE_ARTIFACT_GITIGNORE_PATTERNS:
+            assert content.count(pattern) == 1
+
+    def test_preserves_existing_content_without_trailing_newline(self, tmp_path):
+        gitignore_path = tmp_path / ".gitignore"
+        gitignore_path.write_text("# user rule\ncustom-output/", encoding="utf-8")
+
+        assert ensure_sensitive_artifact_gitignores(tmp_path) is True
+
+        content = gitignore_path.read_text(encoding="utf-8")
+        assert content.startswith("# user rule\ncustom-output/\n# Dango sensitive artifacts\n")
+        for pattern in SENSITIVE_ARTIFACT_GITIGNORE_PATTERNS:
+            assert pattern in content
+
+    def test_is_byte_identical_on_second_call(self, tmp_path):
+        assert ensure_sensitive_artifact_gitignores(tmp_path) is True
+        first = (tmp_path / ".gitignore").read_bytes()
+
+        assert ensure_sensitive_artifact_gitignores(tmp_path) is False
+        assert (tmp_path / ".gitignore").read_bytes() == first
+
+    def test_adds_only_missing_pattern_without_duplicate_header(self, tmp_path):
+        gitignore_path = tmp_path / ".gitignore"
+        gitignore_path.write_text(
+            "# Dango sensitive artifacts\n.dango/backups/\n# user rule\n",
+            encoding="utf-8",
+        )
+
+        assert ensure_sensitive_artifact_gitignores(tmp_path) is True
+
+        content = gitignore_path.read_text(encoding="utf-8")
+        assert content.count("# Dango sensitive artifacts") == 1
+        assert content.count(".dango/backups/") == 1
+        assert "# user rule\n" in content
+        for pattern in SENSITIVE_ARTIFACT_GITIGNORE_PATTERNS:
+            assert content.count(pattern) == 1
 
 
 @pytest.mark.unit
