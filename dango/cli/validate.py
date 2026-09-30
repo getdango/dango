@@ -459,6 +459,7 @@ class ProjectValidator:
                 capture_output=True,
                 text=True,
                 timeout=60,
+                stdin=subprocess.DEVNULL,
                 env=_dbt_telemetry_env(),
             )
 

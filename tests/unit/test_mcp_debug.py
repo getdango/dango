@@ -264,3 +264,40 @@ def test_debug_tools_registered() -> None:
 
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     assert {"validate_project", "get_logs", "get_platform_status", "get_warehouse_health"} <= names
+
+
+@pytest.mark.unit
+class TestRedactionAndCaps:
+    @pytest.mark.parametrize(
+        "text,secret",
+        [
+            ("client_secret=abcSEC", "abcSEC"),
+            ("access_token: abcSEC", "abcSEC"),
+            ("AWS_SECRET_ACCESS_KEY=abcSEC", "abcSEC"),
+            ("Authorization: Bearer abcSEC", "abcSEC"),
+            ('{"password": "abcSEC"}', "abcSEC"),
+            ("postgres://user:abcSEC@host/db", "abcSEC"),
+        ],
+    )
+    def test_redact_text_forms(self, text: str, secret: str) -> None:
+        assert secret not in mcp_debug._redact_obj(text)
+
+    def test_contains_filter_cannot_probe_redacted_secret(self, project: Path) -> None:
+        _write_activity(project, [{"level": "info", "message": "password=hunter2"}])
+        assert mcp_debug.get_logs(contains="hunter2")["entries"] == []
+
+    def test_total_size_cap_drops_oldest(self, project: Path) -> None:
+        _write_activity(
+            project, [{"level": "info", "message": f"{i}" + "z" * 1900} for i in range(400)]
+        )
+        result = mcp_debug.get_logs(lines=500)
+        assert result["truncated"] is True
+        assert len(json.dumps(result["entries"])) <= mcp_debug._MAX_TOTAL
+        assert result["entries"][-1]["message"].startswith("399")
+
+    def test_tail_keeps_unicode_separator_lines_whole(self, project: Path) -> None:
+        logs = project / ".dango" / "logs"
+        logs.mkdir(parents=True)
+        line = json.dumps({"level": "info", "message": "a b\x85c"}, ensure_ascii=False)
+        (logs / "activity.jsonl").write_text(line + "\n", encoding="utf-8")
+        assert mcp_debug.get_logs()["entries"][0]["message"] == "a b\x85c"

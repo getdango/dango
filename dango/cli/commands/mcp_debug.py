@@ -18,19 +18,27 @@ _SECRET_KEY_RE = re.compile(
     r"(?i)(password|passwd|secret|token|api[_-]?key|authorization|credential|private[_-]?key)"
 )
 _SECRET_INLINE_RE = re.compile(
-    r"(?i)\b(password|passwd|secret|token|api[_-]?key|authorization)\b(\s*[=:]\s*)"
-    r"(\"[^\"]*\"|'[^']*'|\S+)"
+    r"(?i)(?<![A-Za-z0-9])([\w-]*(?:password|passwd|secret|token|api[_-]?key|authorization)[\w-]*)"
+    r"([\"']?\s*[=:]\s*)((?:Bearer|Basic|Token)\s+\S+|\"[^\"]*\"|'[^']*'|[^\s,;&}]+)"
 )
+_URL_CRED_RE = re.compile(r"(://[^/\s:@]+:)[^@\s/]+(@)")
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 _TAIL_BYTES = 2 * 1024 * 1024
 _MAX_LINES = 500
 _MAX_STR = 2000
+_MAX_TOTAL = 200_000  # serialized-size budget for one get_logs result
 _LOG_FILES = {
     "activity": Path(".dango") / "logs" / "activity.jsonl",
     "dango": Path(".dango") / "logs" / "dango.log",
     "dbt": Path("dbt") / "logs" / "dbt.log",
 }
+
+
+def _redact_text(text: str) -> str:
+    """Mask secret-looking key=value pairs and URL credentials in free text."""
+    text = _SECRET_INLINE_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}****", text)
+    return _URL_CRED_RE.sub(r"\1****\2", text)
 
 
 def _redact_obj(obj: Any) -> Any:
@@ -43,7 +51,7 @@ def _redact_obj(obj: Any) -> Any:
     if isinstance(obj, list):
         return [_redact_obj(v) for v in obj]
     if isinstance(obj, str):
-        return _SECRET_INLINE_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}****", obj)
+        return _redact_text(obj)
     return obj
 
 
@@ -72,9 +80,10 @@ def _read_tail_lines(path: Path) -> list[str]:
         if seeked:
             f.seek(size - _TAIL_BYTES)
         data = f.read()
-    lines = data.decode("utf-8", errors="replace").splitlines()
-    if seeked and lines:
-        lines = lines[1:]
+    raw_lines = data.split(b"\n")
+    if seeked and raw_lines:
+        raw_lines = raw_lines[1:]
+    lines = [ln.decode("utf-8", errors="replace").rstrip("\r") for ln in raw_lines]
     return lines
 
 
@@ -111,7 +120,10 @@ def _lock_status(project_root: Path) -> dict[str, Any]:
 def validate_project(
     check_connectivity: bool = False, include_passed: bool = False
 ) -> dict[str, Any]:
-    """Run Dango's project validation (same checks as `dango validate`), read-only.
+    """Run Dango's project validation (same checks as `dango validate`).
+
+    Does not modify project config or the warehouse; it runs `dbt parse`, which refreshes
+    dbt/target artifacts.
 
     Returns is_valid, pass/warn/fail counts, and the warn/fail checks (all checks when
     include_passed=True). check_connectivity=True makes live API calls to OAuth sources
@@ -177,18 +189,14 @@ def get_logs(
             if not raw.strip():
                 continue
             if log == "dbt":
-                text = _ANSI_RE.sub("", raw)
+                text = _redact_text(_ANSI_RE.sub("", raw))
                 if needle and needle not in text.lower():
                     continue
                 if want_level and not re.search(
                     rf"\[\s*{re.escape(want_level)}\s*\]", text, re.IGNORECASE
                 ):
                     continue
-                entries.append(
-                    {"line": _SECRET_INLINE_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}****", text)}
-                )
-                continue
-            if needle and needle not in raw.lower():
+                entries.append({"line": text})
                 continue
             try:
                 parsed: Any = json.loads(raw)
@@ -197,7 +205,10 @@ def get_logs(
             if not isinstance(parsed, dict):
                 if want_level or source:
                     continue
-                entries.append({"raw": _redact_obj(raw)})
+                parsed = {"raw": _redact_text(raw)}
+                if needle and needle not in parsed["raw"].lower():
+                    continue
+                entries.append(parsed)
                 continue
             if want_level and str(parsed.get("level", "")).lower() != want_level:
                 continue
@@ -205,9 +216,15 @@ def get_logs(
                 val = parsed.get("source", parsed.get("sources"))
                 if not (val == source or (isinstance(val, list) and source in val)):
                     continue
-            entries.append(_redact_obj(parsed))
+            parsed = _redact_obj(parsed)
+            if needle and needle not in json.dumps(parsed, default=str).lower():
+                continue
+            entries.append(parsed)
         entries = entries[-lines:]
         entries, truncated = _truncate_obj(entries)
+        while len(entries) > 1 and len(json.dumps(entries, default=str)) > _MAX_TOTAL:
+            entries = entries[1:]
+            truncated = True
         return {"log": log, "path": str(rel), "entries": entries, "truncated": truncated}
     except Exception as e:  # noqa: BLE001
         return {"error": f"Could not read logs: {e}"}
