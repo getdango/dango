@@ -9,13 +9,19 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
+from click.testing import CliRunner
 
 from dango.cli.commands.remote_repair import (
     _metabase_schema_scan_command,
     _metabase_schema_scan_script,
+    _metabase_secret_project_id_command,
+    _validated_metabase_secret_project_id,
+    remote_reset_metabase,
 )
+from dango.platform.cloud.ssh import CommandResult
 
 
 @pytest.mark.unit
@@ -74,3 +80,117 @@ class TestRemoteRepairSchemaScanCredentials:
         )
 
         assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.unit
+class TestRemoteResetMetabaseCredentials:
+    """Ensure cloud reset cannot retain or broadly delete protected secrets."""
+
+    @staticmethod
+    def _result(stdout: str = "", *, success: bool = True) -> CommandResult:
+        return CommandResult(stdout, "", 0 if success else 1)
+
+    def _invoke_reset(
+        self,
+        project_id_output: str,
+        *,
+        lookup_success: bool = True,
+        delete_success: bool = True,
+    ):
+        ssh = MagicMock()
+        ssh.exec_command.side_effect = [
+            self._result(),  # stop dango-web
+            self._result(project_id_output, success=lookup_success),
+            self._result(),  # compose down
+            self._result(),  # remove metabase.yml
+            self._result(success=delete_success),  # remove protected credential
+            self._result(),  # restart dango-web
+            self._result("ok\n"),  # health check
+            self._result("Synced: 1, Created: 0\n"),  # user re-sync
+        ]
+        cloud_config = MagicMock(droplet_ip="203.0.113.1")
+
+        with (
+            patch(
+                "dango.cli.commands.remote_mgmt._load_cloud_config_with_ip",
+                return_value=(cloud_config, Path("/project")),
+            ),
+            patch("dango.cli.commands.remote_mgmt._make_ssh_manager", return_value=ssh),
+            patch(
+                "dango.platform.cloud.backup.get_remote_compose_project_name",
+                return_value="dango-ab12cd34",
+            ),
+        ):
+            result = CliRunner().invoke(remote_reset_metabase, input="reset\n")
+
+        return result, ssh
+
+    def test_confirmed_reset_removes_only_validated_secret_before_restart(self) -> None:
+        project_id = "ab12cd34" * 4
+        result, ssh = self._invoke_reset(f"{project_id}\n")
+
+        assert result.exit_code == 0, result.output
+        commands = [call.args[0] for call in ssh.exec_command.call_args_list]
+        delete_index = commands.index(f"rm -rf /srv/dango/secrets/metabase/{project_id}")
+        restart_index = commands.index("systemctl start dango-web")
+        assert delete_index < restart_index
+        assert commands[delete_index] == f"rm -rf /srv/dango/secrets/metabase/{project_id}"
+        assert "rm -rf /srv/dango/secrets/metabase" not in {
+            command for command in commands if command != commands[delete_index]
+        }
+
+    def test_failed_secret_deletion_does_not_restart_dango_web(self) -> None:
+        result, ssh = self._invoke_reset("ab12cd34" * 4 + "\n", delete_success=False)
+
+        assert result.exit_code != 0
+        assert "Could not remove this project's protected Metabase credential" in result.output
+        assert "remains stopped" in result.output
+        commands = [call.args[0] for call in ssh.exec_command.call_args_list]
+        assert "systemctl start dango-web" not in commands
+
+    @pytest.mark.parametrize(
+        ("output", "lookup_success"),
+        [
+            ("", True),
+            ("../../etc\n", True),
+            ("AB12CD34" * 4 + "\n", True),
+            ("ab12cd34" * 4 + "\n", False),
+        ],
+    )
+    def test_invalid_or_failed_id_lookup_deletes_nothing_and_does_not_restart(
+        self, output: str, lookup_success: bool
+    ) -> None:
+        result, ssh = self._invoke_reset(output, lookup_success=lookup_success)
+
+        assert result.exit_code != 0
+        assert "remains stopped" in result.output
+        commands = [call.args[0] for call in ssh.exec_command.call_args_list]
+        assert "systemctl start dango-web" not in commands
+        assert not any("/srv/dango/secrets/metabase/" in command for command in commands)
+
+    def test_identity_command_and_reset_output_do_not_include_credentials(self) -> None:
+        command = _metabase_secret_project_id_command("/srv/dango/project")
+        result, ssh = self._invoke_reset("ab12cd34" * 4 + "\n")
+
+        assert "MetabaseCredentialStore" in command
+        assert "password" not in command.lower()
+        assert "password" not in result.output.lower()
+        assert all(
+            "password" not in call.args[0].lower() for call in ssh.exec_command.call_args_list
+        )
+
+    def test_confirmation_distinguishes_exported_and_metabase_only_work(self) -> None:
+        result, _ssh = self._invoke_reset("ab12cd34" * 4 + "\n")
+
+        assert "Project-exported dashboards can be re-imported" in result.output
+        assert "Metabase-only dashboards and questions will be lost" in result.output
+
+    @pytest.mark.parametrize("output", ["ab12cd34" * 4 + "\n", " " + "ab12cd34" * 4 + " \n"])
+    def test_validated_project_id(self, output: str) -> None:
+        assert _validated_metabase_secret_project_id(output) == "ab12cd34" * 4
+
+    @pytest.mark.parametrize(
+        "output", ["dango-" + "ab12cd34" * 4, "ab12cd34", "ab12cd34" * 3 + "ab12cd3g", ""]
+    )
+    def test_rejects_non_secret_path_project_id(self, output: str) -> None:
+        assert _validated_metabase_secret_project_id(output) is None

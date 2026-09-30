@@ -9,12 +9,38 @@ triggers registration by importing this module at the bottom of ``remote.py``.
 
 from __future__ import annotations
 
+import re
 import shlex
 
 import click
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
+
+_METABASE_SECRET_PROJECT_ID_RE = re.compile(r"^[a-f0-9]{32}$")
+
+
+def _metabase_secret_project_id_command(server_project_dir: str) -> str:
+    """Return the remote command that resolves the credential-store identity.
+
+    ``MetabaseCredentialStore`` validates and returns the full persisted
+    project ID used to name its credential file.  SSH output is never used as
+    an arbitrary shell fragment.
+    """
+    script = (
+        "from pathlib import Path; "
+        "from dango.security.metabase_credentials import MetabaseCredentialStore; "
+        f"print(MetabaseCredentialStore(Path({server_project_dir!r}), cloud_mode=True).project_id)"
+    )
+    return f"/srv/dango/venv/bin/python -c {shlex.quote(script)}"
+
+
+def _validated_metabase_secret_project_id(output: str) -> str | None:
+    """Return a safe project ID from remote output, or ``None`` if invalid."""
+    project_id = output.strip()
+    if _METABASE_SECRET_PROJECT_ID_RE.fullmatch(project_id):
+        return project_id
+    return None
 
 
 def _metabase_schema_scan_script() -> str:
@@ -235,7 +261,8 @@ def remote_reset_metabase(ctx: click.Context) -> None:
 
     console.print(
         "[yellow]This will reset Metabase to factory state.[/yellow]\n"
-        "  - All Metabase dashboards and questions will be lost\n"
+        "  - Project-exported dashboards can be re-imported after reset\n"
+        "  - Metabase-only dashboards and questions will be lost\n"
         "  - Your DuckDB warehouse data is NOT affected\n"
         "  - Admin account will be re-created on next startup\n"
     )
@@ -259,6 +286,26 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         console.print("Stopping dango-web...")
         ssh.exec_command("systemctl stop dango-web 2>/dev/null || true", timeout=15)
 
+        # Resolve before changing Metabase state. The strict validation keeps a
+        # compromised or malformed remote response from widening the deletion
+        # target beyond this project's protected credential directory.
+        project_id_result = ssh.exec_command(
+            _metabase_secret_project_id_command(_server_project_dir),
+            timeout=15,
+        )
+        project_id = (
+            _validated_metabase_secret_project_id(project_id_result.stdout)
+            if project_id_result.success
+            else None
+        )
+        if project_id is None:
+            console.print(
+                "[red]Error:[/red] Could not safely resolve this project's "
+                "Metabase credential identity. Dango-web remains stopped; "
+                "no Metabase data or credentials were removed."
+            )
+            raise click.Abort()
+
         # 2. Stop and remove Metabase container + volume
         console.print("Removing Metabase data...")
         ssh.exec_command(
@@ -274,6 +321,20 @@ def remote_reset_metabase(ctx: click.Context) -> None:
             f"rm -f {_server_project_dir}/.dango/metabase.yml",
             timeout=10,
         )
+
+        # The ID was validated above, so this is a literal per-project path,
+        # never a wildcard or the shared secrets root.
+        console.print("Removing protected Metabase credential...")
+        delete_secret_result = ssh.exec_command(
+            f"rm -rf /srv/dango/secrets/metabase/{project_id}",
+            timeout=10,
+        )
+        if not delete_secret_result.success:
+            console.print(
+                "[red]Error:[/red] Could not remove this project's protected "
+                "Metabase credential. Dango-web remains stopped."
+            )
+            raise click.Abort()
 
         # 4. Restart dango-web (triggers Docker rebuild + Metabase setup)
         console.print("Restarting dango-web (this may take a few minutes)...")
@@ -333,6 +394,8 @@ def remote_reset_metabase(ctx: click.Context) -> None:
             "Run [bold]dango remote status[/bold] to check progress."
         )
 
+    except click.Abort:
+        raise
     except Exception as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise SystemExit(1) from exc
