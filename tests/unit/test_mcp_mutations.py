@@ -2,7 +2,7 @@
 
 Tests for the MCP mutation tools (dango/cli/commands/mcp_mutations.py):
 run_sync, run_transform, run_doctor, add_source, list_source_types,
-create_model, add_schedule.
+create_model. Schedule tools: see test_mcp_schedules.py.
 """
 
 from __future__ import annotations
@@ -226,6 +226,7 @@ class TestListSourceTypes:
         assert "stripe" in types
         stripe_entry = next(r for r in result if r["type"] == "stripe")
         assert stripe_entry["auth_type"] == "api_key"
+        assert stripe_entry["name"] == "Stripe"
 
 
 @pytest.mark.unit
@@ -284,7 +285,7 @@ class TestCreateModel:
 
 @pytest.mark.unit
 class TestGitWarning:
-    """1.0.8-OPS-3: add_source/create_model/add_schedule surface git-state
+    """1.0.8-OPS-3: add_source/create_model surface git-state
     warnings via a `git_warning` key in their return dict — there's no human
     to prompt over stdio, so this is how the calling agent sees it. The
     `project` fixture's tmp_path is never a git repo, so these tests
@@ -340,27 +341,9 @@ class TestGitWarning:
         assert result["status"] == "created"
         assert "git_warning" not in result
 
-    def test_add_schedule_includes_git_warning_when_present(
-        self, project: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(
-            mcp_mutations, "_git_warnings", lambda project_root: ["On branch 'master' — ..."]
-        )
-        result = mcp_mutations.add_schedule("weekly_sync", "0 7 * * 1", ["test_source"])
-        assert result["status"] == "created"
-        assert result["git_warning"] == ["On branch 'master' — ..."]
-
-    def test_add_schedule_omits_git_warning_when_clean(
-        self, project: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(mcp_mutations, "_git_warnings", lambda project_root: [])
-        result = mcp_mutations.add_schedule("monthly_sync", "0 7 1 * *", ["test_source"])
-        assert result["status"] == "created"
-        assert "git_warning" not in result
-
     def test_non_git_project_never_crashes_and_omits_key(self, project: Path) -> None:
         """project fixture's tmp_path is a plain directory, never git-initialized —
-        confirms _git_warnings() (and therefore all three tools) handles a non-git
+        confirms _git_warnings() (and therefore both tools) handles a non-git
         project gracefully with no exception and no git_warning key, using the real
         (unmocked) collect_git_info()/check_mutation_guardrails() call chain."""
         result = mcp_mutations.add_source("csv", "non_git_source")
@@ -370,34 +353,3 @@ class TestGitWarning:
         result2 = mcp_mutations.create_model("int_non_git", "intermediate", [])
         assert result2["status"] == "created"
         assert "git_warning" not in result2
-
-        result3 = mcp_mutations.add_schedule("non_git_sched", "0 7 * * *", ["test_source"])
-        assert result3["status"] == "created"
-        assert "git_warning" not in result3
-
-
-@pytest.mark.unit
-class TestAddSchedule:
-    def test_add_schedule_missing_source(self, project: Path) -> None:
-        result = mcp_mutations.add_schedule("daily_sync", "0 7 * * *", ["nonexistent_source"])
-        assert "error" in result
-        assert "nonexistent_source" in result["error"]
-
-    def test_add_schedule_success_persists_to_disk(self, project: Path) -> None:
-        result = mcp_mutations.add_schedule(
-            "daily_sync", "0 7 * * *", ["test_source"], timezone="Asia/Singapore"
-        )
-
-        assert result["status"] == "created"
-        assert result["schedule_name"] == "daily_sync"
-
-        from dango.config.schedules import load_schedules_config
-
-        reloaded = load_schedules_config(project)
-        names = {s.name for s in reloaded.schedules}
-        assert "daily_sync" in names
-
-    def test_add_schedule_duplicate_name(self, project: Path) -> None:
-        mcp_mutations.add_schedule("daily_sync", "0 7 * * *", ["test_source"])
-        result = mcp_mutations.add_schedule("daily_sync", "0 8 * * *", ["test_source"])
-        assert result == {"error": "Schedule 'daily_sync' already exists"}
