@@ -71,7 +71,9 @@ class TestAddSchedule:
 
     def test_add_schedule_invalid_cron_returns_error(self, project: Path) -> None:
         result = _add(cron="not a cron")
-        assert "error" in result
+        assert "Invalid cron expression" in result["error"]
+        assert "pydantic.dev" not in result["error"]
+        assert "\n" not in result["error"]
         assert not _yml(project).exists()
 
     def test_add_schedule_unknown_timezone_returns_error(self, project: Path) -> None:
@@ -212,6 +214,18 @@ class TestUpdateAndToggle:
         result = mcp_schedules.update_schedule("healthy", cron="0 5 * * *")
         assert result["status"] == "updated"
         assert any("deleted_src" in w for w in result["warnings"])
+
+    def test_source_named_like_schedule_does_not_misattribute_error(self, project: Path) -> None:
+        """A broken schedule referencing a source named 'healthy' must not block 'healthy'."""
+        _add("healthy")
+        raw = yaml.safe_load(_yml(project).read_text())
+        raw["schedules"].append(
+            {"name": "other", "type": "sync", "cron": "0 1 * * *", "sources": ["healthy"]}
+        )
+        _yml(project).write_text(yaml.dump(raw))
+        result = mcp_schedules.update_schedule("healthy", cron="0 5 * * *")
+        assert result["status"] == "updated"
+        assert result["warnings"]
 
     def test_enabling_broken_schedule_is_rejected(self, project: Path) -> None:
         self._with_broken_schedule(project)

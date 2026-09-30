@@ -135,14 +135,14 @@ def _save_validated(
 ) -> tuple[str | None, list[str]]:
     """Cross-validate the proposed full list, then save.
 
-    Only errors that concern `name` (the error text contains repr(name)) block the
+    Only errors that concern `name` (the error starts with "Schedule <name!r> " or is the duplicate-name error) block the
     write; unrelated pre-existing errors are returned as warnings so one broken
     schedule never traps the user. Returns (error_or_None, warnings).
     """
     from dango.config.schedules import SchedulesConfig, save_schedules_config, validate_schedules
 
     errors, _warn = validate_schedules(schedules, _load_source_names(project_root))
-    mine = [e for e in errors if repr(name) in e]
+    mine = [e for e in errors if _concerns(e, name)]
     if mine:
         return "; ".join(mine), []
     save_schedules_config(project_root, SchedulesConfig(schedules=schedules))
@@ -176,6 +176,25 @@ def _find(schedules: list[Any], name: str) -> int | None:
         if s.name == name:
             return i
     return None
+
+
+def _fmt_error(e: Exception) -> str:
+    """Compact message for a pydantic ValidationError (no multi-line dump / docs URL)."""
+    from pydantic import ValidationError
+
+    if not isinstance(e, ValidationError):
+        return str(e)
+    parts = []
+    for err in e.errors():
+        msg = str(err.get("msg", "")).removeprefix("Value error, ")
+        loc = ".".join(str(x) for x in err.get("loc", ()))
+        parts.append(f"{loc}: {msg}" if loc else msg)
+    return "; ".join(parts) or "Invalid schedule"
+
+
+def _concerns(error: str, name: str) -> bool:
+    """True if a validate_schedules() error is about schedule `name` itself."""
+    return error.startswith((f"Schedule {name!r} ", f"Duplicate schedule name: {name!r}"))
 
 
 def _not_found(name: str) -> dict[str, Any]:
@@ -272,7 +291,7 @@ def add_schedule(
         )
         err, warnings = _save_validated(project_root, [*schedules, new], schedule_name)
     except (ValidationError, ValueError, ConfigError) as e:
-        return {"error": str(e)}
+        return {"error": _fmt_error(e)}
     if err:
         return {"error": err}
     return _success(project_root, "created", new, warnings)
@@ -333,7 +352,7 @@ def update_schedule(
         schedules[idx] = new
         err, warnings = _save_validated(project_root, schedules, schedule_name)
     except (ValidationError, ValueError, ConfigError) as e:
-        return {"error": str(e)}
+        return {"error": _fmt_error(e)}
     if err:
         return {"error": err}
     return _success(project_root, "updated", new, warnings)
@@ -380,7 +399,7 @@ def set_schedule_enabled(schedule_name: str, enabled: bool) -> dict[str, Any]:
         else:
             save_schedules_config(project_root, SchedulesConfig(schedules=schedules))
     except (ValidationError, ValueError, ConfigError) as e:
-        return {"error": str(e)}
+        return {"error": _fmt_error(e)}
     return _success(project_root, "enabled" if enabled else "disabled", new, warnings)
 
 
