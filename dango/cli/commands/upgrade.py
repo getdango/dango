@@ -252,6 +252,20 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
             "Run [bold]dango start[/bold] after upgrade to retry safely."
         )
 
+    # Existing projects need the same additive local-artifact protections as
+    # projects created with the current initializer.  This must never turn a
+    # successful package upgrade into a failure.
+    try:
+        from dango.config.credentials import ensure_sensitive_artifact_gitignores
+
+        if ensure_sensitive_artifact_gitignores(project_root):
+            console.print("[dim]Added sensitive local-artifact ignore rules to .gitignore.[/dim]")
+    except Exception:
+        console.print(
+            "[yellow]Warning:[/yellow] Could not update .gitignore with sensitive local-artifact "
+            "rules. Run [bold]dango start[/bold] to retry safely."
+        )
+
     # Success
     console.print()
     console.print(

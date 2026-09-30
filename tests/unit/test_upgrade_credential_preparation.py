@@ -150,3 +150,70 @@ class TestUpgradeCredentialPreparation:
         assert json.loads(state.read_text()) == {"status": "prepared", "version": 1}
         assert "legacy-secret" not in state.read_text()
         assert "legacy-secret" in metadata.read_text()
+
+    @pytest.mark.parametrize(
+        ("ignore_result", "expected_message"),
+        [
+            (True, "Added sensitive local-artifact ignore rules to .gitignore"),
+            (False, ""),
+        ],
+    )
+    def test_upgrade_applies_gitignore_hardening_without_affecting_preparation(
+        self,
+        ignore_result: bool,
+        expected_message: str,
+        tmp_path: Path,
+    ) -> None:
+        root = _project(tmp_path)
+        with (
+            patch("dango.cli.utils.find_project_root", return_value=root),
+            patch("dango.cli.commands.upgrade.subprocess") as mock_subprocess,
+            patch("dango.migrations.apply_all_pending", return_value={}),
+            patch(
+                "dango.platform.common.metabase_credential_migration.prepare_metabase_credential_migration",
+                return_value={"version": 1, "status": "not_needed"},
+            ) as mock_preparation,
+            patch(
+                "dango.config.credentials.ensure_sensitive_artifact_gitignores",
+                return_value=ignore_result,
+            ) as mock_ignores,
+            patch("dango.__version__", "0.1.0"),
+        ):
+            _mock_pip(mock_subprocess)
+            result = CliRunner().invoke(cli, ["upgrade", "--version", "2.0.0", "--yes"])
+
+        assert result.exit_code == 0
+        mock_preparation.assert_called_once_with(root)
+        mock_ignores.assert_called_once_with(root)
+        if expected_message:
+            assert expected_message in result.output
+        else:
+            assert "Added sensitive local-artifact ignore rules" not in result.output
+
+    def test_gitignore_failure_preserves_successful_upgrade_and_preparation(
+        self, tmp_path: Path
+    ) -> None:
+        root = _project(tmp_path)
+        with (
+            patch("dango.cli.utils.find_project_root", return_value=root),
+            patch("dango.cli.commands.upgrade.subprocess") as mock_subprocess,
+            patch("dango.migrations.apply_all_pending", return_value={}),
+            patch(
+                "dango.platform.common.metabase_credential_migration.prepare_metabase_credential_migration",
+                return_value={"version": 1, "status": "not_needed"},
+            ) as mock_preparation,
+            patch(
+                "dango.config.credentials.ensure_sensitive_artifact_gitignores",
+                side_effect=OSError("permission denied"),
+            ),
+            patch("dango.__version__", "0.1.0"),
+        ):
+            _mock_pip(mock_subprocess)
+            result = CliRunner().invoke(cli, ["upgrade", "--version", "2.0.0", "--yes"])
+
+        assert result.exit_code == 0
+        mock_preparation.assert_called_once_with(root)
+        assert "Could not update .gitignore" in result.output
+        assert "dango start" in result.output
+        assert "permission denied" not in result.output
+        assert "Upgrade complete" in result.output
