@@ -489,8 +489,10 @@ def mcp_run(ctx: click.Context) -> None:
 # onto `mcp_group` (the Click group) — it adds mutation tools (run_sync,
 # run_transform, run_doctor, add_source, list_source_types, create_model),
 # not CLI subcommands. mcp_schedules.py registers the schedule tools the same way.
+# mcp_debug.py registers read-only debugging tools (validate, logs, status, warehouse health).
 
 # mcp_governance.py registers governance tools (drift, PII) and owns query()'s PII masking helper.
+import dango.cli.commands.mcp_debug as _mcp_debug  # noqa: E402, F401
 import dango.cli.commands.mcp_governance as _mcp_governance  # noqa: E402, F401
 import dango.cli.commands.mcp_mutations as _mcp_mutations  # noqa: E402, F401
 import dango.cli.commands.mcp_schedules as _mcp_schedules  # noqa: E402, F401
