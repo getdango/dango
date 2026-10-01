@@ -176,7 +176,7 @@ class TestPlatformStatus:
         result = mcp_debug.get_platform_status()
         assert result["server_running"] is False
         assert result["web_url"] is None
-        assert "scheduler" not in result
+        assert result["scheduler"] is None
         assert result["warehouse"]["exists"] is False
         assert result["dbt_lock"]["held"] is False
 
@@ -189,6 +189,34 @@ class TestPlatformStatus:
         result = mcp_debug.get_platform_status()
         assert result["server_running"] is True
         assert result["web_url"] == f"http://localhost:{result['port']}"
+
+    def test_platform_status_includes_scheduler_when_running(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "dango.cli.helpers.process_manager.is_project_server_running", lambda root: True
+        )
+        api = {
+            "running": True,
+            "job_count": 2,
+            "project_root": str(project),
+            "schedules": [
+                {"name": "a", "enabled": True, "loaded": True, "next_run_time": "x"},
+                {"name": "b", "enabled": False, "loaded": False, "next_run_time": None},
+            ],
+        }
+        monkeypatch.setattr("dango.cli.commands.schedule._query_scheduler_api", lambda root: api)
+        result = mcp_debug.get_platform_status()
+        assert result["scheduler"] == {"running": True, "job_count": 2, "schedules_loaded": 1}
+
+    def test_platform_status_scheduler_none_when_not_running(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _boom(root: Path) -> None:
+            raise AssertionError("must not query when server is not running")
+
+        monkeypatch.setattr("dango.cli.commands.schedule._query_scheduler_api", _boom)
+        assert mcp_debug.get_platform_status()["scheduler"] is None
 
 
 @pytest.mark.unit

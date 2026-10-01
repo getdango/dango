@@ -522,6 +522,34 @@ def _validate_script_path_for_schedule(script_path: str, project_root: Path) -> 
 # ---------------------------------------------------------------------------
 
 
+def compute_next_runs(sched: ScheduleConfig, count: int = 1) -> list[datetime]:
+    """Next fire times (timezone-aware) using the same trigger reload_schedules() builds.
+
+    Returns [] for a disabled schedule or an invalid cron/timezone. Never raises.
+    """
+    if not sched.enabled or count < 1:
+        return []
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+
+        trigger_kwargs: dict[str, Any] = {}
+        if sched.timezone:
+            trigger_kwargs["timezone"] = sched.timezone
+        trigger = CronTrigger.from_crontab(sched.cron, **trigger_kwargs)
+        now = datetime.now(trigger.timezone)
+        runs: list[datetime] = []
+        previous: datetime | None = None
+        for _ in range(count):
+            nxt = trigger.get_next_fire_time(previous, previous or now)
+            if nxt is None:
+                break
+            runs.append(nxt)
+            previous = nxt
+        return runs
+    except Exception:  # noqa: BLE001 -- display helper, never raises
+        return []
+
+
 def reload_schedules(
     scheduler: SchedulerService,
     new_schedules: list[ScheduleConfig],

@@ -128,20 +128,6 @@ class TestListSchedules:
         assert nxt.utcoffset() == timedelta(hours=8)
         assert nxt.hour == 7
 
-    def test_list_schedules_includes_scheduler_status_when_running(
-        self, project: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(mcp_schedules, "_server_running", lambda root: True)
-
-        class _Resp:
-            def json(self) -> dict[str, Any]:
-                return {"scheduler": {"running": True, "job_count": 3}}
-
-        monkeypatch.setattr(requests, "get", lambda url, **kw: _Resp())
-        result = mcp_schedules.list_schedules()
-        assert result["server_running"] is True
-        assert result["scheduler"] == {"running": True, "job_count": 3}
-
 
 @pytest.mark.unit
 class TestUpdateAndToggle:

@@ -245,12 +245,24 @@ def get_platform_status() -> dict[str, Any]:
         port = config.platform.port
         wh = project_root / "data" / "warehouse.duckdb"
         exists = wh.exists()
+        scheduler: dict[str, Any] | None = None
+        if running:
+            from dango.cli.commands.schedule import _query_scheduler_api
+
+            api = _query_scheduler_api(project_root)
+            if api:
+                scheduler = {
+                    "running": bool(api.get("running")),
+                    "job_count": int(api.get("job_count", 0)),
+                    "schedules_loaded": sum(1 for e in api.get("schedules", []) if e.get("loaded")),
+                }
         return {
             "project": config.project.name,
             "dango_version": dango.__version__,
             "server_running": running,
             "port": port,
             "web_url": f"http://localhost:{port}" if running else None,
+            "scheduler": scheduler,
             "dbt_lock": _lock_status(project_root),
             "warehouse": {
                 "path": "data/warehouse.duckdb",
