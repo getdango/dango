@@ -45,6 +45,8 @@ mcp = FastMCP(
         "Dango is a data platform for small teams: dlt ingestion, a DuckDB warehouse, dbt "
         "transformation and Metabase dashboards. Prefer these tools over editing project "
         "files directly; they validate inputs. "
+        "For CSV, JSON or Parquet files use source_type local_files (the legacy csv type is "
+        "not supported) and give file_path. "
         "Typical order: list_sources / list_source_types, get_source_setup_schema, "
         "create_source, run_sync, run_transform, then get_table_schema, query or list_models "
         "to inspect. Models: create_model, validate_model, update_model. Schedules: the "
@@ -53,6 +55,8 @@ mcp = FastMCP(
         "Secrets: no tool accepts credentials. If a result has credentials_required, tell "
         "the user to add the values to .env themselves (relay next_steps; OAuth sources "
         "use `dango oauth <type>`); never ask them to paste secrets into the chat. "
+        "validate_source's ready means configured, not that a credential works; the first "
+        "run_sync is the real test. "
         "PII: query masks columns whose names match PII-flagged raw columns. This is a "
         "guardrail against accidental exposure, not a security boundary (an aliased column "
         "or an expression such as upper(email) is not masked); do not try to work around it. "
@@ -208,7 +212,11 @@ def get_lineage(model_name: str | None = None) -> dict[str, Any]:
             "model_count": len([n for n in nodes.values() if n.get("resource_type") == "model"]),
             "source_count": len(sources),
             "models": [
-                {"name": n["name"], "schema": n.get("schema"), "layer": _infer_layer(n["name"])}
+                {
+                    "name": n["name"],
+                    "schema": n.get("schema"),
+                    "layer": _infer_layer(n["name"], n.get("original_file_path")),
+                }
                 for n in nodes.values()
                 if n.get("resource_type") == "model"
             ],
@@ -233,7 +241,7 @@ def list_models() -> list[dict[str, Any]]:
         return [
             {
                 "name": n["name"],
-                "layer": _infer_layer(n["name"]),
+                "layer": _infer_layer(n["name"], n.get("original_file_path")),
                 "schema": n.get("schema"),
                 "path": n.get("original_file_path"),
             }

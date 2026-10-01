@@ -248,6 +248,11 @@ def test_validate_source_ready_when_configured_with_files(project: Path, csv_fil
         "ready": True,
         "issues": [],
         "files_found": 1,
+        "checks": {
+            "configuration": True,
+            "credentials_present": True,
+            "connectivity": "not_checked",
+        },
     }
 
 
@@ -332,3 +337,83 @@ def test_validate_source_ignores_dotfiles_like_the_loader(project: Path, csv_fil
     (d / "orders.csv").rename(d / ".hidden.csv")
     r = mcp_sources.validate_source("orders")
     assert r["files_found"] == 0 and r["ready"] is False
+
+
+@pytest.mark.unit
+def test_setup_schema_csv_points_to_local_files() -> None:
+    r = mcp_sources.get_source_setup_schema("csv")
+    assert r["use_instead"] == "local_files"
+    assert "legacy type" in r["note"] and "file_path" in r["note"]
+    assert "use_instead" not in mcp_sources.get_source_setup_schema("local_files")
+
+
+@pytest.mark.unit
+def test_create_source_csv_rejected_with_hint_no_writes(project: Path, csv_file: Path) -> None:
+    before = (project / ".dango" / "sources.yml").read_bytes()
+    for kwargs in ({}, {"file_path": str(csv_file)}):
+        r = mcp_sources.create_source("csv", "orders", **kwargs)
+        assert "local_files" in r["error"] and r["errors"] == [r["error"]]
+        assert "status" not in r
+    assert (project / ".dango" / "sources.yml").read_bytes() == before
+    assert not (project / "data").exists()
+    assert load_config(project).sources.get_source("orders") is None
+
+
+@pytest.mark.unit
+def test_existing_csv_source_still_validates(project: Path) -> None:
+    from dango.config.models import CSVSourceConfig, DataSource
+
+    (project / "data" / "legacy").mkdir(parents=True)
+    (project / "data" / "legacy" / "a.csv").write_text(CSV)
+    cfg = load_config(project)
+    cfg.sources.sources.append(
+        DataSource(name="legacy", type="csv", csv=CSVSourceConfig(directory="data/legacy"))
+    )
+    save_config(cfg, project)
+    r = mcp_sources.validate_source("legacy")
+    assert r["ready"] is True and r["files_found"] == 1, r
+    assert mcp_sources.set_source_enabled("legacy", False).get("error") is None
+    assert mcp_sources.remove_source("legacy").get("error") is None
+
+
+@pytest.mark.unit
+def test_create_source_file_path_ignores_matching_directory(project: Path, csv_file: Path) -> None:
+    r = mcp_sources.create_source(
+        "local_files",
+        "orders",
+        config={"directory": "data/uploads/orders"},
+        file_path=str(csv_file),
+    )
+    assert r["status"] == "created", r
+    assert (project / "data/uploads/orders/orders.csv").read_text() == CSV
+
+
+@pytest.mark.unit
+def test_create_source_file_path_rejects_conflicting_directory(
+    project: Path, csv_file: Path
+) -> None:
+    r = mcp_sources.create_source(
+        "local_files", "orders", config={"directory": "data/uploads"}, file_path=str(csv_file)
+    )
+    assert "omit 'directory'" in r["error"] and "data/uploads/orders/" in r["error"]
+    assert not (project / "data").exists()
+    assert load_config(project).sources.get_source("orders") is None
+
+
+@pytest.mark.unit
+def test_validate_source_checks_key_and_docstring_mentions_oauth_only(
+    project: Path, csv_file: Path
+) -> None:
+    mcp_sources.create_source("local_files", "orders", file_path=str(csv_file))
+    assert mcp_sources.validate_source("orders")["checks"]["connectivity"] == "not_checked"
+    r = mcp_sources.validate_source("orders", check_connectivity=True)
+    assert r["checks"] == {
+        "configuration": True,
+        "credentials_present": True,
+        "connectivity": "oauth_only",
+    }
+    doc = " ".join((mcp_sources.validate_source.__doc__ or "").split())
+    assert "only validates OAuth tokens" in doc and "does not prove an API key" in doc
+    _bare(project, "empty")
+    bad = mcp_sources.validate_source("empty")
+    assert bad["checks"]["configuration"] is False
