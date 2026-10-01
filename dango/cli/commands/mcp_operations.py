@@ -216,19 +216,45 @@ def run_sync(
 def run_transform(select: str | None = None, full_refresh: bool = False) -> dict[str, Any]:
     """Run dbt transformations. Equivalent to `dango run`.
 
+    Runs `dbt build`, so models AND tests run. Afterwards it records persistent model
+    status, syncs schema.yml columns for intermediate/marts models, and refreshes
+    Metabase (the last two only when the build had no failures).
+
+    Unlike the dbt step inside `run_sync` (which tolerates test-only failures), this
+    reports any failing model or test as status "failed", like `dango run`.
+
     Args:
         select: dbt --select expression (e.g. "stg_stripe+", "marts"). Runs all if omitted.
         full_refresh: If True, rebuild incremental models from scratch.
 
-    Returns dict with: status, output (dbt stdout), error (if failed).
+    Returns dict with:
+        status: "completed" or "failed".
+        output: dbt output, ANSI codes stripped, last 20 000 characters.
+        results: summary of this build's run_results.json (null if dbt wrote none, e.g. a
+            compile/parse error; `results_note` then explains): elapsed_seconds, counts
+            (per status), nodes (every model/test/seed: name, resource_type, status,
+            message, execution_time, failures) and failed (the nodes that errored or
+            failed, with dbt's message saying why, e.g. which test failed).
+        post_build: model_status, schema_sync, metabase outcomes of the follow-up steps.
+        error: only when the call itself failed (e.g. dbt lock timeout).
     """
     project_root = _get_project_root()
+    import contextlib
+    import re
+    import sys
+    import time
+
+    from dango.platform.common.metabase_lifecycle import (
+        start_metabase_after_writes,
+        stop_metabase_for_writes,
+    )
     from dango.transformation import run_dbt_models
+    from dango.transformation.build_finalize import finalize_dbt_build, summarize_run_results
     from dango.utils import DbtLock
 
-    # Single-writer DuckDB (VAL-003) — was the one run_dbt_models() caller
-    # missing lock acquisition. Mirrors transform.py's run(); a lock timeout
-    # (DbtLockError) falls through to the except below unchanged.
+    # Single-writer DuckDB (VAL-003): hold DbtLock for the dbt write only, like
+    # transform.py's run(). A lock timeout (DbtLockError) falls through to the
+    # except below.
     lock = DbtLock(
         project_root=project_root,
         source="mcp",
@@ -236,13 +262,42 @@ def run_transform(select: str | None = None, full_refresh: bool = False) -> dict
     )
     try:
         lock.acquire()
-        # Correction (coordinating-chat pre-dispatch verification, 2026-09-03):
-        # run_dbt_models() returns tuple[bool, str] (success, output), not a
-        # single value — `if result` on a 2-tuple is always truthy regardless
-        # of the bool inside it, so the original snippet here silently
-        # reported every dbt failure as "completed". Unpack the tuple.
-        success, output = run_dbt_models(project_root, select=select, full_refresh=full_refresh)
-        return {"status": "completed" if success else "failed", "output": output}
+        # Stop Metabase on cloud to prevent DuckDB lock conflicts during dbt writes.
+        metabase_was_stopped = stop_metabase_for_writes(project_root)
+        try:
+            # run_dbt_models() returns tuple[bool, str] (success, output) and treats
+            # test-only failures as success (sync semantics) — corrected below.
+            build_started = time.time()
+            ok, output = run_dbt_models(project_root, select=select, full_refresh=full_refresh)
+        finally:
+            if metabase_was_stopped:
+                start_metabase_after_writes(project_root)
+        try:
+            lock.release()
+        except Exception:  # noqa: BLE001 - build finished; the finally retries
+            pass
+
+        results = summarize_run_results(project_root, since=build_started)
+        success = bool(ok and not (results and results["failed"]))
+        # run_dbt_models already updated model status on success; finalize repeats it
+        # (idempotent) and also covers the failure path.
+        # schema_manager/metabase helpers print via Rich to stdout, which is the
+        # JSON-RPC channel here — reroute to stderr.
+        with contextlib.redirect_stdout(sys.stderr):
+            post = finalize_dbt_build(project_root, success=success)
+        clean = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", output)[-20000:]
+        response: dict[str, Any] = {
+            "status": "completed" if success else "failed",
+            "output": clean,
+            "results": results,
+            "post_build": post,
+        }
+        if results is None and not success:
+            response["results_note"] = (
+                "dbt produced no run results for this build (likely a compile/parse error)"
+                " — see output"
+            )
+        return response
     except Exception as e:
         return {"status": "failed", "error": str(e)}
     finally:
