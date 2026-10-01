@@ -29,6 +29,7 @@ class TestCreateGitignore:
             ".dango/metabase.yml*",
             ".dango/credentials",
             ".dlt/.encryption_key",
+            ".env*.backup",
         ):
             assert content.count(pattern) == 1
 
@@ -49,6 +50,7 @@ class TestCreateGitignore:
             ".dango/metabase.yml*",
             ".dango/credentials",
             ".dlt/.encryption_key",
+            ".env*.backup",
         ):
             assert content.count(pattern) == 1
 

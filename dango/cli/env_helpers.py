@@ -3,6 +3,7 @@
 Utilities for creating, validating, and managing .env files for credentials.
 """
 
+import os
 import platform
 import subprocess
 from pathlib import Path
@@ -43,7 +44,12 @@ def create_env_template(
     # Backup existing file if requested
     if backup and env_file.exists():
         backup_file = env_file.with_suffix(".env.backup")
-        backup_file.write_text(original_content)
+        # Owner-only: the backup holds the previous .env credentials
+        fd = os.open(backup_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(original_content)
+        # O_CREAT mode is ignored when the file pre-existed with wider permissions
+        os.chmod(backup_file, 0o600)
 
     # Parse existing vars
     existing_vars = set()

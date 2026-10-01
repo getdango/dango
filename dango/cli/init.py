@@ -255,6 +255,7 @@ dango-backup-*
 .dango/metabase.yml*
 .dango/credentials
 .dlt/.encryption_key
+.env*.backup
 .dango/dev/
 .dango/snapshots/
 .dango/*.pid
