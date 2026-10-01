@@ -2,7 +2,7 @@
 
 Shared helpers for the MCP server's read tools (dango/cli/commands/mcp_server.py)
 and, since 1.0.8-OPS-3, _git_warnings() below for the mutation tools in
-mcp_mutations.py. Split out purely to keep mcp_server.py under the file-size
+mcp_sources.py and mcp_schedules.py. Split out purely to keep mcp_server.py under the file-size
 check — these are plain functions, not Click-registered commands, so there's
 no cross-file command-registration pattern involved (unlike mcp_setup.py),
 just a normal helper extraction.

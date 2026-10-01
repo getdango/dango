@@ -355,3 +355,21 @@ class TestReviewFollowUps:
         assert (project / ".env").read_text() == "ORDERS_KEY=v\nORDERS_EU_KEY=w\n"
         missing = runner.invoke(cli, ["source", "remove", "orders"], input="y\n")
         assert missing.exit_code != 0
+
+
+@pytest.mark.unit
+def test_credential_requirements_stripe_stored_env_name(
+    tmp_path: Path, sample_config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dango.ingestion.sources.setup_lifecycle import credential_requirements
+
+    monkeypatch.delenv("MY_STRIPE_KEY", raising=False)
+    src = _ds("billing", "stripe", {"stripe_secret_key_env": "MY_STRIPE_KEY"})
+    sample_config.sources.sources = [src]
+    save_config(sample_config, tmp_path)
+
+    reqs = credential_requirements(tmp_path, src)
+    assert [(r.kind, r.name) for r in reqs] == [("env_var", "MY_STRIPE_KEY")]
+    (tmp_path / ".env").write_text("MY_STRIPE_KEY=whatever\n")
+    assert credential_requirements(tmp_path, src) == []
+    assert not (tmp_path / ".dlt" / "secrets.toml").exists()

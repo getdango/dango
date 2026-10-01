@@ -236,7 +236,8 @@ def write_secrets_toml_template(
 
 def append_source(project_root: Path, source_config: dict[str, Any]) -> None:
     """Append a DataSource to sources.yml (rejects duplicates and invalid configs)."""
-    from dango.config.helpers import load_config, save_config
+    from dango.config import ConfigLoader
+    from dango.config.helpers import load_config
     from dango.config.models import DataSource
 
     config = load_config(project_root)
@@ -249,7 +250,7 @@ def append_source(project_root: Path, source_config: dict[str, Any]) -> None:
             [f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()]
         ) from exc
     config.sources.sources.append(source)
-    save_config(config, project_root)
+    ConfigLoader(project_root).save_sources_config(config.sources)
 
 
 def _dotenv_has(project_root: Path, name: str) -> bool:

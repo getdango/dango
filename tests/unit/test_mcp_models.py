@@ -272,7 +272,7 @@ class TestGitWarningAndRegistration:
 
         names = {t.name for t in asyncio.run(mcp_server.mcp.list_tools())}
         assert {"create_model", "update_model", "validate_model", "remove_model"} <= names
-        assert {"run_sync", "run_transform", "add_source", "query"} <= names
+        assert {"run_sync", "run_transform", "create_source", "query"} <= names
 
 
 @pytest.mark.unit

@@ -2,7 +2,7 @@
 
 MCP schedule tools: create, inspect, modify, enable/disable, remove, and activate schedules.
 
-Import discipline mirrors mcp_mutations.py: at module top level only stdlib,
+Import discipline mirrors mcp_models.py: at module top level only stdlib,
 `_get_project_root`/`_git_warnings` from mcp_helpers, and the `mcp` instance.
 Every other dango.* import is lazy inside function bodies. The MCP server
 speaks JSON-RPC over stdio, so nothing here may write to stdout.
@@ -142,7 +142,7 @@ def _check_sources(project_root: Path, sources: list[str]) -> str | None:
     known = _load_source_names(project_root)
     for s in sources:
         if s not in known:
-            return f"Source '{s}' not found in sources.yml. Add it first with add_source()."
+            return f"Source '{s}' not found in sources.yml. Add it first with create_source()."
     return None
 
 
