@@ -263,3 +263,33 @@ def test_same_file_returning_after_allowed_delete_reloads(tmp_path, uploads, run
     assert result["status"] == "success"
     assert result["new"] == 1
     assert _count(runner) == 2
+
+
+def test_two_files_both_deleted_blocked(tmp_path, uploads, runner):
+    a = _write(uploads / "a.csv", ["1,a"])
+    b = _write(uploads / "b.csv", ["2,b"])
+    src = _local_source(tmp_path)
+    assert _sync(runner, src)["status"] == "success"
+    a.unlink()
+    b.unlink()
+
+    result = _sync(runner, src)
+
+    assert result["status"] == "failed"
+    assert result["error_type"] == EMPTY_REPLACE_PROTECTION_ERROR_TYPE
+    assert _count(runner) == 2
+
+
+def test_block_after_schema_evolution_leaves_table_untouched(tmp_path, uploads, runner):
+    f, src = _seeded(tmp_path, uploads, runner)
+    cols_before = _query(runner, f"DESCRIBE {TABLE}")
+    f.unlink()
+    _write(uploads / "b.csv", [], header="id,item,extra")
+    runner.allow_schema_changes = True
+
+    result = _sync(runner, src)
+
+    assert result["status"] == "failed"
+    assert result["error_type"] == EMPTY_REPLACE_PROTECTION_ERROR_TYPE
+    assert _query(runner, f"DESCRIBE {TABLE}") == cols_before
+    assert _count(runner) == 2

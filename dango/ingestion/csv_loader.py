@@ -255,7 +255,9 @@ class CSVLoader:
 
             # Empty-replace protection: loads are done, deletions are the last write.
             if not allow_empty_replace and table_exists and classified["deleted"]:
-                blocked = self._empty_replace_block(conn, source_name, target_table, classified)
+                blocked = self._empty_replace_block(
+                    conn, source_name, target_table, classified, list(evolution_columns)
+                )
                 if blocked:
                     return blocked
 
@@ -318,6 +320,7 @@ class CSVLoader:
         source_name: str,
         target_table: str,
         classified: dict[str, list],
+        undo_columns: list[str] | None = None,
     ) -> dict[str, Any] | None:
         """Return a failed result (closing conn) if deleting the removed files'
         rows would leave the table empty; None if the sync may proceed."""
@@ -331,6 +334,9 @@ class CSVLoader:
         ).fetchone()[0]
         if total == 0 or doomed != total:
             return None
+        # Undo this run's schema evolution so the block leaves the table untouched
+        for col in undo_columns or []:
+            conn.execute(f'ALTER TABLE {target_table} DROP COLUMN IF EXISTS "{col}"')
         conn.close()
         from dango.ingestion.dlt_runner import EMPTY_REPLACE_PROTECTION_ERROR_TYPE
 
