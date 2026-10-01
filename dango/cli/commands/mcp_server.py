@@ -111,69 +111,6 @@ async def list_sources() -> list[dict[str, Any]]:
 
 
 @mcp.tool()
-def get_table_schema(table_name: str, schema: str | None = None) -> dict[str, Any]:
-    """Get the schema (columns, types, descriptions) for a table in the warehouse.
-
-    Args:
-        table_name: Table name (e.g. "stg_stripe__customers")
-        schema: Schema name (e.g. "staging", "raw_stripe"). Auto-detected if omitted.
-
-    Returns dict with: table_name, schema, columns (list of {name, type}).
-    """
-    project_root = _get_project_root()
-    db_path = project_root / "data" / "warehouse.duckdb"
-    if not db_path.exists():
-        return {"error": "No warehouse found. Run dango sync first."}
-
-    try:
-        conn = _connect_readonly_with_retry(db_path)
-        try:
-            if schema:
-                result = conn.execute(
-                    "SELECT column_name, data_type FROM information_schema.columns "
-                    "WHERE table_name = ? AND table_schema = ? ORDER BY ordinal_position",
-                    [table_name, schema],
-                ).fetchall()
-            else:
-                result = conn.execute(
-                    "SELECT table_schema, column_name, data_type FROM information_schema.columns "
-                    "WHERE table_name = ? ORDER BY table_schema, ordinal_position",
-                    [table_name],
-                ).fetchall()
-        finally:
-            conn.close()
-
-        if not result:
-            return {"error": f"Table '{table_name}' not found in warehouse"}
-
-        other_schemas: list[str] = []
-        if not schema:
-            # A table name can exist in more than one schema (e.g. a generic
-            # name reused across two raw sources). Filter to the first
-            # (alphabetically) schema's columns rather than silently merging
-            # every matching table's columns into one list — that would
-            # report a schema name whose columns don't actually match it.
-            all_schemas = list(dict.fromkeys(r[0] for r in result))
-            detected_schema = all_schemas[0]
-            other_schemas = all_schemas[1:]
-            result = [r for r in result if r[0] == detected_schema]
-        else:
-            detected_schema = schema
-
-        columns = [{"name": r[-2], "type": r[-1]} for r in result]
-        response = {"table_name": table_name, "schema": detected_schema, "columns": columns}
-        if other_schemas:
-            response["other_schemas"] = other_schemas
-            response["note"] = (
-                f"'{table_name}' also exists in {other_schemas}; showing '{detected_schema}'. "
-                "Pass schema= to select a different one."
-            )
-        return response
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@mcp.tool()
 def get_catalog(source_filter: str | None = None) -> dict[str, Any]:
     """Get the data catalog: all tables grouped by schema with row counts.
 
@@ -486,6 +423,7 @@ import importlib  # noqa: E402
 
 _REGISTRATION_MODULES = (
     "mcp_debug",
+    "mcp_docs",
     "mcp_governance",
     "mcp_models",
     "mcp_operations",

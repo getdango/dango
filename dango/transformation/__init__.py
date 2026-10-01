@@ -98,6 +98,7 @@ def run_dbt_models(
             cmd,
             cwd=dbt_dir,
             capture_output=True,
+            stdin=subprocess.DEVNULL,  # never inherit the MCP server's JSON-RPC stdin
             text=True,
             timeout=300,  # 5 minute timeout
             env=_dbt_telemetry_env(),
@@ -184,6 +185,7 @@ def run_dbt_snapshots(
             cmd,
             cwd=dbt_dir,
             capture_output=True,
+            stdin=subprocess.DEVNULL,  # never inherit the MCP server's JSON-RPC stdin
             text=True,
             timeout=300,  # 5 minute timeout
             env=_dbt_telemetry_env(),
@@ -260,6 +262,7 @@ def generate_dbt_docs(project_root: Path) -> tuple[bool, str]:
             ],
             cwd=dbt_dir,
             capture_output=True,
+            stdin=subprocess.DEVNULL,  # never inherit the MCP server's JSON-RPC stdin
             text=True,
             timeout=60,
             env=_dbt_telemetry_env(),

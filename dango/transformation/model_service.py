@@ -26,6 +26,7 @@ from dango.transformation.model_docs import (
     remove_model_docs,
     resolve_docs_path,
     upsert_model_docs,
+    validate_column_entries,
 )
 from dango.transformation.model_sql import extract_refs, render_model_sql, validate_model_sql
 
@@ -70,6 +71,7 @@ def parse_project(project_root: Path) -> tuple[bool, str]:
             ],
             cwd=str(project_root),
             capture_output=True,
+            stdin=subprocess.DEVNULL,  # never inherit the MCP server's JSON-RPC stdin
             text=True,
             timeout=30,
             env=_dbt_telemetry_env(),
@@ -199,10 +201,7 @@ def create_model(
     missing = _check_upstream_exists(project_root, upstream)
     if missing:
         raise ModelServiceError(missing)
-    if columns:
-        for col in columns:
-            if not isinstance(col, dict) or not col.get("name"):
-                raise ModelServiceError(["every column entry must be a mapping with a 'name'"])
+    validate_column_entries(columns)
 
     rendered = render_model_sql(
         model_name,
@@ -279,10 +278,7 @@ def update_model(
             rendered = "\n".join(kept).rstrip() + "\n"
         warnings += validate_model_sql(project_root, model_name, layer, rendered)
         refs, sources = extract_refs(rendered)
-    if columns:
-        for col in columns:
-            if not isinstance(col, dict) or not col.get("name"):
-                raise ModelServiceError(["every column entry must be a mapping with a 'name'"])
+    validate_column_entries(columns)
 
     result = ModelChangeResult(
         model_name=model_name,

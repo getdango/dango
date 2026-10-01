@@ -172,39 +172,6 @@ class TestGetTableSchemaAndModelTools:
         result = mcp_server.list_models()
         assert result == [{"error": "No manifest found. Run dango run first."}]
 
-    def test_get_table_schema_missing_warehouse(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(mcp_server, "_get_project_root", lambda: tmp_path)
-        result = mcp_server.get_table_schema("some_table")
-        assert "error" in result
-        assert "No warehouse found" in result["error"]
-
-    def test_get_table_schema_ambiguous_name_filters_to_one_schema(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A table name that exists in two schemas must not have its columns merged:
-        positive control for the bug where every matching table's columns were
-        concatenated into one list under a single (misleading) schema name."""
-        import duckdb
-
-        data_dir = tmp_path / "data"
-        data_dir.mkdir()
-        db_path = data_dir / "warehouse.duckdb"
-        conn = duckdb.connect(str(db_path))
-        conn.execute("CREATE SCHEMA raw_a")
-        conn.execute("CREATE SCHEMA raw_b")
-        conn.execute("CREATE TABLE raw_a.events (a_only_col INTEGER)")
-        conn.execute("CREATE TABLE raw_b.events (b_only_col INTEGER, another_b_col INTEGER)")
-        conn.close()
-
-        monkeypatch.setattr(mcp_server, "_get_project_root", lambda: tmp_path)
-        result = mcp_server.get_table_schema("events")
-
-        assert result["schema"] == "raw_a"
-        assert [c["name"] for c in result["columns"]] == ["a_only_col"]
-        assert result["other_schemas"] == ["raw_b"]
-
 
 @pytest.mark.unit
 class TestGetLineage:

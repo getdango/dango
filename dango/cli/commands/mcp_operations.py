@@ -309,6 +309,9 @@ def run_transform(select: str | None = None, full_refresh: bool = False) -> dict
 def run_doctor() -> list[dict[str, Any]]:
     """Check credential health for all configured sources. Equivalent to `dango doctor`.
 
+    Always fresh: bypasses the 5-minute credential-health cache, since this MCP server is
+    long-lived and the user may have just set a key.
+
     Returns list of dicts with: source, type, status (ok/missing/expired), detail.
     """
     project_root = _get_project_root()
@@ -319,4 +322,4 @@ def run_doctor() -> list[dict[str, Any]]:
     # exact list[dict[str, Any]] shape this tool's docstring promises.
     from dango.ingestion.credential_health import get_cached_credential_health
 
-    return get_cached_credential_health(project_root)
+    return get_cached_credential_health(project_root, refresh=True)
