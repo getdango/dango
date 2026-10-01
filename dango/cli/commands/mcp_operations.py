@@ -33,7 +33,7 @@ def run_sync(
 
     Args:
         source_name: Source to sync (as defined in sources.yml). Omit to sync all
-            enabled sources. A named source is synced even if disabled.
+            enabled sources. A named disabled source is skipped by the sync (a warning says so).
         full_refresh: If True, drop existing data and reload everything (default False).
         since: Override start date, YYYY-MM-DD. Conflicts with backfill.
         until: Override end date, YYYY-MM-DD. Conflicts with backfill.
@@ -123,6 +123,11 @@ def run_sync(
                 f"'{src.name}' ({src_type}) does not support date range filtering "
                 "— dates will be ignored"
             )
+        if not src.enabled:
+            warnings.append(
+                f"'{src.name}' is disabled — the sync skips disabled sources, "
+                "so nothing will be loaded. Enable it in sources.yml first."
+            )
         if limit and src_type == "csv":
             warnings.append(f"'{src.name}' (csv) does not support limit — CSV loads all rows")
     if full_refresh:
@@ -159,6 +164,8 @@ def run_sync(
                 "source": src.name,
                 "action": f"dango oauth {src.type.value}",
             }
+        except Exception as e:
+            return {"status": "failed", "error": str(e), "source": src.name}
 
     from dango.ingestion import run_sync as _run_sync
 

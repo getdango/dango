@@ -158,6 +158,23 @@ class TestRunSync:
         mcp_operations.run_sync("archive")
         assert [s.name for s in fake_sync.calls[0]["sources"]] == ["archive"]
 
+    def test_named_disabled_source_warns_it_will_be_skipped(
+        self, project: Path, fake_sync: FakeSync
+    ) -> None:
+        result = mcp_operations.run_sync("archive")
+        assert any("'archive' is disabled" in w for w in result["warnings"])
+
+    def test_oauth_precheck_unexpected_error_returns_failed(
+        self, project: Path, fake_sync: FakeSync, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(source_type, project_root):
+            raise OSError("corrupt secrets.toml")
+
+        monkeypatch.setattr("dango.oauth.validation.validate_before_sync", boom)
+        result = mcp_operations.run_sync("orders")
+        assert result == {"status": "failed", "error": "corrupt secrets.toml", "source": "orders"}
+        assert fake_sync.calls == []
+
     def test_dry_run_runs_nothing_and_reports_plan(
         self, project: Path, fake_sync: FakeSync
     ) -> None:
