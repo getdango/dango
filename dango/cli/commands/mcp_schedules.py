@@ -20,23 +20,12 @@ from dango.cli.commands.mcp_server import mcp
 
 
 def _next_run_iso(sched: Any) -> str | None:
-    """Next fire time for an enabled schedule, computed with the SAME trigger
-    construction reload_schedules() uses, so it matches what APScheduler will do."""
-    if not sched.enabled:
-        return None
-    try:
-        from datetime import datetime
+    """Next fire time for an enabled schedule, via the shared compute_next_runs()
+    (the same trigger construction reload_schedules() uses). None when disabled/invalid."""
+    from dango.config.schedules import compute_next_runs
 
-        from apscheduler.triggers.cron import CronTrigger
-
-        trigger_kwargs: dict[str, Any] = {}
-        if sched.timezone:
-            trigger_kwargs["timezone"] = sched.timezone
-        trigger = CronTrigger.from_crontab(sched.cron, **trigger_kwargs)
-        nxt = trigger.get_next_fire_time(None, datetime.now(trigger.timezone))
-        return nxt.isoformat() if nxt is not None else None
-    except Exception:  # noqa: BLE001 -- display helper, never fail the tool
-        return None
+    runs = compute_next_runs(sched, 1)
+    return runs[0].isoformat() if runs else None
 
 
 def _schedule_dict(sched: Any) -> dict[str, Any]:
@@ -55,26 +44,46 @@ def _schedule_dict(sched: Any) -> dict[str, Any]:
 
 
 def _server_running(project_root: Path) -> bool:
-    """True only if THIS project's own web server (per .dango/web.pid) is alive.
-    Never trust 'something is listening on the port' alone — another Dango project
-    may own the default port 8800."""
-    try:
-        from dango.cli.helpers.process_manager import read_pid_record_for_project
-        from dango.utils.process import is_process_running
+    """True only if THIS project's own web server (per .dango/web.pid) is alive."""
+    from dango.cli.helpers.process_manager import is_project_server_running
 
-        record = read_pid_record_for_project(project_root)
-        if record is None:
-            return False
-        return is_process_running(record.pid, expected_start_time=record.start_time)
+    try:
+        return is_project_server_running(project_root)
     except Exception:  # noqa: BLE001
         return False
 
 
-def _activate(project_root: Path) -> dict[str, Any]:
+def _scheduler_status(project_root: Path) -> dict[str, Any] | None:
+    """Live scheduler status from this project's own server, or None (never raises)."""
+    try:
+        from dango.cli.commands.schedule import _query_scheduler_api
+
+        return _query_scheduler_api(project_root)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _live_entry(api: dict[str, Any] | None, name: str) -> dict[str, Any] | None:
+    if not api:
+        return None
+    return next((e for e in api.get("schedules", []) if e.get("name") == name), None)
+
+
+def _is_loaded(api: dict[str, Any] | None, name: str) -> bool | None:
+    """Whether the live scheduler holds `name`; None when its status is unavailable."""
+    if api is None:
+        return None
+    entry = _live_entry(api, name)
+    return bool(entry and entry.get("loaded"))
+
+
+def _activate(project_root: Path, schedule_name: str | None = None) -> dict[str, Any]:
     """Reload this project's running scheduler. Never raises, never prints.
 
     Returns {"activation": "reloaded" | "server_not_running" | "reload_failed",
-             "activation_detail": str}
+             "activation_detail": str}; after a successful reload, when `schedule_name`
+    is given, also "loaded": whether the live scheduler holds that schedule
+    (None if its status could not be read).
     """
     if not _server_running(project_root):
         return {
@@ -96,7 +105,14 @@ def _activate(project_root: Path) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         return {"activation": "reload_failed", "activation_detail": f"Reload request failed: {e}"}
     if resp.status_code == 200:
-        return {"activation": "reloaded", "activation_detail": "Running scheduler reloaded."}
+        result: dict[str, Any] = {
+            "activation": "reloaded",
+            "activation_detail": "Running scheduler reloaded.",
+        }
+        if schedule_name is not None:
+            api = _scheduler_status(project_root)
+            result["loaded"] = _is_loaded(api, schedule_name)
+        return result
     return {
         "activation": "reload_failed",
         "activation_detail": f"Scheduler reload returned HTTP {resp.status_code}; restart "
@@ -156,7 +172,7 @@ def _success(
     if sched is not None:
         result["schedule"] = _schedule_dict(sched)
         result["schedule_name"] = sched.name
-    result.update(_activate(project_root))
+    result.update(_activate(project_root, sched.name if sched is not None else None))
     if warnings:
         result["warnings"] = warnings
     if git_warning := _git_warnings(project_root):
@@ -208,10 +224,10 @@ def _not_found(name: str) -> dict[str, Any]:
 def list_schedules() -> dict[str, Any]:
     """List all schedules with their settings and next run time.
 
-    `next_run` is computed from the cron + timezone and is only live if
-    `server_running` is true and the schedule is `enabled`. `scheduler` is the
-    running scheduler's own status (running, job_count, next_run_time) when this
-    project's server is up, otherwise null.
+    `loaded` and `live_next_run` come from the running scheduler (null when this
+    project's server is not running); `next_run` is computed from cron + timezone
+    and is null for a disabled schedule. `scheduler` is the running scheduler's
+    status (running, job_count), or null.
 
     Returns dict with: schedules, server_running, scheduler.
     """
@@ -225,23 +241,22 @@ def list_schedules() -> dict[str, Any]:
         return {"error": str(e)}
 
     running = _server_running(project_root)
-    scheduler: dict[str, Any] | None = None
-    if running:
-        try:
-            import requests
-
-            from dango.config import ConfigLoader
-
-            port = ConfigLoader(project_root).load_config().platform.port
-            resp = requests.get(f"http://localhost:{port}/api/health/platform", timeout=3)
-            sched_info = resp.json().get("scheduler")
-            scheduler = sched_info if isinstance(sched_info, dict) else None
-        except Exception:  # noqa: BLE001
-            scheduler = None
+    api = _scheduler_status(project_root) if running else None
+    items = []
+    for sched in schedules:
+        item = _schedule_dict(sched)
+        entry = _live_entry(api, sched.name)
+        item["loaded"] = _is_loaded(api, sched.name)
+        item["live_next_run"] = entry.get("next_run_time") if entry else None
+        items.append(item)
     return {
-        "schedules": [_schedule_dict(s) for s in schedules],
+        "schedules": items,
         "server_running": running,
-        "scheduler": scheduler,
+        "scheduler": (
+            {"running": bool(api.get("running")), "job_count": int(api.get("job_count", 0))}
+            if api
+            else None
+        ),
     }
 
 
@@ -387,7 +402,7 @@ def set_schedule_enabled(schedule_name: str, enabled: bool) -> dict[str, Any]:
             return {
                 "status": "unchanged",
                 "schedule": _schedule_dict(old),
-                **_activate(project_root),
+                **_activate(project_root, schedule_name),
             }
         new = _rebuild(old, enabled=enabled)
         schedules[idx] = new
