@@ -103,12 +103,9 @@ def _docs_for_relation(project_root: Path, schema: str, table: str) -> dict[str,
     """Docs for a warehouse relation: raw_<source> tables from sources_<source>.yml, else a model."""
     if schema.startswith("raw_"):
         return _shape(_source_table_entry(project_root, schema[len("raw_") :], table))
-    from dango.transformation.model_common import ModelServiceError, find_model
+    from dango.transformation.model_common import find_model
 
-    try:
-        if find_model(project_root, table) is None:
-            return None
-    except ModelServiceError:
+    if find_model(project_root, table) is None:  # ModelServiceError (duplicate stem) propagates
         return None
     return _shape(_model_index(project_root).get(table))
 
@@ -138,10 +135,11 @@ def _warehouse_columns(project_root: Path) -> dict[str, dict[str, list[str]]] | 
 def _pick_columns(
     warehouse: dict[str, dict[str, list[str]]] | None, table: str, layer: str
 ) -> list[str] | None:
-    if warehouse is None or table not in warehouse:
+    if warehouse is None:
         return None
-    by_schema = warehouse[table]
-    return by_schema.get(layer) or next(iter(by_schema.values()))
+    return warehouse.get(table, {}).get(
+        layer
+    )  # not built yet in its own layer -> unknown, never another schema's
 
 
 def _suggest(name: str, names: list[str]) -> str:
@@ -207,7 +205,11 @@ def get_table_schema(table_name: str, schema: str | None = None) -> dict[str, An
         else:
             detected_schema = schema
 
-        docs = _docs_for_relation(project_root, detected_schema, table_name)
+        docs, docs_error = None, None
+        try:
+            docs = _docs_for_relation(project_root, detected_schema, table_name)
+        except Exception as e:  # noqa: BLE001 - e.g. duplicate model names; schema still useful
+            docs_error = "; ".join(getattr(e, "errors", None) or [str(e)])
         doc_cols = (docs or {}).get("columns", {})
         columns = [
             {
@@ -224,6 +226,8 @@ def get_table_schema(table_name: str, schema: str | None = None) -> dict[str, An
             "description": (docs or {}).get("description"),
             "columns": columns,
         }
+        if docs_error:
+            response["docs_error"] = docs_error
         if other_schemas:
             response["other_schemas"] = other_schemas
             response["note"] = (
@@ -311,27 +315,17 @@ def get_source_docs(source_name: str) -> dict[str, Any]:
     path = project_root / "dbt" / "models" / "staging" / f"sources_{source_name}.yml"
     dbt_desc = None
     tables: list[dict[str, Any]] = []
-    if path.exists():
-        for src in _read_yaml(path).get("sources") or []:
-            if not isinstance(src, dict):
-                continue
-            dbt_desc = dbt_desc if dbt_desc is not None else src.get("description")
-            for t in src.get("tables") or []:
-                if isinstance(t, dict) and t.get("name"):
-                    tables.append(
-                        {
-                            "name": t["name"],
-                            "description": t.get("description"),
-                            "columns": [
-                                {
-                                    "name": c["name"],
-                                    "description": c.get("description"),
-                                    "data_tests": _tests_of(c),
-                                }
-                                for c in _columns_of(t)
-                            ],
-                        }
-                    )
+    for src in (_read_yaml(path).get("sources") or []) if path.exists() else []:
+        if not isinstance(src, dict):
+            continue
+        dbt_desc = dbt_desc if dbt_desc is not None else src.get("description")
+        for t in src.get("tables") or []:
+            if isinstance(t, dict) and t.get("name"):
+                shaped = _shape(t) or {}
+                cols = [{"name": n, **c} for n, c in shaped["columns"].items()]
+                tables.append(
+                    {"name": t["name"], "description": t.get("description"), "columns": cols}
+                )
     return {
         "source_name": source_name,
         "source_description": source.description,
@@ -366,6 +360,8 @@ def update_source_table_docs(
     from dango.transformation.model_common import ModelServiceError
     from dango.transformation.model_docs import _load_yaml, _write_yaml
 
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", source_name) or ".." in source_name:
+        return {"error": f"Invalid source name '{source_name}'"}
     if description is None and not columns:
         return {"error": "Nothing to update: pass description and/or columns"}
     if any(not isinstance(c, dict) or not c.get("name") for c in columns or []):
@@ -404,6 +400,9 @@ def update_source_table_docs(
             if target is None:
                 existing.append(dict(col))
             else:
+                if "data_tests" in col or "tests" in col:  # dbt rejects both keys on one column
+                    target.pop("tests", None)
+                    target.pop("data_tests", None)
                 target.update(col)
         entry["columns"] = existing
 

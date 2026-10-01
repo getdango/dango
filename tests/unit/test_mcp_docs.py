@@ -208,6 +208,19 @@ class TestUpdateSourceTableDocs:
             == "unchanged"
         )
 
+    def test_data_tests_replaces_legacy_tests_key(self, project: Path) -> None:
+        """dbt rejects a column with both `tests` and `data_tests`."""
+        mcp_docs.update_source_table_docs(
+            "sales", "orders", columns=[{"name": "id", "data_tests": ["not_null"]}]
+        )
+        path = project / "dbt" / "models" / "staging" / "sources_sales.yml"
+        col = yaml.safe_load(path.read_text())["sources"][0]["tables"][0]["columns"][0]
+        assert col["data_tests"] == ["not_null"] and "tests" not in col
+
+    def test_rejects_path_like_source_name(self, project: Path) -> None:
+        r = mcp_docs.update_source_table_docs("../x", "orders", description="x")
+        assert "Invalid source name" in r["error"]
+
     def test_errors_leave_file_untouched(self, project: Path) -> None:
         path = project / "dbt" / "models" / "staging" / "sources_sales.yml"
         before = path.read_text()
@@ -249,6 +262,23 @@ class TestUpdateSourceTableDocs:
             yaml.safe_load(path.read_text())["sources"][0]["tables"][0]["description"]
             == "Edited by agent"
         )
+
+
+@pytest.mark.unit
+class TestEdgeCases:
+    def test_unbuilt_model_does_not_borrow_other_schema_columns(self, project: Path) -> None:
+        """marts model `orders` not built; raw_sales.orders exists -> columns unknown."""
+        _write(project / "dbt" / "models" / "marts" / "orders.sql", "select 1")
+        row = next(m for m in mcp_docs.docs_coverage()["models"] if m["model"] == "orders")
+        assert row["columns_total"] == 0
+        docs = mcp_docs.get_model_docs("orders")
+        assert docs["undocumented_columns"] == []
+
+    def test_duplicate_model_names_reported(self, project: Path) -> None:
+        _write(project / "dbt" / "models" / "staging" / "fct_sales.sql", "select 1")
+        assert "not unique" in mcp_docs.get_model_docs("fct_sales")["error"]
+        result = mcp_docs.get_table_schema("fct_sales", schema="marts")
+        assert "not unique" in result["docs_error"] and result["description"] is None
 
 
 @pytest.mark.unit
