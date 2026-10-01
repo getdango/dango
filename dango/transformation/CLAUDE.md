@@ -14,6 +14,7 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 | `model_common.py` | Shared types (`ModelServiceError`, `ModelChangeResult`), naming normalisation and recursive model lookup | `normalize_model_name`, `find_model`, `list_models` |
 | `model_sql.py` | `ref()`/`source()` extraction, lineage validation, SQL file rendering | `extract_refs`, `validate_model_sql`, `render_model_sql` |
 | `model_docs.py` | schema.yml helpers that preserve every other key (tests, config, other models, top-level keys) | `locate_model_docs`, `upsert_model_docs`, `remove_model_docs`, `resolve_docs_path` |
+| `build_finalize.py` | Shared post-`dbt build` steps and run_results summary; used by `dango run` and MCP `run_transform`. Model status always; schema.yml sync (nested models) + Metabase refresh only on success. Never raises | `finalize_dbt_build`, `summarize_run_results` |
 
 ## Common Tasks
 
@@ -29,9 +30,11 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 
 **Imports from:**
 - `dango/config/models.py` — `DataSource`, `SourceType`, `DeduplicationStrategy`
-- `dango/utils/dbt_status.py` — `update_model_status` (lazy import in `run_dbt_models`)
+- `dango/utils/dbt_status.py` — `update_model_status` (lazy import in `run_dbt_models` and `build_finalize.py`)
+- `dango/cli/schema_manager.py`, `dango/visualization/metabase.py` — lazy imports in `build_finalize.py`
 
 **Used by:**
+- `dango/cli/commands/transform.py` (`dango run`) and `dango/cli/commands/mcp_operations.py` (`run_transform`) — `finalize_dbt_build`, `summarize_run_results`
 - `dango/cli/main.py` — `DbtModelGenerator` for `dango generate` command
 - `dango/cli/commands/snapshot.py` — `run_dbt_snapshots` for `dango snapshot run`
 - `dango/ingestion/dlt_runner.py` — `DbtModelGenerator`, `run_dbt_models`, `generate_dbt_docs` for post-sync auto-transform
