@@ -432,6 +432,8 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
     from rich.prompt import Confirm
 
     from dango.config import get_config
+    from dango.ingestion.sources.setup_lifecycle import remove_source
+    from dango.ingestion.sources.setup_schema import SourceSetupError
 
     from ..utils import check_git_branch_warning, require_project_context
 
@@ -461,9 +463,21 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
         console.print(f"  Status: {'enabled' if src.enabled else 'disabled'}")
         console.print()
 
+        preview = remove_source(project_root, source_name, dry_run=True)
+        if preview.downstream_models:
+            console.print("[red]Models depend on this source's staging models:[/red]")
+            for dep in preview.downstream_models:
+                console.print(f"  [red]•[/red] {dep}")
+            console.print()
+
         # Confirm deletion
         if not yes:
             console.print("[yellow]⚠️  This will remove the source configuration[/yellow]")
+            if preview.downstream_models:
+                console.print(
+                    "[yellow]The models listed above will break "
+                    "(the next 'dango run' fails until they are updated or removed).[/yellow]"
+                )
             console.print("[dim]Note: This does NOT delete data from DuckDB[/dim]")
             console.print("[dim]      Use 'dango db clean' afterwards to remove data[/dim]\n")
 
@@ -471,129 +485,81 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
                 console.print("[yellow]Cancelled[/yellow]")
                 return
 
-        # Remove from sources.yml
-        sources_file = project_root / ".dango" / "sources.yml"
-        if not sources_file.exists():
-            console.print("[red]Error:[/red] sources.yml not found")
-            raise click.Abort()
-
-        # Read YAML
-        import yaml
-
-        with open(sources_file) as f:
-            data = yaml.safe_load(f) or {}
-
-        # Remove source
-        if "sources" in data and isinstance(data["sources"], list):
-            data["sources"] = [s for s in data["sources"] if s.get("name") != source_name]
-
-            # Write back
-            with open(sources_file, "w") as f:
-                yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-
-            # Clean up .dlt/config.toml
-            config_toml = project_root / ".dlt" / "config.toml"
-            if config_toml.exists():
-                try:
-                    import tomlkit
-
-                    doc = tomlkit.parse(config_toml.read_text())
-                    sources_section = doc.get("sources", {})
-                    if src.type.value in sources_section:
-                        del sources_section[src.type.value]
-                        if not sources_section:
-                            del doc["sources"]
-                        config_toml.write_text(tomlkit.dumps(doc))
-                        console.print("[green]✓[/green] Cleaned up .dlt/config.toml")
-                except Exception as e:
-                    console.print(f"[dim]Could not clean up config.toml: {e}[/dim]")
-
-            # Clean up dbt staging files for this source
-            # Naming: stg_{name}__*.sql, sources_{name}.yml, stg_{name}.yml
-            staging_dir = project_root / "dbt" / "models" / "staging"
-            if staging_dir.exists():
-                removed_files = []
-                for sql_file in staging_dir.glob(f"stg_{source_name}__*.sql"):
-                    sql_file.unlink()
-                    removed_files.append(sql_file.name)
-                for yml_name in [
-                    f"sources_{source_name}.yml",
-                    f"stg_{source_name}.yml",
-                ]:
-                    yml_file = staging_dir / yml_name
-                    if yml_file.exists():
-                        yml_file.unlink()
-                        removed_files.append(yml_name)
-                if removed_files:
-                    console.print(
-                        f"[green]✓[/green] Removed {len(removed_files)} dbt staging file(s)"
-                    )
-
-            # Regenerate dbt docs to reflect source removal
-            console.print("[dim]Regenerating dbt documentation...[/dim]")
-            try:
-                from dango.transformation import generate_dbt_docs
-
-                generate_dbt_docs(project_root)
-                console.print("[green]✓[/green] dbt documentation regenerated")
-            except Exception:
-                console.print(
-                    "[dim]Could not regenerate dbt documentation — catalog will update on next sync.[/dim]"
-                )
-
-            # Offer to clean up related .env variables
-            env_file = project_root / ".env"
-            if env_file.exists():
-                from dango.utils.env_file import parse_env_file, serialize_env_file
-
-                env_content = env_file.read_text()
-                env_vars = parse_env_file(env_content)
-                source_token = source_name.upper().replace("-", "_")
-                matching = {
-                    k: v
-                    for k, v in env_vars.items()
-                    if k.startswith(source_token + "_") or k == source_token
-                }
-
-                if matching:
-                    console.print("[dim]Found related environment variables in .env:[/dim]")
-                    for k in matching:
-                        console.print(f"  [cyan]{k}[/cyan]")
-                    console.print()
-                    if Confirm.ask("Remove these environment variables?", default=False):
-                        for k in matching:
-                            del env_vars[k]
-                        env_file.write_text(serialize_env_file(env_vars))
-                        console.print(f"[green]✓[/green] Removed {len(matching)} env variable(s)")
-                    else:
-                        console.print("[dim]Environment variables left unchanged.[/dim]")
-                else:
-                    console.print("[dim]No related environment variables found in .env.[/dim]")
-            else:
-                console.print("[dim]No .env file found.[/dim]")
-
-            console.print()
-            console.print(f"[green]✅ Source '{source_name}' removed successfully[/green]")
-            console.print()
-            console.print("[yellow]⚠️  Important:[/yellow]")
-            console.print("  • Source configuration removed from sources.yml")
-            console.print("  • [bold]Data still exists[/bold] in DuckDB tables:")
-            console.print(f"    - raw.{source_name}")
-            console.print(f"    - staging.{source_name}")
-            console.print()
-            console.print("[dim]To clean up orphaned tables:[/dim]")
+        result = remove_source(project_root, source_name, force=True)
+        if result.config_toml_section_removed:
+            console.print("[green]✓[/green] Cleaned up .dlt/config.toml")
+        if result.files_removed:
             console.print(
-                "  [cyan]dango db clean[/cyan]  # Removes tables without source config (including this one)"
+                f"[green]✓[/green] Removed {len(result.files_removed)} dbt staging file(s)"
             )
-            console.print()
-            console.print("[dim]Or to check data before cleanup:[/dim]")
-            console.print(f'  [cyan]dango db query "SELECT COUNT(*) FROM raw.{source_name}"[/cyan]')
-            console.print()
+        if result.monitors_removed:
+            console.print(
+                f"[green]✓[/green] Removed {len(result.monitors_removed)} analysis monitor(s)"
+            )
+        for warning in result.warnings:
+            if not warning.startswith("Warehouse data is not deleted"):
+                console.print(f"[yellow]⚠️  {warning}[/yellow]")
 
+        # Regenerate dbt docs to reflect source removal
+        console.print("[dim]Regenerating dbt documentation...[/dim]")
+        try:
+            from dango.transformation import generate_dbt_docs
+
+            generate_dbt_docs(project_root)
+            console.print("[green]✓[/green] dbt documentation regenerated")
+        except Exception:
+            console.print(
+                "[dim]Could not regenerate dbt documentation — catalog will update on next sync.[/dim]"
+            )
+
+        # Offer to clean up related .env variables
+        env_file = project_root / ".env"
+        if env_file.exists():
+            from dango.utils.env_file import parse_env_file, serialize_env_file
+
+            matching = result.env_vars_matching
+            if matching:
+                console.print("[dim]Found related environment variables in .env:[/dim]")
+                for k in matching:
+                    console.print(f"  [cyan]{k}[/cyan]")
+                console.print()
+                if Confirm.ask("Remove these environment variables?", default=False):
+                    env_vars = parse_env_file(env_file.read_text())
+                    for k in matching:
+                        env_vars.pop(k, None)
+                    env_file.write_text(serialize_env_file(env_vars))
+                    console.print(f"[green]✓[/green] Removed {len(matching)} env variable(s)")
+                else:
+                    console.print("[dim]Environment variables left unchanged.[/dim]")
+            else:
+                console.print("[dim]No related environment variables found in .env.[/dim]")
         else:
-            console.print("[red]Error:[/red] Invalid sources.yml format")
-            raise click.Abort()
+            console.print("[dim]No .env file found.[/dim]")
 
+        console.print()
+        console.print(f"[green]✅ Source '{source_name}' removed successfully[/green]")
+        console.print()
+        console.print("[yellow]⚠️  Important:[/yellow]")
+        console.print("  • Source configuration removed from sources.yml")
+        console.print("  • [bold]Data still exists[/bold] in DuckDB tables:")
+        console.print(f"    - raw.{source_name}")
+        console.print(f"    - staging.{source_name}")
+        console.print()
+        console.print("[dim]To clean up orphaned tables:[/dim]")
+        console.print(
+            "  [cyan]dango db clean[/cyan]  # Removes tables without source config (including this one)"
+        )
+        console.print()
+        console.print("[dim]Or to check data before cleanup:[/dim]")
+        console.print(f'  [cyan]dango db query "SELECT COUNT(*) FROM raw.{source_name}"[/cyan]')
+        console.print()
+
+    except SourceSetupError as e:
+        for err in e.errors:
+            console.print(f"[red]Error:[/red] {err}")
+        raise click.Abort() from e
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         from dango.exceptions import is_debug_mode
