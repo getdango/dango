@@ -42,10 +42,26 @@ from dango.cli.commands.mcp_helpers import (
 mcp = FastMCP(
     "dango",
     instructions=(
-        "Dango data platform MCP server. Use these tools to read catalog information, "
-        "inspect schemas and lineage, query data, and trigger Dango operations. "
-        "Always prefer these tools over direct file edits — they validate inputs and "
-        "ensure consistency with Dango's conventions."
+        "Dango is a data platform for small teams: dlt ingestion, a DuckDB warehouse, dbt "
+        "transformation and Metabase dashboards. Prefer these tools over editing project "
+        "files directly; they validate inputs. "
+        "Typical order: list_sources / list_source_types, get_source_setup_schema, "
+        "create_source, run_sync, run_transform, then get_table_schema, query or list_models "
+        "to inspect. Models: create_model, validate_model, update_model. Schedules: the "
+        "*_schedule tools. Docs: docs_coverage, update_model, update_source_table_docs. "
+        "Diagnosis: run_doctor, get_logs, get_sync_history, get_platform_status. "
+        "Secrets: no tool accepts credentials. If a result has credentials_required, tell "
+        "the user to add the values to .env themselves (relay next_steps; OAuth sources "
+        "use `dango oauth <type>`); never ask them to paste secrets into the chat. "
+        "PII: query masks columns whose names match PII-flagged raw columns. This is a "
+        "guardrail against accidental exposure, not a security boundary (an aliased column "
+        "or an expression such as upper(email) is not masked); do not try to work around it. "
+        "Remote: remote_push changes a real server. It defaults to a dry run; a real push "
+        "needs dry_run=False and confirm=True, so show the user the dry-run result and get "
+        "explicit approval first. Remote tools have not been verified against a live server "
+        "in this release. "
+        "Writes are serialized (one warehouse writer): if a result says the warehouse is "
+        "busy or locked, wait and retry rather than looping."
     ),
 )
 
