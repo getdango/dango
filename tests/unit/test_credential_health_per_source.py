@@ -168,3 +168,14 @@ def test_empty_dotenv_value_is_missing_and_environ_wins(
     assert _run(tmp_path, source, meta)["status"] == "missing"
     monkeypatch.setenv("BILLING_API_KEY", "x")
     assert _run(tmp_path, source, meta)["status"] == "ok"
+
+
+@pytest.mark.unit
+def test_identifier_shaped_lowercase_literal_is_not_echoed(tmp_path: Path) -> None:
+    source, meta = _mock_api_source(
+        {"token_env": "sk_live_abc123"}, [{"name": "token_env", "type": "string"}]
+    )
+    result = _run(tmp_path, source, meta)
+    assert result["status"] == "missing"
+    assert "sk_live_abc123" not in repr(result)
+    assert "token_env (not a valid env var name)" in result["detail"]

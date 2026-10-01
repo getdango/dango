@@ -123,6 +123,17 @@ def is_credential_param(param: dict[str, Any], source_type: str) -> bool:
     return False
 
 
+# Conventional env var names only (uppercase): tokens such as ``sk_live_abc`` or ``ghp_x`` are
+# valid lowercase identifiers and must not be mistaken for a name. All-caps/digit literals remain
+# indistinguishable from a name (accepted residual).
+_ENV_NAME_RE = re.compile(r"[A-Z_][A-Z0-9_]*")
+
+
+def is_env_var_name(value: Any) -> bool:
+    """True if ``value`` looks like an environment variable NAME (not a pasted secret)."""
+    return isinstance(value, str) and _ENV_NAME_RE.fullmatch(value) is not None
+
+
 def compute_env_var_name(param: dict[str, Any], source_name: str) -> str:
     """Env var name for a secret param of a given source instance.
 

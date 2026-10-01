@@ -21,6 +21,7 @@ from dango.ingestion.sources.setup_schema import (
     _managed_by,
     _resources_apply,
     compute_env_var_name,
+    is_env_var_name,
     normalize_params,
 )
 from dango.ingestion.sources.setup_service import _dotenv_has, prepare_source_directory
@@ -37,16 +38,6 @@ __all__ = [
     "set_source_enabled",
     "update_source",
 ]
-
-# Conventional env var names only (uppercase): tokens such as ``sk_live_abc`` or ``ghp_x`` are
-# valid lowercase identifiers and must not be mistaken for a name. All-caps/digit literals remain
-# indistinguishable from a name (accepted residual).
-_ENV_NAME_RE = re.compile(r"[A-Z_][A-Z0-9_]*")
-
-
-def is_env_var_name(value: Any) -> bool:
-    """True if ``value`` looks like an environment variable NAME (not a pasted secret)."""
-    return isinstance(value, str) and _ENV_NAME_RE.fullmatch(value) is not None
 
 
 def redact_env_fields(config: dict[str, Any]) -> dict[str, Any]:
