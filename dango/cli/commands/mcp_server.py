@@ -7,7 +7,7 @@ call `dango mcp` directly. Users run `dango mcp setup` once to configure
 their LLM client.
 
 Session E: read tools + setup
-Session F: mutation tools (add_source, create_model, add_schedule, run_sync, run_transform)
+Session F: mutation tools (add_source, add_schedule, run_sync, run_transform; models: mcp_models.py)
   (add_schedule moved to mcp_schedules.py in 1.0.10-M1, alongside the other schedule tools)
 
 CRITICAL: all *dango.* imports that touch real project/database/config state
@@ -487,6 +487,7 @@ import importlib  # noqa: E402
 _REGISTRATION_MODULES = (
     "mcp_debug",
     "mcp_governance",
+    "mcp_models",
     "mcp_mutations",
     "mcp_operations",
     "mcp_schedules",

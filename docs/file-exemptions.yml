@@ -123,7 +123,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 924
+    lines: 1138
     category: exempt
     reason: "Source management commands (add/list/remove/edit) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation. R12-G added source edit NAME arg, sync positional arg."
     review_by: "v1.1"
