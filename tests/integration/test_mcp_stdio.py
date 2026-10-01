@@ -199,6 +199,8 @@ def test_tool_calls_return_results_not_protocol_errors(session: Session) -> None
     for name, response in session.tool_responses.items():
         assert "error" not in response, f"{name} returned a JSON-RPC error: {response}"
         assert "result" in response, f"{name} returned no result: {response}"
+        # FastMCP reports a raising tool as a result with isError, not a JSON-RPC error.
+        assert response["result"].get("isError") is not True, f"{name} raised: {response}"
 
 
 def test_server_exits_when_stdin_closes(project: Path) -> None:
@@ -219,4 +221,3 @@ def test_server_exits_when_stdin_closes(project: Path) -> None:
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=10)
-    assert proc.returncode is not None
