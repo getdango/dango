@@ -1,7 +1,9 @@
 """dango/cli/commands/mcp_mutations.py
 
-MCP mutation tools for Dango: the tools that let an LLM actually operate
-Dango (sync data, run transforms, create sources, create models), as opposed to the read-only tools in mcp_server.py.
+MCP mutation tools for Dango: the tools that let an LLM create sources and
+models (add_source, list_source_types, create_model), as opposed to the
+read-only tools in mcp_server.py.
+Operate tools (sync/transform/doctor) live in mcp_operations.py.
 Schedule tools live in mcp_schedules.py.
 
 Split out of mcp_server.py (Session E's read tools + FastMCP server
@@ -30,103 +32,6 @@ from typing import Any
 
 from dango.cli.commands.mcp_helpers import _get_project_root, _git_warnings
 from dango.cli.commands.mcp_server import mcp
-
-# ── Trigger tools ─────────────────────────────────────────────────────────────
-
-
-@mcp.tool()
-def run_sync(source_name: str, full_refresh: bool = False) -> dict[str, Any]:
-    """Sync a data source. Respects the existing lock and queue semantics.
-
-    Args:
-        source_name: Name of the source to sync (as defined in sources.yml)
-        full_refresh: If True, drop and reload all data (default False)
-
-    Returns dict with: status, rows_loaded, duration_seconds, error (if failed).
-    """
-    project_root = _get_project_root()
-    from dango.config.helpers import load_config
-    from dango.ingestion import run_sync as _run_sync
-
-    config = load_config(project_root)
-    if not config:
-        return {"error": "No project configuration found"}
-
-    source = config.sources.get_source(source_name)
-    if source is None:
-        return {"error": f"Source '{source_name}' not found in sources.yml"}
-
-    try:
-        # Correction (coordinating-chat pre-dispatch verification, 2026-09-03):
-        # run_sync()'s real signature (dango/ingestion/dlt_runner.py) is
-        # run_sync(project_root, sources: list[DataSource], ...) — it takes
-        # DataSource objects, not a source_names kwarg (which doesn't exist
-        # on the real function at all and would raise TypeError). Use the
-        # `source` object already fetched above.
-        result = _run_sync(
-            project_root=project_root,
-            sources=[source],
-            full_refresh=full_refresh,
-        )
-        return result if isinstance(result, dict) else {"status": "completed"}
-    except Exception as e:
-        return {"status": "failed", "error": str(e)}
-
-
-@mcp.tool()
-def run_transform(select: str | None = None, full_refresh: bool = False) -> dict[str, Any]:
-    """Run dbt transformations. Equivalent to `dango run`.
-
-    Args:
-        select: dbt --select expression (e.g. "stg_stripe+", "marts"). Runs all if omitted.
-        full_refresh: If True, rebuild incremental models from scratch.
-
-    Returns dict with: status, output (dbt stdout), error (if failed).
-    """
-    project_root = _get_project_root()
-    from dango.transformation import run_dbt_models
-    from dango.utils import DbtLock
-
-    # Single-writer DuckDB (VAL-003) — was the one run_dbt_models() caller
-    # missing lock acquisition. Mirrors transform.py's run(); a lock timeout
-    # (DbtLockError) falls through to the except below unchanged.
-    lock = DbtLock(
-        project_root=project_root,
-        source="mcp",
-        operation=f"run_transform select={select}" if select else "run_transform",
-    )
-    try:
-        lock.acquire()
-        # Correction (coordinating-chat pre-dispatch verification, 2026-09-03):
-        # run_dbt_models() returns tuple[bool, str] (success, output), not a
-        # single value — `if result` on a 2-tuple is always truthy regardless
-        # of the bool inside it, so the original snippet here silently
-        # reported every dbt failure as "completed". Unpack the tuple.
-        success, output = run_dbt_models(project_root, select=select, full_refresh=full_refresh)
-        return {"status": "completed" if success else "failed", "output": output}
-    except Exception as e:
-        return {"status": "failed", "error": str(e)}
-    finally:
-        if lock._acquired:
-            lock.release()
-
-
-@mcp.tool()
-def run_doctor() -> list[dict[str, Any]]:
-    """Check credential health for all configured sources. Equivalent to `dango doctor`.
-
-    Returns list of dicts with: source, type, status (ok/missing/expired), detail.
-    """
-    project_root = _get_project_root()
-    # Correction (coordinating-chat pre-dispatch verification, 2026-09-03):
-    # run_doctor_cached does not exist anywhere in the codebase (the CLI's
-    # own `dango doctor` command, cli/commands/doctor.py, calls this
-    # function directly — verified by reading it). Already returns the
-    # exact list[dict[str, Any]] shape this tool's docstring promises.
-    from dango.ingestion.credential_health import get_cached_credential_health
-
-    return get_cached_credential_health(project_root)
-
 
 # ── Create tools ──────────────────────────────────────────────────────────────
 
