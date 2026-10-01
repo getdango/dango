@@ -252,8 +252,8 @@ def get_platform_status() -> dict[str, Any]:
             api = _query_scheduler_api(project_root)
             if api:
                 scheduler = {
-                    "running": api["running"],
-                    "job_count": api["job_count"],
+                    "running": bool(api.get("running")),
+                    "job_count": int(api.get("job_count", 0)),
                     "schedules_loaded": sum(1 for e in api.get("schedules", []) if e.get("loaded")),
                 }
         return {

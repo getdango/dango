@@ -252,7 +252,11 @@ def list_schedules() -> dict[str, Any]:
     return {
         "schedules": items,
         "server_running": running,
-        "scheduler": {"running": api["running"], "job_count": api["job_count"]} if api else None,
+        "scheduler": (
+            {"running": bool(api.get("running")), "job_count": int(api.get("job_count", 0))}
+            if api
+            else None
+        ),
     }
 
 

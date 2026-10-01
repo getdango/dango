@@ -115,3 +115,27 @@ def test_activate_reports_loaded_for_schedule(
     assert mcp_schedules._activate(project, "mine")["loaded"] is None
     # No name -> no loaded key (remove/reload keep their shape).
     assert "loaded" not in mcp_schedules._activate(project)
+
+
+def test_loaded_reported_on_unchanged_and_omitted_when_not_reloaded(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import requests
+
+    class _Resp:
+        status_code = 200
+
+    class _Fail:
+        status_code = 503
+
+    mcp_schedules.add_schedule("mine", "0 7 * * *", ["test_source"])
+    # server not running: no `loaded` key
+    r = mcp_schedules.set_schedule_enabled("mine", True)
+    assert r["status"] == "unchanged" and "loaded" not in r
+    monkeypatch.setattr(mcp_schedules, "_server_running", lambda root: True)
+    _patch_api(monkeypatch, _api(project, mine={"enabled": True, "loaded": True}))
+    monkeypatch.setattr(requests, "post", lambda url, **kw: _Resp())
+    assert mcp_schedules.set_schedule_enabled("mine", True)["loaded"] is True
+    monkeypatch.setattr(requests, "post", lambda url, **kw: _Fail())
+    r = mcp_schedules.set_schedule_enabled("mine", True)
+    assert r["activation"] == "reload_failed" and "loaded" not in r
