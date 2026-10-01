@@ -22,6 +22,7 @@ _SECRET_INLINE_RE = re.compile(
     r"([\"']?\s*[=:]\s*)((?:Bearer|Basic|Token)\s+\S+|\"[^\"]*\"|'[^']*'|[^\s,;&}]+)"
 )
 _URL_CRED_RE = re.compile(r"(://[^/\s:@]+:)[^@\s/]+(@)")
+_BEARER_RE = re.compile(r"(?i)\b(Bearer|Basic)(\s+)[A-Za-z0-9._~+/=-]{6,}")
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 _TAIL_BYTES = 2 * 1024 * 1024
@@ -38,7 +39,8 @@ _LOG_FILES = {
 def _redact_text(text: str) -> str:
     """Mask secret-looking key=value pairs and URL credentials in free text."""
     text = _SECRET_INLINE_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}****", text)
-    return _URL_CRED_RE.sub(r"\1****\2", text)
+    text = _URL_CRED_RE.sub(r"\1****\2", text)
+    return _BEARER_RE.sub(r"\1\2****", text)
 
 
 def _redact_obj(obj: Any) -> Any:

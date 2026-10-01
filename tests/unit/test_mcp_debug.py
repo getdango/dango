@@ -305,6 +305,8 @@ class TestRedactionAndCaps:
             ("Authorization: Bearer abcSEC", "abcSEC"),
             ('{"password": "abcSEC"}', "abcSEC"),
             ("postgres://user:abcSEC@host/db", "abcSEC"),
+            ("curl -H 'Bearer abcSEC123'", "abcSEC123"),
+            ("got Bearer abcSEC.def-1 from client", "abcSEC.def-1"),
         ],
     )
     def test_redact_text_forms(self, text: str, secret: str) -> None:
