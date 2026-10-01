@@ -27,7 +27,7 @@ from dango.config.models import (
     SourceType,
 )
 from dango.exceptions import SyncTimeoutError
-from dango.ingestion.csv_loader import CSVLoader
+from dango.ingestion.csv_loader import DUPLICATE_FILENAME_ERROR_TYPE, CSVLoader
 from dango.ingestion.sources.registry import get_source_metadata
 
 if TYPE_CHECKING:
@@ -848,17 +848,24 @@ class DltPipelineRunner:
                     )
             finally:
                 conn.close()
+            dup = result.get("error_type") == DUPLICATE_FILENAME_ERROR_TYPE
             error_msg = (
-                f"Sync returned 0 rows — existing {pre_refresh_rows:,} rows "
-                f"preserved. To force sync with empty data, use: "
-                f"dango sync {source_config.name} --allow-empty-replace"
+                result["error"]
+                if dup
+                else (
+                    f"Sync returned 0 rows — existing {pre_refresh_rows:,} rows "
+                    f"preserved. To force sync with empty data, use: "
+                    f"dango sync {source_config.name} --allow-empty-replace"
+                )
             )
             console.print(f"  [red]❌ {error_msg}[/red]")
             return {
                 "status": "failed",
                 "source": source_config.name,
                 "error": error_msg,
-                "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
+                "error_type": DUPLICATE_FILENAME_ERROR_TYPE
+                if dup
+                else EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
                 "rows_loaded": 0,
                 "uses_replace_mode": True,
             }
@@ -1022,17 +1029,24 @@ class DltPipelineRunner:
                     )
             finally:
                 conn.close()
+            dup = result.get("error_type") == DUPLICATE_FILENAME_ERROR_TYPE
             error_msg = (
-                f"Sync returned 0 rows — existing {pre_refresh_rows:,} rows "
-                f"preserved. To force sync with empty data, use: "
-                f"dango sync {source_config.name} --allow-empty-replace"
+                result["error"]
+                if dup
+                else (
+                    f"Sync returned 0 rows — existing {pre_refresh_rows:,} rows "
+                    f"preserved. To force sync with empty data, use: "
+                    f"dango sync {source_config.name} --allow-empty-replace"
+                )
             )
             console.print(f"  [red]❌ {error_msg}[/red]")
             return {
                 "status": "failed",
                 "source": source_config.name,
                 "error": error_msg,
-                "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
+                "error_type": DUPLICATE_FILENAME_ERROR_TYPE
+                if dup
+                else EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
                 "rows_loaded": 0,
                 "uses_replace_mode": True,
             }

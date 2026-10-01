@@ -7,6 +7,7 @@ Supports CSV, JSON, JSONL, and Parquet formats via DuckDB's native readers.
 
 import glob
 import os
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,8 @@ from dango.config.models import CSVSourceConfig
 from dango.exceptions import CSVSchemaMismatchError
 
 console = Console()
+
+DUPLICATE_FILENAME_ERROR_TYPE = "duplicate_filenames"
 
 # DuckDB read functions keyed by file extension
 SUPPORTED_READ_FUNCTIONS: dict[str, str] = {
@@ -116,6 +119,14 @@ class CSVLoader:
             elif ext:  # Skip directories (no extension)
                 console.print(f"  ⚠️  Skipping unsupported format: {Path(f).name}")
 
+        # Rows are tracked by file name, so same-named files would overwrite each other
+        by_name: dict[str, list[str]] = defaultdict(list)
+        for f in current_files:
+            by_name[os.path.basename(f)].append(f)
+        dupes = {n: paths for n, paths in by_name.items() if len(paths) > 1}
+        if dupes:
+            return self._duplicate_filename_error(directory, dupes)
+
         # Connect to DuckDB (needed even if no files exist, to process deletions)
         # Lazy import to avoid a circular import: dlt_runner.py imports CSVLoader from this
         # module at its own top level, so a top-level import here would cycle back.
@@ -130,6 +141,22 @@ class CSVLoader:
 
         # Setup metadata tracking
         self._setup_metadata_table(conn)
+
+        # A previously loaded file that still exists (but no longer matches) and shares
+        # a name with a current file is the same ambiguity; a gone file is a normal delete.
+        prev_loaded = conn.execute(
+            "SELECT file_path FROM _dango_file_metadata WHERE source_name = ? AND status = 'loaded'",
+            [source_name],
+        ).fetchall()
+        current_set = set(current_files)
+        for (old_path,) in prev_loaded:
+            if old_path not in current_set and os.path.exists(old_path):
+                clash = by_name.get(os.path.basename(old_path))
+                if clash:
+                    conn.close()
+                    return self._duplicate_filename_error(
+                        directory, {os.path.basename(old_path): [old_path, *clash]}
+                    )
 
         # Show file count
         if not current_files:
@@ -231,6 +258,15 @@ class CSVLoader:
         }
 
         try:
+            # A moved file (old path gone, same name) must have its old rows removed before
+            # the new copy loads; the later name-keyed delete would otherwise hit the new rows.
+            if table_exists:
+                replaced = [f for f in classified["deleted"] if os.path.basename(f) in by_name]
+                for filepath in replaced:
+                    if self._delete_file_data(conn, filepath, target_table, source_name):
+                        stats["deleted"] += 1
+                classified["deleted"] = [f for f in classified["deleted"] if f not in replaced]
+
             # Load new files
             for filepath, _metadata in classified["new"]:
                 if self._load_new_file(
@@ -313,6 +349,38 @@ class CSVLoader:
                 "error": str(e),
                 **stats,
             }
+
+    @staticmethod
+    def _duplicate_filename_error(directory: Path, dupes: dict[str, list[str]]) -> dict[str, Any]:
+        """Refuse the sync: files sharing a name cannot be told apart in the table."""
+
+        def _rel(f: str) -> str:
+            try:
+                return str(Path(f).relative_to(directory))
+            except ValueError:
+                return f
+
+        shown = [
+            f"{name} ({', '.join(_rel(p) for p in paths)})"
+            for name, paths in list(dupes.items())[:3]
+        ]
+        msg = (
+            f"Multiple files share the same file name: {'; '.join(shown)}. "
+            "Files matched by a local_files source must have unique file names (rows are "
+            "tracked by file name). Rename the files (for example `2026-09-sales.csv`) or "
+            "narrow `file_pattern` so each name matches once. Nothing was changed."
+        )
+        console.print(f"  [red]❌ {msg}[/red]")
+        return {
+            "status": "error",
+            "error": msg,
+            "error_type": DUPLICATE_FILENAME_ERROR_TYPE,
+            "new": 0,
+            "updated": 0,
+            "deleted": 0,
+            "skipped": 0,
+            "total_rows": 0,
+        }
 
     def _empty_replace_block(
         self,
