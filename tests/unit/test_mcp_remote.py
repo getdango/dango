@@ -252,7 +252,10 @@ def test_remote_sync_builds_cli_command(deployed: Any, known_source: str) -> Non
 def test_remote_sync_no_wait_uses_nohup(deployed: Any, known_source: str) -> None:
     out = mcp_remote.remote_sync(known_source, wait=False)
     cmd, kw = deployed.ssh.commands[0]
-    assert cmd.startswith("nohup cd /srv/dango/project &&") and cmd.endswith("> /dev/null 2>&1 &")
+    assert cmd.startswith(
+        "cd /srv/dango/project && nohup sudo -u dango -H env DANGO_CLOUD_MODE=true"
+    )
+    assert cmd.endswith("> /dev/null 2>&1 &") and not cmd.startswith("nohup")
     assert kw["timeout"] == 10
     assert out["status"] == "started"
 
@@ -336,3 +339,56 @@ def test_remote_tools_registered() -> None:
         "remote_sync",
         "remote_push",
     } <= names
+
+
+@pytest.mark.unit
+def test_remote_sync_no_wait_reports_start_failure(deployed: Any, known_source: str) -> None:
+    deployed.ssh = FakeSSH(lambda c: _res(stderr="nohup: failed", code=127))
+    assert mcp_remote.remote_sync(known_source, wait=False)["status"] == "failed"
+
+
+@pytest.mark.unit
+def test_remote_logs_failed_command_is_error(deployed: Any) -> None:
+    deployed.ssh = FakeSSH(lambda c: _res(stderr="No such container", code=1))
+    assert "error" in mcp_remote.remote_logs(service="metabase")
+
+
+@pytest.mark.unit
+def test_remote_push_real_blocks_when_tree_state_unknown(deployed: Any) -> None:
+    from dango.utils.git_info import GitInfo
+
+    gi = GitInfo(commit_sha="a", branch="main", is_clean=None, is_git_repo=True)
+    with (
+        patch("dango.utils.git_info.collect_git_info", return_value=gi),
+        patch(
+            "dango.platform.cloud.deployer.push_deploy", return_value=_deploy_result(True)
+        ) as push,
+    ):
+        assert (
+            mcp_remote.remote_push(dry_run=False, confirm=True)["error"] == "Git guardrails failed"
+        )
+        push.assert_not_called()
+        assert "error" not in mcp_remote.remote_push(dry_run=True)
+
+
+@pytest.mark.unit
+def test_remote_push_non_git_proceeds_with_warning(deployed: Any) -> None:
+    from dango.utils.git_info import GitInfo
+
+    with (
+        patch("dango.utils.git_info.collect_git_info", return_value=GitInfo()),
+        patch(
+            "dango.platform.cloud.deployer.push_deploy", return_value=_deploy_result(True)
+        ) as push,
+    ):
+        out = mcp_remote.remote_push()
+    assert push.call_args.kwargs["git_info"] is None and "skipped" in out["warnings"][0]
+
+
+@pytest.mark.unit
+def test_failed_operation_still_disconnects(deployed: Any) -> None:
+    with patch(
+        "dango.platform.cloud.deploy_journal.read_remote_journal", side_effect=RuntimeError("x")
+    ):
+        assert "error" in mcp_remote.remote_history()
+    assert deployed.ssh.disconnected

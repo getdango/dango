@@ -56,6 +56,12 @@ def _safe(text: str) -> str:
     return text if len(text) <= _MAX_ERR else text[:_MAX_ERR] + "..."
 
 
+def _redact_obj(obj: Any) -> Any:
+    from dango.cli.commands.mcp_debug import _redact_obj as redact
+
+    return redact(obj)
+
+
 def _json_safe(obj: Any) -> Any:
     return json.loads(json.dumps(obj, default=str))
 
@@ -93,7 +99,8 @@ def remote_status() -> dict[str, Any]:
         """Operation body run over the connected SSH session."""
         from dango.platform.cloud.server_status import collect_server_status
 
-        return _json_safe(dataclasses.asdict(collect_server_status(ssh, cfg)))  # type: ignore[no-any-return]
+        status = _json_safe(dataclasses.asdict(collect_server_status(ssh, cfg)))
+        return _redact_obj(status)  # type: ignore[no-any-return]
 
     return _run(go)  # type: ignore[return-value]
 
@@ -110,13 +117,18 @@ def remote_logs(service: str = "dango", lines: int = 100) -> dict[str, Any]:
 
     if service not in _LOG_COMMANDS:
         return {"error": f"Unknown service '{service}'. Valid values: {', '.join(_LOG_COMMANDS)}"}
-    n = max(1, min(int(lines), _MAX_LOG_LINES))
+    try:
+        n = max(1, min(int(lines), _MAX_LOG_LINES))
+    except (TypeError, ValueError):
+        return {"error": "lines must be an integer"}
     flag = "--tail" if service == "metabase" else "-n"
     cmd = f"{_LOG_COMMANDS[service]} {flag} {n}"
 
     def go(ssh: Any, _cfg: Any, _root: Path) -> dict[str, Any]:
         """Operation body run over the connected SSH session."""
         res = ssh.exec_command(cmd, check=False)
+        if not res.success:
+            return {"error": f"Could not read {service} logs: {_safe(res.stderr or 'no output')}"}
         text = (res.stdout or "") + (res.stderr or "")  # docker logs writes to stderr
         out = [_safe_line(ln) for ln in text.split("\n") if ln.strip()][-n:]
         truncated = False
@@ -145,7 +157,7 @@ def remote_history(limit: int = 10) -> Any:
         from dango.platform.cloud.deploy_journal import read_remote_journal
 
         entries = read_remote_journal(ssh, limit=max(1, min(int(limit), 100)), raise_on_error=True)
-        return _json_safe(entries)
+        return _redact_obj(_json_safe(entries))
 
     return _run(go)
 
@@ -208,7 +220,10 @@ def remote_query(sql: str, timeout: int = 30) -> dict[str, Any]:
         _validate_select_only(sql)
     except ValueError as e:
         return {"error": str(e)}
-    secs = max(1, min(int(timeout), 120))
+    try:
+        secs = max(1, min(int(timeout), 120))
+    except (TypeError, ValueError):
+        return {"error": "timeout must be an integer"}
 
     def go(ssh: Any, _cfg: Any, project_root: Path) -> dict[str, Any]:
         """Operation body run over the connected SSH session."""
@@ -306,7 +321,11 @@ def remote_sync(
             f" {shlex.quote(json.dumps(payload))}"
         )
         if not wait:
-            ssh.exec_command(f"nohup {cmd} > /dev/null 2>&1 &", timeout=10, check=False)
+            # nohup must wrap the sudo command, not the `cd` builtin (nohup cd fails).
+            bg = cmd.replace(" && sudo ", " && nohup sudo ", 1)
+            res = ssh.exec_command(f"{bg} > /dev/null 2>&1 &", timeout=10, check=False)
+            if not res.success:
+                return {"status": "failed", "error": _safe(res.stderr or "Could not start sync")}
             return {"status": "started", "source": source_name}
         res = ssh.exec_command(cmd, timeout=3600, check=False)
         if res.success and res.stdout:
@@ -385,6 +404,12 @@ def remote_push(dry_run: bool = True, confirm: bool = False) -> dict[str, Any]:
                 allow_branch=False,
             )
             warnings = list(guardrails.warnings)
+            if not dry_run and git_info.is_clean is None:
+                return {
+                    "error": "Git guardrails failed",
+                    "errors": ["Could not determine working tree status; refusing a real push."],
+                    "warnings": warnings,
+                }
             if not guardrails.passed:
                 return {
                     "error": "Git guardrails failed",
