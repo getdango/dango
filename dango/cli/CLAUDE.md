@@ -58,7 +58,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | **Wizards** | | |
 | `init.py` (1585 lines) | Project initialization wizard, incl. first-run telemetry consent prompt | `ProjectInitializer` |
 | `wizard.py` (307 lines) | Interactive setup wizards | `ProjectWizard` |
-| `source_wizard.py` (2610 lines) | Source configuration wizard. `run()` calls `_print_git_warnings()` (1.0.8-OPS-3) right after the intro panel | `add_source()` |
+| `source_wizard.py` (2413 lines) | Source configuration wizard. `run()` calls `_print_git_warnings()` (1.0.8-OPS-3) right after the intro panel | `add_source()` |
 | `model_wizard.py` (510 lines) | dbt model creation wizard (template, collision check and `dbt parse` delegate to `transformation/model_service.py`). `run()` calls `_print_git_warnings()` (1.0.8-OPS-3) right after the intro banner | `add_model()` |
 | **Helpers** | | |
 | `utils.py` (164 lines) | Display helpers + project context | `require_project_context()` |
