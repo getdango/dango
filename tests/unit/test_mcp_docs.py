@@ -16,6 +16,7 @@ import yaml
 
 from dango.cli.commands import mcp_docs
 from dango.exceptions import DbtLockError
+from dango.utils import DbtLock
 
 PLACEHOLDER = "TODO: Add description\n(Auto-generated - edit in dbt/models/[layer]/schema.yml)"
 
@@ -304,7 +305,7 @@ class TestDocsCoverage:
 class TestGenerateDocs:
     def test_generate_docs_lock_busy(self, project: Path) -> None:
         with (
-            patch("dango.utils.dbt_lock.DbtLock.acquire", side_effect=DbtLockError("busy")),
+            patch.object(DbtLock, "acquire", side_effect=DbtLockError("busy")),
             patch("dango.transformation.generate_dbt_docs") as gen,
         ):
             result = mcp_docs.generate_docs()
