@@ -96,6 +96,14 @@ def test_status_rejects_forwarded_for(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_status_rejects_browser_origin(tmp_path: Path) -> None:
+    _write_schedules(tmp_path)
+    with patch(_ROOT_PATCH, return_value=tmp_path):
+        resp = _client(_fake_scheduler()).get(_URL, headers={"Origin": "https://evil.example"})
+    assert resp.status_code == 403
+
+
+@pytest.mark.unit
 def test_status_rejects_non_localhost(tmp_path: Path) -> None:
     _write_schedules(tmp_path)
     with patch(_ROOT_PATCH, return_value=tmp_path):

@@ -141,7 +141,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/schedule.py
-    lines: 1160
+    lines: 1162
     category: exempt
     reason: "R6F: Schedule wizard expanded with time customization (BUG-039), per-schedule status (BUG-041), type labels (BUG-037), auto-select (BUG-038), webhook check (BUG-040). R12-G added wizard name validation loop, checkbox hint. R12-N2 added sync_only option. S3-FUP-A: +138 lines (776→914) from S2/S3 schedule additions. 1.0.7-12: Added weekdays + selectdays frequency options + schedule reload command (+131 lines, 914→1045). Sequential wizard flow doesn't benefit from splitting."
     review_by: "v1.1"
@@ -401,7 +401,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/schedules.py
-    lines: 693
+    lines: 699
     category: exempt
     reason: "TASK-037+038+045b: 11 read-only endpoints (history×2, list/get, trigger, reload, cancel, unscheduled, page route, notification config/test). R10-C removed 5 config-mutating endpoints (BUG-175). R12-N2 added SYNC_ONLY dispatch in manual trigger. R5-N6: per-source failure details (+48 lines)."
     review_by: "v1.1"

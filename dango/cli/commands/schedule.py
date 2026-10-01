@@ -653,6 +653,8 @@ def _show_schedule_detail(project_root: Path, schedules: list[dict[str, Any]], n
                 parsed = datetime.fromisoformat(live_next)
                 if sched.get("timezone"):
                     parsed = parsed.astimezone(ZoneInfo(sched["timezone"]))
+                else:
+                    parsed = parsed.astimezone()
                 next_str = parsed.strftime("%Y-%m-%d %H:%M %Z").strip()
             except (ValueError, KeyError, OSError):
                 pass
