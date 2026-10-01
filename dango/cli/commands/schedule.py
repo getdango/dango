@@ -109,46 +109,68 @@ def _find_schedule(schedules: list[dict[str, Any]], name: str) -> tuple[int, dic
     return None
 
 
-def _get_next_run(cron_expr: str) -> str:
-    """Compute next run time from a cron expression using croniter."""
+def _timing_schedule(sched: dict[str, Any]) -> Any:
+    """Build a ScheduleConfig carrying only the timing fields (cron/timezone/enabled).
+
+    Next-run computation depends only on those, so unrelated fields (e.g. a
+    wizard preview with no sources yet) must not block it. Raises on an
+    invalid cron or timezone.
+    """
+    from dango.config.schedules import ScheduleConfig, ScheduleType
+
+    return ScheduleConfig(
+        name="timing_preview",
+        type=ScheduleType.SCRIPT,
+        script_path="timing_preview.py",
+        cron=sched.get("cron", ""),
+        timezone=sched.get("timezone") or None,
+        enabled=sched.get("enabled", True),
+    )
+
+
+def _next_run_datetimes(sched: dict[str, Any], count: int = 1) -> list[datetime]:
+    """Next fire times (timezone-aware), honouring the schedule's timezone."""
     try:
-        from croniter import croniter
+        from dango.config.schedules import compute_next_runs
 
-        it = croniter(cron_expr, datetime.now())
-        next_dt: datetime = it.get_next(datetime)
-        return next_dt.strftime("%Y-%m-%d %H:%M")
-    except Exception:
-        return "—"
-
-
-def _get_next_runs(cron_expr: str, count: int = 3) -> list[str]:
-    """Return next *count* run times as formatted strings."""
-    try:
-        from croniter import croniter
-
-        it = croniter(cron_expr, datetime.now())
-        return [it.get_next(datetime).strftime("%Y-%m-%d %H:%M") for _ in range(count)]
-    except Exception:
+        return compute_next_runs(_timing_schedule(sched), count)
+    except Exception:  # noqa: BLE001
         return []
 
 
-def _query_scheduler_api(project_root: Path) -> dict[str, Any] | None:
-    """Query the running web server for scheduler status.
+def _get_next_run(sched: dict[str, Any]) -> str:
+    """Next run time for a schedule dict, formatted in the schedule's timezone."""
+    runs = _next_run_datetimes(sched, 1)
+    return runs[0].strftime("%Y-%m-%d %H:%M %Z") if runs else "\u2014"
 
-    Returns the scheduler dict from ``/api/health/platform`` or ``None``
-    if the server is not reachable.
+
+def _get_next_runs(sched: dict[str, Any], count: int = 3) -> list[str]:
+    """Return next *count* run times as formatted strings."""
+    return [r.strftime("%Y-%m-%d %H:%M %Z") for r in _next_run_datetimes(sched, count)]
+
+
+def _query_scheduler_api(project_root: Path) -> dict[str, Any] | None:
+    """Query THIS project's running web server for scheduler status.
+
+    Returns the ``/api/internal/scheduler/status`` JSON, or ``None`` if this
+    project's server is not running, is unreachable, or answers with a
+    different ``project_root``.
     """
     try:
         import httpx
 
+        from dango.cli.helpers.process_manager import is_project_server_running
         from dango.config.loader import ConfigLoader
 
+        if not is_project_server_running(project_root):
+            return None
         config = ConfigLoader(project_root).load_config()
         port = config.platform.port
-        resp = httpx.get(f"http://localhost:{port}/api/health/platform", timeout=3.0)
+        resp = httpx.get(f"http://localhost:{port}/api/internal/scheduler/status", timeout=3.0)
         if resp.status_code == 200:
             data: dict[str, Any] = resp.json()
-            return data.get("scheduler")
+            if data.get("project_root") == str(project_root.resolve()):
+                return data
     except Exception:  # noqa: BLE001
         logger.debug("scheduler_api_query_failed", exc_info=True)
     return None
@@ -437,9 +459,9 @@ def _build_cron_interactive(selection: str) -> str | None:
     return f"{minute} {hours_csv} * * *"
 
 
-def _show_next_runs(cron_expr: str) -> None:
-    """Print next 3 scheduled run times."""
-    runs = _get_next_runs(cron_expr, 3)
+def _show_next_runs(cron_expr: str, timezone: str | None = None) -> None:
+    """Print next 3 scheduled run times (in *timezone* when given)."""
+    runs = _get_next_runs({"cron": cron_expr, "timezone": timezone}, 3)
     if runs:
         console.print("[dim]Next run times:[/dim]")
         for i, r in enumerate(runs, 1):
@@ -460,10 +482,10 @@ def _get_configured_port(project_root: Path) -> int:
 def _try_reload_running_scheduler(project_root: Path) -> None:
     """Notify running server to reload schedules. Best-effort, never raises."""
     try:
-        from dango.cli.helpers.port_manager import check_port_in_use
+        from dango.cli.helpers.process_manager import is_project_server_running
 
         port = _get_configured_port(project_root)
-        if not check_port_in_use(port):
+        if not is_project_server_running(project_root):
             console.print("[dim]Schedule will load on next `dango start`.[/dim]")
             return
 
@@ -493,7 +515,7 @@ def _toggle_schedule(ctx: click.Context, name: str, *, enable: bool) -> None:
     result = _find_schedule(schedules, name)
     if result is None:
         console.print(f"[red]Error:[/red] Schedule '{name}' not found.")
-        raise SystemExit(1)
+        raise click.Abort()
 
     _, sched = result
     current = sched.get("enabled", True)
@@ -570,7 +592,7 @@ def schedule_list(ctx: click.Context) -> None:
             sched.get("cron", "?"),
             sources_str,
             "[green]yes[/green]" if enabled else "[red]no[/red]",
-            _get_next_run(sched.get("cron", "")) if enabled else "—",
+            _get_next_run(sched) if enabled else "—",
         )
 
     console.print(table)
@@ -586,7 +608,7 @@ def _show_schedule_detail(project_root: Path, schedules: list[dict[str, Any]], n
     result = _find_schedule(schedules, name)
     if result is None:
         console.print(f"[red]Error:[/red] Schedule '{name}' not found.")
-        raise SystemExit(1)
+        raise click.Abort()
 
     _, sched = result
     enabled = sched.get("enabled", True)
@@ -608,16 +630,33 @@ def _show_schedule_detail(project_root: Path, schedules: list[dict[str, Any]], n
     if sched.get("notify_on"):
         console.print(f"  Notify:   {', '.join(sched['notify_on'])}")
 
-    # Scheduler loaded state
+    # Scheduler loaded state (this project's running web server)
     sched_api = _query_scheduler_api(project_root)
-    if sched_api is not None and sched_api.get("running"):
-        console.print("  Loaded:   [green]yes[/green] (scheduler running)")
-    elif sched_api is not None:
-        console.print("  Loaded:   [red]no[/red] (scheduler not running)")
+    live_next: str | None = None
+    if sched_api is not None:
+        entry = next((e for e in sched_api.get("schedules", []) if e.get("name") == name), None)
+        if not sched_api.get("running"):
+            console.print("  Loaded:   [red]no[/red] (scheduler not running)")
+        elif entry is not None and entry.get("loaded"):
+            console.print("  Loaded:   [green]yes[/green] (scheduler running)")
+            live_next = entry.get("next_run_time")
+        else:
+            console.print("  Loaded:   [red]no[/red] (not loaded in running scheduler)")
 
     # Next run
     if enabled:
-        console.print(f"  Next run: {_get_next_run(sched.get('cron', ''))}")
+        next_str = _get_next_run(sched)
+        if live_next:
+            try:
+                from zoneinfo import ZoneInfo
+
+                parsed = datetime.fromisoformat(live_next)
+                if sched.get("timezone"):
+                    parsed = parsed.astimezone(ZoneInfo(sched["timezone"]))
+                next_str = parsed.strftime("%Y-%m-%d %H:%M %Z").strip()
+            except (ValueError, KeyError, OSError):
+                pass
+        console.print(f"  Next run: {next_str}")
 
     # Recent history from scheduler.db
     from dango.platform.scheduling.history import get_scheduler_db_path
@@ -662,28 +701,20 @@ def schedule_status(ctx: click.Context, name: str | None = None) -> None:
         _show_schedule_detail(project_root, schedules, name)
         return
 
-    # 1. Next scheduled run (earliest across enabled schedules)
-    from croniter import croniter
-
-    now = datetime.now()
+    # 1. Next scheduled run (earliest across enabled schedules, timezone-aware)
     earliest_name: str | None = None
     earliest_dt: datetime | None = None
     for sched in schedules:
         if not sched.get("enabled", True):
             continue
-        try:
-            it = croniter(sched.get("cron", ""), now)
-            nxt: datetime = it.get_next(datetime)
-            if earliest_dt is None or nxt < earliest_dt:
-                earliest_dt = nxt
-                earliest_name = sched.get("name", "?")
-        except Exception:
-            logger.debug("croniter_parse_failed", schedule=sched.get("name"))
-            continue
+        runs = _next_run_datetimes(sched, 1)
+        if runs and (earliest_dt is None or runs[0] < earliest_dt):
+            earliest_dt = runs[0]
+            earliest_name = sched.get("name", "?")
 
     if earliest_dt is not None:
         console.print(
-            f"[bold]Next run:[/bold] {earliest_name} at {earliest_dt.strftime('%Y-%m-%d %H:%M')}"
+            f"[bold]Next run:[/bold] {earliest_name} at {earliest_dt.strftime('%Y-%m-%d %H:%M %Z')}"
         )
     else:
         console.print("[bold]Next run:[/bold] [dim]no enabled schedules[/dim]")
@@ -746,9 +777,10 @@ def schedule_status(ctx: click.Context, name: str | None = None) -> None:
     if sched_api is not None:
         if sched_api.get("running"):
             yaml_enabled = sum(1 for s in schedules if s.get("enabled", True))
+            loaded = sum(1 for e in sched_api.get("schedules", []) if e.get("loaded"))
             console.print(
                 f"[bold]Scheduler:[/bold] [green]running[/green] "
-                f"({yaml_enabled} schedule(s) enabled)"
+                f"({yaml_enabled} schedule(s) enabled, {loaded} loaded)"
             )
         else:
             console.print("[bold]Scheduler:[/bold] [red]not running[/red]")
@@ -944,8 +976,6 @@ def schedule_add(ctx: click.Context) -> None:
     if cron is None:
         return
 
-    _show_next_runs(cron)
-
     # 5. Timezone
     from zoneinfo import available_timezones
 
@@ -966,6 +996,8 @@ def schedule_add(ctx: click.Context) -> None:
         if answers is None:
             return
         timezone_str = answers["timezone"]
+
+    _show_next_runs(cron, timezone_str)
 
     # 6. Notify on (BUG-040: skip if no webhooks configured)
     notify_on: list[str] = []
@@ -1055,7 +1087,7 @@ def schedule_remove(ctx: click.Context, name: str, yes: bool) -> None:
     result = _find_schedule(schedules, name)
     if result is None:
         console.print(f"[red]Error:[/red] Schedule '{name}' not found.")
-        raise SystemExit(1)
+        raise click.Abort()
 
     idx, sched = result
     console.print(f"Schedule: [bold]{name}[/bold]")

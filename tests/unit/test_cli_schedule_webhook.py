@@ -282,7 +282,7 @@ class TestScheduleHelpers:
     def test_get_next_run_valid_cron(self) -> None:
         from dango.cli.commands.schedule import _get_next_run
 
-        result = _get_next_run("0 * * * *")
+        result = _get_next_run({"cron": "0 * * * *"})
         # Should return a date string, not the fallback em-dash
         assert result != "\u2014"
         assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", result)
@@ -290,7 +290,7 @@ class TestScheduleHelpers:
     def test_get_next_run_invalid_cron(self) -> None:
         from dango.cli.commands.schedule import _get_next_run
 
-        result = _get_next_run("not a cron")
+        result = _get_next_run({"cron": "not a cron"})
         assert result == "\u2014"
 
     def test_slug_rejects_invalid_names(self) -> None:

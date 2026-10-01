@@ -45,7 +45,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/secrets.py` | Secrets and OAuth credential management (admin-only, .env + .dlt/secrets.toml CRUD) | `router` |
 | `routes/telemetry.py` | Telemetry status/toggle API + `/settings/telemetry` page (admin-only, 1.0.8-U) — web front-end onto the same state `dango telemetry` (CLI) controls | `router` |
 | `routes/oauth_connect.py` | Web-based OAuth connect/callback for cloud deployments | `router` |
-| `routes/schedules.py` | Schedule list/get, trigger, reload, cancel, history, notification config/test, `/schedules` page (read-only, ~608 lines). Config mutations removed by R10-C (BUG-175) — use CLI instead. | `router` |
+| `routes/schedules.py` | Schedule list/get, trigger, reload, localhost-only `/api/internal/scheduler/status` (public in auth middleware, guarded in handler), cancel, history, notification config/test, `/schedules` page (read-only, ~608 lines). Config mutations removed by R10-C (BUG-175) — use CLI instead. | `router` |
 | `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~506 lines) | `router` |
 | `routes/scripts.py` | Script list page and log viewer page routes | `router` |
 | `routes/scripts_api.py` | Script API endpoints: list, run, cancel, history | `router` |
