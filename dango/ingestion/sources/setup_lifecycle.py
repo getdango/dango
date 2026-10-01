@@ -36,6 +36,7 @@ __all__ = [
     "update_source",
 ]
 
+_ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _DATETIME_PREFIX_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})[T ]")
 
 
@@ -130,6 +131,20 @@ def credential_requirements(project_root: Path, source: Any) -> list[CredentialR
         if name not in existing and name not in required_names:
             continue
         env_var = str(existing.get(name) or compute_env_var_name(param, source.name))
+        if not _ENV_NAME_RE.fullmatch(env_var):
+            # Not a variable name: likely a pasted literal secret. Never echo it (these
+            # requirements reach the LLM provider via MCP) and never look it up.
+            reqs.append(
+                CredentialRequirement(
+                    kind="env_var",
+                    name=name,
+                    detail=(
+                        f"{name} must be an environment variable NAME, not the secret itself; "
+                        "set the secret in .env and store its variable name"
+                    ),
+                )
+            )
+            continue
         if not _dotenv_has(project_root, env_var):
             reqs.append(
                 CredentialRequirement(kind="env_var", name=env_var, detail=f"Set {env_var} in .env")
