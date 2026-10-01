@@ -147,7 +147,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/config/schedules.py
-    lines: 699
+    lines: 711
     category: exempt
     reason: "R2-D13b: Added trigger comparison in reload_schedules() to preserve missed job state on restart."
     review_by: "v1.1"
@@ -401,7 +401,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/schedules.py
-    lines: 699
+    lines: 711
     category: exempt
     reason: "TASK-037+038+045b: 11 read-only endpoints (history×2, list/get, trigger, reload, cancel, unscheduled, page route, notification config/test). R10-C removed 5 config-mutating endpoints (BUG-175). R12-N2 added SYNC_ONLY dispatch in manual trigger. R5-N6: per-source failure details (+48 lines)."
     review_by: "v1.1"

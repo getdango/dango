@@ -303,6 +303,18 @@ async def internal_scheduler_status(request: Request) -> Any:
     # Browsers always send Origin on cross-origin fetches; the CLI/MCP clients never do.
     if request.headers.get("origin"):
         return JSONResponse(status_code=403, content={"error": "Localhost only"})
+    # DNS rebinding makes the attacker page same-origin (no Origin header) while the
+    # TCP peer is still 127.0.0.1; the Host header then carries the attacker's name.
+    host_header = request.headers.get("host", "")
+    hostname = (
+        host_header[1 : host_header.index("]")]
+        if host_header.startswith("[") and "]" in host_header
+        else host_header.rsplit(":", 1)[0]
+        if host_header.count(":") == 1
+        else host_header
+    )
+    if hostname.lower() not in ("localhost", "127.0.0.1", "::1"):
+        return JSONResponse(status_code=403, content={"error": "Localhost only"})
 
     scheduler = _get_scheduler(request)
     if scheduler is None:

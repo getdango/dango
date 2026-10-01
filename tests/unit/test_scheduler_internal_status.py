@@ -57,7 +57,7 @@ def _client(scheduler: Any, host: str = "127.0.0.1") -> TestClient:
     if scheduler is not None:
         app.state.scheduler = scheduler
     app.include_router(router)
-    return TestClient(app, client=(host, 50000))
+    return TestClient(app, base_url="http://localhost", client=(host, 50000))
 
 
 @pytest.mark.unit
@@ -101,6 +101,23 @@ def test_status_rejects_browser_origin(tmp_path: Path) -> None:
     with patch(_ROOT_PATCH, return_value=tmp_path):
         resp = _client(_fake_scheduler()).get(_URL, headers={"Origin": "https://evil.example"})
     assert resp.status_code == 403
+
+
+@pytest.mark.unit
+def test_status_rejects_foreign_host_header(tmp_path: Path) -> None:
+    _write_schedules(tmp_path)
+    with patch(_ROOT_PATCH, return_value=tmp_path):
+        client = _client(_fake_scheduler())
+        assert client.get(_URL, headers={"Host": "evil.example:18922"}).status_code == 403
+        assert client.get(_URL, headers={"Host": "localhost.evil.example"}).status_code == 403
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("host", ["127.0.0.1:18922", "localhost:18922", "localhost", "[::1]:18922"])
+def test_status_accepts_local_host_header(tmp_path: Path, host: str) -> None:
+    _write_schedules(tmp_path)
+    with patch(_ROOT_PATCH, return_value=tmp_path):
+        assert _client(_fake_scheduler()).get(_URL, headers={"Host": host}).status_code == 200
 
 
 @pytest.mark.unit
