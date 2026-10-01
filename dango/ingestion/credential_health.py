@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,23 @@ logger = logging.getLogger(__name__)
 
 _cache: dict[str, tuple[list[dict[str, Any]], float]] = {}
 _CACHE_TTL = 300  # 5 minutes
+_ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _stored_block(source: Any, source_type: str) -> dict[str, Any]:
+    """The source's stored type-config values (typed block or generic_config) as a dict."""
+    from pydantic import BaseModel
+
+    from dango.config.models import DataSource
+
+    block = (
+        getattr(source, source_type, None)
+        if source_type in DataSource.model_fields
+        else getattr(source, "generic_config", None)
+    )
+    if isinstance(block, BaseModel):
+        return block.model_dump(mode="json", exclude_none=True)
+    return dict(block) if isinstance(block, dict) else {}
 
 
 def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
@@ -28,6 +46,7 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
     """
     from dango.config.helpers import get_config
     from dango.ingestion.sources.registry import AuthType, get_source_metadata
+    from dango.ingestion.sources.setup_schema import _is_secret_param, compute_env_var_name
     from dango.oauth.storage import OAuthStorage
     from dango.oauth.validation import validate_token
 
@@ -37,15 +56,15 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
     if not sources:
         return results
 
-    oauth_storage = OAuthStorage(project_root)
+    secrets_file = project_root / ".dlt" / "secrets.toml"
+    # OAuthStorage creates an empty secrets.toml on construction; a read-only check must not.
+    oauth_storage = OAuthStorage(project_root) if secrets_file.exists() else None
     env_file = project_root / ".env"
     dot_env = {}
     if env_file.exists():
         from dotenv import dotenv_values
 
         dot_env = dotenv_values(env_file)
-
-    secrets_file = project_root / ".dlt" / "secrets.toml"
 
     for source in sources:
         source_type = source.type.value
@@ -54,7 +73,7 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
         auth_type = registry_entry.get("auth_type", AuthType.NONE)
 
         if auth_type == AuthType.OAUTH:
-            cred = oauth_storage.get(source_type)
+            cred = oauth_storage.get(source_type) if oauth_storage is not None else None
             if cred is None:
                 results.append(
                     {
@@ -117,11 +136,24 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
                 )
 
         elif auth_type in (AuthType.API_KEY, AuthType.BASIC):
-            params = registry_entry.get("required_params", []) + registry_entry.get(
-                "optional_params", []
-            )
-            secret_params = [p for p in params if p.get("type") == "secret" and p.get("env_var")]
-            if not secret_params:
+            required = registry_entry.get("required_params", [])
+            stored = _stored_block(source, source_type)
+            # Each source's own variable: the name stored in its config, else the computed one
+            # (same rule as setup_lifecycle.credential_requirements).
+            env_names: list[str] = []
+            invalid: list[str] = []
+            required_names = {r["name"] for r in required}
+            for p in required + registry_entry.get("optional_params", []):
+                if not _is_secret_param(p):
+                    continue
+                if p["name"] not in required_names and p["name"] not in stored:
+                    continue
+                name = str(stored.get(p["name"]) or compute_env_var_name(p, source_name))
+                if _ENV_NAME_RE.fullmatch(name):
+                    env_names.append(name)
+                else:  # never echo a stored value that is not a variable name (may be a literal)
+                    invalid.append(p["name"])
+            if not env_names and not invalid:
                 results.append(
                     {
                         "source": source_name,
@@ -132,18 +164,15 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
                     }
                 )
                 continue
-            missing = [
-                p["env_var"]
-                for p in secret_params
-                if not os.environ.get(p["env_var"]) and p["env_var"] not in dot_env
-            ]
+            missing = [n for n in env_names if not os.environ.get(n) and not dot_env.get(n)]
+            problems = [*missing, *(f"{p} (not a valid env var name)" for p in invalid)]
             results.append(
                 {
                     "source": source_name,
                     "type": source_type,
                     "auth_type": auth_type.value,
-                    "status": "ok" if not missing else "missing",
-                    "detail": "" if not missing else f"Missing: {', '.join(missing)}",
+                    "status": "ok" if not problems else "missing",
+                    "detail": "" if not problems else f"Missing: {', '.join(problems)}",
                 }
             )
 
@@ -194,15 +223,19 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
     return results
 
 
-def get_cached_credential_health(project_root: Path) -> list[dict[str, Any]]:
+def get_cached_credential_health(
+    project_root: Path, *, refresh: bool = False
+) -> list[dict[str, Any]]:
     """Return cached results or run a fresh check (5-minute TTL, in-process only).
+
+    ``refresh=True`` bypasses the cache and repopulates it.
 
     Cache is scoped per project_root to handle multi-project scenarios.
     """
     global _cache
     cache_key = str(project_root.resolve())
     now = time.monotonic()
-    if cache_key in _cache and (now - _cache[cache_key][1]) < _CACHE_TTL:
+    if not refresh and cache_key in _cache and (now - _cache[cache_key][1]) < _CACHE_TTL:
         return _cache[cache_key][0]
     results = run_credential_checks(project_root)
     _cache[cache_key] = (results, now)
