@@ -185,7 +185,7 @@ def test_initialize_returns_instructions(session: Session) -> None:
     assert "credentials_required" in instructions
     assert ".env" in instructions
     assert "local_files" in instructions
-    assert len(instructions) <= 2100
+    assert len(instructions) <= 2000
 
 
 def test_tools_list_contains_expected_tools(session: Session) -> None:

@@ -119,9 +119,10 @@ def _infer_layer(model_name: str, file_path: str | None = None) -> str:
     """Layer from the model's directory (models/staging|intermediate|marts/...), then name prefix."""
     if file_path:
         parts = file_path.replace("\\", "/").split("/")[:-1]
-        for layer in ("staging", "intermediate", "marts"):
-            if layer in parts:
-                return layer
+        if "models" in parts:
+            top = parts[parts.index("models") + 1 :][:1]
+            if top and top[0] in ("staging", "intermediate", "marts"):
+                return top[0]
     if model_name.startswith("stg_"):
         return "staging"
     if model_name.startswith("int_"):

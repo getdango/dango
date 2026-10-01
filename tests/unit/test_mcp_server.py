@@ -278,6 +278,9 @@ class TestInferLayer:
         assert mcp_server._infer_layer("stg_x", "models/marts/stg_x.sql") == "marts"
         assert mcp_server._infer_layer("stg_x", "models/other/stg_x.sql") == "staging"
         assert mcp_server._infer_layer("stg_x", None) == "staging"
+        # only the top-level directory under models/ decides; nested names do not
+        assert mcp_server._infer_layer("x", "models/marts/staging/x.sql") == "marts"
+        assert mcp_server._infer_layer("x", "models/other/marts/x.sql") == "other"
         assert mcp_server._infer_layer("weird", None) == "other"
 
     def test_list_models_marts_free_form_name(

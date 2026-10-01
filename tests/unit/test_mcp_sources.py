@@ -389,6 +389,21 @@ def test_create_source_file_path_ignores_matching_directory(project: Path, csv_f
 
 
 @pytest.mark.unit
+def test_create_source_file_path_normalizes_directory(project: Path, csv_file: Path) -> None:
+    r = mcp_sources.create_source(
+        "local_files",
+        "orders",
+        config={"directory": "./data/uploads/orders/"},
+        file_path=str(csv_file),
+    )
+    assert r["status"] == "created", r
+    bad = mcp_sources.create_source(
+        "local_files", "o2", config={"directory": "/data/uploads/o2"}, file_path=str(csv_file)
+    )
+    assert "omit 'directory'" in bad["error"]
+
+
+@pytest.mark.unit
 def test_create_source_file_path_rejects_conflicting_directory(
     project: Path, csv_file: Path
 ) -> None:
@@ -417,3 +432,15 @@ def test_validate_source_checks_key_and_docstring_mentions_oauth_only(
     _bare(project, "empty")
     bad = mcp_sources.validate_source("empty")
     assert bad["checks"]["configuration"] is False
+
+
+@pytest.mark.unit
+def test_validate_source_checks_credentials_missing(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("STRIPE_API_KEY", raising=False)
+    created = mcp_sources.create_source("stripe", "billing", config={"start_date": "2024-01-01"})
+    assert created["credentials_required"], created
+    r = mcp_sources.validate_source("billing")
+    assert r["ready"] is False
+    assert r["checks"]["credentials_present"] is False

@@ -8,6 +8,7 @@ from __future__ import annotations
 import dataclasses
 import fnmatch
 import glob
+import posixpath
 import shutil
 from pathlib import Path
 from typing import Any
@@ -198,7 +199,7 @@ def create_source(
             if file_path:
                 upload_dir = f"data/uploads/{source_name}"
                 given = params.get("directory")
-                if given and str(given).replace("\\", "/").strip("/") != upload_dir:
+                if given and posixpath.normpath(str(given).replace("\\", "/")) != upload_dir:
                     msg = (
                         f"With file_path the file is copied to {upload_dir}/; omit 'directory' "
                         f"from config (got '{given}')"
