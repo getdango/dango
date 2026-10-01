@@ -58,3 +58,17 @@ class TestEnvBackupSecurity:
                 ["git", "check-ignore", name], cwd=tmp_path, capture_output=True
             )
             assert result.returncode == 0, name
+
+    def test_no_backup_written_when_backup_false(self, tmp_path):
+        env_file = tmp_path / ".env"
+        env_file.write_text("DUMMY_SECRET=dummy-value\n")
+
+        create_env_template(env_file, VARS, backup=False)
+
+        assert not (tmp_path / ".env.env.backup").exists()
+
+    def test_gitignore_hardening_is_idempotent(self, tmp_path):
+        assert ensure_sensitive_artifact_gitignores(tmp_path) is True
+        assert ensure_sensitive_artifact_gitignores(tmp_path) is False
+        lines = (tmp_path / ".gitignore").read_text().splitlines()
+        assert lines.count(".env*.backup") == 1
