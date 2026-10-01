@@ -490,6 +490,7 @@ _REGISTRATION_MODULES = (
     "mcp_models",
     "mcp_mutations",
     "mcp_operations",
+    "mcp_remote",
     "mcp_schedules",
     "mcp_setup",
 )
