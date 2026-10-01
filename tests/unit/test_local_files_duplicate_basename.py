@@ -79,7 +79,7 @@ def test_duplicate_basenames_refused_no_writes(tmp_path, uploads, runner):
 
     result = runner._run_local_files_source(src)
 
-    assert result["status"] in ("error", "failed")
+    assert result["status"] == "failed"
     assert result["error_type"] == DUPLICATE_FILENAME_ERROR_TYPE
     assert os.path.join("2026-09", "sales.csv") in result["error"]
     assert os.path.join("2026-10", "sales.csv") in result["error"]
@@ -104,7 +104,7 @@ def test_duplicate_basenames_refused_on_resync_preserves_rows(tmp_path, uploads,
     _write(uploads / "2026-10" / "a.csv", ["9,z"])
     result = runner._run_local_files_source(src)
 
-    assert result["status"] in ("error", "failed")
+    assert result["status"] == "failed"
     assert os.path.join("2026-09", "a.csv") in result["error"]
     assert _count(runner) == 3
     assert _metadata(runner) == before
@@ -156,7 +156,7 @@ def test_previously_loaded_file_still_present_with_same_name_is_blocked(tmp_path
     _write(uploads / "archive" / "sales.csv", ["7,x"])
     result = runner._run_local_files_source(_source(tmp_path, "archive/*.csv"))
 
-    assert result["status"] in ("error", "failed")
+    assert result["status"] == "failed"
     assert result["error_type"] == DUPLICATE_FILENAME_ERROR_TYPE
     assert _count(runner) == 2
     assert _metadata(runner) == before
@@ -193,3 +193,43 @@ def test_moved_file_with_other_files_keeps_every_row(tmp_path, uploads, runner):
 
     assert result["status"] == "success"
     assert _query(runner, f"SELECT id FROM {TABLE} ORDER BY id") == [(1,), (2,), (3,)]
+
+
+def test_moved_file_stays_intact_on_later_syncs(tmp_path, uploads, runner):
+    old = _write(uploads / "a" / "x.csv", ["1,a", "2,b"])
+    src = _source(tmp_path, "*/*.csv")
+    assert runner._run_local_files_source(src)["status"] == "success"
+    new = uploads / "b" / "x.csv"
+    new.parent.mkdir()
+    old.rename(new)
+    for _ in range(3):
+        runner._run_local_files_source(src)
+        assert _count(runner) == 2
+
+
+def test_moved_file_replaced_by_header_only_copy_is_not_silently_emptied(tmp_path, uploads, runner):
+    old = _write(uploads / "a" / "x.csv", ["1,a", "2,b"])
+    src = _source(tmp_path, "*/*.csv")
+    assert runner._run_local_files_source(src)["status"] == "success"
+    old.unlink()
+    _write(uploads / "b" / "x.csv", [])
+
+    result = runner._run_local_files_source(src)
+
+    assert result["status"] != "success"
+    assert _count(runner) == 2
+
+
+def test_full_refresh_allow_empty_replace_refusal_keeps_table(tmp_path, uploads, runner):
+    _write(uploads / "2026-09" / "x.csv", ["1,a", "2,b"])
+    src = _source(tmp_path, "*/*.csv")
+    assert runner._run_local_files_source(src)["status"] == "success"
+    before = _metadata(runner)
+    _write(uploads / "2026-10" / "x.csv", ["3,c"])
+
+    result = runner._run_local_files_source(src, full_refresh=True, allow_empty_replace=True)
+
+    assert result["status"] == "failed"
+    assert result["error_type"] == DUPLICATE_FILENAME_ERROR_TYPE
+    assert _count(runner) == 2
+    assert _metadata(runner) == before
