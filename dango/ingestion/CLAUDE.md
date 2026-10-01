@@ -22,6 +22,8 @@ complex for wizard — use dlt_native) and Shopify (`wizard_enabled=False`, see 
 | `credential_health.py` | Cross-references configured sources against available credentials (OAuth tokens, API keys, service accounts) | `run_credential_checks()`, `get_cached_credential_health()` (5-minute in-process cache) |
 | `sources/__init__.py` | Sources subpackage exports | Re-exports `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata`, `get_source_capabilities` |
 | `sources/registry.py` | Central registry of 34 supported data sources with metadata | `SOURCE_REGISTRY`, `CATEGORIES`, `AuthType`, `get_source_metadata`, `get_sources_by_category`, `get_source_capabilities` |
+| `sources/setup_schema.py` | Source-setup types, setup schema, and parameter normalisation (no I/O) — the single implementation behind the wizard and MCP | `SourceSetupError`, `CredentialRequirement`, `SourceSetupResult`, `REPLACE_MODE_SOURCE_TYPES`, `is_credential_param()`, `compute_env_var_name()`, `get_setup_schema()`, `normalize_params()` |
+| `sources/setup_service.py` | Non-interactive source setup: validate (`prepare_source`, no writes) then persist (`apply_source`) — default_config, geo targets, file directories, `.env`/secrets.toml templates, `sources.yml`; wizard delegates to these | `create_source()`, `prepare_source()`, `apply_source()`, `build_source_config()`, `write_default_config()`, `provision_geo_targets()`, `prepare_source_directory()`, `write_secrets_toml_template()`, `append_source()`, `add_analysis_monitors()` |
 | `dlt_sources/` | dlt verified source implementations (27 directories, 105+ files) — helper files are custom Dango code | See "Don't Modify" section for guidelines |
 
 ## Common Tasks
