@@ -84,6 +84,15 @@ def _write_yaml(path: Path, data: dict[str, Any]) -> None:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
+def validate_column_entries(columns: list[dict[str, Any]] | None) -> None:
+    """Reject malformed column entries, including both `tests` and `data_tests` on one column."""
+    for col in columns or []:
+        if not isinstance(col, dict) or not col.get("name"):
+            raise _err(["every column entry must be a mapping with a 'name'"])
+        if "tests" in col and "data_tests" in col:
+            raise _err([f"column '{col['name']}': pass either 'data_tests' or 'tests', not both"])
+
+
 def upsert_model_docs(
     project_root: Path,
     layer: str,
@@ -96,9 +105,7 @@ def upsert_model_docs(
 
     Returns the project-relative path if the file changed, else None.
     """
-    for col in columns or []:
-        if not isinstance(col, dict) or not col.get("name"):
-            raise _err(["every column entry must be a mapping with a 'name'"])
+    validate_column_entries(columns)
 
     path = resolve_docs_path(project_root, layer, model_name)
     existed = path.exists()
@@ -126,6 +133,9 @@ def upsert_model_docs(
             if target is None:
                 existing_cols.append(dict(col))
             else:
+                if "data_tests" in col or "tests" in col:  # dbt rejects both keys on one column
+                    target.pop("tests", None)
+                    target.pop("data_tests", None)
                 target.update(col)
         entry["columns"] = existing_cols
 
