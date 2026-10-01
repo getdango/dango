@@ -31,12 +31,36 @@ logger = get_logger(__name__)
 __all__ = [
     "SourceRemovalResult",
     "credential_requirements",
+    "is_env_var_name",
+    "redact_env_fields",
     "remove_source",
     "set_source_enabled",
     "update_source",
 ]
 
-_ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# Conventional env var names only (uppercase): tokens such as ``sk_live_abc`` or ``ghp_x`` are
+# valid lowercase identifiers and must not be mistaken for a name. All-caps/digit literals remain
+# indistinguishable from a name (accepted residual).
+_ENV_NAME_RE = re.compile(r"[A-Z_][A-Z0-9_]*")
+
+
+def is_env_var_name(value: Any) -> bool:
+    """True if ``value`` looks like an environment variable NAME (not a pasted secret)."""
+    return isinstance(value, str) and _ENV_NAME_RE.fullmatch(value) is not None
+
+
+def redact_env_fields(config: dict[str, Any]) -> dict[str, Any]:
+    """Copy of a source config with non-name ``*_env`` values replaced by a placeholder."""
+    out: dict[str, Any] = {}
+    for key, value in config.items():
+        if isinstance(value, dict):
+            value = redact_env_fields(value)
+        elif key.endswith("_env") and isinstance(value, str) and not is_env_var_name(value):
+            value = "<not a valid env var name; redacted>"
+        out[key] = value
+    return out
+
+
 _DATETIME_PREFIX_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})[T ]")
 
 
@@ -131,7 +155,7 @@ def credential_requirements(project_root: Path, source: Any) -> list[CredentialR
         if name not in existing and name not in required_names:
             continue
         env_var = str(existing.get(name) or compute_env_var_name(param, source.name))
-        if not _ENV_NAME_RE.fullmatch(env_var):
+        if not is_env_var_name(env_var):
             # Not a variable name: likely a pasted literal secret. Never echo it (these
             # requirements reach the LLM provider via MCP) and never look it up.
             reqs.append(

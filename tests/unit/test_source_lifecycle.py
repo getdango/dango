@@ -402,6 +402,35 @@ def test_credential_requirements_never_echo_literal_secret(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("literal", ["sk_live_51Abc123def", "ghp_abcDEF123", "Abc123token"])
+def test_credential_requirements_never_echo_identifier_shaped_token(
+    tmp_path: Path, sample_config, literal: str
+) -> None:
+    from dango.ingestion.sources.setup_lifecycle import credential_requirements
+
+    src = _ds(
+        "api",
+        "rest_api",
+        {"base_url": "https://x.test", "endpoints": [], "auth_token_env": literal},
+    )
+    sample_config.sources.sources = [src]
+    save_config(sample_config, tmp_path)
+    reqs = credential_requirements(tmp_path, src)
+    assert reqs and literal not in repr(reqs)
+
+
+@pytest.mark.unit
+def test_redact_env_fields_hides_literal_keeps_names() -> None:
+    from dango.ingestion.sources.setup_lifecycle import redact_env_fields
+
+    out = redact_env_fields(
+        {"auth_token_env": "sk_live_abc", "stripe_secret_key_env": "MY_KEY", "n": {"x_env": "a b"}}
+    )
+    assert "sk_live_abc" not in repr(out) and "a b" not in repr(out)
+    assert out["stripe_secret_key_env"] == "MY_KEY"
+
+
+@pytest.mark.unit
 def test_credential_requirements_valid_stored_name_and_computed_fallback(
     tmp_path: Path, sample_config, monkeypatch: pytest.MonkeyPatch
 ) -> None:
