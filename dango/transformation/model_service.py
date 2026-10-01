@@ -70,6 +70,7 @@ def parse_project(project_root: Path) -> tuple[bool, str]:
             ],
             cwd=str(project_root),
             capture_output=True,
+            stdin=subprocess.DEVNULL,  # never inherit the MCP server's JSON-RPC stdin
             text=True,
             timeout=30,
             env=_dbt_telemetry_env(),
