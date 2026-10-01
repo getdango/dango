@@ -181,8 +181,13 @@ class TestZeroLoadedRowsReturnsError:
         # Delete the file from disk
         (data_dir / "file1.csv").unlink()
 
-        # Sync should succeed (deletion detected)
+        # M17: removing the only file would empty the table, so it is blocked by default
         result = loader.load("test_src", config, "raw_test_src")
+        assert result["status"] == "failed"
+        assert result["error_type"] == "empty_replace_protection"
+
+        # With allow_empty_replace the deletion is detected and applied (status success)
+        result = loader.load("test_src", config, "raw_test_src", allow_empty_replace=True)
         assert result["status"] == "success"
         assert result["deleted"] == 1
 
