@@ -65,9 +65,38 @@ class TestRemoteSyncCommand:
         assert "Sync triggered" in result.output
         ssh.connect.assert_called_once_with("1.2.3.4")
         ssh.disconnect.assert_called_once()
-        # Verify nohup was used for background execution
+        # nohup must wrap the sudo command, never the `cd` builtin
         cmd_arg = ssh.exec_command.call_args[0][0]
-        assert "nohup" in cmd_arg
+        assert cmd_arg.startswith("cd /srv/dango/project && nohup sudo -u dango")
+        assert "nohup cd" not in cmd_arg
+        assert cmd_arg.endswith("> /dev/null 2>&1 &")
+
+    @patch(f"{_PATCH_MGMT}._make_ssh_manager")
+    @patch(f"{_PATCH_MGMT}._load_cloud_config_with_ip")
+    def test_no_wait_failed_exec_exits_nonzero(self, mock_load, mock_ssh_maker, tmp_path):
+        mock_load.return_value = (_make_cloud_cfg(), tmp_path)
+        ssh = _make_ssh_mock(stderr="boom", success=False)
+        mock_ssh_maker.return_value = ssh
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["remote", "sync", "my_source"])
+
+        assert result.exit_code == 1
+        assert "Sync triggered" not in result.output
+        assert "boom" in result.output
+        ssh.disconnect.assert_called_once()
+
+    @patch(f"{_PATCH_MGMT}._make_ssh_manager")
+    @patch(f"{_PATCH_MGMT}._load_cloud_config_with_ip")
+    def test_no_wait_failed_exec_default_message(self, mock_load, mock_ssh_maker, tmp_path):
+        mock_load.return_value = (_make_cloud_cfg(), tmp_path)
+        ssh = _make_ssh_mock(stderr="", success=False)
+        mock_ssh_maker.return_value = ssh
+
+        result = CliRunner().invoke(cli, ["remote", "sync", "my_source"])
+
+        assert result.exit_code == 1
+        assert "Could not start sync" in result.output
 
     @patch(f"{_PATCH_MGMT}._make_ssh_manager")
     @patch(f"{_PATCH_MGMT}._load_cloud_config_with_ip")
@@ -108,7 +137,7 @@ class TestRemoteSyncCommand:
         assert result.exit_code == 0
         cmd_arg = ssh.exec_command.call_args[0][0]
         # Parse the JSON payload from the command
-        # The command looks like: nohup /srv/.../python3 -m ... '{...}' > ...
+        # The command looks like: cd /srv/... && nohup sudo -u dango ... '{...}' > ...
         assert '"full_refresh": true' in cmd_arg or '"full_refresh":true' in cmd_arg
 
     @patch(f"{_PATCH_MGMT}._make_ssh_manager")
