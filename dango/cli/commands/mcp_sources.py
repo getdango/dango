@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import fnmatch
+import glob
 import shutil
 from pathlib import Path
 from typing import Any
@@ -126,6 +127,8 @@ def _validate_file(src: Path, prepared: Any, project_root: Path) -> tuple[Path |
     if not fnmatch.fnmatch(src.name, pattern):
         return None, f"File name '{src.name}' does not match file_pattern '{pattern}'"
     dest = project_root / str(prepared.params["directory"]) / src.name
+    if dest.is_symlink():
+        return None, f"{dest.relative_to(project_root)} is a symlink; refusing to write through it"
     if dest.exists() and dest.resolve() != src.resolve():
         if dest.read_bytes() != src.read_bytes():
             return None, f"A different file already exists at {dest.relative_to(project_root)}"
@@ -147,7 +150,8 @@ def create_source(
     `config`. Never pass secret values: credentials come back in `credentials_required` with
     `next_steps` to relay to the user (set an env var in .env, run `dango oauth <type>`).
     For a local CSV/JSON/Parquet file give `file_path` (local_files only): it is copied into the
-    project (data/uploads/<source_name>/) so it works on other machines and in the cloud.
+    project (data/uploads/<source_name>/) so it works on other machines and in the cloud. Only
+    pass files the user asked to import: the copy lands inside the project and may be committed.
     Then validate_source and run_sync.
 
     Returns dict with: status, source_name, source_type, source_config, files_changed,
@@ -192,8 +196,8 @@ def create_source(
                     if not dest.parent.exists():
                         made_dir = dest.parent
                     dest.parent.mkdir(parents=True, exist_ok=True)
+                    copied = dest  # set first so a partial copy is cleaned up too
                     shutil.copy2(src, dest)
-                    copied = dest
                 extra.append(str(dest.relative_to(project_root)))
             result = apply_source(project_root, prepared)
         except SourceSetupError as e:
@@ -326,11 +330,12 @@ def validate_source(source_name: str, check_connectivity: bool = False) -> dict[
             directory = project_root / block.directory
             from dango.ingestion.csv_loader import SUPPORTED_READ_FUNCTIONS
 
+            # glob.glob (not Path.glob) so dotfiles are skipped exactly like the loader
             files_found = (
                 sum(
                     1
-                    for p in directory.glob(block.file_pattern)
-                    if p.is_file() and p.suffix.lower() in SUPPORTED_READ_FUNCTIONS
+                    for f in glob.glob(str(directory / block.file_pattern))
+                    if Path(f).suffix.lower() in SUPPORTED_READ_FUNCTIONS
                 )
                 if directory.is_dir()
                 else 0

@@ -299,3 +299,36 @@ def test_source_tools_registered() -> None:
         "validate_source",
     } <= names
     assert "add_source" not in names
+
+
+@pytest.mark.unit
+def test_partial_copy_failure_is_cleaned_up(
+    project: Path, csv_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def half_copy(src: Any, dest: Any) -> None:
+        Path(dest).write_text("par")
+        raise OSError("disk full")
+
+    monkeypatch.setattr(mcp_sources.shutil, "copy2", half_copy)
+    r = mcp_sources.create_source("local_files", "orders", file_path=str(csv_file))
+    assert "error" in r
+    assert not (project / "data/uploads/orders").exists()
+
+
+@pytest.mark.unit
+def test_create_refuses_symlink_destination(project: Path, csv_file: Path, tmp_path: Path) -> None:
+    d = project / "data/uploads/orders"
+    d.mkdir(parents=True)
+    (d / "orders.csv").symlink_to(tmp_path / "dangling-target.csv")
+    r = mcp_sources.create_source("local_files", "orders", file_path=str(csv_file))
+    assert "symlink" in r["error"]
+    assert not (tmp_path / "dangling-target.csv").exists()
+
+
+@pytest.mark.unit
+def test_validate_source_ignores_dotfiles_like_the_loader(project: Path, csv_file: Path) -> None:
+    mcp_sources.create_source("local_files", "orders", file_path=str(csv_file))
+    d = project / "data/uploads/orders"
+    (d / "orders.csv").rename(d / ".hidden.csv")
+    r = mcp_sources.validate_source("orders")
+    assert r["files_found"] == 0 and r["ready"] is False
