@@ -239,7 +239,9 @@ def run_transform(select: str | None = None, full_refresh: bool = False) -> dict
         error: only when the call itself failed (e.g. dbt lock timeout).
     """
     project_root = _get_project_root()
+    import contextlib
     import re
+    import sys
     import time
 
     from dango.platform.common.metabase_lifecycle import (
@@ -270,13 +272,19 @@ def run_transform(select: str | None = None, full_refresh: bool = False) -> dict
         finally:
             if metabase_was_stopped:
                 start_metabase_after_writes(project_root)
-        lock.release()
+        try:
+            lock.release()
+        except Exception:  # noqa: BLE001 - build finished; the finally retries
+            pass
 
         results = summarize_run_results(project_root, since=build_started)
         success = bool(ok and not (results and results["failed"]))
         # run_dbt_models already updated model status on success; finalize repeats it
         # (idempotent) and also covers the failure path.
-        post = finalize_dbt_build(project_root, success=success)
+        # schema_manager/metabase helpers print via Rich to stdout, which is the
+        # JSON-RPC channel here — reroute to stderr.
+        with contextlib.redirect_stdout(sys.stderr):
+            post = finalize_dbt_build(project_root, success=success)
         clean = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", output)[-20000:]
         response: dict[str, Any] = {
             "status": "completed" if success else "failed",

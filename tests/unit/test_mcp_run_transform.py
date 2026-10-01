@@ -154,3 +154,24 @@ class TestRunTransformParity:
         result = mcp_operations.run_transform()
         assert result == {"status": "failed", "error": "dbt exploded"}
         assert events == ["stop", "dbt", "start", "release"]
+
+    def test_run_transform_finalize_prints_never_reach_stdout(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """schema_manager/metabase helpers print to stdout; stdout is the JSON-RPC channel."""
+        from dango.cli import schema_manager
+
+        monkeypatch.setattr(
+            "dango.transformation.run_dbt_models",
+            lambda project_root, select, full_refresh: (True, "OK"),
+        )
+        monkeypatch.setattr(
+            "dango.transformation.build_finalize.finalize_dbt_build",
+            lambda project_root, *, success, refresh_metabase=True: (
+                schema_manager.console.print("Created schema.yml for x") or {}
+            ),
+        )
+        mcp_operations.run_transform()
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Created schema.yml" in captured.err
