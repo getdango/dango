@@ -8,6 +8,7 @@ from __future__ import annotations
 import dataclasses
 import fnmatch
 import glob
+import posixpath
 import shutil
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,17 @@ from dango.cli.commands.mcp_helpers import _get_project_root, _git_warnings
 from dango.cli.commands.mcp_server import mcp
 
 _FILE_SUFFIXES = {".csv", ".json", ".jsonl", ".ndjson", ".parquet"}
+
+# Hidden legacy source types -> the type new sources should use. Existing sources of these
+# types keep working through update/validate/enable/remove; only new setup is steered.
+_LEGACY_SOURCE_TYPES: dict[str, str] = {"csv": "local_files"}
+
+
+def _legacy_note(source_type: str) -> str:
+    return (
+        f"'{source_type}' is a legacy type; use source_type 'local_files' "
+        "(CSV, JSON, JSONL, Parquet) and pass file_path to import a local file."
+    )
 
 
 def _service_error(e: Any) -> dict[str, Any]:
@@ -112,7 +124,11 @@ def get_source_setup_schema(source_type: str) -> dict[str, Any]:
         from dango.ingestion.sources.setup_service import SourceSetupError, get_setup_schema
 
         try:
-            return dict(get_setup_schema(source_type))
+            schema = dict(get_setup_schema(source_type))
+            if source_type in _LEGACY_SOURCE_TYPES:
+                schema["use_instead"] = _LEGACY_SOURCE_TYPES[source_type]
+                schema["note"] = _legacy_note(source_type)
+            return schema
         except SourceSetupError as e:
             return _service_error(e)
     except Exception as e:  # noqa: BLE001
@@ -161,6 +177,9 @@ def create_source(
     or error/errors.
     """
     project_root = _get_project_root()
+    if source_type in _LEGACY_SOURCE_TYPES:
+        msg = _legacy_note(source_type)
+        return {"error": msg, "errors": [msg]}
     if file_path and source_type != "local_files":
         return {
             "error": "file_path is only supported for local_files sources",
@@ -178,7 +197,15 @@ def create_source(
         try:
             params = dict(config or {})
             if file_path:
-                params.setdefault("directory", f"data/uploads/{source_name}")
+                upload_dir = f"data/uploads/{source_name}"
+                given = params.get("directory")
+                if given and posixpath.normpath(str(given).replace("\\", "/")) != upload_dir:
+                    msg = (
+                        f"With file_path the file is copied to {upload_dir}/; omit 'directory' "
+                        f"from config (got '{given}')"
+                    )
+                    return {"error": msg, "errors": [msg]}
+                params["directory"] = upload_dir
             prepared = prepare_source(
                 project_root,
                 source_type,
@@ -308,10 +335,13 @@ def remove_source(source_name: str, dry_run: bool = False, force: bool = False) 
 def validate_source(source_name: str, check_connectivity: bool = False) -> dict[str, Any]:
     """Check whether a source is ready to sync (read-only; never returns secret values).
 
-    Reports missing settings, unset credentials, and (for file sources) matching files. With
-    check_connectivity=True also validates OAuth tokens against the provider.
+    Reports missing settings, unset credentials, and (for file sources) matching files.
+    `ready` means the source is configured and its environment variables are set; it does not
+    prove an API key or password is valid. With check_connectivity=True it only validates OAuth
+    tokens against the provider (API-key/database sources are not contacted: the first
+    run_sync is the real test).
 
-    Returns dict with: source_name, type, enabled, ready, issues, files_found.
+    Returns dict with: source_name, type, enabled, ready, issues, files_found, checks.
     """
     project_root = _get_project_root()
     try:
@@ -344,8 +374,9 @@ def validate_source(source_name: str, check_connectivity: bool = False) -> dict[
             )
             if files_found == 0:
                 issues.append(f"No files matching '{block.file_pattern}' in {block.directory}")
-        for req in credential_requirements(project_root, source):
-            issues.append(req.detail)
+        config_ok = not issues
+        cred_issues = [req.detail for req in credential_requirements(project_root, source)]
+        issues.extend(cred_issues)
         if check_connectivity:
             issues.extend(_connectivity_issues(st, project_root))
     except Exception as e:  # noqa: BLE001
@@ -361,6 +392,11 @@ def validate_source(source_name: str, check_connectivity: bool = False) -> dict[
         "ready": not issues,
         "issues": issues,
         "files_found": files_found,
+        "checks": {
+            "configuration": config_ok,
+            "credentials_present": not cred_issues,
+            "connectivity": "oauth_only" if check_connectivity else "not_checked",
+        },
     }
 
 

@@ -269,6 +269,47 @@ class TestInferLayer:
         assert mcp_server._infer_layer("fct_orders") == "marts"
         assert mcp_server._infer_layer("dim_customers") == "marts"
 
+    def test_infer_layer_prefers_directory(self) -> None:
+        assert mcp_server._infer_layer("order_summary", "models/marts/order_summary.sql") == "marts"
+        assert mcp_server._infer_layer("x", "models/marts/finance/x.sql") == "marts"
+        assert mcp_server._infer_layer("x", "models/staging/s/x.sql") == "staging"
+        assert mcp_server._infer_layer("x", "models/intermediate/x.sql") == "intermediate"
+        # directory wins over a conflicting name prefix; unknown dir falls back to the name
+        assert mcp_server._infer_layer("stg_x", "models/marts/stg_x.sql") == "marts"
+        assert mcp_server._infer_layer("stg_x", "models/other/stg_x.sql") == "staging"
+        assert mcp_server._infer_layer("stg_x", None) == "staging"
+        # only the top-level directory under models/ decides; nested names do not
+        assert mcp_server._infer_layer("x", "models/marts/staging/x.sql") == "marts"
+        assert mcp_server._infer_layer("x", "models/other/marts/x.sql") == "other"
+        assert mcp_server._infer_layer("weird", None) == "other"
+
+    def test_list_models_marts_free_form_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        manifest = {
+            "nodes": {
+                "model.pkg.order_summary": {
+                    "name": "order_summary",
+                    "resource_type": "model",
+                    "schema": "marts",
+                    "original_file_path": "models/marts/order_summary.sql",
+                },
+                "model.pkg.stg_a": {"name": "stg_a", "resource_type": "model"},
+            },
+            "sources": {},
+        }
+        target = tmp_path / "dbt" / "target"
+        target.mkdir(parents=True)
+        (target / "manifest.json").write_text(json.dumps(manifest))
+        monkeypatch.setattr(mcp_server, "_get_project_root", lambda: tmp_path)
+        by_name = {m["name"]: m for m in mcp_server.list_models()}
+        assert by_name["order_summary"]["layer"] == "marts"
+        assert by_name["order_summary"]["path"] == "models/marts/order_summary.sql"
+        assert by_name["stg_a"]["layer"] == "staging"
+        summary = {m["name"]: m for m in mcp_server.get_lineage()["models"]}
+        assert summary["order_summary"]["layer"] == "marts"
+        assert set(summary["order_summary"]) == {"name", "schema", "layer"}
+
     def test_infer_layer_other(self) -> None:
         assert mcp_server._infer_layer("some_other_model") == "other"
 
