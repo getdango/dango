@@ -305,3 +305,53 @@ class TestRemove:
     def test_remove_unknown_source_lists_available(self, project: Path):
         with pytest.raises(SourceSetupError, match="orders_eu"):
             remove_source(project, "nope")
+
+
+@pytest.mark.unit
+class TestReviewFollowUps:
+    def test_update_description_with_stale_stored_date_value(self, project: Path):
+        from dango.ingestion.sources.setup_service import create_source
+
+        create_source(project, "kinesis", "events", {"stream_name": "s"})
+        update_source(project, "events", description="d")
+        assert _source(project, "events").description == "d"
+
+    def test_lifecycle_writes_leave_project_yml_untouched(self, project: Path):
+        path = project / ".dango" / "project.yml"
+        path.write_text("# my comment\n" + path.read_text() + "foo: bar\n")
+        before = path.read_bytes()
+        set_source_enabled(project, "orders", False)
+        update_source(project, "orders", description="x")
+        remove_source(project, "orders_eu")
+        assert path.read_bytes() == before
+
+    def test_update_empty_params_is_nothing_to_update(self, project: Path):
+        with pytest.raises(SourceSetupError, match="Nothing to update"):
+            update_source(project, "orders", {})
+
+    def test_remove_dry_run_lists_downstream_without_raising(self, project: Path):
+        _stage(project, "orders", "t")
+        _write(project, "dbt/models/marts/fct_o.sql", "select * from {{ ref('stg_orders__t') }}")
+        result = remove_source(project, "orders", dry_run=True)
+        assert result.downstream_models == ["marts.fct_o"]
+
+    def test_source_remove_cli_flow(self, project: Path, monkeypatch: pytest.MonkeyPatch):
+        from click.testing import CliRunner
+
+        from dango.cli.main import cli
+
+        _stage(project, "orders", "t")
+        _write(project, "dbt/models/marts/fct_o.sql", "select * from {{ ref('stg_orders__t') }}")
+        _write(project, ".env", "ORDERS_KEY=v\nORDERS_EU_KEY=w\n")
+        monkeypatch.chdir(project)
+        monkeypatch.setattr("dango.transformation.generate_dbt_docs", lambda *_a, **_k: None)
+        runner = CliRunner()
+        declined = runner.invoke(cli, ["source", "remove", "orders"], input="n\n")
+        assert "marts.fct_o" in declined.output and "will break" in declined.output
+        assert _source(project, "orders") is not None
+        done = runner.invoke(cli, ["source", "remove", "orders"], input="y\nn\n")
+        assert done.exit_code == 0
+        assert "ORDERS_KEY" in done.output and "ORDERS_EU_KEY" not in done.output
+        assert (project / ".env").read_text() == "ORDERS_KEY=v\nORDERS_EU_KEY=w\n"
+        missing = runner.invoke(cli, ["source", "remove", "orders"], input="y\n")
+        assert missing.exit_code != 0

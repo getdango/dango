@@ -17,6 +17,7 @@ from dango.ingestion.sources.setup_schema import (
     CredentialRequirement,
     SourceSetupError,
     SourceSetupResult,
+    _coerce,
     _managed_by,
     _resources_apply,
     compute_env_var_name,
@@ -108,13 +109,13 @@ def update_source(
 ) -> SourceSetupResult:
     """Update a source's settings with the same validation as create_source.
 
-    Existing values are never rewritten unless the caller supplies that key.
+    Existing values are never rewritten unless the caller supplies that key. Supplying a key as
+    None/empty resets it to the registry default (create semantics), or removes it if none.
     """
     from dango.config import ConfigLoader
-    from dango.config.helpers import save_config
     from dango.config.models import DataSource
 
-    if params is None and description is None and empty_sync_policy is None:
+    if not params and description is None and empty_sync_policy is None:
         raise SourceSetupError(["Nothing to update"])
     params = dict(params or {})
     config, source = _load_with_source(project_root, source_name)
@@ -148,15 +149,21 @@ def update_source(
         if param.get("type") == "date" and isinstance(value, str):
             m = _DATETIME_PREFIX_RE.match(value)
             value = m.group(1) if m else value
+        if key not in params:
+            try:
+                _coerce(param, value)
+            except ValueError:
+                continue  # stale stored value; left untouched, not re-validated
         candidate[key] = value
     candidate.update(params)
 
     errors: list[str] = []
     normalized: dict[str, Any] = {}
-    try:
-        normalized, _ = normalize_params(st, source_name, candidate)
-    except SourceSetupError as exc:
-        errors.extend(exc.errors)
+    if params:
+        try:
+            normalized, _ = normalize_params(st, source_name, candidate)
+        except SourceSetupError as exc:
+            errors.extend(exc.errors)
 
     final = dict(existing)
     for key in params:
@@ -201,7 +208,7 @@ def update_source(
         result.files_changed.extend(created)
 
     config.sources.sources[config.sources.sources.index(source)] = DataSource(**new)
-    save_config(config, project_root)
+    ConfigLoader(project_root).save_sources_config(config.sources)
     result.files_changed.append(".dango/sources.yml")
 
     reqs: list[CredentialRequirement] = []
@@ -224,13 +231,13 @@ def update_source(
 
 def set_source_enabled(project_root: Path, source_name: str, enabled: bool) -> bool:
     """Enable/disable a source. True if changed, False if it was already in that state."""
-    from dango.config.helpers import save_config
+    from dango.config import ConfigLoader
 
     config, source = _load_with_source(project_root, source_name)
     if source.enabled == enabled:
         return False
     source.enabled = enabled
-    save_config(config, project_root)
+    ConfigLoader(project_root).save_sources_config(config.sources)
     return True
 
 
@@ -272,7 +279,10 @@ def _downstream_models(project_root: Path, name: str, other_names: list[str]) ->
     for path, layer in iter_model_files(project_root):
         if layer not in CUSTOM_MODEL_LAYERS:
             continue
-        refs, sources = extract_refs(path.read_text(encoding="utf-8"))
+        try:
+            refs, sources = extract_refs(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue  # unreadable model file: cannot be shown to depend on the source
         if any(_owned_staging(r, name, other_names) for r in refs) or any(
             s.split(".")[0] == name for s in sources
         ):
@@ -335,7 +345,7 @@ def remove_source(
 
     Never drops warehouse data and never edits .env (matching names are only reported).
     """
-    from dango.config.helpers import save_config
+    from dango.config import ConfigLoader
 
     config, source = _load_with_source(project_root, source_name)
     st: str = source.type.value
@@ -380,7 +390,7 @@ def remove_source(
 
     if not dry_run:
         config.sources.sources = others
-        save_config(config, project_root)
+        ConfigLoader(project_root).save_sources_config(config.sources)
     _remove_config_toml_section(
         project_root, st, source_name, [s.name for s in others if s.type.value == st], result
     )
