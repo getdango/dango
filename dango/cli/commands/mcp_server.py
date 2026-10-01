@@ -479,21 +479,18 @@ def mcp_run(ctx: click.Context) -> None:
 
 
 # ── Register subcommands / tools from separate modules ──────────────────────────
-# Mirrors the cross-file registration pattern in commands/remote.py: mcp_setup.py
-# imports mcp_group from here and self-registers `setup`/`status` via
-# @mcp_group.command(...) decorators. Split out to keep this file (the read
-# tools + FastMCP server definition) under the 500-line file-size check.
-#
-# mcp_mutations.py (Session F) follows the same bottom-of-file import pattern,
-# but registers onto `mcp` (the FastMCP instance) via @mcp.tool() rather than
-# onto `mcp_group` (the Click group) — it adds mutation tools (run_sync,
-# run_transform, run_doctor, add_source, list_source_types, create_model),
-# not CLI subcommands. mcp_schedules.py registers the schedule tools the same way.
-# mcp_debug.py registers read-only debugging tools (validate, logs, status, warehouse health).
+# Each module self-registers on import: Click subcommands via @mcp_group.command()
+# (mcp_setup) or tools via @mcp.tool(). Split out to keep this file under the
+# 500-line file-size check; add new tool modules to the tuple below.
+import importlib  # noqa: E402
 
-# mcp_governance.py registers governance tools (drift, PII) and owns query()'s PII masking helper.
-import dango.cli.commands.mcp_debug as _mcp_debug  # noqa: E402, F401
-import dango.cli.commands.mcp_governance as _mcp_governance  # noqa: E402, F401
-import dango.cli.commands.mcp_mutations as _mcp_mutations  # noqa: E402, F401
-import dango.cli.commands.mcp_schedules as _mcp_schedules  # noqa: E402, F401
-import dango.cli.commands.mcp_setup as _mcp_setup  # noqa: E402, F401
+_REGISTRATION_MODULES = (
+    "mcp_debug",
+    "mcp_governance",
+    "mcp_mutations",
+    "mcp_operations",
+    "mcp_schedules",
+    "mcp_setup",
+)
+for _module in _REGISTRATION_MODULES:
+    importlib.import_module(f"dango.cli.commands.{_module}")
