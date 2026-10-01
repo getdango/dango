@@ -11,6 +11,7 @@ import yaml
 
 from dango.transformation import model_service as ms
 from dango.transformation.generator import DbtModelGenerator
+from dango.transformation.model_docs import upsert_model_docs
 from dango.transformation.model_service import (
     ModelServiceError,
     create_model,
@@ -442,3 +443,57 @@ def test_update_docs_only_leaves_sql_bytes_untouched(proj: Path) -> None:
     assert res.path not in res.files_changed
     with pytest.raises(ModelServiceError):
         update_model(proj, "fct_a", columns=[], parse=False)
+
+
+# ---- column tests/data_tests key merge --------------------------------------
+
+
+def _col_doc_proj(proj: Path, col: dict) -> Path:
+    _write(proj, "dbt/models/marts/fct_a.sql", "select 1 as id")
+    schema = {"version": 2, "models": [{"name": "fct_a", "columns": [col]}]}
+    return _write(proj, "dbt/models/marts/schema.yml", yaml.dump(schema, sort_keys=False))
+
+
+@pytest.mark.parametrize(
+    ("existing", "supplied"), [("tests", "data_tests"), ("data_tests", "tests")]
+)
+def test_update_model_column_test_key_replaces_other_spelling(
+    proj: Path, existing: str, supplied: str
+) -> None:
+    path = _col_doc_proj(
+        proj, {"name": "id", "description": "d", existing: ["not_null"], "meta": {"k": 1}}
+    )
+    res = update_model(proj, "fct_a", columns=[{"name": "id", supplied: ["unique"]}], parse=False)
+    assert res.status == "updated"
+    col = yaml.safe_load(path.read_text())["models"][0]["columns"][0]
+    assert col == {"name": "id", "description": "d", "meta": {"k": 1}, supplied: ["unique"]}
+
+
+def test_update_model_column_without_test_key_keeps_existing_tests(proj: Path) -> None:
+    path = _col_doc_proj(proj, {"name": "id", "tests": ["not_null"]})
+    update_model(proj, "fct_a", columns=[{"name": "id", "description": "x"}], parse=False)
+    col = yaml.safe_load(path.read_text())["models"][0]["columns"][0]
+    assert col == {"name": "id", "tests": ["not_null"], "description": "x"}
+
+
+def test_upsert_model_docs_unchanged_not_rewritten(proj: Path) -> None:
+    path = _col_doc_proj(proj, {"name": "id", "data_tests": ["not_null"]})
+    path.write_text(path.read_text() + "# marker\n")  # a rewrite would drop this comment
+    changed = upsert_model_docs(
+        proj, "marts", "fct_a", columns=[{"name": "id", "data_tests": ["not_null"]}]
+    )
+    assert changed is None
+    assert path.read_text().endswith("# marker\n")
+
+
+def test_update_model_rejects_both_test_keys_in_one_column(proj: Path) -> None:
+    path = _col_doc_proj(proj, {"name": "id"})
+    before = path.read_text()
+    with pytest.raises(ModelServiceError, match="not both"):
+        update_model(
+            proj,
+            "fct_a",
+            columns=[{"name": "id", "tests": ["a"], "data_tests": ["b"]}],
+            parse=False,
+        )
+    assert path.read_text() == before
