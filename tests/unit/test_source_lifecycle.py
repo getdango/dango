@@ -3,6 +3,7 @@
 Tests for non-interactive source update, enable/disable and removal (setup_lifecycle).
 """
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -373,3 +374,80 @@ def test_credential_requirements_stripe_stored_env_name(
     (tmp_path / ".env").write_text("MY_STRIPE_KEY=whatever\n")
     assert credential_requirements(tmp_path, src) == []
     assert not (tmp_path / ".dlt" / "secrets.toml").exists()
+
+
+@pytest.mark.unit
+def test_credential_requirements_never_echo_literal_secret(
+    tmp_path: Path, sample_config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dango.ingestion.sources.setup_lifecycle import credential_requirements
+
+    literal = "sk-live abc/123+secret=="
+    src = _ds(
+        "api",
+        "rest_api",
+        {"base_url": "https://x.test", "endpoints": [], "auth_token_env": literal},
+    )
+    sample_config.sources.sources = [src]
+    save_config(sample_config, tmp_path)
+
+    reqs = credential_requirements(tmp_path, src)
+    assert reqs
+    assert "abc/123" not in repr(reqs)
+    assert literal not in repr(reqs)
+    assert [(r.kind, r.name) for r in reqs if "auth_token_env" in r.detail] == [
+        ("env_var", "auth_token_env")
+    ]
+    assert "must be an environment variable NAME" in repr(reqs)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("literal", ["sk_live_51Abc123def", "ghp_abcDEF123", "Abc123token"])
+def test_credential_requirements_never_echo_identifier_shaped_token(
+    tmp_path: Path, sample_config, literal: str
+) -> None:
+    from dango.ingestion.sources.setup_lifecycle import credential_requirements
+
+    src = _ds(
+        "api",
+        "rest_api",
+        {"base_url": "https://x.test", "endpoints": [], "auth_token_env": literal},
+    )
+    sample_config.sources.sources = [src]
+    save_config(sample_config, tmp_path)
+    reqs = credential_requirements(tmp_path, src)
+    assert reqs and literal not in repr(reqs)
+
+
+@pytest.mark.unit
+def test_redact_env_fields_hides_literal_keeps_names() -> None:
+    from dango.ingestion.sources.setup_lifecycle import redact_env_fields
+
+    out = redact_env_fields(
+        {"auth_token_env": "sk_live_abc", "stripe_secret_key_env": "MY_KEY", "n": {"x_env": "a b"}}
+    )
+    assert "sk_live_abc" not in repr(out) and "a b" not in repr(out)
+    assert out["stripe_secret_key_env"] == "MY_KEY"
+
+
+@pytest.mark.unit
+def test_credential_requirements_valid_stored_name_and_computed_fallback(
+    tmp_path: Path, sample_config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dango.ingestion.sources.setup_lifecycle import credential_requirements
+
+    monkeypatch.delenv("MY_API_TOKEN", raising=False)
+    stored = _ds(
+        "api",
+        "rest_api",
+        {"base_url": "https://x.test", "endpoints": [], "auth_token_env": "MY_API_TOKEN"},
+    )
+    reqs = credential_requirements(tmp_path, stored)
+    assert [(r.kind, r.name) for r in reqs] == [("env_var", "MY_API_TOKEN")]
+
+    monkeypatch.delenv("BILLING_STRIPE_SECRET_KEY", raising=False)
+    fallback = _ds("billing", "stripe", {})
+    reqs = credential_requirements(tmp_path, fallback)
+    assert len(reqs) == 1 and reqs[0].kind == "env_var"
+    assert re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", reqs[0].name)
+    assert reqs[0].detail == f"Set {reqs[0].name} in .env"

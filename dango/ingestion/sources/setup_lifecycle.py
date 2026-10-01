@@ -21,6 +21,7 @@ from dango.ingestion.sources.setup_schema import (
     _managed_by,
     _resources_apply,
     compute_env_var_name,
+    is_env_var_name,
     normalize_params,
 )
 from dango.ingestion.sources.setup_service import _dotenv_has, prepare_source_directory
@@ -31,10 +32,25 @@ logger = get_logger(__name__)
 __all__ = [
     "SourceRemovalResult",
     "credential_requirements",
+    "is_env_var_name",
+    "redact_env_fields",
     "remove_source",
     "set_source_enabled",
     "update_source",
 ]
+
+
+def redact_env_fields(config: dict[str, Any]) -> dict[str, Any]:
+    """Copy of a source config with non-name ``*_env`` values replaced by a placeholder."""
+    out: dict[str, Any] = {}
+    for key, value in config.items():
+        if isinstance(value, dict):
+            value = redact_env_fields(value)
+        elif key.endswith("_env") and isinstance(value, str) and not is_env_var_name(value):
+            value = "<not a valid env var name; redacted>"
+        out[key] = value
+    return out
+
 
 _DATETIME_PREFIX_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})[T ]")
 
@@ -130,6 +146,20 @@ def credential_requirements(project_root: Path, source: Any) -> list[CredentialR
         if name not in existing and name not in required_names:
             continue
         env_var = str(existing.get(name) or compute_env_var_name(param, source.name))
+        if not is_env_var_name(env_var):
+            # Not a variable name: likely a pasted literal secret. Never echo it (these
+            # requirements reach the LLM provider via MCP) and never look it up.
+            reqs.append(
+                CredentialRequirement(
+                    kind="env_var",
+                    name=name,
+                    detail=(
+                        f"{name} must be an environment variable NAME, not the secret itself; "
+                        "set the secret in .env and store its variable name"
+                    ),
+                )
+            )
+            continue
         if not _dotenv_has(project_root, env_var):
             reqs.append(
                 CredentialRequirement(kind="env_var", name=env_var, detail=f"Set {env_var} in .env")

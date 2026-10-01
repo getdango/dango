@@ -53,11 +53,13 @@ def _with_git_warning(result: dict[str, Any], project_root: Path) -> dict[str, A
 
 
 def _result_dict(r: Any, status: str, extra_files: list[str] | None = None) -> dict[str, Any]:
+    from dango.ingestion.sources.setup_lifecycle import redact_env_fields
+
     return {
         "status": status,
         "source_name": r.source_name,
         "source_type": r.source_type,
-        "source_config": r.source_config,
+        "source_config": redact_env_fields(r.source_config),
         "files_changed": list(r.files_changed) + (extra_files or []),
         "credentials_required": _creds(r.credentials_required),
         "warnings": list(r.warnings),
@@ -347,7 +349,11 @@ def validate_source(source_name: str, check_connectivity: bool = False) -> dict[
         if check_connectivity:
             issues.extend(_connectivity_issues(st, project_root))
     except Exception as e:  # noqa: BLE001
-        return {"error": f"validate_source failed: {type(e).__name__}: {e}"}
+        # pydantic's str(e) embeds input_value, which can be a pasted secret
+        from pydantic import ValidationError
+
+        detail = "invalid config" if isinstance(e, ValidationError) else str(e)
+        return {"error": f"validate_source failed: {type(e).__name__}: {detail}"}
     return {
         "source_name": source_name,
         "type": st,

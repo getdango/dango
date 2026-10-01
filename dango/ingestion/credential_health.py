@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import time
 from pathlib import Path
 from typing import Any
@@ -17,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 _cache: dict[str, tuple[list[dict[str, Any]], float]] = {}
 _CACHE_TTL = 300  # 5 minutes
-_ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def _stored_block(source: Any, source_type: str) -> dict[str, Any]:
@@ -46,7 +44,11 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
     """
     from dango.config.helpers import get_config
     from dango.ingestion.sources.registry import AuthType, get_source_metadata
-    from dango.ingestion.sources.setup_schema import _is_secret_param, compute_env_var_name
+    from dango.ingestion.sources.setup_schema import (
+        _is_secret_param,
+        compute_env_var_name,
+        is_env_var_name,
+    )
     from dango.oauth.storage import OAuthStorage
     from dango.oauth.validation import validate_token
 
@@ -149,7 +151,7 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
                 if p["name"] not in required_names and p["name"] not in stored:
                     continue
                 name = str(stored.get(p["name"]) or compute_env_var_name(p, source_name))
-                if _ENV_NAME_RE.fullmatch(name):
+                if is_env_var_name(name):
                     env_names.append(name)
                 else:  # never echo a stored value that is not a variable name (may be a literal)
                     invalid.append(p["name"])
