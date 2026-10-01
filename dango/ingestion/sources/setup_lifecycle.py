@@ -30,6 +30,7 @@ logger = get_logger(__name__)
 
 __all__ = [
     "SourceRemovalResult",
+    "credential_requirements",
     "remove_source",
     "set_source_enabled",
     "update_source",
@@ -97,6 +98,44 @@ def _oauth_requirements(
             )
         ]
     return []
+
+
+def _block_values(source: Any) -> dict[str, Any]:
+    st: str = source.type.value
+    from dango.config.models import DataSource
+
+    block = getattr(source, st) if st in DataSource.model_fields else source.generic_config
+    if isinstance(block, BaseModel):
+        return block.model_dump(mode="json", exclude_none=True)
+    return dict(block or {})
+
+
+def credential_requirements(project_root: Path, source: Any) -> list[CredentialRequirement]:
+    """Credentials a configured source still needs (env vars unset in env/.env, OAuth).
+
+    Read-only and uncached; never reports values and never builds OAuthStorage without
+    .dlt/secrets.toml.
+    """
+    st: str = source.type.value
+    metadata = get_source_metadata(st)
+    if metadata is None:
+        return []
+    existing = _block_values(source)
+    reqs: list[CredentialRequirement] = []
+    required_names = {p["name"] for p in metadata.get("required_params", [])}
+    for param in metadata.get("required_params", []) + metadata.get("optional_params", []):
+        name = param["name"]
+        if _managed_by(param, metadata, st) != "user_secret":
+            continue
+        if name not in existing and name not in required_names:
+            continue
+        env_var = str(existing.get(name) or compute_env_var_name(param, source.name))
+        if not _dotenv_has(project_root, env_var):
+            reqs.append(
+                CredentialRequirement(kind="env_var", name=env_var, detail=f"Set {env_var} in .env")
+            )
+    reqs.extend(_oauth_requirements(project_root, st, metadata))
+    return reqs
 
 
 def update_source(
@@ -211,20 +250,7 @@ def update_source(
     ConfigLoader(project_root).save_sources_config(config.sources)
     result.files_changed.append(".dango/sources.yml")
 
-    reqs: list[CredentialRequirement] = []
-    for name, param in reg_params.items():
-        if _managed_by(param, metadata, st) != "user_secret":
-            continue
-        required = any(p["name"] == name for p in metadata.get("required_params", []))
-        if name not in existing and not required:
-            continue
-        env_var = str(existing.get(name) or compute_env_var_name(param, source_name))
-        if not _dotenv_has(project_root, env_var):
-            reqs.append(
-                CredentialRequirement(kind="env_var", name=env_var, detail=f"Set {env_var} in .env")
-            )
-    reqs.extend(_oauth_requirements(project_root, st, metadata))
-    result.credentials_required = reqs
+    result.credentials_required = credential_requirements(project_root, DataSource(**new))
     _, result.validation_errors = ConfigLoader(project_root).validate_config()
     return result
 

@@ -52,7 +52,7 @@ class TestAddSchedule:
     def test_add_schedule_missing_source(self, project: Path) -> None:
         result = mcp_schedules.add_schedule("daily_sync", "0 7 * * *", ["nonexistent_source"])
         assert "nonexistent_source" in result["error"]
-        assert "add_source()" in result["error"]
+        assert "create_source()" in result["error"]
         assert not _yml(project).exists()
 
     def test_add_schedule_success_persists_to_disk(self, project: Path) -> None:

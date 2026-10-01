@@ -33,7 +33,7 @@ def test_all_tool_modules_registered() -> None:
     expected: set[str] = set()
     for module in modules:
         expected |= _tool_names_defined_in(module)
-    assert {"run_sync", "run_transform", "run_doctor", "add_source"} <= expected
+    assert {"run_sync", "run_transform", "run_doctor", "create_source"} <= expected
 
     registered = {t.name for t in asyncio.run(mcp_server.mcp.list_tools())}
     assert expected <= registered

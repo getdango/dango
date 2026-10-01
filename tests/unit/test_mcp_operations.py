@@ -285,7 +285,10 @@ class TestRunTransform:
             lambda project_root, select, full_refresh: (True, "1 of 1 OK"),
         )
         result = mcp_operations.run_transform()
-        assert result == {"status": "completed", "output": "1 of 1 OK"}
+        assert result["status"] == "completed"
+        assert result["output"] == "1 of 1 OK"
+        assert result["results"] is None  # no run_results.json in a bare project
+        assert result["post_build"]["model_status"] == "updated"
 
     def test_run_transform_failure_is_not_reported_as_completed(
         self, project: Path, monkeypatch: pytest.MonkeyPatch
@@ -298,7 +301,9 @@ class TestRunTransform:
             lambda project_root, select, full_refresh: (False, "Compilation Error in model foo"),
         )
         result = mcp_operations.run_transform()
-        assert result == {"status": "failed", "output": "Compilation Error in model foo"}
+        assert result["status"] == "failed"
+        assert result["output"] == "Compilation Error in model foo"
+        assert result["post_build"]["schema_sync"] == "skipped"
 
     def test_run_transform_acquires_and_releases_dbt_lock(
         self, project: Path, monkeypatch: pytest.MonkeyPatch
@@ -337,7 +342,8 @@ class TestRunTransform:
 
         result = mcp_operations.run_transform()
 
-        assert result == {"status": "completed", "output": "1 of 1 OK"}
+        assert result["status"] == "completed"
+        assert result["output"] == "1 of 1 OK"
         assert call_order == ["init:mcp", "acquire", "dbt", "release"]
 
     def test_run_transform_lock_timeout_returns_clean_error(
