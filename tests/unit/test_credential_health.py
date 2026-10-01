@@ -22,6 +22,8 @@ def mock_project_root(tmp_path: Path) -> Path:
     project_root = tmp_path / "project"
     project_root.mkdir()
     (project_root / ".dlt").mkdir()
+    # OAuthStorage is only constructed when secrets.toml exists (the check must not create it)
+    (project_root / ".dlt" / "secrets.toml").write_text("")
     return project_root
 
 
@@ -218,7 +220,7 @@ def test_api_key_present(mock_project_root: Path) -> None:
     ):
         # Create .env file
         env_file = mock_project_root / ".env"
-        env_file.write_text("STRIPE_API_KEY=sk_test_123456\n")
+        env_file.write_text("MY_STRIPE_API_KEY=sk_test_123456\n")
 
         # Setup config
         mock_source = Mock()

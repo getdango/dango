@@ -389,8 +389,12 @@ class TestRunDoctor:
         """Positive control for the run_doctor_cached-doesn't-exist bug: the real
         function is get_cached_credential_health() in dango.ingestion.credential_health."""
         expected = [{"source": "test_source", "type": "csv", "status": "ok", "detail": ""}]
-        monkeypatch.setattr(
-            "dango.ingestion.credential_health.get_cached_credential_health",
-            lambda project_root: expected,
-        )
+        calls: list[bool] = []
+
+        def fake(project_root: Path, *, refresh: bool = False) -> list[dict[str, str]]:
+            calls.append(refresh)
+            return expected
+
+        monkeypatch.setattr("dango.ingestion.credential_health.get_cached_credential_health", fake)
         assert mcp_operations.run_doctor() == expected
+        assert calls == [True]  # MCP run_doctor always bypasses the cache
