@@ -93,11 +93,12 @@ def remote_sync(
     # Run as dango user (not root) to avoid file ownership pollution,
     # and set DANGO_CLOUD_MODE so sync_trigger stops Metabase before writing.
     # cd to project dir first — SSH session starts in /root/ which dango can't access.
-    cmd = (
-        f"cd {_PROJECT_ROOT} &&"
-        f" sudo -u dango -H env DANGO_CLOUD_MODE=true"
+    cd_prefix = f"cd {_PROJECT_ROOT} &&"
+    sudo_cmd = (
+        f"sudo -u dango -H env DANGO_CLOUD_MODE=true"
         f" {_VENV_PYTHON} -m dango.platform.scheduling.sync_trigger {escaped_payload}"
     )
+    cmd = f"{cd_prefix} {sudo_cmd}"
 
     try:
         if wait:
@@ -127,9 +128,14 @@ def remote_sync(
                 console.print(f"[red]Error:[/red] {stderr}")
                 raise SystemExit(1)
         else:
-            # Fire-and-forget: wrap in nohup
-            bg_cmd = f"nohup {cmd} > /dev/null 2>&1 &"
-            ssh.exec_command(bg_cmd, timeout=10, check=False)
+            # Fire-and-forget: nohup must wrap the sudo command, not the `cd`
+            # builtin (`nohup cd ...` fails and `&&` then skips the sync).
+            bg_cmd = f"{cd_prefix} nohup {sudo_cmd} > /dev/null 2>&1 &"
+            result = ssh.exec_command(bg_cmd, timeout=10, check=False)
+            if not result.success:
+                stderr = result.stderr.strip() if result.stderr else "Could not start sync"
+                console.print(f"[red]Error:[/red] {stderr}")
+                raise SystemExit(1)
             console.print(
                 f"[green]Sync triggered[/green] for [bold]{source}[/bold] "
                 f"(running in background on server)."
