@@ -1,8 +1,8 @@
 """tests/unit/test_mcp_mutations.py
 
 Tests for the MCP mutation tools (dango/cli/commands/mcp_mutations.py):
-add_source, list_source_types, create_model. Operate tools: see
-test_mcp_operations.py. Schedule tools: see test_mcp_schedules.py.
+add_source, list_source_types. Operate tools: see test_mcp_operations.py. Schedule tools:
+see test_mcp_schedules.py; model tools: see test_mcp_models.py.
 """
 
 from __future__ import annotations
@@ -77,62 +77,8 @@ class TestListSourceTypes:
 
 
 @pytest.mark.unit
-class TestCreateModel:
-    def test_create_model_wrong_layer_naming(self, project: Path) -> None:
-        result = mcp_mutations.create_model("raw_orders", "marts", [])
-        assert "error" in result
-        assert "fct_" in result["error"] or "dim_" in result["error"]
-
-    def test_create_model_invalid_layer(self, project: Path) -> None:
-        result = mcp_mutations.create_model("stg_x__y", "not_a_layer", [])
-        assert "error" in result
-
-    def test_create_model_raw_ref_in_marts(self, project: Path) -> None:
-        result = mcp_mutations.create_model("fct_orders", "marts", ["raw_stripe__orders"])
-        assert result["status"] == "created"
-        assert result["warnings"]
-        assert "raw table" in result["warnings"][0]
-
-    def test_create_model_staging_scaffold(self, project: Path) -> None:
-        """Also a positive control for the staging source() brace bug found during
-        implementation: the scaffold must contain valid dbt Jinja ({{ source(...) }},
-        double braces), not the single-brace ({ source(...) }) literal text a plain
-        f"{{ source(...) }}" collapses to."""
-        result = mcp_mutations.create_model("stg_stripe__orders", "staging", ["orders"])
-
-        assert result["status"] == "created"
-        assert result["file_path"] == str(
-            Path("dbt") / "models" / "staging" / "stg_stripe__orders.sql"
-        )
-
-        model_file = project / "dbt" / "models" / "staging" / "stg_stripe__orders.sql"
-        assert model_file.exists()
-        content = model_file.read_text()
-        assert "{{ source('orders', 'orders') }}" in content
-        assert content == result["sql_scaffold"]
-
-        schema_file = project / "dbt" / "models" / "staging" / "schema.yml"
-        assert schema_file.exists()
-
-    def test_create_model_rejects_path_traversal(self, project: Path) -> None:
-        """Regression-risk item from the session prompt: model_dir / f"{model_name}.sql"
-        must stay inside the project — model_name must not escape via '../'."""
-        result = mcp_mutations.create_model("stg_x/../../evil", "staging", [])
-        assert "error" in result
-        escaped_path = project.parent / "evil.sql"
-        assert not escaped_path.exists()
-
-    def test_create_model_duplicate_name(self, project: Path) -> None:
-        first = mcp_mutations.create_model("int_orders_enriched", "intermediate", [])
-        assert first["status"] == "created"
-        second = mcp_mutations.create_model("int_orders_enriched", "intermediate", [])
-        assert "error" in second
-        assert "already exists" in second["error"]
-
-
-@pytest.mark.unit
 class TestGitWarning:
-    """1.0.8-OPS-3: add_source/create_model surface git-state
+    """1.0.8-OPS-3: add_source surfaces git-state
     warnings via a `git_warning` key in their return dict — there's no human
     to prompt over stdio, so this is how the calling agent sees it. The
     `project` fixture's tmp_path is never a git repo, so these tests
@@ -165,29 +111,6 @@ class TestGitWarning:
         assert result == {"error": "Source 'test_source' already exists in sources.yml"}
         assert "git_warning" not in result
 
-    def test_create_model_includes_git_warning_when_present(
-        self, project: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(
-            mcp_mutations,
-            "_git_warnings",
-            lambda project_root: ["Working tree has uncommitted changes."],
-        )
-        result = mcp_mutations.create_model("int_orders_summary", "intermediate", [])
-        assert result["status"] == "created"
-        assert result["git_warning"] == ["Working tree has uncommitted changes."]
-        # The pre-existing "warnings" key (naming/anti-pattern) is a separate concept —
-        # confirm the two don't collide.
-        assert result["warnings"] == []
-
-    def test_create_model_omits_git_warning_when_clean(
-        self, project: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(mcp_mutations, "_git_warnings", lambda project_root: [])
-        result = mcp_mutations.create_model("int_orders_clean", "intermediate", [])
-        assert result["status"] == "created"
-        assert "git_warning" not in result
-
     def test_non_git_project_never_crashes_and_omits_key(self, project: Path) -> None:
         """project fixture's tmp_path is a plain directory, never git-initialized —
         confirms _git_warnings() (and therefore both tools) handles a non-git
@@ -196,7 +119,3 @@ class TestGitWarning:
         result = mcp_mutations.add_source("csv", "non_git_source")
         assert result["status"] == "created"
         assert "git_warning" not in result
-
-        result2 = mcp_mutations.create_model("int_non_git", "intermediate", [])
-        assert result2["status"] == "created"
-        assert "git_warning" not in result2
