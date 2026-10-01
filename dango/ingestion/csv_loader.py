@@ -76,6 +76,7 @@ class CSVLoader:
         config: CSVSourceConfig,
         target_schema: str = "raw",
         allow_schema_changes: bool = False,
+        allow_empty_replace: bool = False,
     ) -> dict[str, Any]:
         """
         Load CSV files incrementally
@@ -85,6 +86,9 @@ class CSVLoader:
             config: CSV source configuration
             target_schema: Target schema name (default: 'raw')
             allow_schema_changes: If True, allow schema evolution (add cols, NULL missing)
+            allow_empty_replace: If False (default), a sync that would remove every
+                existing row (all source files gone, or only 0-row files remain)
+                fails with error_type "empty_replace_protection" and changes nothing.
 
         Returns:
             Dictionary with load statistics
@@ -149,6 +153,16 @@ class CSVLoader:
         # Result: raw_test_csv_1.test_csv_1 (redundant but clear when schema not shown)
         table_name = source_name
         target_table = f"{target_schema}.{table_name}"
+
+        # Empty-replace protection, before any write: every source file is gone.
+        if (
+            not allow_empty_replace
+            and not current_files
+            and self._check_table_exists(conn, target_schema, table_name)
+        ):
+            blocked = self._empty_replace_block(conn, source_name, target_table, classified)
+            if blocked:
+                return blocked
 
         # Clean up legacy "data" table if it exists (from old CSV loader behavior)
         # This prevents orphaned tables when migrating from old naming scheme
@@ -239,6 +253,12 @@ class CSVLoader:
                 ):
                     stats["updated"] += 1
 
+            # Empty-replace protection: loads are done, deletions are the last write.
+            if not allow_empty_replace and table_exists and classified["deleted"]:
+                blocked = self._empty_replace_block(conn, source_name, target_table, classified)
+                if blocked:
+                    return blocked
+
             # Delete removed files
             for filepath in classified["deleted"]:
                 if self._delete_file_data(conn, filepath, target_table, source_name):
@@ -292,6 +312,45 @@ class CSVLoader:
                 **stats,
             }
 
+    def _empty_replace_block(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        source_name: str,
+        target_table: str,
+        classified: dict[str, list],
+    ) -> dict[str, Any] | None:
+        """Return a failed result (closing conn) if deleting the removed files'
+        rows would leave the table empty; None if the sync may proceed."""
+        if not classified["deleted"]:
+            return None
+        names = [os.path.basename(f) for f in classified["deleted"]]
+        marks = ", ".join("?" for _ in names)
+        total = conn.execute(f"SELECT COUNT(*) FROM {target_table}").fetchone()[0]
+        doomed = conn.execute(
+            f"SELECT COUNT(*) FROM {target_table} WHERE _dango_filename IN ({marks})", names
+        ).fetchone()[0]
+        if total == 0 or doomed != total:
+            return None
+        conn.close()
+        from dango.ingestion.dlt_runner import EMPTY_REPLACE_PROTECTION_ERROR_TYPE
+
+        error_msg = (
+            f"All source files are missing or empty — existing {total:,} rows "
+            f"preserved. To force sync with empty data, use: "
+            f"dango sync {source_name} --allow-empty-replace"
+        )
+        console.print(f"  [red]❌ {error_msg}[/red]")
+        return {
+            "status": "failed",
+            "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
+            "error": error_msg,
+            "new": 0,
+            "updated": 0,
+            "deleted": 0,
+            "skipped": len(classified["unchanged"]),
+            "total_rows": total,
+        }
+
     def _setup_metadata_table(self, conn: duckdb.DuckDBPyConnection) -> None:
         """Create metadata tracking table if not exists"""
         conn.execute("""
@@ -321,15 +380,20 @@ class CSVLoader:
         prev_files = {}
         result = conn.execute(
             """
-            SELECT file_path, file_mtime
+            SELECT file_path, file_mtime, status
             FROM _dango_file_metadata
             WHERE source_name = ?
         """,
             [source_name],
         ).fetchall()
 
-        for file_path, mtime in result:
+        # Files whose rows were removed (status 'deleted') count as not loaded,
+        # so the same file returning (e.g. moved back, mtime unchanged) reloads.
+        reloadable = set()
+        for file_path, mtime, status in result:
             prev_files[file_path] = mtime
+            if status == "deleted":
+                reloadable.add(file_path)
 
         new_files = []
         updated_files = []
@@ -338,7 +402,7 @@ class CSVLoader:
         for filepath in current_files:
             metadata = self._get_file_metadata(filepath)
 
-            if filepath not in prev_files:
+            if filepath not in prev_files or filepath in reloadable:
                 new_files.append((filepath, metadata))
             elif metadata["mtime"] > prev_files[filepath]:
                 updated_files.append((filepath, metadata))

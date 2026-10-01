@@ -803,7 +803,19 @@ class DltPipelineRunner:
             config=source_config.csv,
             target_schema=target_schema,
             allow_schema_changes=getattr(self, "allow_schema_changes", False),
+            allow_empty_replace=allow_empty_replace,
         )
+
+        if result.get("error_type") == EMPTY_REPLACE_PROTECTION_ERROR_TYPE:
+            # Loader refused to empty the table (all files gone); nothing was changed.
+            return {
+                "status": "failed",
+                "source": source_config.name,
+                "error": result["error"],
+                "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
+                "rows_loaded": 0,
+                "uses_replace_mode": True,
+            }
 
         merged = {
             **result,
@@ -963,7 +975,19 @@ class DltPipelineRunner:
             config=source_config.local_files,
             target_schema=target_schema,
             allow_schema_changes=getattr(self, "allow_schema_changes", False),
+            allow_empty_replace=allow_empty_replace,
         )
+
+        if result.get("error_type") == EMPTY_REPLACE_PROTECTION_ERROR_TYPE:
+            # Loader refused to empty the table (all files gone); nothing was changed.
+            return {
+                "status": "failed",
+                "source": source_config.name,
+                "error": result["error"],
+                "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
+                "rows_loaded": 0,
+                "uses_replace_mode": True,
+            }
 
         merged = {
             **result,
