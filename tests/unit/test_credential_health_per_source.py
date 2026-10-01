@@ -111,3 +111,60 @@ def test_refresh_bypasses_cache(project: Path) -> None:
     # refresh repopulated the cache
     again = get_cached_credential_health(project)
     assert next(r for r in again if r["source"] == "billing")["status"] == "ok"
+
+
+def _mock_api_source(stored: dict, params: list[dict]) -> tuple[Mock, dict]:
+    from dango.ingestion.sources.registry import AuthType
+
+    source = Mock()
+    source.name = "billing"
+    source.type.value = "someapi"
+    source.generic_config = stored
+    metadata = {"auth_type": AuthType.API_KEY, "required_params": params, "optional_params": []}
+    return source, metadata
+
+
+def _run(tmp_path: Path, source: Mock, metadata: dict) -> dict:
+    config = Mock()
+    config.sources.sources = [source]
+    with (
+        patch("dango.config.helpers.get_config", return_value=config),
+        patch("dango.ingestion.sources.registry.get_source_metadata", return_value=metadata),
+    ):
+        return run_credential_checks(tmp_path)[0]
+
+
+@pytest.mark.unit
+def test_stored_name_differs_from_computed(tmp_path: Path) -> None:
+    source, meta = _mock_api_source(
+        {"api_key": "MY_CUSTOM_KEY"},
+        [{"name": "api_key", "type": "secret", "env_var": "STRIPE_API_KEY"}],
+    )
+    (tmp_path / ".env").write_text("BILLING_API_KEY=x\n")
+    result = _run(tmp_path, source, meta)
+    assert result["status"] == "missing" and "MY_CUSTOM_KEY" in result["detail"]
+    (tmp_path / ".env").write_text("MY_CUSTOM_KEY=x\n")
+    assert _run(tmp_path, source, meta)["status"] == "ok"
+
+
+@pytest.mark.unit
+def test_literal_value_in_env_field_is_not_echoed(tmp_path: Path) -> None:
+    source, meta = _mock_api_source(
+        {"token_env": "sk-live-abc 123"}, [{"name": "token_env", "type": "string"}]
+    )
+    result = _run(tmp_path, source, meta)
+    assert result["status"] == "missing"
+    assert "sk-live" not in result["detail"] and "token_env" in result["detail"]
+
+
+@pytest.mark.unit
+def test_empty_dotenv_value_is_missing_and_environ_wins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, meta = _mock_api_source(
+        {}, [{"name": "api_key", "type": "secret", "env_var": "X_API_KEY"}]
+    )
+    (tmp_path / ".env").write_text("BILLING_API_KEY=\n")
+    assert _run(tmp_path, source, meta)["status"] == "missing"
+    monkeypatch.setenv("BILLING_API_KEY", "x")
+    assert _run(tmp_path, source, meta)["status"] == "ok"

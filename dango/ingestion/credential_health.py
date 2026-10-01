@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 _cache: dict[str, tuple[list[dict[str, Any]], float]] = {}
 _CACHE_TTL = 300  # 5 minutes
+_ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def _stored_block(source: Any, source_type: str) -> dict[str, Any]:
@@ -139,13 +141,19 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
             # Each source's own variable: the name stored in its config, else the computed one
             # (same rule as setup_lifecycle.credential_requirements).
             env_names: list[str] = []
+            invalid: list[str] = []
+            required_names = {r["name"] for r in required}
             for p in required + registry_entry.get("optional_params", []):
                 if not _is_secret_param(p):
                     continue
-                if p not in required and p["name"] not in stored:
+                if p["name"] not in required_names and p["name"] not in stored:
                     continue
-                env_names.append(str(stored.get(p["name"]) or compute_env_var_name(p, source_name)))
-            if not env_names:
+                name = str(stored.get(p["name"]) or compute_env_var_name(p, source_name))
+                if _ENV_NAME_RE.fullmatch(name):
+                    env_names.append(name)
+                else:  # never echo a stored value that is not a variable name (may be a literal)
+                    invalid.append(p["name"])
+            if not env_names and not invalid:
                 results.append(
                     {
                         "source": source_name,
@@ -157,13 +165,14 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
                 )
                 continue
             missing = [n for n in env_names if not os.environ.get(n) and not dot_env.get(n)]
+            problems = [*missing, *(f"{p} (not a valid env var name)" for p in invalid)]
             results.append(
                 {
                     "source": source_name,
                     "type": source_type,
                     "auth_type": auth_type.value,
-                    "status": "ok" if not missing else "missing",
-                    "detail": "" if not missing else f"Missing: {', '.join(missing)}",
+                    "status": "ok" if not problems else "missing",
+                    "detail": "" if not problems else f"Missing: {', '.join(problems)}",
                 }
             )
 
