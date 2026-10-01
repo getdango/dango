@@ -27,7 +27,7 @@ from dango.config.models import (
     SourceType,
 )
 from dango.exceptions import SyncTimeoutError
-from dango.ingestion.csv_loader import CSVLoader
+from dango.ingestion.csv_loader import CSVLoader, check_duplicate_filenames
 from dango.ingestion.sources.registry import get_source_metadata
 
 if TYPE_CHECKING:
@@ -743,6 +743,20 @@ class DltPipelineRunner:
         has_backup = False
         metadata_backup: list[tuple] = []  # backed-up _dango_file_metadata rows
 
+        # Duplicate file names are refused; check before a full refresh drops anything
+        dup_err = (
+            check_duplicate_filenames(self.project_root, source_config.csv)
+            if full_refresh
+            else None
+        )
+        if dup_err:
+            return {
+                **dup_err,
+                "source": source_config.name,
+                "rows_loaded": 0,
+                "uses_replace_mode": True,
+            }
+
         # Full refresh: backup or drop existing table
         if full_refresh:
             conn = _connect_with_lock_retry(
@@ -916,6 +930,20 @@ class DltPipelineRunner:
         pre_refresh_rows = self._get_csv_table_rows(source_config.name)
         has_backup = False
         metadata_backup: list[tuple] = []  # backed-up _dango_file_metadata rows
+
+        # Duplicate file names are refused; check before a full refresh drops anything
+        dup_err = (
+            check_duplicate_filenames(self.project_root, source_config.local_files)
+            if full_refresh
+            else None
+        )
+        if dup_err:
+            return {
+                **dup_err,
+                "source": source_config.name,
+                "rows_loaded": 0,
+                "uses_replace_mode": True,
+            }
 
         # Full refresh: backup or drop existing table
         if full_refresh:

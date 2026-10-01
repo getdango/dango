@@ -7,6 +7,7 @@ Supports CSV, JSON, JSONL, and Parquet formats via DuckDB's native readers.
 
 import glob
 import os
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,8 @@ from dango.config.models import CSVSourceConfig
 from dango.exceptions import CSVSchemaMismatchError
 
 console = Console()
+
+DUPLICATE_FILENAME_ERROR_TYPE = "duplicate_filenames"
 
 # DuckDB read functions keyed by file extension
 SUPPORTED_READ_FUNCTIONS: dict[str, str] = {
@@ -116,6 +119,12 @@ class CSVLoader:
             elif ext:  # Skip directories (no extension)
                 console.print(f"  ⚠️  Skipping unsupported format: {Path(f).name}")
 
+        # Rows are tracked by file name, so same-named files would overwrite each other
+        by_name = self._group_by_name(current_files)
+        dupes = {n: paths for n, paths in by_name.items() if len(paths) > 1}
+        if dupes:
+            return self._duplicate_filename_error(directory, dupes)
+
         # Connect to DuckDB (needed even if no files exist, to process deletions)
         # Lazy import to avoid a circular import: dlt_runner.py imports CSVLoader from this
         # module at its own top level, so a top-level import here would cycle back.
@@ -130,6 +139,23 @@ class CSVLoader:
 
         # Setup metadata tracking
         self._setup_metadata_table(conn)
+
+        # A previously loaded file that still exists (but no longer matches) and shares
+        # a name with a current file is the same ambiguity; a gone file is a normal delete.
+        prev_loaded = conn.execute(
+            "SELECT file_path FROM _dango_file_metadata WHERE source_name = ? AND status = 'loaded'",
+            [source_name],
+        ).fetchall()
+        current_set = set(current_files)
+        loaded_paths = {r[0] for r in prev_loaded}
+        for (old_path,) in prev_loaded:
+            if old_path not in current_set and os.path.exists(old_path):
+                clash = by_name.get(os.path.basename(old_path))
+                if clash:
+                    conn.close()
+                    return self._duplicate_filename_error(
+                        directory, {os.path.basename(old_path): [old_path, *clash]}
+                    )
 
         # Show file count
         if not current_files:
@@ -231,6 +257,29 @@ class CSVLoader:
         }
 
         try:
+            # A moved file (old path gone, same name) must have its old rows removed before
+            # the new copy loads; the later name-keyed delete would otherwise hit the new rows.
+            # Already-deleted paths linger in "deleted" and must never delete by name again.
+            if table_exists:
+                loading = {
+                    os.path.basename(f) for f, _m in classified["new"] + classified["updated"]
+                }
+                replaced, kept = [], []
+                for f in classified["deleted"]:
+                    name = os.path.basename(f)
+                    if name not in by_name:
+                        kept.append(f)
+                    elif f in loaded_paths and name in loading:
+                        # 0-row/unreadable copy: normal delete (empty-replace block applies)
+                        if self._has_rows(conn, by_name[name][0]):
+                            replaced.append(f)
+                        else:
+                            kept.append(f)
+                for filepath in replaced:
+                    if self._delete_file_data(conn, filepath, target_table, source_name):
+                        stats["deleted"] += 1
+                classified["deleted"] = kept
+
             # Load new files
             for filepath, _metadata in classified["new"]:
                 if self._load_new_file(
@@ -313,6 +362,55 @@ class CSVLoader:
                 "error": str(e),
                 **stats,
             }
+
+    def _has_rows(self, conn: duckdb.DuckDBPyConnection, filepath: str) -> bool:
+        """True if the file reads cleanly and has at least one row."""
+        try:
+            read_fn = self._get_read_function(filepath)
+            quoted = self._sql_quote(filepath)
+            return bool(conn.execute(f"SELECT COUNT(*) FROM {read_fn}('{quoted}')").fetchone()[0])
+        except Exception:
+            return False
+
+    @staticmethod
+    def _group_by_name(files: list[str]) -> dict[str, list[str]]:
+        by_name: dict[str, list[str]] = defaultdict(list)
+        for f in files:
+            by_name[os.path.basename(f)].append(f)
+        return by_name
+
+    @staticmethod
+    def _duplicate_filename_error(directory: Path, dupes: dict[str, list[str]]) -> dict[str, Any]:
+        """Refuse the sync: files sharing a name cannot be told apart in the table."""
+
+        def _rel(f: str) -> str:
+            try:
+                return str(Path(f).relative_to(directory))
+            except ValueError:
+                return f
+
+        shown = [
+            f"{name} ({', '.join(_rel(p) for p in paths)})"
+            for name, paths in list(dupes.items())[:3]
+        ]
+        msg = (
+            f"Multiple files share the same file name: {'; '.join(shown)}. "
+            "Files matched by a local_files source must have unique file names (rows are "
+            "tracked by file name). Rename the files (for example `2026-09-sales.csv`) or "
+            "narrow `file_pattern` so each name matches once (a file that was loaded earlier and "
+            "still exists on disk also counts: rename or remove it). Nothing was changed."
+        )
+        console.print(f"  [red]❌ {msg}[/red]")
+        return {
+            "status": "failed",
+            "error": msg,
+            "error_type": DUPLICATE_FILENAME_ERROR_TYPE,
+            "new": 0,
+            "updated": 0,
+            "deleted": 0,
+            "skipped": 0,
+            "total_rows": 0,
+        }
 
     def _empty_replace_block(
         self,
@@ -1160,3 +1258,17 @@ class CSVLoader:
         except Exception as e:
             console.print(f"    ❌ Failed to delete {filename}: {e}")
             return False
+
+
+def check_duplicate_filenames(project_root: Path, config: CSVSourceConfig) -> dict[str, Any] | None:
+    """Read-only pre-check for callers that drop data before load() (full refresh)."""
+    directory = config.directory
+    if not directory.is_absolute():
+        directory = project_root / directory
+    files = [
+        f
+        for f in sorted(glob.glob(str(directory / config.file_pattern)))
+        if Path(f).suffix.lower() in SUPPORTED_READ_FUNCTIONS
+    ]
+    dupes = {n: p for n, p in CSVLoader._group_by_name(files).items() if len(p) > 1}
+    return CSVLoader._duplicate_filename_error(directory, dupes) if dupes else None
