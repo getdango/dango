@@ -141,11 +141,30 @@ class TestValidateModel:
         assert good["valid"] is True
         assert good["model_name"] == "int_ok"
         assert good["refs"] == [STG]
-        # a_mart refs stg; making stg ref a_mart is a cycle
-        cyc = mcp_models.validate_model(STG, "staging", "select * from {{ ref('a_mart') }}")
-        assert cyc["valid"] is False
-        cyc2 = mcp_models.validate_model("b_mart", "marts", "select * from {{ ref('b_mart') }}")
-        assert cyc2["valid"] is False and cyc2["errors"]
+        assert (
+            "marts model"
+            in mcp_models.validate_model(
+                "int_bad", "intermediate", "select * from {{ ref('a_mart') }}"
+            )["error"]
+        )
+        taken = mcp_models.validate_model("a_mart", "marts", MARTS_SQL)
+        assert taken["valid"] is False and "already exists" in taken["error"]
+        assert mcp_models.validate_model("e", "marts", "  ")["errors"] == ["SQL is empty"]
+        # real cycle: int_a -> int_b exists; int_b -> int_a would close the loop
+        mcp_models.create_model(
+            "int_a", "intermediate", sql=f"select * from {{{{ ref('{STG}') }}}}"
+        )
+        mcp_models.create_model("int_b", "intermediate", sql="select * from {{ ref('int_a') }}")
+        cyc = mcp_models.validate_model("int_c", "intermediate", "select 1 from {{ ref('int_c') }}")
+        assert "references itself" in cyc["error"]
+        (project / "dbt/models/intermediate/int_a.sql").write_text(
+            "select * from {{ ref('int_c') }}"
+        )
+        before = _tree(project)
+        cyc2 = mcp_models.validate_model(
+            "int_c", "intermediate", "select * from {{ ref('int_b') }}"
+        )
+        assert cyc2["valid"] is False and "ref cycle" in cyc2["error"]
         assert _tree(project) == before
 
 
@@ -254,3 +273,38 @@ class TestGitWarningAndRegistration:
         names = {t.name for t in asyncio.run(mcp_server.mcp.list_tools())}
         assert {"create_model", "update_model", "validate_model", "remove_model"} <= names
         assert {"run_sync", "run_transform", "add_source", "query"} <= names
+
+
+@pytest.mark.unit
+class TestGenericExceptionBranches:
+    @pytest.mark.parametrize(
+        "svc,call",
+        [
+            ("update_model", lambda: mcp_models.update_model("m", description="d")),
+            ("remove_model", lambda: mcp_models.remove_model("m")),
+        ],
+    )
+    def test_unexpected_exception_returns_error(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch, svc: str, call: Any
+    ) -> None:
+        def boom(*a: Any, **k: Any) -> None:
+            raise RuntimeError("kaput")
+
+        monkeypatch.setattr(f"dango.transformation.model_service.{svc}", boom)
+        assert call() == {"error": "kaput"}
+
+    def test_git_warning_failure_does_not_fail_a_landed_write(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(root: Path) -> list[str]:
+            raise OSError("git gone")
+
+        monkeypatch.setattr(mcp_models, "_git_warnings", boom)
+        result = mcp_models.create_model("revenue_by_region", "marts", sql=MARTS_SQL)
+        assert result["status"] == "created"
+        assert "git_warning" not in result
+
+    def test_create_model_empty_sql_rejected(self, project: Path) -> None:
+        before = _tree(project)
+        assert mcp_models.create_model("m", "marts", sql=" ")["error"] == "SQL is empty"
+        assert _tree(project) == before

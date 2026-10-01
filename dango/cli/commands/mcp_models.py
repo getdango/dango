@@ -26,8 +26,12 @@ def _service_error(e: Any) -> dict[str, Any]:
 
 
 def _with_git_warning(result: dict[str, Any], project_root: Any) -> dict[str, Any]:
-    if git_warning := _git_warnings(project_root):
-        result["git_warning"] = git_warning
+    try:
+        warnings = _git_warnings(project_root)
+    except Exception:  # noqa: BLE001 - the change already landed; never report it as failed
+        warnings = []
+    if warnings:
+        result["git_warning"] = warnings
     return result
 
 
@@ -62,6 +66,8 @@ def create_model(
     parse_ok, git_warning (if any), or error/errors.
     """
     project_root = _get_project_root()
+    if sql is not None and not sql.strip():
+        return {"error": "SQL is empty", "errors": ["SQL is empty"]}
     try:
         from dango.transformation.model_service import ModelServiceError
         from dango.transformation.model_service import create_model as _create
@@ -125,8 +131,9 @@ def update_model(
 def validate_model(model_name: str, layer: str, sql: str) -> dict[str, Any]:
     """Check model SQL without writing anything.
 
-    Static checks only (refs exist, lineage, cycles, naming); `dbt parse` runs on
-    create_model / update_model.
+    Static checks only (refs exist, lineage, cycles, naming, name not already taken for
+    intermediate/marts); `dbt parse` runs on create_model / update_model. For an existing
+    model, pass its layer and expect the name-taken error; use update_model to apply changes.
 
     Args:
         model_name: Model name (normalized for the layer, e.g. `int_` prefix).
@@ -141,6 +148,7 @@ def validate_model(model_name: str, layer: str, sql: str) -> dict[str, Any]:
         from dango.transformation.model_service import (
             ModelServiceError,
             extract_refs,
+            find_model,
             normalize_model_name,
             render_model_sql,
             validate_model_sql,
@@ -148,6 +156,16 @@ def validate_model(model_name: str, layer: str, sql: str) -> dict[str, Any]:
 
         try:
             name = normalize_model_name(model_name, layer)
+            if not sql.strip():
+                raise ModelServiceError(["SQL is empty"])
+            existing = find_model(project_root, name) if layer != "staging" else None
+            if existing:
+                raise ModelServiceError(
+                    [
+                        f"Model '{name}' already exists ({existing[0].relative_to(project_root)}); "
+                        "use update_model to change it"
+                    ]
+                )
             rendered = render_model_sql(name, layer, sql=sql)
             warnings = validate_model_sql(project_root, name, layer, rendered)
         except ModelServiceError as e:
@@ -183,7 +201,7 @@ def remove_model(
         dry_run: Report what would be removed without changing anything.
         force: Remove even when other models depend on it.
 
-    Returns dict with: status (removed | dry_run), downstream, monitors_removed, table_existed,
+    Returns dict with: status (removed | dry_run), path, files_changed, downstream, monitors_removed, table_existed,
     dropped_table, metabase (refreshed | not_running, after a drop), git_warning (if any),
     or error/errors.
     """
