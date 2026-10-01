@@ -36,6 +36,13 @@ ENTITY_MIN_MATCH_RATIO: dict[str, float] = {
     "PERSON": 0.30,
 }
 
+# Minimum number of sampled DISTINCT values that must match before flagging.
+# Sampling is DISTINCT, so a 2-value enum column with one spurious spaCy hit would
+# otherwise pass the ratio check at 50% (e.g. region = {"eu", "us"} → PERSON).
+ENTITY_MIN_MATCH_COUNT: dict[str, int] = {
+    "PERSON": 3,
+}
+
 _STRING_TYPES = frozenset({"VARCHAR", "TEXT", "STRING", "CHAR", "BPCHAR"})
 
 # BUG-185: Structured data heuristic constants
@@ -489,17 +496,16 @@ def _scan_column(values: list[str], total_values: int = 0) -> dict[str, dict[str
             if has_delimiters:
                 del detections["PERSON"]
 
-    # Filter entities that don't meet the minimum match ratio
-    if total_values > 0:
-        filtered: dict[str, dict[str, Any]] = {}
-        for entity, info in detections.items():
-            min_ratio = ENTITY_MIN_MATCH_RATIO.get(entity)
-            if min_ratio is not None and info["count"] / total_values < min_ratio:
-                continue
-            filtered[entity] = info
-        return filtered
-
-    return detections
+    # Filter entities that don't meet the minimum match ratio or absolute count
+    filtered: dict[str, dict[str, Any]] = {}
+    for entity, info in detections.items():
+        min_ratio = ENTITY_MIN_MATCH_RATIO.get(entity)
+        if total_values > 0 and min_ratio is not None and info["count"] / total_values < min_ratio:
+            continue
+        if info["count"] < ENTITY_MIN_MATCH_COUNT.get(entity, 1):
+            continue
+        filtered[entity] = info
+    return filtered
 
 
 def _cache_findings(
