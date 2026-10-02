@@ -317,7 +317,7 @@ class TestReleaseReadinessCleanFlow:
         assert initial_volume["Labels"]["com.dango.project_id"] == persisted_id
         assert manager.stop_services(), "The real first stop failed"
         stopped_volume = _inspect_docker_volume(volume_name)
-        assert stopped_volume["Mountpoint"] == initial_volume["Mountpoint"], (
+        assert stopped_volume["CreatedAt"] == initial_volume["CreatedAt"], (
             "dango stop removed and recreated the Metabase volume"
         )
 
@@ -332,7 +332,7 @@ class TestReleaseReadinessCleanFlow:
         )
         restarted_volume = _inspect_docker_volume(volume_name)
         assert manager.compose_project_name == compose_name
-        assert restarted_volume["Mountpoint"] == initial_volume["Mountpoint"], (
+        assert restarted_volume["CreatedAt"] == initial_volume["CreatedAt"], (
             "Restart switched to a different Metabase volume"
         )
 
