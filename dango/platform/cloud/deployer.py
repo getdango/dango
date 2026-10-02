@@ -235,9 +235,14 @@ def _start_all_services(ssh: SSHManager, *, rebuild_docker: bool = False) -> Non
             by removing the existing image before restarting the service.
     """
     if rebuild_docker:
-        # Remove existing images so DockerManager rebuilds them on startup
+        from dango.platform.cloud.backup import get_remote_compose_project_name
+
+        compose_project = get_remote_compose_project_name(ssh, REMOTE_PROJECT_DIR)
+        # Remove existing images so DockerManager rebuilds them on startup. The variable is passed
+        # through `env` *after* sudo so sudo's env_reset cannot drop it.
         ssh.exec_command(
-            f"cd {REMOTE_PROJECT_DIR} && sudo -u dango docker compose down --rmi local 2>/dev/null || true",
+            f"cd {REMOTE_PROJECT_DIR} && sudo -u dango env COMPOSE_PROJECT_NAME={compose_project} "
+            "docker compose down --rmi local 2>/dev/null || true",
             timeout=120,
         )
     result = ssh.exec_command("systemctl restart dango-web", timeout=60)
