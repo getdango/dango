@@ -15,6 +15,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+## [1.0.10] - 2026-10-02
+
+### Added
+
+- MCP server is now workflow-complete: about 50 tools in eight groups let a coding agent set up and operate a project, not just read it. Sources (`get_source_setup_schema`, `create_source` incl. importing a local file, `update_source`, `set_source_enabled`, `remove_source` with dry run, `validate_source`), models (`create_model`, `update_model`, `validate_model`, `remove_model`), docs (`docs_coverage`, `get_model_docs`, `get_source_docs`, `update_source_table_docs`, `generate_docs`), schedules (add/update/enable/remove/reload, reporting whether the running server picked the change up), diagnostics (`validate_project`, `get_logs`, `get_platform_status`, `get_warehouse_health`), governance (schema drift, PII scan/findings/overrides), and remote tools (`remote_status`, `remote_history`, `remote_logs`, `remote_query`, `remote_sync`, `remote_push`). `run_sync` and `run_transform` now match `dango sync` and `dango run`
+- MCP tools never accept credentials: results report what to put in `.env` (or `dango oauth`) and redact anything that is not an environment variable name. `query` masks columns flagged as PII by name (a guardrail, not a security boundary). `remote_push` defaults to a dry run and needs `dry_run=False` and `confirm=True`. The remote tools are covered by automated tests but have not yet been verified against a live server
+- The MCP server now sends usage `instructions` to the client, and a stdio integration test in CI guards the JSON-RPC stream against stray output
+- Per-source `empty_sync_policy` (`block` or `allow`, default `block`) in `.dango/sources.yml`, a `dango sync --allow-empty-replace / --block-empty-replace` override for one run, a wizard prompt, and the same behavior for the web UI and scheduler
+- `dango schedule status` now shows the real scheduler state (it was blank before)
+
+### Fixed
+
+- Replace-mode syncs that return no rows no longer lose data: the protection now blocks the write before anything is dropped (previously it reported "data preserved" after the data was already gone), and dbt models are no longer marked stale when a sync was blocked
+- `--full-refresh` on merge/append sources no longer drops the destination before extraction; a failed refresh leaves the existing data in place
+- `local_files`/`csv` sources: a sync no longer empties the table when every source file is missing (it fails with the empty-sync message; `--allow-empty-replace` forces it); a file that returns after being removed reloads; two matching files with the same name in different folders are refused with a clear error instead of silently overwriting each other's rows
+- Google Sheets: an empty or cleared range now follows `empty_sync_policy` instead of crashing the sync
+- A scheduler job's configured timeout is honored for scheduled scripts; interrupts during native-source syncs are handled the same way as other sources
+- Saving schedules no longer wipes webhook settings; removing one source no longer deletes the shared `[sources.<type>]` config another source of that type uses; editing a model no longer wipes its `schema.yml` tests, and `tests`/`data_tests` are never both written to one column
+- `dango doctor`, the web UI, and MCP `run_doctor` check each source's own credential variable (no more false "missing" or false "ok"); `run_doctor` is always fresh
+- `dango remote sync` without `--wait` now actually starts the sync on the server and reports a failed start
+- PII scanning no longer flags a low-cardinality column (such as a two-value `region`) from a single spurious match
+- `dango start` no longer hangs for up to two minutes, then fails with a timeout, when the Metabase data volume was created by an earlier Dango release (or the project was renamed): Docker Compose's "Recreate (data will be lost)?" prompt can no longer block startup, and your existing Metabase data is kept
+- `dango remote upgrade` and the Docker rebuild step of `dango remote push` now run their Docker commands under the server's own Compose project name, so an upgrade can no longer start a second, empty Metabase alongside the real one
+
+### Security
+
+- Metabase admin credentials are stored outside the project directory: the OS keychain where available, otherwise an owner-only file outside the project's sync and backup tree. Existing projects are migrated safely during `dango upgrade` and completed after startup, keeping the legacy copy until the protected one is verified
+- Backup archives (cloud, scheduled, and local safety archives) no longer contain the Metabase administrator password, and archives from earlier versions are sanitized again on restore
+- Sensitive local artifacts are gitignored in new and existing projects (applied during `dango init`, `dango upgrade`, and `dango start`), and Dango warns about local backup locations that may predate the protected format without opening, logging, or deleting them
+- `.env` backups are created owner-only (`0600`) and covered by `.env*.backup` in `.gitignore`
+- A literal secret pasted into a source's `*_env` field is never echoed in `dango doctor`, validation, or MCP results
+
+### Changed
+
+- `local_files` imports through MCP always land in `data/uploads/<source_name>/`; the legacy `csv` source type is steered to `local_files` for new sources (existing `csv` sources keep working)
+- MCP marts model names are free-form (`fct_`/`dim_` is a suggestion), and `list_models` labels models by their directory
+
 ## [1.0.9] - 2026-09-25
 
 ### Fixed
