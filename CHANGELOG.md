@@ -36,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dango doctor`, the web UI, and MCP `run_doctor` check each source's own credential variable (no more false "missing" or false "ok"); `run_doctor` is always fresh
 - `dango remote sync` without `--wait` now actually starts the sync on the server and reports a failed start
 - PII scanning no longer flags a low-cardinality column (such as a two-value `region`) from a single spurious match
+- `dango start` no longer hangs for up to two minutes, then fails with a timeout, when the Metabase data volume was created by an earlier Dango release (or the project was renamed): Docker Compose's "Recreate (data will be lost)?" prompt can no longer block startup, and your existing Metabase data is kept
+- `dango remote upgrade` and the Docker rebuild step of `dango remote push` now run their Docker commands under the server's own Compose project name, so an upgrade can no longer start a second, empty Metabase alongside the real one
 
 ### Security
 
