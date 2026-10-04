@@ -773,6 +773,7 @@ def auth_metabase_repair(ctx: click.Context, email: str, yes: bool) -> None:
             if admin_credentials is None:
                 print_error("No Metabase admin credential is available to re-sync.")
                 raise click.Abort()
+            previous_enc = user.metabase_password_enc
             update_user(
                 db_path,
                 user.id,
@@ -800,6 +801,9 @@ def auth_metabase_repair(ctx: click.Context, email: str, yes: bool) -> None:
                     "can log in to Metabase."
                 )
                 return
+            if previous_enc is not None:
+                # Do not leave an unverified credential in place of the previous one.
+                update_user(db_path, user.id, UserUpdate(metabase_password_enc=previous_enc))
             print_error(
                 f"Re-synced the SSO credential for '{refreshed.email}' but verification login "
                 "still failed. Check that Metabase is running and reachable."

@@ -102,6 +102,10 @@ def test_repair_admin_verification_failure_aborts(tmp_path: Path) -> None:
     assert result.exit_code != 0
     assert "Re-synced the SSO credential" in result.output
     update_pw.assert_not_called()
+    # The previously stored SSO copy is restored, not replaced by the unverified one.
+    user = get_user_by_email(root / ".dango" / "auth.db", ADMIN)
+    assert user is not None and user.metabase_password_enc is not None
+    assert decrypt_metabase_password(user.metabase_password_enc, root) == "old-pw"
 
 
 @pytest.mark.unit

@@ -22,7 +22,7 @@ ALLOWED_WRITERS = {
 }
 
 _CALL = re.compile(r"(?<!def )\bupdate_metabase_user_password\(")
-_ENC_WRITE = re.compile(r"UserUpdate\([^)]*metabase_password_enc\s*=", re.DOTALL)
+_ENC_WRITE = re.compile(r"UserUpdate\((?:[^()]|\([^()]*\))*?metabase_password_enc\s*=", re.DOTALL)
 
 
 def _writer_files() -> set[str]:
