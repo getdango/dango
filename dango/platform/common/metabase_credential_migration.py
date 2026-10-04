@@ -25,6 +25,8 @@ _STATE_VERSION = 1
 _STATE_FILENAME = "metabase_credential_migration.json"
 _LOCK_FILENAME = "metabase_credential_migration.lock"
 _RETRY_AFTER_SECONDS = 24 * 3600
+# Set when a login failed for a non-credential reason (429/5xx/network); reset per migration run.
+_transient_login_failures = 0
 
 _RETRYABLE_MESSAGE = (
     "Metabase credential migration is incomplete; existing configuration is unchanged "
@@ -35,21 +37,14 @@ _RETRYABLE_REASONS = frozenset(
     "candidate_staging_failed candidate_verification_pending credential_recovery_pending "
     "metadata_cleanup_failed pending_promotion_failed pending_store_unavailable "
     "protected_store_unavailable remote_update_failed sso_refresh_failed "
-    "stale_pending_cleanup_failed".split()
+    "stale_pending_cleanup_failed login_unavailable "
+    "metabase_admin_user_not_found invalid_metabase_admin_user".split()
 )
 _PERMANENT_MESSAGES = {
     "current_credential_not_accepted": (
         "Dango could not sign in to its Metabase admin account with any stored credential. "
         "Nothing was changed and your Metabase data is not affected. Admin-level features "
         "(dashboard import, Metabase user sync) will not work until admin access is repaired."
-    ),
-    "metabase_admin_user_not_found": (
-        "Dango could not find its Metabase admin account. Nothing was changed and your "
-        "Metabase data is not affected."
-    ),
-    "invalid_metabase_admin_user": (
-        "Metabase returned an unexpected record for its admin account. Nothing was changed "
-        "and your Metabase data is not affected."
     ),
     "missing_admin_email": (
         ".dango/metabase.yml has no Metabase admin email, so the credential migration cannot "
@@ -111,8 +106,10 @@ def complete_metabase_credential_migration(project_root: Path) -> dict[str, obje
     so an interrupted process can retry without revealing a credential or
     rotating twice.
     """
+    global _transient_login_failures
     root = Path(project_root)
     with _migration_lock(root):
+        _transient_login_failures = 0
         metadata = load_metabase_metadata(root)
         legacy_password = _legacy_password(metadata)
         if metadata is None or legacy_password is None:
@@ -190,6 +187,9 @@ def complete_metabase_credential_migration(project_root: Path) -> dict[str, obje
             # touching Metabase.
             adopted = _linked_admin_session(root, metabase_url, admin_email)
             if adopted is None:
+                if _transient_login_failures:
+                    # Not a definite rejection (throttled, erroring or unreachable): retry later.
+                    return _failed(root, "login_unavailable")
                 return _failed(root, "current_credential_not_accepted", inputs=inputs)
             adopted_session, adopted_password = adopted
             try:
@@ -348,6 +348,7 @@ def _create_session(metabase_url: str, email: str, password: str) -> str | None:
     """Authenticate one password candidate without exposing response details."""
     import requests
 
+    global _transient_login_failures
     try:
         response = requests.post(
             f"{metabase_url}/api/session",
@@ -355,9 +356,12 @@ def _create_session(metabase_url: str, email: str, password: str) -> str | None:
             timeout=10,
         )
         if response.status_code != 200:
+            if response.status_code not in (400, 401, 403):
+                _transient_login_failures += 1
             return None
         payload = response.json()
     except Exception:
+        _transient_login_failures += 1
         return None
     session = payload.get("id") if isinstance(payload, dict) else None
     return session if isinstance(session, str) and session else None
@@ -449,11 +453,7 @@ def _inputs_fingerprint(project_root: Path, admin_email: str) -> str:
 
 
 def _failed(project_root: Path, reason: str, *, inputs: str | None = None) -> dict[str, object]:
-    """Record an error-safe failure without its sensitive cause.
-
-    A permanent credential rejection also records when and against which inputs, so the
-    next start can skip the repeated failed login.
-    """
+    """Record a secret-free failure; a credential rejection also records time and inputs."""
     state: dict[str, object] = {
         "version": _STATE_VERSION,
         "status": "failed_non_destructive",

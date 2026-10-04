@@ -104,6 +104,24 @@ class TestNoRepeatedFailedLogins:
         state = migration._failed(project_root, "sso_refresh_failed")
         assert "inputs" not in state and "at" not in state
 
+    @pytest.mark.parametrize("failure", ["http_503", "http_429", "timeout"])
+    def test_transient_login_failure_is_retryable_and_never_remembered(
+        self, project_root: Path, failure: str
+    ) -> None:
+        def _transient(url: str, json: dict[str, str], timeout: int) -> MagicMock:
+            if failure == "timeout":
+                raise TimeoutError("slow")
+            return MagicMock(status_code=503 if failure == "http_503" else 429)
+
+        with patch("requests.post", side_effect=_transient):
+            result = migration.complete_metabase_credential_migration(project_root)
+
+        assert result["reason"] == "login_unavailable"
+        assert "inputs" not in _state(project_root)
+        with patch("requests.post", side_effect=_reject) as post:
+            migration.complete_metabase_credential_migration(project_root)
+        assert post.call_count == 2  # not skipped: the next start tries again
+
     def test_second_call_with_unchanged_inputs_makes_no_login_attempt(
         self, project_root: Path
     ) -> None:
