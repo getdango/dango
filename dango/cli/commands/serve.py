@@ -180,11 +180,12 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
     try:
         credential_migration = complete_metabase_credential_migration(project_root)
         if credential_migration.get("status") == "failed_non_destructive":
-            print(
-                "WARNING: Metabase credential migration is incomplete; "
-                "existing configuration is unchanged and will retry on the next restart.",
-                file=sys.stderr,
+            from dango.platform.common.metabase_credential_migration import (
+                describe_migration_failure,
             )
+
+            message, _retryable = describe_migration_failure(credential_migration)
+            print(f"WARNING: {message}", file=sys.stderr)
     except Exception:
         print(
             "WARNING: Metabase credential migration is incomplete; "

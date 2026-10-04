@@ -602,10 +602,12 @@ def start(ctx: click.Context, yes: bool) -> None:
         try:
             credential_migration = complete_metabase_credential_migration(project_root)
             if credential_migration.get("status") == "failed_non_destructive":
-                console.print(
-                    "[yellow]⚠[/yellow] Metabase credential migration is incomplete; "
-                    "existing configuration is unchanged and will retry on the next start."
+                from dango.platform.common.metabase_credential_migration import (
+                    describe_migration_failure,
                 )
+
+                message, _retryable = describe_migration_failure(credential_migration)
+                console.print(f"[yellow]⚠[/yellow] {message}")
         except Exception:
             console.print(
                 "[yellow]⚠[/yellow] Metabase credential migration is incomplete; "
