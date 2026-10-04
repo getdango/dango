@@ -10,6 +10,7 @@ import os
 import sys
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -23,6 +24,50 @@ from dango.security.metabase_credentials import MetabaseCredentialStore
 _STATE_VERSION = 1
 _STATE_FILENAME = "metabase_credential_migration.json"
 _LOCK_FILENAME = "metabase_credential_migration.lock"
+_RETRY_AFTER_SECONDS = 24 * 3600
+# Set when a login failed for a non-credential reason (429/5xx/network); reset per migration run.
+_transient_login_failures = 0
+
+_RETRYABLE_MESSAGE = (
+    "Metabase credential migration is incomplete; existing configuration is unchanged "
+    "and will retry on the next start."
+)
+# Reasons a later start can fix on its own (transient store/network/verification problems).
+_RETRYABLE_REASONS = frozenset(
+    "candidate_staging_failed candidate_verification_pending credential_recovery_pending "
+    "metadata_cleanup_failed pending_promotion_failed pending_store_unavailable "
+    "protected_store_unavailable remote_update_failed sso_refresh_failed "
+    "stale_pending_cleanup_failed login_unavailable "
+    "metabase_admin_user_not_found invalid_metabase_admin_user".split()
+)
+_PERMANENT_MESSAGES = {
+    "current_credential_not_accepted": (
+        "Dango could not sign in to its Metabase admin account with any stored credential. "
+        "Nothing was changed and your Metabase data is not affected. Admin-level features "
+        "(dashboard import, Metabase user sync) will not work until admin access is repaired."
+    ),
+    "missing_admin_email": (
+        ".dango/metabase.yml has no Metabase admin email, so the credential migration cannot "
+        "run. Nothing was changed."
+    ),
+    "missing_metabase_url": (
+        ".dango/metabase.yml has no Metabase URL, so the credential migration cannot run. "
+        "Nothing was changed."
+    ),
+}
+
+
+def describe_migration_failure(result: dict[str, object]) -> tuple[str, bool]:
+    """Return ``(message, retryable)`` for a ``failed_non_destructive`` migration result.
+
+    Pure and secret-free. A missing or unknown reason is reported as the generic retryable
+    message (what 1.0.10/1.0.11 printed), so existing callers and tests keep working.
+    Only reasons that can really self-heal say "will retry on the next start".
+    """
+    reason = result.get("reason")
+    if isinstance(reason, str) and reason in _PERMANENT_MESSAGES:
+        return _PERMANENT_MESSAGES[reason], False
+    return _RETRYABLE_MESSAGE, True
 
 
 def prepare_metabase_credential_migration(project_root: Path) -> dict[str, object]:
@@ -61,8 +106,10 @@ def complete_metabase_credential_migration(project_root: Path) -> dict[str, obje
     so an interrupted process can retry without revealing a credential or
     rotating twice.
     """
+    global _transient_login_failures
     root = Path(project_root)
     with _migration_lock(root):
+        _transient_login_failures = 0
         metadata = load_metabase_metadata(root)
         legacy_password = _legacy_password(metadata)
         if metadata is None or legacy_password is None:
@@ -76,6 +123,19 @@ def complete_metabase_credential_migration(project_root: Path) -> dict[str, obje
         if not isinstance(metabase_url, str) or not metabase_url:
             return _failed(root, "missing_metabase_url")
         metabase_url = metabase_url.rstrip("/")
+
+        # Remember a permanent credential rejection: no further failed logins until the
+        # inputs change or the retry window passes.
+        inputs = _inputs_fingerprint(root, admin_email)
+        previous = _read_state(root)
+        if (
+            previous is not None
+            and previous.get("status") == "failed_non_destructive"
+            and previous.get("reason") == "current_credential_not_accepted"
+            and previous.get("inputs") == inputs
+            and _younger_than_retry_window(previous.get("at"))
+        ):
+            return {**previous, "skipped": True}
 
         try:
             store = MetabaseCredentialStore(root)
@@ -121,7 +181,30 @@ def complete_metabase_credential_migration(project_root: Path) -> dict[str, obje
                 return _failed(root, "stale_pending_cleanup_failed")
 
         if current_session is None:
-            return _failed(root, "current_credential_not_accepted")
+            # The legacy YAML password can be stale: the admin account's real password may have
+            # been changed by something that saved it only in auth.db. If the linked admin's
+            # stored credential signs in, it IS the current credential: adopt it without
+            # touching Metabase.
+            adopted = _linked_admin_session(root, metabase_url, admin_email)
+            if adopted is None:
+                if _transient_login_failures:
+                    # Not a definite rejection (throttled, erroring or unreachable): retry later.
+                    return _failed(root, "login_unavailable")
+                return _failed(root, "current_credential_not_accepted", inputs=inputs)
+            adopted_session, adopted_password = adopted
+            try:
+                store.save_pending(adopted_password)
+            except Exception:
+                return _failed(root, "candidate_staging_failed")
+            _write_state(root, {"version": _STATE_VERSION, "status": "candidate_verified"})
+            try:
+                active_password = store.promote_pending()
+            except Exception:
+                return _failed(root, "pending_promotion_failed")
+            _write_state(root, {"version": _STATE_VERSION, "status": "promoted"})
+            return _refresh_sso_and_cleanup(
+                root, metadata, metabase_url, adopted_session, admin_email, active_password
+            )
 
         if active_password is not None:
             _write_state(root, {"version": _STATE_VERSION, "status": "promoted"})
@@ -235,10 +318,37 @@ def _find_metabase_user(metabase_url: str, session: str, email: str) -> dict[str
     return user if isinstance(user, dict) else None
 
 
+def _linked_admin_session(
+    project_root: Path, metabase_url: str, admin_email: str
+) -> tuple[str, str] | None:
+    """Sign in with the SSO credential Dango stored for the linked Metabase admin, if any.
+
+    One login attempt at most. Returns ``(session, password)`` or None. Never raises and
+    never logs or returns anything about a rejected credential.
+    """
+    try:
+        from dango.auth.admin import get_auth_db_path
+        from dango.auth.database import get_user_by_email
+        from dango.auth.metabase_sync import decrypt_metabase_password
+
+        db_path = get_auth_db_path(project_root)
+        if not db_path.exists():
+            return None
+        user = get_user_by_email(db_path, admin_email)
+        if user is None or not user.metabase_password_enc:
+            return None
+        password = decrypt_metabase_password(user.metabase_password_enc, project_root)
+    except Exception:
+        return None
+    session = _create_session(metabase_url, admin_email, password)
+    return (session, password) if session else None
+
+
 def _create_session(metabase_url: str, email: str, password: str) -> str | None:
     """Authenticate one password candidate without exposing response details."""
     import requests
 
+    global _transient_login_failures
     try:
         response = requests.post(
             f"{metabase_url}/api/session",
@@ -246,9 +356,12 @@ def _create_session(metabase_url: str, email: str, password: str) -> str | None:
             timeout=10,
         )
         if response.status_code != 200:
+            if response.status_code not in (400, 401, 403):
+                _transient_login_failures += 1
             return None
         payload = response.json()
     except Exception:
+        _transient_login_failures += 1
         return None
     session = payload.get("id") if isinstance(payload, dict) else None
     return session if isinstance(session, str) and session else None
@@ -293,9 +406,62 @@ def _write_state(project_root: Path, state: dict[str, object]) -> None:
             os.close(fd)
 
 
-def _failed(project_root: Path, reason: str) -> dict[str, object]:
-    """Record an error-safe, retryable failure without its sensitive cause."""
-    state = {"version": _STATE_VERSION, "status": "failed_non_destructive", "reason": reason}
+def _read_state(project_root: Path) -> dict[str, Any] | None:
+    try:
+        data = json.loads(_state_path(project_root).read_text())
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _younger_than_retry_window(at: object) -> bool:
+    """True when ``at`` is an ISO timestamp less than the retry window old."""
+    if not isinstance(at, str):
+        return False
+    try:
+        then = datetime.fromisoformat(at)
+    except ValueError:
+        return False
+    if then.tzinfo is None:
+        return False
+    return 0 <= (datetime.now(timezone.utc) - then).total_seconds() < _RETRY_AFTER_SECONDS
+
+
+def _inputs_fingerprint(project_root: Path, admin_email: str) -> str:
+    """Hash of what could change the outcome: the metadata file and the stored SSO ciphertext.
+
+    Contains no password: it hashes file size/mtime and the already-encrypted SSO value.
+    """
+    import hashlib
+
+    parts: list[str] = []
+    try:
+        stat = (Path(project_root) / ".dango" / "metabase.yml").stat()
+        parts.append(f"{stat.st_size}:{stat.st_mtime_ns}")
+    except OSError:
+        parts.append("no-metadata")
+    try:
+        from dango.auth.admin import get_auth_db_path
+        from dango.auth.database import get_user_by_email
+
+        db_path = get_auth_db_path(project_root)
+        user = get_user_by_email(db_path, admin_email) if db_path.exists() else None
+        parts.append(user.metabase_password_enc or "" if user is not None else "no-user")
+    except Exception:
+        parts.append("no-auth")
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
+
+
+def _failed(project_root: Path, reason: str, *, inputs: str | None = None) -> dict[str, object]:
+    """Record a secret-free failure; a credential rejection also records time and inputs."""
+    state: dict[str, object] = {
+        "version": _STATE_VERSION,
+        "status": "failed_non_destructive",
+        "reason": reason,
+    }
+    if reason == "current_credential_not_accepted":
+        state["at"] = datetime.now(timezone.utc).isoformat()
+        state["inputs"] = inputs
     _write_state(project_root, state)
     return state
 
