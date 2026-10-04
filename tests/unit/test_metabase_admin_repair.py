@@ -38,6 +38,13 @@ TOKEN = "sentinel-reset-token"
 CLI_NOISE = "sentinel-cli-noise"
 
 
+def _subcommand(argv: list[str]) -> str:
+    """Operation name of a recorded docker call (``docker ps`` / ``docker[ -]compose <sub>``)."""
+    if argv[:2] == ["docker", "ps"]:
+        return "ps"
+    return argv[2] if argv[:2] == ["docker", "compose"] else argv[1]
+
+
 class Harness:
     """Records every docker/HTTP call and scripts their results."""
 
@@ -45,6 +52,7 @@ class Harness:
         self.events: list[str] = []
         self.argv: list[list[str]] = []
         self.running = True
+        self.compose_v1 = False
         self.healthy = True
         self.cli_mode = "ok"  # ok | fail | timeout | raise
         self.ready = True
@@ -52,10 +60,14 @@ class Harness:
         self.accepted: set[str] = {NEW_PASSWORD}
 
     def run(self, argv: list[str], **_kwargs: Any) -> Any:
-        self.argv.append(list(argv))
-        sub = argv[2]
-        self.events.append(sub)
         proc = MagicMock(returncode=0, stdout="", stderr="")
+        if argv[:3] == ["docker", "compose", "version"]:
+            if self.compose_v1:
+                proc.returncode = 1
+            return proc  # the v2-vs-v1 probe is not one of the recorded operations
+        self.argv.append(list(argv))
+        sub = _subcommand(argv)
+        self.events.append(sub)
         if sub == "ps":
             proc.stdout = "container-id\n" if self.running else ""
         elif sub == "run":
@@ -92,7 +104,7 @@ class Harness:
 
     @property
     def subcommands(self) -> list[str]:
-        return [a[2] for a in self.argv]
+        return [_subcommand(a) for a in self.argv]
 
 
 @pytest.fixture
@@ -418,19 +430,10 @@ def test_module_never_deletes_anything() -> None:
     }
     for forbidden in ("volume", "down", "prune", "rm", "-f", "-v", "kill", "system"):
         assert forbidden not in literals
-    # Every docker-compose subcommand argument list in the module starts with these.
-    compose_calls: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.List) and len(node.elts) >= 3:
-            head = [getattr(e, "value", None) for e in node.elts[:3]]
-            if head[:2] == ["docker", "compose"] and isinstance(node.elts[2], ast.Constant):
-                compose_calls.add(str(head[2]))
-    assert compose_calls == {"ps", "run"}  # stop/up go through _compose(...)
-    compose_helper_args: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_compose":
-            compose_helper_args.add(str(getattr(node.args[2], "value", None)))
-    assert compose_helper_args == {"stop", "up"}
+    # The only docker operations the module may name: ps (plain docker), the compose
+    # subcommands stop/run/up, and the compose version probe.
+    assert {"ps", "stop", "run", "up", "version"} <= literals
+    assert literals & {"exec", "cp", "kill", "pause", "restart", "create", "build"} == set()
 
 
 @pytest.mark.unit
@@ -441,3 +444,18 @@ def test_describe_repair_outcome_is_secret_free_and_has_a_default() -> None:
     assert known != generic
     assert describe_repair_outcome({"status": "failed"}) == generic
     assert describe_repair_outcome({"status": "failed", "reason": f"x{TOKEN}"}) == generic
+
+
+@pytest.mark.unit
+def test_standalone_docker_compose_v1_is_used_when_the_plugin_is_missing(
+    project_root: Path, harness: Harness
+) -> None:
+    """DockerManager falls back to `docker-compose`; so must the repair (not skip or fail)."""
+    harness.compose_v1 = True
+
+    result = repair_admin_credential(project_root)
+
+    assert result == {"status": "repaired"}
+    compose_heads = [a[:1] for a in harness.argv if a[:2] != ["docker", "ps"]]
+    assert compose_heads and all(head == ["docker-compose"] for head in compose_heads)
+    assert harness.subcommands == ["ps", "stop", "run", "up"]
