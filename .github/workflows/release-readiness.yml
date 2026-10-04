@@ -23,5 +23,6 @@ jobs:
         run: >-
           pytest tests/integration/test_release_readiness.py
           tests/integration/test_docker_identity_migration.py
-          tests/integration/test_legacy_metabase_migration.py -v
+          tests/integration/test_legacy_metabase_migration.py
+          tests/integration/test_metabase_admin_state_matrix.py -v
           -W error::pytest.PytestRemovedIn10Warning
