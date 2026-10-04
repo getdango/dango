@@ -117,10 +117,6 @@ def _repair(root: Path, ready_timeout: int, force: bool) -> dict[str, object]:
         if not _metabase_healthy(metabase_url):
             return {"status": "skipped", "reason": "metabase_unreachable"}
 
-        from dango.auth.metabase_sync import generate_metabase_password
-        from dango.platform.docker import get_compose_project_name
-        from dango.visualization.metabase import wait_for_metabase_ready
-
         env = {**os.environ, "COMPOSE_PROJECT_NAME": get_compose_project_name(root)}
         if not _metabase_running(root, env):
             return {"status": "skipped", "reason": "metabase_not_running"}
@@ -142,8 +138,10 @@ def _repair(root: Path, ready_timeout: int, force: bool) -> dict[str, object]:
             _discard_pending(store)
             return _failed(root, "reset_cli_failed")
         if not wait_for_metabase_ready(metabase_url, timeout=ready_timeout):
-            # The token stays valid and the pending credential is retained; a later start
-            # re-runs the whole flow, which mints a fresh token.
+            # The token was never redeemed, so the staged password was never applied: drop it
+            # (a leftover rejected pending would make the next start report
+            # credential_recovery_pending). A later start re-runs the flow with a fresh token.
+            _discard_pending(store)
             return _failed(root, "metabase_not_ready")
 
         if not _redeem_token(metabase_url, token, new_password):

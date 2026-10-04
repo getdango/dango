@@ -258,13 +258,17 @@ def test_token_not_accepted_discards_pending(project_root: Path, harness: Harnes
 
 
 @pytest.mark.unit
-def test_metabase_not_ready_keeps_pending_and_reports(project_root: Path, harness: Harness) -> None:
+def test_metabase_not_ready_discards_the_unapplied_pending_and_reports(
+    project_root: Path, harness: Harness
+) -> None:
     harness.ready = False
 
     result = repair_admin_credential(project_root)
 
     assert result == {"status": "failed", "reason": "metabase_not_ready"}
-    assert MetabaseCredentialStore(project_root).load_pending() == NEW_PASSWORD
+    # The token was never redeemed: a leftover pending would make the next start report
+    # credential_recovery_pending, so it must not be kept.
+    assert MetabaseCredentialStore(project_root).load_pending() is None
     assert "redeem" not in harness.events
 
 

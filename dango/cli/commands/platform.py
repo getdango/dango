@@ -608,7 +608,11 @@ def start(ctx: click.Context, yes: bool) -> None:
 
                 message, _retryable = describe_migration_failure(credential_migration)
                 repaired = False
-                if credential_migration.get("reason") == "current_credential_not_accepted":
+                needs_repair = credential_migration.get("reason") in (
+                    "current_credential_not_accepted",
+                    "credential_recovery_pending",
+                )
+                if needs_repair:
                     from dango.platform.common.metabase_admin_repair import (
                         describe_repair_outcome,
                         repair_admin_credential,
@@ -624,7 +628,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                         console.print("[green]✓[/green] Metabase admin access restored.")
                 if not repaired:
                     console.print(f"[yellow]⚠[/yellow] {message}")
-                    if credential_migration.get("reason") == "current_credential_not_accepted":
+                    if needs_repair:
                         console.print(
                             f"[dim]{describe_repair_outcome(repair)} "
                             'Run "dango metabase repair-admin" to try again.[/dim]'

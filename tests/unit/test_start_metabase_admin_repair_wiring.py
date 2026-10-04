@@ -39,6 +39,16 @@ def test_repair_called_for_permanent_rejection_and_success_prints_restored(
 
 
 @pytest.mark.unit
+def test_repair_also_called_for_credential_recovery_pending(tmp_path: Path) -> None:
+    pending = {"status": "failed_non_destructive", "reason": "credential_recovery_pending"}
+    with patch(_REPAIR, return_value={"status": "repaired"}) as repair:
+        result, _events = _run_local(tmp_path, pending)
+
+    assert result.exit_code == 0, result.output
+    repair.assert_called_once_with(tmp_path)
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "migration_result",
     [
