@@ -118,7 +118,7 @@ def _repair(root: Path, ready_timeout: int, force: bool) -> dict[str, object]:
             return {"status": "skipped", "reason": "metabase_unreachable"}
 
         env = {**os.environ, "COMPOSE_PROJECT_NAME": get_compose_project_name(root)}
-        if not _metabase_running(root, env):
+        if not _metabase_running(env):
             return {"status": "skipped", "reason": "metabase_not_running"}
 
         new_password = generate_metabase_password()
@@ -185,12 +185,15 @@ def _metabase_healthy(metabase_url: str) -> bool:
         return False
 
 
-def _metabase_running(root: Path, env: dict[str, str]) -> bool:
+def _metabase_running(env: dict[str, str]) -> bool:
+    """True when this project's Metabase container is running (plain ``docker ps`` + labels,
+    which behaves the same under Compose v1 and v2)."""
+    project = env["COMPOSE_PROJECT_NAME"]
     try:
         proc = subprocess.run(
-            ["docker", "compose", "ps", "--status", "running", "-q", "metabase"],
-            cwd=root,
-            env=env,
+            ["docker", "ps", "-q"]
+            + ["--filter", f"label=com.docker.compose.project={project}"]
+            + ["--filter", "label=com.docker.compose.service=metabase"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -201,9 +204,22 @@ def _metabase_running(root: Path, env: dict[str, str]) -> bool:
     return proc.returncode == 0 and bool((proc.stdout or "").strip())
 
 
+def _compose_prefix() -> list[str]:
+    """``docker compose`` (v2) or standalone ``docker-compose`` (v1), as DockerManager does."""
+    try:
+        probe = subprocess.run(
+            ["docker", "compose", "version"], capture_output=True, text=True, timeout=10
+        )
+        if probe.returncode == 0:
+            return ["docker", "compose"]
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return ["docker-compose"]
+
+
 def _compose(root: Path, env: dict[str, str], *args: str, timeout: int) -> None:
     subprocess.run(
-        ["docker", "compose", *args],
+        [*_compose_prefix(), *args],
         cwd=root,
         env=env,
         capture_output=True,
@@ -216,7 +232,7 @@ def _run_reset_cli(root: Path, env: dict[str, str], admin_email: str) -> str | N
     """Run Metabase's offline ``reset-password`` and return its one-time token."""
     try:
         proc = subprocess.run(
-            ["docker", "compose", "run", "--rm", "--no-deps", "-T", "metabase"]
+            [*_compose_prefix(), "run", "--rm", "--no-deps", "-T", "metabase"]
             + ["reset-password", admin_email],
             cwd=root,
             env=env,
