@@ -49,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `local_files` imports through MCP always land in `data/uploads/<source_name>/`; the legacy `csv` source type is steered to `local_files` for new sources (existing `csv` sources keep working)
+- `local_files` imports through MCP accept `~/` paths and always land in `data/uploads/<source_name>/`; the legacy `csv` source type is steered to `local_files` for new sources (existing `csv` sources keep working)
 - MCP marts model names are free-form (`fct_`/`dim_` is a suggestion), and `list_models` labels models by their directory
 
 ## [1.0.9] - 2026-09-25
