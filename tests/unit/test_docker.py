@@ -173,6 +173,53 @@ class TestStartServicesTimeoutDiagnostics:
 
 
 @pytest.mark.unit
+class TestStartServicesStdinClosed:
+    """`up -d` must never inherit the terminal (Compose volume-recreate prompt)."""
+
+    @staticmethod
+    def _run_start(tmp_path, image_exists=True):
+        (tmp_path / "docker-compose.yml").write_text("services: {}\n")
+        manager = DockerManager(tmp_path)
+        with (
+            patch.object(manager, "_resolve_or_migrate_project_id"),
+            patch.object(manager, "_assert_no_identity_collision"),
+            patch.object(manager, "is_docker_available", return_value=True),
+            patch.object(manager, "is_compose_available", return_value=True),
+            patch.object(manager, "get_compose_command", return_value=["docker", "compose"]),
+            patch.object(manager, "_metabase_image_exists", return_value=image_exists),
+            patch.object(manager, "_print_service_urls"),
+            patch("dango.platform.docker.console"),
+            patch(
+                "subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="", stderr=""),
+            ) as mock_run,
+        ):
+            started = manager.start_services()
+        return started, mock_run
+
+    def test_up_runs_with_stdin_closed(self, tmp_path):
+        started, mock_run = self._run_start(tmp_path)
+
+        assert started is True
+        assert mock_run.call_args.kwargs["stdin"] is subprocess.DEVNULL
+
+    def test_up_command_is_plain_up_d_without_auto_confirm(self, tmp_path):
+        _, mock_run = self._run_start(tmp_path)
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd == ["docker", "compose", "-f", str(tmp_path / "docker-compose.yml"), "up", "-d"]
+        assert "--yes" not in cmd
+        assert "-y" not in cmd
+
+    def test_stdin_closed_on_first_run_build_path(self, tmp_path):
+        started, mock_run = self._run_start(tmp_path, image_exists=False)
+
+        assert started is True
+        assert mock_run.call_args.kwargs["timeout"] == 600
+        assert mock_run.call_args.kwargs["stdin"] is subprocess.DEVNULL
+
+
+@pytest.mark.unit
 class TestStopAllDangoContainers:
     @patch("dango.platform.docker.console")
     def test_default_stops_containers_for_current_project(self, _mock_console, tmp_path):

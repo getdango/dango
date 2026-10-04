@@ -2,7 +2,7 @@
 
 Shared helpers for the MCP server's read tools (dango/cli/commands/mcp_server.py)
 and, since 1.0.8-OPS-3, _git_warnings() below for the mutation tools in
-mcp_mutations.py. Split out purely to keep mcp_server.py under the file-size
+mcp_sources.py and mcp_schedules.py. Split out purely to keep mcp_server.py under the file-size
 check — these are plain functions, not Click-registered commands, so there's
 no cross-file command-registration pattern involved (unlike mcp_setup.py),
 just a normal helper extraction.
@@ -115,7 +115,14 @@ def _git_warnings(project_root: Path) -> list[str]:
     return list(check_mutation_guardrails(git_info).warnings)
 
 
-def _infer_layer(model_name: str) -> str:
+def _infer_layer(model_name: str, file_path: str | None = None) -> str:
+    """Layer from the model's directory (models/staging|intermediate|marts/...), then name prefix."""
+    if file_path:
+        parts = file_path.replace("\\", "/").split("/")[:-1]
+        if "models" in parts:
+            top = parts[parts.index("models") + 1 :][:1]
+            if top and top[0] in ("staging", "intermediate", "marts"):
+                return top[0]
     if model_name.startswith("stg_"):
         return "staging"
     if model_name.startswith("int_"):

@@ -130,6 +130,20 @@ class ScheduleConfig(BaseModel):
             raise ValueError(msg)
         return resolved
 
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        from zoneinfo import ZoneInfo
+
+        try:
+            ZoneInfo(v)
+        except Exception:  # noqa: BLE001 -- ZoneInfoNotFoundError, ValueError, OSError
+            msg = f"Unknown timezone: {v!r}"
+            raise ValueError(msg) from None
+        return v
+
     @field_validator("timeout_minutes")
     @classmethod
     def _validate_timeout_minutes(cls, v: int | None) -> int | None:
@@ -245,14 +259,27 @@ def save_schedules_config(project_root: Path, config: SchedulesConfig) -> None:
     """Save schedule config to ``.dango/schedules.yml``.
 
     Serialises the config with ``mode="json"`` so datetimes become ISO strings.
+    Only the ``schedules`` key is replaced — every other top-level section
+    (e.g. ``notifications.webhooks``) is preserved. The write is atomic.
+
+    Raises:
+        ConfigValidationError: If the existing file is not valid YAML (the file
+            is left untouched rather than overwritten).
     """
+    from dango.config.loader import ConfigLoader
+
     path = project_root / ".dango" / "schedules.yml"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    data: dict[str, Any] = {
-        "schedules": [s.model_dump(exclude_none=True, mode="json") for s in config.schedules]
-    }
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    data: dict[str, Any] = {}
+    if path.exists():
+        try:
+            with open(path, encoding="utf-8") as f:
+                loaded = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ConfigValidationError(f"Invalid YAML in {path}:\n{e}") from e
+        if isinstance(loaded, dict):
+            data = loaded
+    data["schedules"] = [s.model_dump(exclude_none=True, mode="json") for s in config.schedules]
+    ConfigLoader(project_root).save_yaml(data, path)
 
 
 # ---------------------------------------------------------------------------
@@ -495,6 +522,34 @@ def _validate_script_path_for_schedule(script_path: str, project_root: Path) -> 
 # ---------------------------------------------------------------------------
 
 
+def compute_next_runs(sched: ScheduleConfig, count: int = 1) -> list[datetime]:
+    """Next fire times (timezone-aware) using the same trigger reload_schedules() builds.
+
+    Returns [] for a disabled schedule or an invalid cron/timezone. Never raises.
+    """
+    if not sched.enabled or count < 1:
+        return []
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+
+        trigger_kwargs: dict[str, Any] = {}
+        if sched.timezone:
+            trigger_kwargs["timezone"] = sched.timezone
+        trigger = CronTrigger.from_crontab(sched.cron, **trigger_kwargs)
+        now = datetime.now(trigger.timezone)
+        runs: list[datetime] = []
+        previous: datetime | None = None
+        for _ in range(count):
+            nxt = trigger.get_next_fire_time(previous, previous or now)
+            if nxt is None:
+                break
+            runs.append(nxt)
+            previous = nxt
+        return runs
+    except Exception:  # noqa: BLE001 -- display helper, never raises
+        return []
+
+
 def reload_schedules(
     scheduler: SchedulerService,
     new_schedules: list[ScheduleConfig],
@@ -585,6 +640,7 @@ def reload_schedules(
                 "schedule_name": sched.name,
                 "script_path": sched.script_path,
                 "project_root": str(project_root),
+                "_timeout_minutes": sched.timeout_minutes,
             }
         else:
             func = run_scheduled_dbt
@@ -615,6 +671,11 @@ def reload_schedules(
             }
             new_kwargs = {k: v for k, v in func_kwargs.items() if k not in _RELOAD_KWARGS_EXCLUDE}
             kwargs_changed = existing_kwargs != new_kwargs
+            legacy_script_timeout = (
+                sched.type == ScheduleType.SCRIPT
+                and "_timeout_minutes" not in (getattr(existing_job, "kwargs", None) or {})
+            )
+            kwargs_changed = kwargs_changed or legacy_script_timeout
 
             if trigger_changed or kwargs_changed:
                 scheduler.remove_job(job_id)

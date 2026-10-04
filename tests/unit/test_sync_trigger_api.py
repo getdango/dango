@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from dango.auth.models import Role, User
+from dango.web.models import SyncRequest
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -210,3 +211,76 @@ class TestSyncStatusEndpoint:
 
         resp = client.get("/api/sync/status/1")
         assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# 1.0.10-S10: allow_empty_replace tri-state propagation
+# ---------------------------------------------------------------------------
+#
+# S6 made run_source()/run_sync() resolve a None allow_empty_replace into a
+# source's stored empty_sync_policy. Before this task, SyncRequest defaulted
+# allow_empty_replace to False, so every web-triggered sync silently forced
+# "block" regardless of what a source's empty_sync_policy said. These tests
+# guard the fix: an omitted field must resolve to None everywhere along the
+# path from SyncRequest to launch_sync_subprocess().
+
+
+@pytest.mark.unit
+class TestSyncRequestAllowEmptyReplaceDefault:
+    """SyncRequest's allow_empty_replace default (1.0.10-S10)."""
+
+    def test_defaults_to_none(self):
+        """SyncRequest built from a dict that omits allow_empty_replace must default
+        to None (falls through to the source's empty_sync_policy), not False."""
+        sync_request = SyncRequest.model_validate({})
+        assert sync_request.allow_empty_replace is None
+
+
+@pytest.mark.unit
+class TestRunSyncTaskAllowEmptyReplacePropagation:
+    """Regression test for the bug this task fixes: confirm that when a
+    SyncRequest omits allow_empty_replace, the value reaching
+    launch_sync_subprocess() (the subprocess/JSON boundary) is None, not
+    False. A source with empty_sync_policy="allow" would otherwise have its
+    stored policy silently overridden to "block" on every web-triggered sync.
+    """
+
+    @patch("dango.platform.sync_process.poll_sync_status", new_callable=AsyncMock)
+    @patch("dango.platform.sync_process.cleanup_sync_status")
+    @patch("dango.platform.sync_process.launch_sync_subprocess")
+    @patch(f"{_PATCH_ROOT}.append_log_entry")
+    @patch(f"{_PATCH_ROOT}.ws_manager.broadcast", new_callable=AsyncMock)
+    @patch(f"{_PATCH_ROOT}.record_start", return_value=1)
+    @patch(f"{_PATCH_ROOT}.get_scheduler_db_path")
+    @patch(f"{_PATCH_ROOT}.get_project_root")
+    @pytest.mark.anyio
+    async def test_omitted_field_reaches_launch_subprocess_as_none(
+        self,
+        mock_root,
+        mock_db_path,
+        mock_start,
+        mock_broadcast,
+        mock_log,
+        mock_launch,
+        mock_cleanup,
+        mock_poll,
+        tmp_path,
+    ):
+        from dango.web.routes.sync import run_sync_task
+
+        mock_root.return_value = tmp_path
+        mock_launch.return_value = (MagicMock(), "sync123", tmp_path / "sync.log")
+        mock_poll.return_value = (True, {"status": "success"})
+
+        sync_request = SyncRequest.model_validate({})  # field omitted entirely
+        assert sync_request.allow_empty_replace is None
+
+        await run_sync_task(
+            "my_source",
+            sync_request.full_refresh,
+            sync_request.start_date,
+            sync_request.end_date,
+            allow_empty_replace=sync_request.allow_empty_replace,
+        )
+
+        assert mock_launch.call_args.kwargs["allow_empty_replace"] is None

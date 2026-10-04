@@ -123,7 +123,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 924
+    lines: 1138
     category: exempt
     reason: "Source management commands (add/list/remove/edit) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation. R12-G added source edit NAME arg, sync positional arg."
     review_by: "v1.1"
@@ -141,13 +141,13 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/schedule.py
-    lines: 1045
+    lines: 1162
     category: exempt
     reason: "R6F: Schedule wizard expanded with time customization (BUG-039), per-schedule status (BUG-041), type labels (BUG-037), auto-select (BUG-038), webhook check (BUG-040). R12-G added wizard name validation loop, checkbox hint. R12-N2 added sync_only option. S3-FUP-A: +138 lines (776→914) from S2/S3 schedule additions. 1.0.7-12: Added weekdays + selectdays frequency options + schedule reload command (+131 lines, 914→1045). Sequential wizard flow doesn't benefit from splitting."
     review_by: "v1.1"
 
   - file: dango/config/schedules.py
-    lines: 506
+    lines: 711
     category: exempt
     reason: "R2-D13b: Added trigger comparison in reload_schedules() to preserve missed job state on restart."
     review_by: "v1.1"
@@ -178,7 +178,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/source_wizard.py
-    lines: 2610
+    lines: 2413
     category: exempt
     reason: "Interactive source configuration wizard. Sequential prompting logic doesn't benefit from splitting. P7-011 added metrics generation. P5c grew +529 lines (credential unification, resource selection, dedup collection). P8-001 added REST API wizard enhancements: headers, query params, endpoint testing, data_selector/primary_key suggestions (+267 lines). 1.0.8-OPS-3 added _print_git_warnings() (+~19 lines)."
     review_by: "v1.1"
@@ -234,7 +234,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/model_wizard.py
-    lines: 617
+    lines: 510
     category: exempt
     reason: "Interactive dbt model creation wizard. Sequential prompting, stable. 1.0.7-1: Added table selection + CTE scaffold generation. 1.0.8-OPS-3 added _print_git_warnings() (+~16 lines)."
     review_by: "v1.1"
@@ -388,12 +388,6 @@ exemptions:
     reason: "1.0.8-Q: Added _setup_telemetry_heartbeat(), a fourth fixed internal job (weekly telemetry heartbeat) following the existing _setup_history_cleanup/_setup_login_attempts_cleanup/_setup_sync_log_cleanup pattern. Pushed the file ~14 lines over the 500-line limit."
     review_by: "v1.1"
 
-  - file: dango/cli/commands/mcp_mutations.py
-    lines: 508
-    category: exempt
-    reason: "1.0.8-OPS-3: Wired check_mutation_guardrails() (git-state warnings) into add_source/create_model/add_schedule, surfacing a git_warning key on their return dicts. The file was already at 499/500 lines before this change (5 mutation tools is a lot of surface area, per its own module docstring on why it was split out of mcp_server.py) — the actual _git_warnings() helper itself lives in mcp_helpers.py, not here, to keep the addition minimal. Pushed the file ~8 lines over the 500-line limit."
-    review_by: "v1.1"
-
   - file: dango/utils/post_sync.py
     lines: 815
     category: exempt
@@ -407,7 +401,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/schedules.py
-    lines: 617
+    lines: 711
     category: exempt
     reason: "TASK-037+038+045b: 11 read-only endpoints (history×2, list/get, trigger, reload, cancel, unscheduled, page route, notification config/test). R10-C removed 5 config-mutating endpoints (BUG-175). R12-N2 added SYNC_ONLY dispatch in manual trigger. R5-N6: per-source failure details (+48 lines)."
     review_by: "v1.1"
@@ -487,9 +481,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_empty_replace_protection.py
-    lines: 1179
+    lines: 1888
     category: exempt
-    reason: "41 test cases covering empty replace protection across all source types, CLI, web, scheduler, error messages, and edge cases."
+    reason: "49 test cases covering empty replace protection across all source types, CLI, web, scheduler, error messages, and edge cases."
     review_by: "v1.1"
 
   # --- Scripts ---

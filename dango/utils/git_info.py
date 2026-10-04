@@ -140,7 +140,7 @@ def check_mutation_guardrails(
     an oversight. check_git_guardrails()'s branch check flags being OFF an
     *expected_branch* (deploy semantics: "you must be on the branch you're pushing to
     the server"). Mutation entry points (dango model add, dango source add, and the MCP
-    create_model/add_source/add_schedule tools) need the opposite signal: flag being ON
+    create_model/create_source/add_schedule tools) need the opposite signal: flag being ON
     a shared/protected branch, since the write lands directly on it with no review.
     Reusing check_git_guardrails() here — even with allow_branch=True — would either
     warn on the wrong condition or require passing expected_branch=<the branch we're

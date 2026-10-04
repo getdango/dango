@@ -12,6 +12,48 @@ from rich.console import Console
 console = Console()
 
 
+SENSITIVE_ARTIFACT_GITIGNORE_PATTERNS = (
+    ".dango/backups/",
+    "dango-backup-*",
+    ".dango/metabase.yml*",
+    ".dango/credentials",
+    ".dlt/.encryption_key",
+    ".env*.backup",
+)
+
+
+def ensure_sensitive_artifact_gitignores(project_root: Path) -> bool:
+    """Add Dango's credential-artifact ignore patterns without rewriting a file.
+
+    Returns ``True`` only when the project's ``.gitignore`` changes.  This is
+    intentionally additive: it neither interprets nor modifies any existing
+    ignore rules or archive contents.
+    """
+    gitignore_path = Path(project_root) / ".gitignore"
+    existing = gitignore_path.read_text(encoding="utf-8") if gitignore_path.exists() else ""
+    existing_lines = existing.splitlines()
+    missing_patterns = [
+        pattern
+        for pattern in SENSITIVE_ARTIFACT_GITIGNORE_PATTERNS
+        if pattern not in existing_lines
+    ]
+
+    if not missing_patterns:
+        return False
+
+    section_header = "# Dango sensitive artifacts"
+    if section_header in existing_lines:
+        addition = "\n".join(missing_patterns) + "\n"
+    else:
+        addition = "\n".join((section_header, *missing_patterns)) + "\n"
+
+    if existing and not existing.endswith("\n"):
+        existing += "\n"
+
+    gitignore_path.write_text(existing + addition, encoding="utf-8")
+    return True
+
+
 class CredentialManager:
     """
     Manages credentials for dlt sources

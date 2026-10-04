@@ -38,10 +38,12 @@ For detailed installation instructions, see the [documentation](https://docs.get
 dango mcp setup
 ```
 
-Connects Claude Code, Cursor, or Windsurf to your project over MCP — your agent can list sources,
-inspect schemas and lineage, run read-only queries, and (with your permission) trigger syncs, run
-dbt, and scaffold new models. See the [full guide](https://docs.getdango.dev/guides/mcp-claude-code/)
-for the complete tool reference and worked examples.
+Connects Claude Code, Cursor, or Windsurf to your project over MCP — your agent can set up sources
+(credentials stay in your `.env`, never in the chat), sync, build and document dbt models, manage
+schedules, check PII findings and schema drift, diagnose failures, and run read-only queries with
+PII columns masked. Remote tools default to a dry run. See the
+[full guide](https://docs.getdango.dev/guides/mcp-claude-code/) for the complete tool reference
+and worked examples.
 
 ## Features
 

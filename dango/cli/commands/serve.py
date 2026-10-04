@@ -39,6 +39,9 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
       - Minimal console output (no Rich formatting)
     """
     from dango.config import ConfigLoader
+    from dango.platform.common.metabase_credential_migration import (
+        complete_metabase_credential_migration,
+    )
     from dango.platform.common.startup import (
         check_duckdb_version_alignment,
         cleanup_stale_dbt_lock,
@@ -137,6 +140,43 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
         print(f"Docker services failed: {exc}", file=sys.stderr)
         _stop_docker_quiet(project_root)
         raise SystemExit(1) from exc
+
+    # Docker assigns/repairs the persisted project ID during service start.
+    # Apply the additive local-artifact protections for direct-pip users too.
+    # A Git-ignore problem must never cause the production service to fail.
+    try:
+        from dango.config.credentials import ensure_sensitive_artifact_gitignores
+
+        if ensure_sensitive_artifact_gitignores(project_root):
+            print("Added sensitive local-artifact ignore rules to .gitignore.", file=sys.stderr)
+    except Exception:
+        print(
+            "WARNING: Could not update .gitignore with sensitive local-artifact rules. "
+            "Dango will retry safely on the next restart.",
+            file=sys.stderr,
+        )
+
+    from dango.security.legacy_backup_artifacts import legacy_backup_artifact_warning
+
+    if warning := legacy_backup_artifact_warning(project_root):
+        print(f"WARNING: {warning}", file=sys.stderr)
+
+    # Complete a pending legacy credential migration only after that identity
+    # exists, and before setup decides whether Metabase needs configuration.
+    try:
+        credential_migration = complete_metabase_credential_migration(project_root)
+        if credential_migration.get("status") == "failed_non_destructive":
+            print(
+                "WARNING: Metabase credential migration is incomplete; "
+                "existing configuration is unchanged and will retry on the next restart.",
+                file=sys.stderr,
+            )
+    except Exception:
+        print(
+            "WARNING: Metabase credential migration is incomplete; "
+            "existing configuration is unchanged and will retry on the next restart.",
+            file=sys.stderr,
+        )
 
     # 5. Metabase setup (non-fatal — BUG-103: prevents systemd crash loop)
     # setup_metabase_if_needed returns a dict even on failure — inspect the result.

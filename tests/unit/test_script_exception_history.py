@@ -160,3 +160,43 @@ class TestScriptExceptionHistory:
         assert "timed out" in entry["error"].lower()
         assert entry["exit_code"] == -1
         assert "run_id" in entry
+
+    @pytest.mark.parametrize(
+        ("timeout_kwargs", "expected_timeout"),
+        [
+            ({"_timeout_minutes": 60}, 3600),
+            ({"timeout_minutes": 45}, 2700),
+        ],
+    )
+    @patch("dango.platform.scheduling.jobs._scheduler_service", None)
+    def test_script_timeout_kwargs_reach_subprocess(
+        self, tmp_path, timeout_kwargs, expected_timeout
+    ):
+        """Internal timeout key and legacy direct-call spelling reach Popen."""
+        from dango.platform.scheduling.jobs import run_scheduled_script
+
+        script_path = self._setup_valid_script(tmp_path)
+
+        with (
+            patch("subprocess.Popen") as mock_popen,
+            patch("dango.utils.activity_log.log_activity"),
+            patch("dango.platform.scheduling.jobs._broadcast"),
+            patch("dango.platform.scheduling.jobs._notify"),
+            patch("dango.platform.scheduling.jobs._try_record_start", return_value=1),
+            patch("dango.platform.scheduling.jobs._try_finish_record"),
+            patch("dango.platform.scheduling.jobs._log_execution_event"),
+            patch("dango.platform.notifications.webhook.WebhookSender"),
+            patch("dango.platform.notifications.webhook.load_notification_config"),
+        ):
+            proc = mock_popen.return_value
+            proc.communicate.return_value = ("", "")
+            proc.returncode = 0
+
+            run_scheduled_script(
+                "test_schedule",
+                script_path=script_path,
+                **_make_kwargs(tmp_path),
+                **timeout_kwargs,
+            )
+
+        proc.communicate.assert_called_once_with(timeout=expected_timeout)

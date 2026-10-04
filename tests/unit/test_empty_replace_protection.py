@@ -799,26 +799,41 @@ class TestSchemaInteraction:
         assert result["rows_loaded"] == 1200
 
     def test_drop_schema_present_and_conditional(self):
-        """Test 18: DROP SCHEMA present in _run_dlt_source, guarded by uses_replace_mode."""
-        source = inspect.getsource(
-            __import__(
-                "dango.ingestion.dlt_runner", fromlist=["DltPipelineRunner"]
-            ).DltPipelineRunner._run_dlt_source
-        )
-        assert "DROP SCHEMA" in source
+        """Test 18 (updated 1.0.10-S15): merge/append full refresh no longer drops
+        the real schema unconditionally inside _run_dlt_source -- it delegates to
+        _full_refresh_via_staging (see PLAN.md's "S15 finding"), guarded by the same
+        uses_replace_mode check. DROP SCHEMA still happens, just against the staging
+        dataset inside the shared helper, not the real one inline here."""
+        from dango.ingestion.dlt_runner import DltPipelineRunner
+
+        source = inspect.getsource(DltPipelineRunner._run_dlt_source)
+        assert "_full_refresh_via_staging" in source
         assert "if not uses_replace_mode:" in source
 
+        staging_source = inspect.getsource(DltPipelineRunner._full_refresh_via_staging)
+        assert "DROP SCHEMA" in staging_source
+
     def test_merge_source_full_refresh_drops_schema(self, tmp_path):
-        """Merge source full refresh calls duckdb to drop schema."""
+        """Merge source full refresh delegates to _full_refresh_via_staging (updated
+        1.0.10-S15 -- see PLAN.md's "S15 finding"). The staging helper's own DROP
+        SCHEMA/swap mechanics are covered by real, non-mocked DuckDB reads in
+        test_full_refresh_merge_staging.py; this test verifies _run_dlt_source's
+        delegation itself: called with uses_replace_mode=False and the right
+        source/dataset identity, and its return value passed straight through."""
         runner = _make_runner(tmp_path)
-        runner.duckdb_path.parent.mkdir(parents=True, exist_ok=True)
-        runner.duckdb_path.touch()
+
+        staging_result = {
+            "status": "success",
+            "source": "test_source",
+            "rows_loaded": 1200,
+            "uses_replace_mode": False,
+        }
 
         with (
             patch.object(runner, "_get_source_total_rows", return_value=1000),
             patch.object(runner, "_get_source_table_rows", return_value={"t1": 1000}),
             patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
-            patch.object(runner, "_cleanup_state_backup"),
+            patch.object(runner, "_cleanup_state_backup") as mock_cleanup_backup,
             patch.object(runner, "_build_source_config", return_value={}),
             patch.object(runner, "_load_dlt_source") as mock_source,
             patch.object(runner, "_detect_write_disposition", return_value=False),
@@ -826,17 +841,12 @@ class TestSchemaInteraction:
             patch.object(runner, "_check_oauth_token_expiry", return_value=None),
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(
-                runner,
-                "_extract_load_stats",
-                return_value={"rows_loaded": 1200, "loaded_tables": ["t1"]},
-            ),
-            patch.object(runner, "_check_row_count_anomaly", return_value=None),
-            patch.object(runner, "_load_with_lock", return_value=_mock_load_info()),
+                runner, "_full_refresh_via_staging", return_value=staging_result
+            ) as mock_staging,
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
             patch("os.chdir"),
-            patch("duckdb.connect") as mock_connect,
         ):
             mock_meta.return_value = {
                 "dlt_package": "test",
@@ -845,22 +855,29 @@ class TestSchemaInteraction:
             mock_dlt.pipeline.return_value = MagicMock()
             mock_dlt.destinations.duckdb.return_value = MagicMock()
             mock_source.return_value = MagicMock()
-            mock_db = MagicMock()
-            mock_connect.return_value = mock_db
 
             result = runner._run_dlt_source(
                 _make_source_config(),
                 full_refresh=True,
             )
 
-        assert result["status"] == "success"
-        mock_connect.assert_called_once_with(str(runner.duckdb_path))
-        mock_db.execute.assert_called_once()
-        call_args = mock_db.execute.call_args[0][0]
-        assert "DROP SCHEMA" in call_args
-        assert "raw_test" in call_args
-        assert "CASCADE" in call_args
-        mock_db.close.assert_called_once()
+        assert result == staging_result
+        mock_staging.assert_called_once()
+        _, kwargs = mock_staging.call_args
+        assert kwargs["source_name"] == "test_source"
+        assert kwargs["dataset_name"] == "raw_test"
+        assert kwargs["uses_replace_mode"] is False
+        # The primary pipeline's own state backup is cleaned up before delegating --
+        # nothing in the primary pipeline's local state is touched by this path.
+        mock_cleanup_backup.assert_called_once()
+
+        staging_source_code = inspect.getsource(
+            __import__(
+                "dango.ingestion.dlt_runner", fromlist=["DltPipelineRunner"]
+            ).DltPipelineRunner._full_refresh_via_staging
+        )
+        assert "DROP SCHEMA" in staging_source_code
+        assert "CASCADE" in staging_source_code
 
     def test_replace_source_full_refresh_skips_schema_drop(self, tmp_path):
         """Replace source full refresh does NOT call duckdb to drop schema."""
@@ -895,6 +912,11 @@ class TestSchemaInteraction:
                 "dlt_function": "test_func",
             }
             mock_dlt.pipeline.return_value = MagicMock()
+            # 1.0.10-S13: the new pre-load check reads norm_info.row_counts
+            # (pipeline.normalize()'s return value) directly — configure it
+            # to a non-empty staged count so the check doesn't false-positive
+            # block on a bare, unconfigured MagicMock's default empty iteration.
+            mock_dlt.pipeline.return_value.normalize.return_value.row_counts = {"t1": 1000}
             mock_dlt.destinations.duckdb.return_value = MagicMock()
             mock_source.return_value = MagicMock()
 
@@ -973,13 +995,21 @@ class TestCLIFlag:
             call_kwargs = mock_runner.run_source.call_args
             assert call_kwargs[1].get("allow_empty_replace") is False
 
-    def test_flag_is_hidden(self):
-        """Test 21: --allow-empty-replace is hidden (not in --help)."""
+    def test_flag_is_documented_boolean_pair(self):
+        """Test 21 (1.0.10-S9): --allow-empty-replace/--block-empty-replace is a
+        documented boolean-pair override (no longer the hidden single flag from
+        PR #334), defaulting to None so it falls through to the source's saved
+        empty_sync_policy unless explicitly passed."""
         from dango.cli.commands.source import sync
 
         for param in sync.params:
             if param.name == "allow_empty_replace":
-                assert param.hidden is True, "--allow-empty-replace should be hidden"
+                assert param.hidden is False, (
+                    "--allow-empty-replace/--block-empty-replace should not be hidden"
+                )
+                assert param.default is None
+                assert "--allow-empty-replace" in param.opts
+                assert "--block-empty-replace" in param.secondary_opts
                 break
         else:
             pytest.fail("--allow-empty-replace param not found on sync command")
@@ -999,7 +1029,10 @@ class TestWebScheduler:
         from dango.web.models import SyncRequest
 
         req = SyncRequest()
-        assert req.allow_empty_replace is False
+        # 1.0.10-S10: defaults to None (falls through to the source's stored
+        # empty_sync_policy), not False — an explicit False would silently
+        # override every source's "allow" policy on every web-triggered sync.
+        assert req.allow_empty_replace is None
 
         req = SyncRequest(allow_empty_replace=True)
         assert req.allow_empty_replace is True
@@ -1009,7 +1042,8 @@ class TestWebScheduler:
         from dango.web.models import SyncTriggerRequest
 
         req = SyncTriggerRequest(sources=["test"])
-        assert req.allow_empty_replace is False
+        # 1.0.10-S10: defaults to None, same rationale as SyncRequest above.
+        assert req.allow_empty_replace is None
 
         req = SyncTriggerRequest(sources=["test"], allow_empty_replace=True)
         assert req.allow_empty_replace is True
@@ -1304,15 +1338,24 @@ class TestDropSchemaPresent:
 
     @pytest.mark.parametrize("method_name", ["_run_dlt_source", "_run_dlt_native_source"])
     def test_drop_schema_cascade_present_and_conditional(self, method_name):
-        """DROP SCHEMA CASCADE must be present, guarded by not uses_replace_mode."""
+        """Updated 1.0.10-S15: both parallel methods delegate merge/append full
+        refresh to the shared _full_refresh_via_staging() helper (guarded by the
+        same uses_replace_mode check) instead of dropping the real schema inline --
+        see PLAN.md's "S15 finding". DROP SCHEMA CASCADE still happens, against the
+        staging dataset, inside that one shared helper."""
         from dango.ingestion.dlt_runner import DltPipelineRunner
 
         source = inspect.getsource(getattr(DltPipelineRunner, method_name))
-        assert "DROP SCHEMA" in source, (
-            f"{method_name} missing DROP SCHEMA — must be present for merge/append full refresh"
+        assert "_full_refresh_via_staging" in source, (
+            f"{method_name} must delegate merge/append full refresh to _full_refresh_via_staging"
         )
         assert "if not uses_replace_mode:" in source, (
-            f"{method_name} DROP SCHEMA must be guarded by uses_replace_mode check"
+            f"{method_name}'s full-refresh delegation must be guarded by uses_replace_mode check"
+        )
+
+        staging_source = inspect.getsource(DltPipelineRunner._full_refresh_via_staging)
+        assert "DROP SCHEMA" in staging_source, (
+            "_full_refresh_via_staging missing DROP SCHEMA CASCADE for staging cleanup"
         )
 
 
@@ -1363,6 +1406,13 @@ class TestPerTableProtection:
                 "dlt_function": "test_func",
             }
             mock_dlt.pipeline.return_value = MagicMock()
+            # 1.0.10-S13: configure the new pre-load check's data source
+            # (norm_info.row_counts) to match this test's "table_c only"
+            # scenario -- without this, an unconfigured MagicMock's
+            # row_counts.items() iterates empty, making every pre-existing
+            # table look like it's going to 0, masking the single table
+            # this test is meant to isolate.
+            mock_dlt.pipeline.return_value.normalize.return_value.row_counts = dict(post_table)
             mock_dlt.destinations.duckdb.return_value = MagicMock()
             mock_source.return_value = MagicMock()
 
@@ -1413,6 +1463,9 @@ class TestPerTableProtection:
                 "dlt_function": "test_func",
             }
             mock_dlt.pipeline.return_value = MagicMock()
+            # 1.0.10-S13: configure the new pre-load check's data source
+            # (norm_info.row_counts) to match this test's "all populated" scenario.
+            mock_dlt.pipeline.return_value.normalize.return_value.row_counts = dict(post_table)
             mock_dlt.destinations.duckdb.return_value = MagicMock()
             mock_source.return_value = MagicMock()
 
@@ -1458,6 +1511,10 @@ class TestPerTableProtection:
                 "dlt_function": "test_func",
             }
             mock_dlt.pipeline.return_value = MagicMock()
+            # 1.0.10-S13: configure the new pre-load check's data source
+            # (norm_info.row_counts) to match this test's "new table, previously
+            # tracked table still populated" scenario.
+            mock_dlt.pipeline.return_value.normalize.return_value.row_counts = dict(post_table)
             mock_dlt.destinations.duckdb.return_value = MagicMock()
             mock_source.return_value = MagicMock()
 
@@ -1557,7 +1614,21 @@ class TestPerTableProtection:
         mock_restore.assert_not_called()
 
     def test_source_level_check_catches_all_empty(self, tmp_path):
-        """Test 37: Source-level check fires first when ALL tables empty (rows_loaded=0)."""
+        """Test 37: ALL tables empty (rows_loaded=0) still blocks and preserves data.
+
+        UPDATED by 1.0.10-S13: before this task, this scenario was caught by
+        the post-load source-level check ("existing N rows preserved" wording)
+        — but only *after* dlt's replace-mode load had already truncated the
+        destination table (see PLAN.md's "S13 finding"). The new pre-load
+        per-table check (gated on `uses_replace_mode`) now intercepts this
+        exact case first, before `_load_with_lock()`/`pipeline.load()` ever
+        runs, using the per-table "would truncate" message instead. The
+        post-load source-level check this test originally named remains as
+        an unchanged fallback for the `pre_table_counts is None` case (see
+        `test_first_sync_none_pre_counts_succeeds`) — it just no longer fires
+        for this specific fully-populated-then-fully-empty scenario, because
+        the new check now catches it first.
+        """
         runner = _make_runner(tmp_path)
 
         pre_table = {"table_a": 1000}
@@ -1574,7 +1645,7 @@ class TestPerTableProtection:
             patch.object(runner, "_check_oauth_token_expiry", return_value=None),
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
-            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)) as mock_load,
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -1585,6 +1656,8 @@ class TestPerTableProtection:
                 "dlt_function": "test_func",
             }
             mock_dlt.pipeline.return_value = MagicMock()
+            # Everything staged as 0 rows -- the scenario this test simulates.
+            mock_dlt.pipeline.return_value.normalize.return_value.row_counts = {"table_a": 0}
             mock_dlt.destinations.duckdb.return_value = MagicMock()
             mock_source.return_value = MagicMock()
 
@@ -1594,8 +1667,12 @@ class TestPerTableProtection:
             )
 
         assert result["status"] == "failed"
-        assert "existing 1,000 rows preserved" in result["error"]
+        assert "table_a" in result["error"]
+        assert "1,000 rows" in result["error"]
+        assert "would be lost" in result["error"]
         mock_restore.assert_called_once()
+        # Core behavioral change under test: load is never reached on the block path.
+        mock_load.assert_not_called()
 
     def test_native_source_per_table_protection(self, tmp_path):
         """Test 38: _run_dlt_native_source per-table check catches partial empty."""
@@ -1627,6 +1704,9 @@ class TestPerTableProtection:
 
             mock_pipeline = MagicMock()
             mock_dlt.pipeline.return_value = mock_pipeline
+            # 1.0.10-S13: same fix as test_partial_empty_fails -- configure
+            # the new pre-load check's row_counts to the intended scenario.
+            mock_pipeline.normalize.return_value.row_counts = dict(post_table)
             mock_dlt.destinations.duckdb.return_value = MagicMock()
 
             result = runner._run_dlt_native_source(
@@ -1640,3 +1720,195 @@ class TestPerTableProtection:
         assert "would be lost" in result["error"]
         assert "--allow-empty-replace" in result["error"]
         mock_restore.assert_called_once()
+
+
+# ============================================================================
+# error_type propagation (1.0.10-S11)
+# ============================================================================
+#
+# Empty-replace-protection failures carry a structured "error_type" through
+# dlt_runner._run_*_source() -> run_sync()'s failed_sources aggregation ->
+# sync_trigger.run_manual_sync()'s failed-sources-to-error_msg flattening, so
+# jobs.py can later exclude these failures from stale-marking (see
+# test_sync_jobs.py TestScheduledSyncStaleMarking for the consumer side).
+
+
+@pytest.mark.unit
+class TestErrorTypePropagation:
+    """Verify error_type flows from dlt_runner failures through run_sync() and
+    run_manual_sync()."""
+
+    def test_failed_sources_carries_error_type(self, tmp_path):
+        """run_sync()'s failed_sources aggregation carries error_type through
+        from the per-source result dict returned by run_source()."""
+        from dango.ingestion.dlt_runner import run_sync
+
+        mock_source = _make_source_config()
+
+        with (
+            patch("dango.ingestion.dlt_runner.DltPipelineRunner") as mock_runner_cls,
+            patch("dango.ingestion.dlt_runner.console"),
+        ):
+            mock_runner = MagicMock()
+            mock_runner.run_source.return_value = {
+                "status": "failed",
+                "source": mock_source.name,
+                "error": "Sync returned 0 rows",
+                "error_type": "empty_replace_protection",
+                "rows_loaded": 0,
+            }
+            mock_runner_cls.return_value = mock_runner
+
+            result = run_sync(project_root=tmp_path, sources=[mock_source])
+
+        assert result["failed_sources"][0]["error_type"] == "empty_replace_protection"
+
+    def test_run_manual_sync_single_failure_carries_error_type(self, tmp_path):
+        """run_manual_sync() surfaces error_type on its returned dict when
+        exactly one source fails with that error_type set."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+
+        config = MagicMock()
+        src = MagicMock()
+        src.name = "src1"
+        src.type.value = "chess"
+        config.sources.get_source.side_effect = lambda n: src if n == "src1" else None
+
+        with (
+            patch("dango.ingestion.run_sync") as mock_sync,
+            patch("dango.config.helpers.load_config", return_value=config),
+            patch("dango.platform.scheduling.sync_trigger.record_start", return_value=1),
+            patch("dango.platform.scheduling.sync_trigger.record_failure"),
+            patch("dango.platform.scheduling.sync_trigger.get_scheduler_db_path"),
+            patch("dango.oauth.validation.validate_before_sync"),
+        ):
+            mock_sync.return_value = {
+                "results": [],
+                "failed_sources": [
+                    {
+                        "name": "src1",
+                        "error": "Sync returned 0 rows",
+                        "error_type": "empty_replace_protection",
+                    }
+                ],
+            }
+
+            result = run_manual_sync(tmp_path, sources=["src1"])
+
+        assert result["status"] == "failed"
+        assert result["error_type"] == "empty_replace_protection"
+
+    def test_run_manual_sync_generic_failure_has_no_error_type(self, tmp_path):
+        """A normal OAuth/timeout-style failure (no error_type set) must not be
+        misreported as empty-replace protection — the key is absent or None."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+
+        config = MagicMock()
+        src = MagicMock()
+        src.name = "src1"
+        src.type.value = "chess"
+        config.sources.get_source.side_effect = lambda n: src if n == "src1" else None
+
+        with (
+            patch("dango.ingestion.run_sync") as mock_sync,
+            patch("dango.config.helpers.load_config", return_value=config),
+            patch("dango.platform.scheduling.sync_trigger.record_start", return_value=1),
+            patch("dango.platform.scheduling.sync_trigger.record_failure"),
+            patch("dango.platform.scheduling.sync_trigger.get_scheduler_db_path"),
+            patch("dango.oauth.validation.validate_before_sync"),
+        ):
+            mock_sync.return_value = {
+                "results": [],
+                "failed_sources": [
+                    {"name": "src1", "error": "OAuth token expired"},
+                ],
+            }
+
+            result = run_manual_sync(tmp_path, sources=["src1"])
+
+        assert result["status"] == "failed"
+        assert result.get("error_type") is None
+
+    def test_error_type_reaches_status_file_not_just_return_value(self, tmp_path):
+        """jobs.py's scheduled-sync loop runs run_manual_sync() in a subprocess
+        (via launch_sync_subprocess) and never sees this function's Python
+        return value — it only ever reads the sync_status_{sync_id}.json file
+        via poll_sync_status_blocking() -> read_sync_status(). error_type must
+        be written into that file (via write_progress=True), not only set on
+        the in-memory return dict, or the stale-marking exclusion in jobs.py
+        is a no-op in production."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+        from dango.platform.sync_process import read_sync_status
+
+        config = MagicMock()
+        src = MagicMock()
+        src.name = "src1"
+        src.type.value = "chess"
+        config.sources.get_source.side_effect = lambda n: src if n == "src1" else None
+
+        with (
+            patch("dango.ingestion.run_sync") as mock_sync,
+            patch("dango.config.helpers.load_config", return_value=config),
+            patch("dango.platform.scheduling.sync_trigger.record_start", return_value=1),
+            patch("dango.platform.scheduling.sync_trigger.record_failure"),
+            patch("dango.platform.scheduling.sync_trigger.get_scheduler_db_path"),
+            patch("dango.oauth.validation.validate_before_sync"),
+        ):
+            mock_sync.return_value = {
+                "results": [],
+                "failed_sources": [
+                    {
+                        "name": "src1",
+                        "error": "Sync returned 0 rows",
+                        "error_type": "empty_replace_protection",
+                    }
+                ],
+            }
+
+            run_manual_sync(
+                tmp_path,
+                sources=["src1"],
+                write_progress=True,
+                sync_id="test-wire-check",
+            )
+
+        status = read_sync_status(tmp_path, sync_id="test-wire-check")
+        assert status is not None
+        assert status["phase"] == "failed"
+        assert status.get("error_type") == "empty_replace_protection"
+
+    def test_generic_failure_status_file_has_no_error_type(self, tmp_path):
+        """Companion to the above: a generic failure's status file must not
+        carry a stray error_type key that could be misread downstream."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+        from dango.platform.sync_process import read_sync_status
+
+        config = MagicMock()
+        src = MagicMock()
+        src.name = "src1"
+        src.type.value = "chess"
+        config.sources.get_source.side_effect = lambda n: src if n == "src1" else None
+
+        with (
+            patch("dango.ingestion.run_sync") as mock_sync,
+            patch("dango.config.helpers.load_config", return_value=config),
+            patch("dango.platform.scheduling.sync_trigger.record_start", return_value=1),
+            patch("dango.platform.scheduling.sync_trigger.record_failure"),
+            patch("dango.platform.scheduling.sync_trigger.get_scheduler_db_path"),
+            patch("dango.oauth.validation.validate_before_sync"),
+        ):
+            mock_sync.return_value = {
+                "results": [],
+                "failed_sources": [{"name": "src1", "error": "OAuth token expired"}],
+            }
+
+            run_manual_sync(
+                tmp_path,
+                sources=["src1"],
+                write_progress=True,
+                sync_id="test-wire-check-generic",
+            )
+
+        status = read_sync_status(tmp_path, sync_id="test-wire-check-generic")
+        assert status is not None
+        assert status.get("error_type") is None

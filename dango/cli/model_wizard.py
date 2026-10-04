@@ -3,7 +3,7 @@
 Simple wizard for creating intermediate and marts models. Staging models are auto-generated, so this wizard only handles intermediate and marts layers.
 """
 
-from datetime import datetime
+import re
 from pathlib import Path
 
 import inquirer
@@ -11,6 +11,13 @@ from rich.console import Console
 from rich.panel import Panel
 
 from dango.config import ConfigLoader
+from dango.transformation.model_service import (
+    ModelServiceError,
+    find_model,
+    normalize_model_name,
+    parse_project,
+    render_model_sql,
+)
 
 console = Console()
 
@@ -233,7 +240,9 @@ class ModelWizard:
             inquirer.Text(
                 "name",
                 message="Model name",
-                validate=lambda _, x: len(x) > 0 and x.replace("_", "").isalnum(),
+                validate=lambda _, x: bool(
+                    re.match(r"^[a-z][a-z0-9_]*$", x.strip().lower().removesuffix(".sql"))
+                ),
             )
         ]
 
@@ -241,21 +250,19 @@ class ModelWizard:
         if not answers:
             return None
 
-        name = answers["name"].strip().lower()
+        try:
+            # Lowercases, strips any .sql, and applies the int_ prefix for intermediate
+            name = normalize_model_name(answers["name"], layer)
+        except ModelServiceError as e:
+            for err in e.errors:
+                console.print(f"[red]Error:[/red] {err}")
+            return None
 
-        # Remove any existing prefix to avoid double-prefixing
         if layer == "intermediate":
-            if name.startswith("int_"):
-                name = name[4:]  # Remove int_ prefix if user added it
-
-        # Enforce naming convention for intermediate models
-        if layer == "intermediate":
-            name = f"int_{name}"
             console.print(f"[dim]→ Using naming convention: {name}.sql[/dim]\n")
 
         # Ensure .sql extension
-        if not name.endswith(".sql"):
-            name = f"{name}.sql"
+        name = f"{name}.sql"
 
         return name
 
@@ -291,23 +298,13 @@ class ModelWizard:
         Returns:
             Existing model path (relative to project root) if collision found, None otherwise
         """
-        # Check all layer directories
-        layers_to_check = ["staging", "intermediate", "marts"]
-
-        for layer in layers_to_check:
-            if layer == current_layer:
-                continue  # Skip current layer (will be checked later)
-
-            layer_dir = self.models_dir / layer
-            if not layer_dir.exists():
-                continue
-
-            # All layers use flat structure
-            model_path = layer_dir / name
-            if model_path.exists():
-                return str(model_path.relative_to(self.project_root))
-
-        return None
+        try:
+            found = find_model(self.project_root, name.removesuffix(".sql"))
+        except ModelServiceError:
+            return None
+        if found is None or found[1] == current_layer:
+            return None
+        return str(found[0].relative_to(self.project_root))
 
     def _get_available_tables(self, layer_filter: str | None = None) -> list[dict[str, str]]:
         """Return existing dbt models grouped by layer, for upstream selection.
@@ -421,9 +418,16 @@ class ModelWizard:
 
         # Check if file already exists in same layer
         model_path = layer_dir / name
-        if model_path.exists():
+        try:
+            same_layer = find_model(self.project_root, name.removesuffix(".sql"))
+        except ModelServiceError:
+            same_layer = None
+        existing_file = model_path if model_path.exists() else None
+        if existing_file is None and same_layer is not None:
+            existing_file = same_layer[0]
+        if existing_file is not None:
             console.print(f"\n[red]✗ Error:[/red] Model '{name}' already exists")
-            console.print(f"[dim]File: {model_path.relative_to(self.project_root)}[/dim]\n")
+            console.print(f"[dim]File: {existing_file.relative_to(self.project_root)}[/dim]\n")
             console.print("[yellow]Options:[/yellow]")
             console.print("  • Use a different name")
             console.print(
@@ -469,63 +473,13 @@ class ModelWizard:
         Returns:
             SQL file content
         """
-        model_name = name.replace(".sql", "")
-        timestamp = datetime.now().strftime("%Y-%m-%d")
-
-        # Build header
-        lines = [
-            f"-- {model_name}",
-            f"-- Created: {timestamp}",
-        ]
-
-        if description:
-            lines.append(f"-- {description}")
-
-        lines.append("")
-
-        # Config block
-        lines.append("{{ config(")
-        lines.append(f"    materialized='{materialization}',")
-        lines.append(f"    schema='{layer}'")
-        lines.append(") }}")
-        lines.append("")
-
-        if upstream_tables:
-            lines.append("")
-            # Derive aliases, handling collisions
-            aliases: list[str] = []
-            for table in upstream_tables:
-                parts = table.split("_")
-                alias = parts[-1] if len(parts) > 1 else table
-                # Fall back to full table name if alias already used
-                if alias in aliases:
-                    alias = table
-                # If fallback also collides, add numeric suffix
-                if alias in aliases:
-                    i = 2
-                    while f"{alias}_{i}" in aliases:
-                        i += 1
-                    alias = f"{alias}_{i}"
-                aliases.append(alias)
-
-            # Generate CTE block with resolved aliases
-            for i, (table, alias) in enumerate(zip(upstream_tables, aliases, strict=True)):
-                comma = "," if i < len(upstream_tables) - 1 else ""
-                lines.append(f"WITH {alias} AS (" if i == 0 else f"{alias} AS (")
-                lines.append(f"    SELECT * FROM {{{{ ref('{table}') }}}}")
-                lines.append(f"){comma}")
-            lines.append("")
-            lines.append("SELECT")
-            lines.append("    -- TODO: Define your transformation here")
-            lines.append(f"    {aliases[0]}.*")
-            lines.append(f"FROM {aliases[0]}")
-        else:
-            lines.append("")
-            lines.append("SELECT")
-            lines.append("    -- TODO: Define your transformation here")
-            lines.append("    1 AS placeholder")
-
-        return "\n".join(lines) + "\n"
+        return render_model_sql(
+            name.replace(".sql", ""),
+            layer,
+            upstream=upstream_tables,
+            description=description,
+            materialization=materialization,
+        )
 
     def _regenerate_manifest(self) -> bool:
         """
@@ -534,41 +488,12 @@ class ModelWizard:
         Returns:
             True if successful, False otherwise
         """
-        import subprocess
-
-        from dango.transformation import _dbt_telemetry_env
-
-        try:
-            # Run dbt parse to regenerate manifest
-            result = subprocess.run(
-                [
-                    "dbt",
-                    "parse",
-                    "--project-dir",
-                    str(self.dbt_dir),
-                    "--profiles-dir",
-                    str(self.dbt_dir),
-                ],
-                cwd=str(self.project_root),
-                capture_output=True,
-                text=True,
-                timeout=30,
-                env=_dbt_telemetry_env(),
-            )
-
-            if result.returncode == 0:
-                console.print("[green]✓[/green] Model registered")
-                return True
-            else:
-                console.print("[dim]ℹ Model won't appear in Web UI until first run[/dim]")
-                return False
-
-        except subprocess.TimeoutExpired:
-            console.print("[dim]ℹ Model won't appear in Web UI until first run[/dim]")
-            return False
-        except Exception:
-            console.print("[dim]ℹ Model won't appear in Web UI until first run[/dim]")
-            return False
+        ok, _output = parse_project(self.project_root)
+        if ok:
+            console.print("[green]✓[/green] Model registered")
+            return True
+        console.print("[dim]ℹ Model won't appear in Web UI until first run[/dim]")
+        return False
 
 
 def add_model(project_root: Path) -> Path | None:

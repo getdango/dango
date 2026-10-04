@@ -100,7 +100,7 @@ def launch_sync_subprocess(
     source_label: str = "ui",
     max_lock_wait: int = 0,
     record_id: int | None = None,
-    allow_empty_replace: bool = False,
+    allow_empty_replace: bool | None = None,
 ) -> tuple[subprocess.Popen, str, Path]:
     """Spawn sync subprocess via sys.executable.
 
@@ -142,8 +142,8 @@ def launch_sync_subprocess(
         args_dict["backfill_days"] = backfill_days
     if record_id is not None:
         args_dict["record_id"] = record_id
-    if allow_empty_replace:
-        args_dict["allow_empty_replace"] = True
+    if allow_empty_replace is not None:
+        args_dict["allow_empty_replace"] = allow_empty_replace
 
     json_args = json.dumps(args_dict)
 

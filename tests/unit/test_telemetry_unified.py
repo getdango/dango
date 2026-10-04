@@ -353,7 +353,7 @@ class TestDbtTelemetryEnvWiredEverywhere:
         ("dango/web/routes/dbt.py", "def run_dbt_model_task("),
         ("dango/cli/commands/dev.py", "def _run_dev_dbt("),
         ("dango/cli/init.py", "def _generate_dbt_docs("),
-        ("dango/cli/model_wizard.py", "def _regenerate_manifest("),
+        ("dango/transformation/model_service.py", "def parse_project("),
         ("dango/cli/validate.py", "def _validate_dbt_models("),
     )
 

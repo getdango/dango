@@ -126,7 +126,7 @@ def run_manual_sync(
     max_lock_wait: int = 0,
     sync_id: str | None = None,
     record_id: int | None = None,
-    allow_empty_replace: bool = False,
+    allow_empty_replace: bool | None = None,
 ) -> dict[str, Any]:
     """Execute a manual sync with execution history tracking.
 
@@ -286,14 +286,32 @@ def run_manual_sync(
         if failed_sources:
             error_msg = "; ".join(f["error"] for f in failed_sources if isinstance(f, dict))
             record_failure(db_path, record_id, error_msg)
-            _progress("failed", f"Sync failed: {error_msg}", error=error_msg)
-            return {
+            # Only meaningful when exactly one source is in this batch — jobs.py's scheduled-sync
+            # loop is the only caller that relies on this key, and it always calls with a single
+            # source. Do not extend this to multi-source batches without a real per-source schema
+            # change.
+            error_type: str | None = None
+            if len(failed_sources) == 1 and isinstance(failed_sources[0], dict):
+                error_type = failed_sources[0].get("error_type")
+            # jobs.py's scheduled-sync loop runs this in a subprocess and only ever sees the
+            # sync_status_{sync_id}.json file written by _progress()/_write_status() below — it
+            # never sees this function's Python return value. error_type MUST be passed to
+            # _progress() (not only set on the return dict) or it never crosses the process
+            # boundary and stale-marking exclusion silently becomes a no-op.
+            progress_extra: dict[str, Any] = {"error": error_msg}
+            if error_type is not None:
+                progress_extra["error_type"] = error_type
+            _progress("failed", f"Sync failed: {error_msg}", **progress_extra)
+            result: dict[str, Any] = {
                 "record_id": record_id,
                 "status": "failed",
                 "duration_seconds": duration,
                 "error": error_msg,
                 "rows_loaded": rows_loaded,
             }
+            if error_type is not None:
+                result["error_type"] = error_type
+            return result
 
         record_completion(db_path, record_id)
         # Always write phase="completed" so poll_sync_status_blocking recognises
@@ -349,6 +367,6 @@ if __name__ == "__main__":
         max_lock_wait=args.get("max_lock_wait", 0),
         sync_id=args.get("sync_id"),
         record_id=args.get("record_id"),
-        allow_empty_replace=args.get("allow_empty_replace", False),
+        allow_empty_replace=args.get("allow_empty_replace", None),
     )
     print(json.dumps(result))

@@ -12,13 +12,20 @@ from __future__ import annotations
 
 import tarfile
 import time
+from io import BytesIO
 from pathlib import Path
 
 import click
 
 from dango.cli import console
 from dango.cli.utils import require_project_context, safe_confirm
-from dango.platform.cloud.backup import BACKUP_DIRS, BACKUP_FILES
+from dango.platform.cloud.backup import (
+    BACKUP_DIRS,
+    BACKUP_FILES,
+    METABASE_CONFIG_FILE,
+    _sanitized_metabase_yaml,
+    _sanitized_metabase_yaml_text,
+)
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -40,6 +47,18 @@ def _create_safety_backup(project_root: Path) -> Path | None:
                 src = project_root / fpath
                 if src.exists():
                     tf.add(str(src), arcname=fpath)
+            metabase_source = project_root / METABASE_CONFIG_FILE
+            if metabase_source.exists():
+                try:
+                    sanitized = _sanitized_metabase_yaml(metabase_source).encode()
+                    info = tarfile.TarInfo(METABASE_CONFIG_FILE)
+                    info.size = len(sanitized)
+                    tf.addfile(info, BytesIO(sanitized))
+                except ValueError:
+                    console.print(
+                        "[yellow]Warning:[/yellow] Metabase metadata omitted because its YAML "
+                        "could not be safely sanitized."
+                    )
             for dpath in BACKUP_DIRS:
                 src = project_root / dpath
                 if src.exists():
@@ -83,7 +102,17 @@ def _extract_archive(archive_path: Path, project_root: Path) -> None:
                 # Extract to file
                 src_f = tf.extractfile(member)
                 if src_f is not None:
-                    dest.write_bytes(src_f.read())
+                    content = src_f.read()
+                    if rel_path == METABASE_CONFIG_FILE:
+                        try:
+                            content = _sanitized_metabase_yaml_text(content.decode()).encode()
+                        except (UnicodeDecodeError, ValueError):
+                            console.print(
+                                "[yellow]Warning:[/yellow] Metabase metadata omitted because its "
+                                "YAML could not be safely sanitized."
+                            )
+                            continue
+                    dest.write_bytes(content)
 
 
 # ---------------------------------------------------------------------------

@@ -147,6 +147,9 @@ def start(ctx: click.Context, yes: bool) -> None:
     """
     from dango.config import ConfigLoader
     from dango.exceptions import DockerIdentityCollisionError, format_structured_error
+    from dango.platform.common.metabase_credential_migration import (
+        complete_metabase_credential_migration,
+    )
     from dango.platform.common.startup import (
         check_duckdb_version_alignment,
         ensure_dbt_schemas,
@@ -554,6 +557,42 @@ def start(ctx: click.Context, yes: bool) -> None:
                 console.print("  2. Try again: '[cyan]dango start[/cyan]'")
             console.print()
             raise click.Abort() from e
+
+        # Docker assigns/repairs the persisted project ID during service start.
+        # Apply the additive local-artifact protections for direct-pip users
+        # too.  This must not prevent a project from starting.
+        try:
+            from dango.config.credentials import ensure_sensitive_artifact_gitignores
+
+            if ensure_sensitive_artifact_gitignores(project_root):
+                console.print(
+                    "[dim]Added sensitive local-artifact ignore rules to .gitignore.[/dim]"
+                )
+        except Exception:
+            console.print(
+                "[yellow]⚠[/yellow] Could not update .gitignore with sensitive local-artifact "
+                "rules. Dango will retry safely on the next start."
+            )
+
+        from dango.security.legacy_backup_artifacts import legacy_backup_artifact_warning
+
+        if warning := legacy_backup_artifact_warning(project_root):
+            console.print(f"[yellow]⚠[/yellow] {warning}")
+
+        # Complete a pending legacy credential migration only after that identity
+        # exists, and before setup decides whether Metabase needs configuration.
+        try:
+            credential_migration = complete_metabase_credential_migration(project_root)
+            if credential_migration.get("status") == "failed_non_destructive":
+                console.print(
+                    "[yellow]⚠[/yellow] Metabase credential migration is incomplete; "
+                    "existing configuration is unchanged and will retry on the next start."
+                )
+        except Exception:
+            console.print(
+                "[yellow]⚠[/yellow] Metabase credential migration is incomplete; "
+                "existing configuration is unchanged and will retry on the next start."
+            )
 
         # Metabase auto-setup (first-time only)
         console.print()

@@ -51,14 +51,21 @@ class ProjectValidator:
         self.project_root = project_root
         self.results: list[ValidationResult] = []
 
-    def validate_all(self) -> dict[str, Any]:
+    def validate_all(
+        self, *, display: bool = True, include_connectivity: bool = True
+    ) -> dict[str, Any]:
         """
         Run all validation checks
+
+        Args:
+            display: Print the header and results table (False for programmatic use)
+            include_connectivity: Run live source connectivity checks (API calls)
 
         Returns:
             Validation summary
         """
-        console.print("[bold cyan]🔍 Validating Dango Project[/bold cyan]\n")
+        if display:
+            console.print("[bold cyan]🔍 Validating Dango Project[/bold cyan]\n")
 
         # Run all checks
         self._check_project_structure()
@@ -66,7 +73,8 @@ class ProjectValidator:
         self._check_data_sources()
         self._check_custom_sources()  # Check for unreferenced custom sources
         self._check_oauth_credentials()  # NEW: OAuth validation
-        self._check_source_connectivity()
+        if include_connectivity:
+            self._check_source_connectivity()
         self._check_env_vars()
         self._check_dbt_setup()
         self._check_model_sql_portability()
@@ -79,7 +87,8 @@ class ProjectValidator:
 
         # Summarize results
         summary = self._create_summary()
-        self._display_results()
+        if display:
+            self._display_results()
 
         return summary
 
@@ -450,6 +459,7 @@ class ProjectValidator:
                 capture_output=True,
                 text=True,
                 timeout=60,
+                stdin=subprocess.DEVNULL,
                 env=_dbt_telemetry_env(),
             )
 
@@ -953,7 +963,9 @@ class ProjectValidator:
             )
 
 
-def validate_project(project_root: Path) -> dict[str, Any]:
+def validate_project(
+    project_root: Path, *, display: bool = True, include_connectivity: bool = True
+) -> dict[str, Any]:
     """
     Validate a Dango project
 
@@ -964,4 +976,4 @@ def validate_project(project_root: Path) -> dict[str, Any]:
         Validation summary
     """
     validator = ProjectValidator(project_root)
-    return validator.validate_all()
+    return validator.validate_all(display=display, include_connectivity=include_connectivity)

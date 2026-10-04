@@ -197,7 +197,12 @@ def upgrade_dango(
         warnings.append("Pre-upgrade backup skipped (--skip-backup).")
 
     # 5. Stop services
-    from dango.platform.cloud.backup import start_services, stop_services, verify_health
+    from dango.platform.cloud.backup import (
+        get_remote_compose_project_name,
+        start_services,
+        stop_services,
+        verify_health,
+    )
 
     _notify(on_progress, "stop_services", "running")
     stop_services(ssh)
@@ -239,9 +244,12 @@ def upgrade_dango(
         # 9. Docker rebuild
         _notify(on_progress, "docker_rebuild", "running")
         docker_rebuilt = False
+        compose_project = get_remote_compose_project_name(ssh, _PROJECT_DIR)
         docker_result = ssh.exec_command(
-            f"docker compose -f {_PROJECT_DIR}/docker-compose.yml pull "
-            f"&& docker compose -f {_PROJECT_DIR}/docker-compose.yml up -d --build metabase",
+            f"COMPOSE_PROJECT_NAME={compose_project} docker compose "
+            f"-f {_PROJECT_DIR}/docker-compose.yml pull "
+            f"&& COMPOSE_PROJECT_NAME={compose_project} docker compose "
+            f"-f {_PROJECT_DIR}/docker-compose.yml up -d --build metabase </dev/null",
             timeout=600,
         )
         if docker_result.success:

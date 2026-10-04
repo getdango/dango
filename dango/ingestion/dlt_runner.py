@@ -27,7 +27,7 @@ from dango.config.models import (
     SourceType,
 )
 from dango.exceptions import SyncTimeoutError
-from dango.ingestion.csv_loader import CSVLoader
+from dango.ingestion.csv_loader import CSVLoader, check_duplicate_filenames
 from dango.ingestion.sources.registry import get_source_metadata
 
 if TYPE_CHECKING:
@@ -62,6 +62,14 @@ _DUCKDB_LOCK_KEYWORDS = (
     "already open",
     "another process",
 )
+
+# error_type value for empty-replace-protection failures (1.0.10-S11). Shared
+# between the failure-return blocks below (the producer, incl. the two
+# pre-load blocks added by 1.0.10-S13 and the three added by 1.0.10-S15's
+# _full_refresh_via_staging()) and platform/scheduling/jobs.py's stale-marking
+# exclusion filter (the consumer) so the two can't silently drift apart on a
+# rename/typo.
+EMPTY_REPLACE_PROTECTION_ERROR_TYPE = "empty_replace_protection"
 
 
 def _is_duckdb_lock_error(error: BaseException) -> bool:
@@ -329,7 +337,7 @@ class DltPipelineRunner:
         full_refresh: bool = False,
         timeout_minutes: int = 60,
         limit: int | None = None,
-        allow_empty_replace: bool = False,
+        allow_empty_replace: bool | None = None,
         max_lock_wait: int = 300,
     ) -> dict[str, Any]:
         """
@@ -342,11 +350,15 @@ class DltPipelineRunner:
             full_refresh: Drop existing data and reload from scratch
             timeout_minutes: Timeout in minutes (default: 60)
             limit: Max rows to load (dev testing, applies to dlt sources only)
-            allow_empty_replace: If True, allow 0-row syncs to replace existing data
+            allow_empty_replace: If True, allow 0-row syncs to replace existing data.
+                If None, falls back to the source's persisted `empty_sync_policy`.
 
         Returns:
             Dictionary with load statistics and status
         """
+        if allow_empty_replace is None:
+            allow_empty_replace = source_config.empty_sync_policy == "allow"
+
         from dango.exceptions import DiskSpaceError
         from dango.utils.activity_log import log_activity
         from dango.utils.db_health import check_disk_space, check_duckdb_health
@@ -731,6 +743,20 @@ class DltPipelineRunner:
         has_backup = False
         metadata_backup: list[tuple] = []  # backed-up _dango_file_metadata rows
 
+        # Duplicate file names are refused; check before a full refresh drops anything
+        dup_err = (
+            check_duplicate_filenames(self.project_root, source_config.csv)
+            if full_refresh
+            else None
+        )
+        if dup_err:
+            return {
+                **dup_err,
+                "source": source_config.name,
+                "rows_loaded": 0,
+                "uses_replace_mode": True,
+            }
+
         # Full refresh: backup or drop existing table
         if full_refresh:
             conn = _connect_with_lock_retry(
@@ -791,7 +817,19 @@ class DltPipelineRunner:
             config=source_config.csv,
             target_schema=target_schema,
             allow_schema_changes=getattr(self, "allow_schema_changes", False),
+            allow_empty_replace=allow_empty_replace,
         )
+
+        if result.get("error_type") == EMPTY_REPLACE_PROTECTION_ERROR_TYPE:
+            # Loader refused to empty the table (all files gone); nothing was changed.
+            return {
+                "status": "failed",
+                "source": source_config.name,
+                "error": result["error"],
+                "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
+                "rows_loaded": 0,
+                "uses_replace_mode": True,
+            }
 
         merged = {
             **result,
@@ -834,6 +872,7 @@ class DltPipelineRunner:
                 "status": "failed",
                 "source": source_config.name,
                 "error": error_msg,
+                "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
                 "rows_loaded": 0,
                 "uses_replace_mode": True,
             }
@@ -891,6 +930,20 @@ class DltPipelineRunner:
         pre_refresh_rows = self._get_csv_table_rows(source_config.name)
         has_backup = False
         metadata_backup: list[tuple] = []  # backed-up _dango_file_metadata rows
+
+        # Duplicate file names are refused; check before a full refresh drops anything
+        dup_err = (
+            check_duplicate_filenames(self.project_root, source_config.local_files)
+            if full_refresh
+            else None
+        )
+        if dup_err:
+            return {
+                **dup_err,
+                "source": source_config.name,
+                "rows_loaded": 0,
+                "uses_replace_mode": True,
+            }
 
         # Full refresh: backup or drop existing table
         if full_refresh:
@@ -950,7 +1003,19 @@ class DltPipelineRunner:
             config=source_config.local_files,
             target_schema=target_schema,
             allow_schema_changes=getattr(self, "allow_schema_changes", False),
+            allow_empty_replace=allow_empty_replace,
         )
+
+        if result.get("error_type") == EMPTY_REPLACE_PROTECTION_ERROR_TYPE:
+            # Loader refused to empty the table (all files gone); nothing was changed.
+            return {
+                "status": "failed",
+                "source": source_config.name,
+                "error": result["error"],
+                "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
+                "rows_loaded": 0,
+                "uses_replace_mode": True,
+            }
 
         merged = {
             **result,
@@ -995,6 +1060,7 @@ class DltPipelineRunner:
                 "status": "failed",
                 "source": source_config.name,
                 "error": error_msg,
+                "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
                 "rows_loaded": 0,
                 "uses_replace_mode": True,
             }
@@ -1181,40 +1247,44 @@ class DltPipelineRunner:
         # tables on every run (preserving schema protects against 0-row results).
         if full_refresh:
             if not uses_replace_mode:
-                console.print("  🔄 Full refresh: dropping data and pipeline state")
-                try:
-                    db = _connect_with_lock_retry(
-                        self.duckdb_path,
-                        source_name,
-                        "dlt-native-full-refresh-drop",
-                        project_root=self.project_root,
-                    )
-                    try:
-                        db.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
-                    finally:
-                        db.close()
-                except Exception as e:
-                    console.print(f"  ⚠️  Could not drop schema: {e}")
+                # 1.0.10-S15: merge/append sources no longer drop the real schema
+                # before extraction (see PLAN.md's "S15 finding" -- any ordinary
+                # failure after that drop, not just an interrupt, previously left the
+                # source permanently empty with no recovery). Stage the reload into a
+                # separate pipeline and swap it in only once known-good; early return
+                # since this method's own Phase 1-3 below must not run a second time.
+                self._cleanup_state_backup(state_backup)
+                return self._full_refresh_via_staging(
+                    source=source,
+                    source_name=source_name,
+                    dataset_name=dataset_name,
+                    pipeline_name=pipeline_name,
+                    max_lock_wait=max_lock_wait,
+                    uses_replace_mode=uses_replace_mode,
+                    pre_refresh_rows=pre_refresh_rows,
+                    pre_table_counts=pre_table_counts,
+                    allow_empty_replace=allow_empty_replace,
+                )
             else:
                 console.print("  🔄 Full refresh: dropping pipeline state")
-            try:
-                pipeline.drop()
-            except Exception as e:
-                console.print(f"  ⚠️  Could not drop pipeline state: {e}")
-            self._clear_local_pipeline_cache(pipeline_name)
-            # Re-create the pipeline object: the one above was constructed
-            # against the on-disk working directory we just deleted, and dlt's
-            # Pipeline does not lazily recreate that directory before
-            # extract()/normalize()/load() — reusing the stale in-memory
-            # object here raises FileNotFoundError on schemas/ mid-sync
-            # (confirmed via live testing on a scratch project). A fresh
-            # dlt.pipeline() call bootstraps a clean directory exactly like it
-            # would for a pipeline_name that has never been synced before.
-            pipeline = dlt.pipeline(
-                pipeline_name=pipeline_name,
-                destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
-                dataset_name=dataset_name,
-            )
+                try:
+                    pipeline.drop()
+                except Exception as e:
+                    console.print(f"  ⚠️  Could not drop pipeline state: {e}")
+                self._clear_local_pipeline_cache(pipeline_name)
+                # Re-create the pipeline object: the one above was constructed
+                # against the on-disk working directory we just deleted, and dlt's
+                # Pipeline does not lazily recreate that directory before
+                # extract()/normalize()/load() — reusing the stale in-memory
+                # object here raises FileNotFoundError on schemas/ mid-sync
+                # (confirmed via live testing on a scratch project). A fresh
+                # dlt.pipeline() call bootstraps a clean directory exactly like it
+                # would for a pipeline_name that has never been synced before.
+                pipeline = dlt.pipeline(
+                    pipeline_name=pipeline_name,
+                    destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
+                    dataset_name=dataset_name,
+                )
 
         try:
             # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
@@ -1222,7 +1292,46 @@ class DltPipelineRunner:
 
             # Phase 2: Normalize (in-memory, NO LOCK)
             console.print("  ⏳ Normalizing data...")
-            pipeline.normalize()
+            norm_info = pipeline.normalize()
+
+            # Pre-load empty-replace protection (1.0.10-S13): abort BEFORE any DuckDB
+            # write if a replace-mode table with existing data is about to be emptied.
+            # This is additive — it does not change what happens below when it doesn't
+            # fire. Scoped to `uses_replace_mode` only, NOT `full_refresh or
+            # uses_replace_mode` — for merge/append sources under --full-refresh, the
+            # schema was already intentionally dropped above (before extract), so
+            # there's nothing left here to prevent; that path keeps relying on the
+            # existing post-load checks below, unchanged.
+            if pre_table_counts is not None and uses_replace_mode and not allow_empty_replace:
+                staged_counts = {
+                    k: v for k, v in norm_info.row_counts.items() if not k.startswith("_dlt")
+                }
+                would_truncate: list[tuple[str, int]] = []
+                for table_name, pre_count in pre_table_counts.items():
+                    if pre_count > 0 and staged_counts.get(table_name, 0) == 0:
+                        would_truncate.append((table_name, pre_count))
+                if would_truncate:
+                    pipeline.drop_pending_packages()
+                    self._restore_dlt_state(state_backup)
+                    table_details = "\n  - ".join(
+                        f"{name}: {count:,} rows → 0 rows (table would be lost)"
+                        for name, count in would_truncate
+                    )
+                    error_msg = (
+                        f"Sync would truncate {len(would_truncate)} table(s) with "
+                        f"existing data:\n  - {table_details}\n"
+                        f"To force sync with empty data, use: "
+                        f"dango sync {source_name} --allow-empty-replace"
+                    )
+                    console.print(f"  [red]❌ {error_msg}[/red]")
+                    return {
+                        "status": "failed",
+                        "source": source_name,
+                        "error": error_msg,
+                        "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
+                        "rows_loaded": 0,
+                        "uses_replace_mode": uses_replace_mode,
+                    }
 
             # Phase 3: Load (DuckDB write, UNDER LOCK)
             console.print("  ⏳ Loading data to DuckDB...")
@@ -1253,6 +1362,7 @@ class DltPipelineRunner:
                     "status": "failed",
                     "source": source_name,
                     "error": error_msg,
+                    "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
                     "rows_loaded": 0,
                     "uses_replace_mode": uses_replace_mode,
                 }
@@ -1291,6 +1401,7 @@ class DltPipelineRunner:
                             "status": "failed",
                             "source": source_name,
                             "error": error_msg,
+                            "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
                             "rows_loaded": rows_loaded,
                             "uses_replace_mode": uses_replace_mode,
                         }
@@ -1316,6 +1427,18 @@ class DltPipelineRunner:
             if getattr(self, "_current_oauth_warning", None):
                 result["oauth_warning"] = self._current_oauth_warning
             return result
+
+        except KeyboardInterrupt:
+            # User interrupted — keep current state (progress saved by dlt)
+            console.print("\n  [yellow]Sync interrupted[/yellow]")
+            console.print("  [green]Progress saved — resume with the same command[/green]")
+            self._cleanup_state_backup(state_backup)
+            return {
+                "status": "interrupted",
+                "source": source_name,
+                "rows_loaded": 0,
+                "uses_replace_mode": uses_replace_mode,
+            }
 
         except Exception:
             # Restore state on failure
@@ -1586,43 +1709,47 @@ class DltPipelineRunner:
         # tables on every run (preserving schema protects against 0-row results).
         if full_refresh:
             if not uses_replace_mode:
-                console.print("  🔄 Full refresh: dropping data and pipeline state")
-                try:
-                    db = _connect_with_lock_retry(
-                        self.duckdb_path,
-                        source_name,
-                        "dlt-full-refresh-drop",
-                        project_root=self.project_root,
-                    )
-                    try:
-                        db.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
-                    finally:
-                        db.close()
-                except Exception as e:
-                    console.print(f"  ⚠️  Could not drop schema: {e}")
+                # 1.0.10-S15: merge/append sources no longer drop the real schema
+                # before extraction (see PLAN.md's "S15 finding" -- any ordinary
+                # failure after that drop, not just an interrupt, previously left the
+                # source permanently empty with no recovery). Stage the reload into a
+                # separate pipeline and swap it in only once known-good; early return
+                # since this method's own Phase 1-3 below must not run a second time.
+                self._cleanup_state_backup(state_backup)
+                return self._full_refresh_via_staging(
+                    source=source,
+                    source_name=source_name,
+                    dataset_name=dataset_name,
+                    pipeline_name=source_name,
+                    max_lock_wait=max_lock_wait,
+                    uses_replace_mode=uses_replace_mode,
+                    pre_refresh_rows=pre_refresh_rows,
+                    pre_table_counts=pre_table_counts,
+                    allow_empty_replace=allow_empty_replace,
+                )
             else:
                 console.print("  🔄 Full refresh: dropping pipeline state")
-            try:
-                pipeline.drop()
-            except Exception as e:
-                console.print(f"  ⚠️  Could not drop pipeline state: {e}")
-            # NOTE: this method's pipeline is always named `source_name` (see
-            # dlt.pipeline(pipeline_name=source_name, ...) above) — unlike
-            # _run_dlt_native_source, there is no separate pipeline_name override.
-            self._clear_local_pipeline_cache(source_name)
-            # Re-create the pipeline object: the one above was constructed
-            # against the on-disk working directory we just deleted, and dlt's
-            # Pipeline does not lazily recreate that directory before
-            # extract()/normalize()/load() — reusing the stale in-memory
-            # object here raises FileNotFoundError on schemas/ mid-sync
-            # (confirmed via live testing on a scratch project). A fresh
-            # dlt.pipeline() call bootstraps a clean directory exactly like it
-            # would for a pipeline_name that has never been synced before.
-            pipeline = dlt.pipeline(
-                pipeline_name=source_name,
-                destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
-                dataset_name=dataset_name,
-            )
+                try:
+                    pipeline.drop()
+                except Exception as e:
+                    console.print(f"  ⚠️  Could not drop pipeline state: {e}")
+                # NOTE: this method's pipeline is always named `source_name` (see
+                # dlt.pipeline(pipeline_name=source_name, ...) above) — unlike
+                # _run_dlt_native_source, there is no separate pipeline_name override.
+                self._clear_local_pipeline_cache(source_name)
+                # Re-create the pipeline object: the one above was constructed
+                # against the on-disk working directory we just deleted, and dlt's
+                # Pipeline does not lazily recreate that directory before
+                # extract()/normalize()/load() — reusing the stale in-memory
+                # object here raises FileNotFoundError on schemas/ mid-sync
+                # (confirmed via live testing on a scratch project). A fresh
+                # dlt.pipeline() call bootstraps a clean directory exactly like it
+                # would for a pipeline_name that has never been synced before.
+                pipeline = dlt.pipeline(
+                    pipeline_name=source_name,
+                    destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
+                    dataset_name=dataset_name,
+                )
 
         try:
             # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
@@ -1630,7 +1757,46 @@ class DltPipelineRunner:
 
             # Phase 2: Normalize (in-memory, NO LOCK)
             console.print("  ⏳ Normalizing data...")
-            pipeline.normalize()
+            norm_info = pipeline.normalize()
+
+            # Pre-load empty-replace protection (1.0.10-S13): abort BEFORE any DuckDB
+            # write if a replace-mode table with existing data is about to be emptied.
+            # This is additive — it does not change what happens below when it doesn't
+            # fire. Scoped to `uses_replace_mode` only, NOT `full_refresh or
+            # uses_replace_mode` — for merge/append sources under --full-refresh, the
+            # schema was already intentionally dropped above (before extract), so
+            # there's nothing left here to prevent; that path keeps relying on the
+            # existing post-load checks below, unchanged.
+            if pre_table_counts is not None and uses_replace_mode and not allow_empty_replace:
+                staged_counts = {
+                    k: v for k, v in norm_info.row_counts.items() if not k.startswith("_dlt")
+                }
+                would_truncate: list[tuple[str, int]] = []
+                for table_name, pre_count in pre_table_counts.items():
+                    if pre_count > 0 and staged_counts.get(table_name, 0) == 0:
+                        would_truncate.append((table_name, pre_count))
+                if would_truncate:
+                    pipeline.drop_pending_packages()
+                    self._restore_dlt_state(state_backup)
+                    table_details = "\n  - ".join(
+                        f"{name}: {count:,} rows → 0 rows (table would be lost)"
+                        for name, count in would_truncate
+                    )
+                    error_msg = (
+                        f"Sync would truncate {len(would_truncate)} table(s) with "
+                        f"existing data:\n  - {table_details}\n"
+                        f"To force sync with empty data, use: "
+                        f"dango sync {source_name} --allow-empty-replace"
+                    )
+                    console.print(f"  [red]❌ {error_msg}[/red]")
+                    return {
+                        "status": "failed",
+                        "source": source_name,
+                        "error": error_msg,
+                        "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
+                        "rows_loaded": 0,
+                        "uses_replace_mode": uses_replace_mode,
+                    }
 
             # Phase 3: Load (DuckDB write, UNDER LOCK)
             console.print("  ⏳ Loading data to DuckDB...")
@@ -1661,6 +1827,7 @@ class DltPipelineRunner:
                     "status": "failed",
                     "source": source_name,
                     "error": error_msg,
+                    "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
                     "rows_loaded": 0,
                     "uses_replace_mode": uses_replace_mode,
                 }
@@ -1701,6 +1868,7 @@ class DltPipelineRunner:
                             "source": source_name,
                             "error": error_msg,
                             "rows_loaded": rows_loaded,
+                            "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
                             "uses_replace_mode": uses_replace_mode,
                         }
 
@@ -2834,6 +3002,263 @@ Need help? Visit: https://github.com/getdango/dango/issues
 
         return stats
 
+    def _full_refresh_via_staging(
+        self,
+        source: Any,
+        source_name: str,
+        dataset_name: str,
+        pipeline_name: str,
+        max_lock_wait: int,
+        uses_replace_mode: bool,
+        pre_refresh_rows: int | None = None,
+        pre_table_counts: dict[str, int] | None = None,
+        allow_empty_replace: bool = False,
+    ) -> dict[str, Any]:
+        """Full-refresh a merge/append source by staging into a separate pipeline and
+        swapping into the real destination only once the staged reload has succeeded.
+
+        Replaces the old drop-schema-then-hope approach for merge/append sources (see
+        PLAN.md's "S15 finding"). Two alternative designs were tried and rejected on
+        real, verified evidence against this project's pinned dlt/DuckDB stack:
+        renaming the destination table(s) away first doesn't reliably protect existing
+        data -- dlt's merge SQL treats a renamed-away target as "doesn't exist yet" and
+        silently falls back to a plain create+insert, leaving the renamed backup as a
+        permanent orphan with no atomic multi-table story; skipping the schema drop
+        entirely "succeeds" but a row absent from the new extraction (deleted upstream)
+        silently persists forever, which is the exact staleness `--full-refresh` exists
+        to prevent. Staging into a separate pipeline identity sidesteps both failure
+        modes: the real destination is never touched until the staged reload is already
+        known-good, and the final swap is a straight drop+recreate per table so rows
+        absent from the new extraction are correctly purged.
+
+        Also verified live and handled here (not obvious from dlt's docs):
+        - A resource that yields zero rows in a given run gets no entry in
+          `norm_info.row_counts` at all, and dlt never creates a table for it in the
+          staging schema -- a swap loop keyed only on the staged tables would silently
+          leave that table's stale destination data untouched. The swap below unions in
+          `pre_table_counts` so a table that goes fully empty this run is purged, not
+          skipped (this scenario is normally caught first by the empty-replace check
+          below unless the caller passed `allow_empty_replace=True`).
+        - A crashed or interrupted prior staging attempt that never reached its own
+          cleanup leaves both a stale staging schema AND a stale local dlt pipeline
+          working directory behind. If the working directory survives, a fresh
+          `dlt.pipeline()` call against the same staging pipeline_name treats the next
+          attempt as an ordinary incremental merge continuation against the leftover
+          staging table -- reproduced directly: a stale row silently carried forward
+          into what should have been a clean reload. This method always clears both
+          before starting, so every attempt starts from a guaranteed-clean slate.
+        - `CREATE TABLE "{dataset_name}"."{table}" AS SELECT ...` fails outright if the
+          `{dataset_name}` schema doesn't exist yet (a merge/append source's very first
+          --full-refresh) -- the swap ensures the schema exists first.
+
+        The empty-replace-protection checks here mirror the existing post-load checks
+        in both call sites (total-empty and per-table-truncated-to-zero), evaluated
+        against the staged row counts *before* the staging load instead of after --
+        this is additive protection carried forward from before this task, not new
+        product behavior: without it, a source that genuinely (or due to a transient
+        extraction bug) returns nothing would unconditionally swap an empty table over
+        real data, which both this task's own acceptance criteria and the pre-existing
+        product behavior for every other full-refresh path require to be blocked.
+        """
+        staging_pipeline_name = f"{pipeline_name}_fullrefresh_staging"
+        staging_dataset_name = f"{dataset_name}_fullrefresh_staging"
+        # dlt's own internal artifact for merge writes (confirmed live: named
+        # f"{staging_dataset_name}_staging", not documented anywhere).
+        staging_internal_dataset = f"{staging_dataset_name}_staging"
+
+        def _cleanup_staging(staging_pipeline_obj: Any = None) -> None:
+            """Drop both staging schemas (the intentional one and dlt's own internal
+            merge-staging artifact), drop the staging pipeline object (if one has
+            been created yet), and clear the staging pipeline's local working
+            directory. Used both to guarantee a clean slate before starting (no
+            pipeline object exists yet at that point), and to clean up after a
+            failure or a completed success/swap.
+
+            Both `.drop()` AND `_clear_local_pipeline_cache()` are used, same as
+            every other full-refresh path in this file: `.drop()` is expected to
+            clear the local working directory itself, but its failure is only
+            caught and logged (matching the existing convention elsewhere in this
+            file) -- `_clear_local_pipeline_cache()` is the actual guaranteed
+            removal (see its own docstring, 1.0.8-Q6)."""
+            if staging_pipeline_obj is not None:
+                try:
+                    staging_pipeline_obj.drop()
+                except Exception as e:
+                    console.print(f"  ⚠️  Could not drop staging pipeline state: {e}")
+            try:
+                db = _connect_with_lock_retry(
+                    self.duckdb_path,
+                    source_name,
+                    "fullrefresh-staging-cleanup",
+                    project_root=self.project_root,
+                )
+                try:
+                    db.execute(f'DROP SCHEMA IF EXISTS "{staging_dataset_name}" CASCADE')
+                    db.execute(f'DROP SCHEMA IF EXISTS "{staging_internal_dataset}" CASCADE')
+                finally:
+                    db.close()
+            except Exception as e:
+                console.print(f"  ⚠️  Could not clean up full-refresh staging schema: {e}")
+            self._clear_local_pipeline_cache(staging_pipeline_name)
+
+        # Always start from a guaranteed-clean slate -- see docstring for the verified
+        # stale-leftover-contamination failure mode this prevents.
+        _cleanup_staging()
+
+        console.print("  🔄 Full refresh: staging reload before swapping into destination")
+        staging_pipeline = dlt.pipeline(
+            pipeline_name=staging_pipeline_name,
+            destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
+            dataset_name=staging_dataset_name,
+        )
+
+        try:
+            # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
+            self._run_extract_with_retry(staging_pipeline, source, max_retries=3)
+
+            # Phase 2: Normalize (in-memory, NO LOCK)
+            console.print("  ⏳ Normalizing data...")
+            norm_info = staging_pipeline.normalize()
+
+            staged_counts = {
+                k: v for k, v in norm_info.row_counts.items() if not k.startswith("_dlt")
+            }
+
+            if not allow_empty_replace:
+                if (
+                    pre_refresh_rows is not None
+                    and pre_refresh_rows > 0
+                    and sum(staged_counts.values()) == 0
+                ):
+                    staging_pipeline.drop_pending_packages()
+                    _cleanup_staging()
+                    error_msg = (
+                        f"Full refresh staged 0 rows — existing {pre_refresh_rows:,} rows "
+                        f"were never touched. To force sync with empty data, use: "
+                        f"dango sync {source_name} --allow-empty-replace"
+                    )
+                    console.print(f"  [red]❌ {error_msg}[/red]")
+                    return {
+                        "status": "failed",
+                        "source": source_name,
+                        "error": error_msg,
+                        "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
+                        "rows_loaded": 0,
+                        "uses_replace_mode": uses_replace_mode,
+                    }
+
+                if pre_table_counts is not None:
+                    truncated_tables = [
+                        (table_name, pre_count)
+                        for table_name, pre_count in pre_table_counts.items()
+                        if pre_count > 0 and staged_counts.get(table_name, 0) == 0
+                    ]
+                    if truncated_tables:
+                        staging_pipeline.drop_pending_packages()
+                        _cleanup_staging()
+                        table_details = "\n  - ".join(
+                            f"{name}: {count:,} rows → 0 rows (table would be lost)"
+                            for name, count in truncated_tables
+                        )
+                        error_msg = (
+                            f"Full refresh would truncate {len(truncated_tables)} table(s) "
+                            f"with existing data — destination was never touched:\n"
+                            f"  - {table_details}\n"
+                            f"To force sync with empty data, use: "
+                            f"dango sync {source_name} --allow-empty-replace"
+                        )
+                        console.print(f"  [red]❌ {error_msg}[/red]")
+                        return {
+                            "status": "failed",
+                            "source": source_name,
+                            "error": error_msg,
+                            "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
+                            "rows_loaded": 0,
+                            "uses_replace_mode": uses_replace_mode,
+                        }
+
+            # Phase 3: Load into staging (DuckDB write, UNDER LOCK)
+            console.print("  ⏳ Loading data to staging...")
+            staging_load_info = self._load_with_lock(staging_pipeline, source_name, max_lock_wait)
+
+            # Extract load statistics BEFORE cleanup -- _extract_load_stats queries
+            # row counts from the staging dataset, which the swap+cleanup below removes.
+            stats = self._extract_load_stats(staging_load_info)
+            rows_loaded = stats.get("rows_loaded", 0)
+
+            # Swap: under lock, per real table, drop the destination table and replace
+            # it with the freshly-staged one. Verified live against a real 2-table
+            # multi-resource source: changed rows update, new rows insert, and rows
+            # absent from the new extraction are correctly purged. Tables present in
+            # pre_table_counts but absent from staged_counts (a resource that yielded
+            # zero rows this run -- see docstring) are dropped outright, not skipped.
+            #
+            # Explicit transaction around the whole loop: DuckDB's connection
+            # auto-commits each statement individually, so a multi-table source with
+            # no transaction wrapping would leave a real gap for exactly the sources
+            # this task most needs to protect (HubSpot, Salesforce, Jira, Pipedrive,
+            # etc. are multi-table, merge-mode by default) -- a swap that fails
+            # partway through (table 2's CREATE, say) would have already committed
+            # table 1's drop+recreate AND table 2's DROP TABLE IF EXISTS, leaving
+            # table 2 gone and table 1 half-migrated instead of "untouched." Verified
+            # live: BEGIN TRANSACTION / COMMIT / ROLLBACK around this loop restores
+            # every table to its exact pre-swap state on a mid-loop failure.
+            console.print("  🔄 Swapping staged data into destination...")
+            db = _connect_with_lock_retry(
+                self.duckdb_path,
+                source_name,
+                "fullrefresh-staging-swap",
+                project_root=self.project_root,
+            )
+            try:
+                db.execute("BEGIN TRANSACTION")
+                try:
+                    db.execute(f'CREATE SCHEMA IF NOT EXISTS "{dataset_name}"')
+                    all_table_names = set(staged_counts) | set(pre_table_counts or {})
+                    for table_name in all_table_names:
+                        db.execute(f'DROP TABLE IF EXISTS "{dataset_name}"."{table_name}"')
+                        if table_name in staged_counts:
+                            db.execute(
+                                f'CREATE TABLE "{dataset_name}"."{table_name}" AS '
+                                f'SELECT * FROM "{staging_dataset_name}"."{table_name}"'
+                            )
+                    db.execute("COMMIT")
+                except Exception:
+                    db.execute("ROLLBACK")
+                    raise
+            finally:
+                db.close()
+
+            _cleanup_staging(staging_pipeline)
+            console.print(f"  ✓ Loaded {rows_loaded:,} rows")
+
+            result = {
+                "status": "success",
+                "source": source_name,
+                "rows_loaded": rows_loaded,
+                "uses_replace_mode": uses_replace_mode,
+                **stats,
+            }
+            if getattr(self, "_current_oauth_warning", None):
+                result["oauth_warning"] = self._current_oauth_warning
+            return result
+
+        except Exception as e:
+            console.print(f"  ❌ Full refresh staging failed: {e}")
+            _cleanup_staging(staging_pipeline)
+            error_msg = (
+                f"Full refresh failed during staging — the existing destination data "
+                f"was never touched: {e}"
+            )
+            return {
+                "status": "failed",
+                "source": source_name,
+                "error": error_msg,
+                "error_type": EMPTY_REPLACE_PROTECTION_ERROR_TYPE,
+                "rows_loaded": 0,
+                "uses_replace_mode": uses_replace_mode,
+            }
+
     def _backup_dlt_state(self, pipeline_name: str) -> Path | None:
         """
         Backup dlt pipeline state before running.
@@ -3022,7 +3447,7 @@ def run_sync(
     *,
     skip_sync_notification: bool = False,
     progress_callback: Callable[[str, str], None] | None = None,
-    allow_empty_replace: bool = False,
+    allow_empty_replace: bool | None = None,
 ) -> dict[str, Any]:
     """
     Sync multiple sources and return summary
@@ -3042,6 +3467,7 @@ def run_sync(
             (phase, message). Phases: ``data_load_complete``, ``dbt_started``,
             ``dbt_complete`` (on success), ``dbt_failed`` (on failure).
         allow_empty_replace: If True, allow 0-row syncs to replace existing data.
+            If None, falls back to each source's persisted `empty_sync_policy`.
 
     Returns:
         Summary dictionary with success/failed counts
@@ -3075,7 +3501,11 @@ def run_sync(
             success_sources.append(source_config.name)
         else:
             failed_sources.append(
-                {"name": source_config.name, "error": result.get("error", "Unknown error")}
+                {
+                    "name": source_config.name,
+                    "error": result.get("error", "Unknown error"),
+                    "error_type": result.get("error_type"),
+                }
             )
 
     # Print detailed summary

@@ -381,13 +381,12 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/routes/users.py` | 540 | — (admin user CRUD + invite) |
 | `platform/local/watcher.py` | 524 | — |
 | `cli/commands/schedule.py` | 914 | — (schedule wizard + time customization) |
-| `cli/model_wizard.py` | 617 | — |
+| `cli/model_wizard.py` | 510 | — |
 | `cli/commands/remote_backup.py` | 521 | — (R2-D10: --from-local flag) |
 | `platform/cloud/scheduled_backup.py` | 606 | — (server-side scheduled backup) |
 | `governance/schema_drift.py` | 654 | — (R9-D: breaking drift protection + accept flow) |
 | `governance/pii_detector.py` | 626 | — (BUG-027/BUG-133/BUG-139/BUG-185: spaCy fallback + PERSON threshold + override application + structured data heuristic) |
 | `platform/scheduling/scheduler.py` | 514 | — (1.0.8-Q: `_setup_telemetry_heartbeat()`, a fourth fixed internal scheduler job) |
-| `cli/commands/mcp_mutations.py` | 508 | — (1.0.8-OPS-3: git guardrail wiring pushed an already-near-limit file over 500) |
 
 ## Module Documentation Index
 

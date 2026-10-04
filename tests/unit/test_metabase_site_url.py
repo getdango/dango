@@ -26,10 +26,19 @@ import yaml
 _NETWORK_CONFIG_GET_PROJECT_INFO = "dango.platform.local.network.NetworkConfig.get_project_info"
 
 
+@pytest.fixture(autouse=True)
+def _mock_credential_store() -> MagicMock:
+    """Keep Site URL tests focused on HTTP behavior, not OS credential backends."""
+    store = MagicMock()
+    store.load_pending.return_value = None
+    with patch("dango.visualization.metabase.MetabaseCredentialStore", return_value=store):
+        yield store
+
+
 def _mock_fresh_setup_session(put_side_effect: list[MagicMock]) -> MagicMock:
     """Build a requests.Session mock for the fresh-Metabase-setup happy path
     (session/properties -> setup -> login -> db list -> create db -> H2 list ->
-    collection list/create). `put_side_effect` lets callers vary what the
+    collection list/create, final credential verification). `put_side_effect` lets callers vary what the
     site-url / set-default PUT calls return without repeating the rest of the
     mock scaffolding.
     """
@@ -59,6 +68,7 @@ def _mock_fresh_setup_session(put_side_effect: list[MagicMock]) -> MagicMock:
         create_db_resp,
         coll_create_resp,
         coll_create_resp,
+        login_resp,
     ]
     mock_session.put.side_effect = put_side_effect
 

@@ -35,8 +35,8 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
     import subprocess
 
     from dango.transformation import _dbt_telemetry_env
+    from dango.transformation.build_finalize import finalize_dbt_build
     from dango.utils import DbtLock, DbtLockError
-    from dango.utils.dbt_status import update_model_status
 
     from ..utils import require_project_context
 
@@ -87,50 +87,31 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
                 start_metabase_after_writes(project_root)
 
         # Release lock after dbt write completes — subsequent operations
-        # (update_model_status, update_model_schemas) don't touch DuckDB.
+        # (finalize_dbt_build) doesn't touch DuckDB.
         if lock is not None and lock._acquired:
             try:
                 lock.release()
             except Exception:  # noqa: BLE001
                 pass
 
-        if result.returncode != 0:
+        build_ok = result.returncode == 0
+
+        # Record model status after every build (failures included), then on
+        # success sync schema.yml files and refresh Metabase.
+        if build_ok:
+            console.print("\n[dim]Updating schema.yml files...[/dim]")
+        post = finalize_dbt_build(project_root, success=build_ok)
+
+        if not build_ok:
             console.print(f"\n[red]dbt build failed with exit code {result.returncode}[/red]")
             raise click.Abort()
 
-        # Update persistent model status
-        update_model_status(project_root)
-
-        # Update schema.yml files for intermediate/marts models
-        console.print("\n[dim]Updating schema.yml files...[/dim]")
-        from dango.cli.schema_manager import update_model_schemas
-
-        # Get list of all intermediate/marts models
-        models_to_update = []
-        for layer in ["intermediate", "marts"]:
-            layer_dir = dbt_dir / "models" / layer
-            if layer_dir.exists():
-                for sql_file in layer_dir.glob("*.sql"):
-                    if not sql_file.name.startswith("_"):
-                        models_to_update.append(sql_file.stem)
-
-        if models_to_update:
-            update_model_schemas(project_root, models_to_update)
-
-        # Refresh Metabase connection to see new/updated tables.
         # Metabase is restarted after the dbt write phase, so it's available
         # for refresh on both local and cloud.
         console.print("\n[dim]Refreshing Metabase connection...[/dim]")
-        from dango.visualization.metabase import (
-            refresh_metabase_connection,
-            sync_metabase_schema,
-        )
-
-        mb_ok, _mb_err, mb_session_id = refresh_metabase_connection(project_root)
-        if mb_ok:
+        if post["metabase"] == "refreshed":
             console.print("[green]✓ Metabase connection refreshed[/green]")
-            # Also sync schema to discover new tables/schemas from dbt run
-            if sync_metabase_schema(project_root, existing_session_id=mb_session_id):
+            if post["metabase_schema_synced"]:
                 console.print("[green]✓ Metabase schema synced[/green]")
         else:
             console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")

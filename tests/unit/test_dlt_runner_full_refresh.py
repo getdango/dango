@@ -89,7 +89,19 @@ class TestRestoreDltStateCallSignature:
 
 @pytest.mark.unit
 class TestFullRefreshRowCountWarning:
-    """Verify row count comparison detects data loss on full refresh."""
+    """Verify row count comparison detects data loss on full refresh.
+
+    1.0.10-S15 note: for merge/append sources, this row-count-warning +
+    backup-preservation mechanism is now unreachable -- --full-refresh on a
+    merge/append source delegates to `_full_refresh_via_staging()` (see
+    PLAN.md's "S15 finding"), which returns before this method's own Phase 1-3
+    even runs, and is superseded by a strictly stronger guarantee: the real
+    destination is never touched at all unless the staged reload already
+    succeeded, rather than being touched and then merely flagged after the
+    fact. The two execution tests below now use replace-mode sources (the
+    still-untouched `else:` branch) so they keep exercising the mechanism on
+    the one path where it's still live.
+    """
 
     def _make_runner(self, tmp_path):
         """Create a DltPipelineRunner with mocked internals for testing."""
@@ -122,7 +134,11 @@ class TestFullRefreshRowCountWarning:
     def test_backup_preserved_when_row_count_drops(
         self, mock_getcwd, mock_chdir, mock_importlib, mock_dlt, mock_console, tmp_path
     ):
-        """When full refresh loads fewer rows, backup should NOT be cleaned up."""
+        """When full refresh loads fewer rows, backup should NOT be cleaned up.
+
+        Replace-mode source (see class docstring): merge/append full refresh no
+        longer runs this method's Phase 1-3 at all under 1.0.10-S15.
+        """
         runner = self._make_runner(tmp_path)
         config = self._make_native_source_config()
         backup_dir = tmp_path / "test_backup_20260512"
@@ -141,6 +157,7 @@ class TestFullRefreshRowCountWarning:
         runner._backup_dlt_state = MagicMock(return_value=backup_dir)
         runner._get_source_total_rows = MagicMock(return_value=68000)
         runner._cleanup_state_backup = MagicMock()
+        runner._detect_write_disposition = MagicMock(return_value=True)
         runner._run_with_retry = MagicMock(return_value=MagicMock())
         runner._extract_load_stats = MagicMock(return_value={"rows_loaded": 19})
 
@@ -159,7 +176,11 @@ class TestFullRefreshRowCountWarning:
     def test_backup_cleaned_up_when_row_count_ok(
         self, mock_getcwd, mock_chdir, mock_importlib, mock_dlt, mock_console, tmp_path
     ):
-        """When full refresh loads same/more rows, backup should be cleaned up."""
+        """When full refresh loads same/more rows, backup should be cleaned up.
+
+        Replace-mode source (see class docstring): merge/append full refresh no
+        longer runs this method's Phase 1-3 at all under 1.0.10-S15.
+        """
         runner = self._make_runner(tmp_path)
         config = self._make_native_source_config()
         backup_dir = tmp_path / "test_backup"
@@ -176,6 +197,7 @@ class TestFullRefreshRowCountWarning:
         runner._backup_dlt_state = MagicMock(return_value=backup_dir)
         runner._get_source_total_rows = MagicMock(return_value=100)
         runner._cleanup_state_backup = MagicMock()
+        runner._detect_write_disposition = MagicMock(return_value=True)
         runner._run_with_retry = MagicMock(return_value=MagicMock())
         runner._extract_load_stats = MagicMock(return_value={"rows_loaded": 150})
 

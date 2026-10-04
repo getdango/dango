@@ -175,6 +175,41 @@ class TestRunScheduledSync:
         assert call_kwargs["source_label"] == "scheduler"
         assert call_kwargs["max_lock_wait"] == 300
 
+    def test_does_not_override_allow_empty_replace_default(self, tmp_path):
+        """1.0.10-S10 regression test: the scheduler's call to launch_sync_subprocess()
+        must not pass an explicit allow_empty_replace value. Before 1.0.10-S10,
+        launch_sync_subprocess() defaulted allow_empty_replace to False, so every
+        scheduled (cron) sync silently forced "block" regardless of a source's stored
+        empty_sync_policy — this is the exact motivating bug described in
+        EMPTY-SYNC-POLICY-PROPOSAL.md ("`_run_scheduled_sync_impl` never threads
+        `allow_empty_replace` through at all"). Since 1.0.10-S10 changed that default to
+        None, this same unmodified call site now correctly falls through to the source's
+        policy — but only as long as it keeps omitting the kwarg. This test pins that."""
+        config = _make_config_with_sources("src1")
+
+        with (
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_CFG_MOD}.load_config", return_value=config),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess",
+                return_value=(MagicMock(), "test_id", MagicMock()),
+            ) as mock_launch,
+            patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
+            patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
+            patch(f"{_JOBS_MOD}._broadcast"),
+            patch(f"{_JOBS_MOD}._notify"),
+            patch(f"{_JOBS_MOD}._check_freshness"),
+            patch(f"{_JOBS_MOD}._add_pending_dbt_source"),
+            patch(f"{_JOBS_MOD}._run_coalesced_dbt"),
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_sync
+
+            run_scheduled_sync("daily", ["src1"], project_root=str(tmp_path))
+
+        call_kwargs = mock_launch.call_args[1]
+        assert "allow_empty_replace" not in call_kwargs
+
     def test_broadcasts_sync_started_and_completed(self, tmp_path):
         config = _make_config_with_sources("src1")
 
@@ -425,6 +460,99 @@ class TestRunScheduledSync:
         data = pickle.dumps(run_scheduled_sync)
         restored = pickle.loads(data)  # noqa: S301
         assert callable(restored)
+
+
+# ---------------------------------------------------------------------------
+# Stale-marking exclusion for empty-replace-protection failures (1.0.10-S11)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestScheduledSyncStaleMarking:
+    """A scheduled sync blocked by empty-replace protection did not actually
+    change the source's data — downstream dbt models should not be marked
+    stale for it. Any other failure reason still marks models stale, unchanged.
+    """
+
+    def test_scheduled_sync_excludes_empty_replace_from_stale_marking(self, tmp_path):
+        """A source failing with error_type=empty_replace_protection is excluded
+        from the mark_source_models_stale() call."""
+        config = _make_config_with_sources("src1", "src2")
+
+        call_count = [0]
+
+        def _poll_side_effect(*_a, **_kw):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return (
+                    False,
+                    {"error": "0 rows", "error_type": "empty_replace_protection"},
+                )
+            return (True, {"rows_loaded": 10})
+
+        with (
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_CFG_MOD}.load_config", return_value=config),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess",
+                return_value=(MagicMock(), "test_id", MagicMock()),
+            ),
+            patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", side_effect=_poll_side_effect),
+            patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
+            patch(f"{_JOBS_MOD}._broadcast"),
+            patch(f"{_JOBS_MOD}._notify"),
+            patch(f"{_JOBS_MOD}._add_pending_dbt_source"),
+            patch(f"{_JOBS_MOD}._run_coalesced_dbt", return_value=True),
+            patch(f"{_JOBS_MOD}._try_finish_record"),
+            patch("dango.utils.dbt_status.mark_source_models_stale") as mock_stale,
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_sync
+
+            run_scheduled_sync("daily", ["src1", "src2"], project_root=str(tmp_path))
+
+        mock_stale.assert_called_once()
+        stale_names = mock_stale.call_args[0][1]
+        assert "src1" not in stale_names
+
+    def test_scheduled_sync_still_marks_stale_for_other_failures(self, tmp_path):
+        """A source failing for a non-empty-replace reason is still included in
+        the mark_source_models_stale() call — regression guard against
+        over-suppressing legitimate staleness."""
+        config = _make_config_with_sources("src1", "src2")
+
+        call_count = [0]
+
+        def _poll_side_effect(*_a, **_kw):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return (False, {"error": "OAuth token expired"})
+            return (True, {"rows_loaded": 10})
+
+        with (
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_CFG_MOD}.load_config", return_value=config),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess",
+                return_value=(MagicMock(), "test_id", MagicMock()),
+            ),
+            patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", side_effect=_poll_side_effect),
+            patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
+            patch(f"{_JOBS_MOD}._broadcast"),
+            patch(f"{_JOBS_MOD}._notify"),
+            patch(f"{_JOBS_MOD}._add_pending_dbt_source"),
+            patch(f"{_JOBS_MOD}._run_coalesced_dbt", return_value=True),
+            patch(f"{_JOBS_MOD}._try_finish_record"),
+            patch("dango.utils.dbt_status.mark_source_models_stale") as mock_stale,
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_sync
+
+            run_scheduled_sync("daily", ["src1", "src2"], project_root=str(tmp_path))
+
+        mock_stale.assert_called_once()
+        stale_names = mock_stale.call_args[0][1]
+        assert "src1" in stale_names
 
 
 # ---------------------------------------------------------------------------

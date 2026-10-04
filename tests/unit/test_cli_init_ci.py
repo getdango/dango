@@ -14,6 +14,48 @@ from dango.cli.init import ProjectInitializer
 
 
 @pytest.mark.unit
+class TestCreateGitignore:
+    """Tests for ProjectInitializer._create_gitignore()."""
+
+    def test_new_gitignore_keeps_existing_and_sensitive_patterns(self, tmp_path: Path) -> None:
+        initializer = ProjectInitializer(tmp_path)
+        initializer._create_gitignore()
+
+        content = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+        assert ".dango/metabase.yml\n" in content
+        for pattern in (
+            ".dango/backups/",
+            "dango-backup-*",
+            ".dango/metabase.yml*",
+            ".dango/credentials",
+            ".dlt/.encryption_key",
+            ".env*.backup",
+        ):
+            assert content.count(pattern) == 1
+
+    def test_existing_dango_gitignore_gets_sensitive_artifact_patterns(
+        self, tmp_path: Path
+    ) -> None:
+        gitignore_path = tmp_path / ".gitignore"
+        gitignore_path.write_text("# Dango\n# preserve this user rule\ncustom-output/\n")
+
+        initializer = ProjectInitializer(tmp_path)
+        initializer._create_gitignore()
+
+        content = gitignore_path.read_text(encoding="utf-8")
+        assert "# preserve this user rule\ncustom-output/\n" in content
+        for pattern in (
+            ".dango/backups/",
+            "dango-backup-*",
+            ".dango/metabase.yml*",
+            ".dango/credentials",
+            ".dlt/.encryption_key",
+            ".env*.backup",
+        ):
+            assert content.count(pattern) == 1
+
+
+@pytest.mark.unit
 class TestCreatePreCommitConfig:
     """Tests for ProjectInitializer._create_pre_commit_config()."""
 

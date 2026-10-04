@@ -27,6 +27,19 @@ from dango.ingestion.sources.registry import (
     get_source_metadata,
     get_sources_by_category,
 )
+from dango.ingestion.sources.setup_service import (
+    REPLACE_MODE_SOURCE_TYPES,
+    SourceSetupError,
+    add_analysis_monitors,
+    build_source_config,
+    compute_env_var_name,
+    is_credential_param,
+    normalize_params,
+    prepare_source_directory,
+    provision_geo_targets,
+    write_default_config,
+    write_secrets_toml_template,
+)
 from dango.oauth.router import (
     OAUTH_PROVIDER_MAP,
     run_oauth_for_source,
@@ -222,6 +235,17 @@ class SourceWizard:
                     if params is None:
                         return False  # User cancelled
 
+                    # Validate against the shared setup rules (validation only: the wizard
+                    # keeps its own collected params so the saved entry is unchanged).
+                    # rest_api/dlt_native use custom collectors and are not registry-driven.
+                    if source_type != "rest_api":
+                        try:
+                            normalize_params(source_type, source_name, params)
+                        except SourceSetupError as exc:
+                            for error in exc.errors:
+                                console.print(f"[red]❌ {escape(error)}[/red]")
+                            return False
+
                     # Step 4b: Resource selection (if source has available_resources)
                     selected = self._select_resources(source_type, metadata)
                     if selected is not None:
@@ -240,49 +264,16 @@ class SourceWizard:
 
             # Step 6b: Create directory if this is a file-based source
             if source_type in ("csv", "local_files") and "directory" in params:
-                raw_directory = params["directory"]
-                raw_path = Path(raw_directory)
-
-                # Warn + relativize absolute directory paths (they break on other machines/cloud)
-                if raw_path.is_absolute():
-                    try:
-                        rel_path = raw_path.relative_to(self.project_root)
-                    except ValueError:
-                        rel_path = None
-
-                    if rel_path is not None:
-                        console.print(
-                            f"[yellow]⚠️  '{raw_directory}' is an absolute path. "
-                            f"Using relative path '{rel_path}' instead — portable across machines/cloud.[/yellow]"
-                        )
-                        params["directory"] = str(rel_path)
-                    else:
-                        console.print(
-                            f"[yellow]⚠️  '{raw_directory}' is an absolute path outside the project. "
-                            "Consider a path relative to the project root (e.g. data/uploads/...) "
-                            "so it works on other machines and in the cloud.[/yellow]"
-                        )
-
-                directory_path = self.project_root / params["directory"]
-                if not directory_path.exists():
-                    directory_path.mkdir(parents=True, exist_ok=True)
-                    console.print(f"[green]✅ Created directory: {params['directory']}[/green]")
-                # Warn about .gitignore for non-default directories
-                default_dir = f"data/uploads/{source_name}"
-                if params["directory"] != default_dir and not params["directory"].startswith(
-                    "data/uploads"
-                ):
-                    console.print(
-                        f"[yellow]⚠️  Remember to add '{params['directory']}' to .gitignore[/yellow]"
-                    )
+                params, dir_warnings, created_dirs = prepare_source_directory(
+                    self.project_root, source_name, params
+                )
+                for warning in dir_warnings:
+                    console.print(f"[yellow]⚠️  {escape(warning)}[/yellow]")
+                for created in created_dirs:
+                    console.print(f"[green]✅ Created directory: {created}[/green]")
 
             # Step 7: Create source config
             source_config = self._create_source_config(source_name, source_type, params, metadata)
-
-            # Step 7b: Use registry default lookback silently (no prompt)
-            default_lookback = (metadata.get("default_config") or {}).get("lookback_days")
-            if default_lookback is not None:
-                source_config["lookback_days"] = default_lookback
 
             # Step 8: If secrets required, validate credentials FIRST (before saving)
             if self.secret_params:
@@ -360,24 +351,11 @@ class SourceWizard:
                     for line in metadata["setup_guide"]:
                         console.print(f"  {line}")
 
-                dlt_dir = self.project_root / ".dlt"
-                secrets_path = dlt_dir / "secrets.toml"
-                dlt_dir.mkdir(parents=True, exist_ok=True)
                 try:
-                    existing = secrets_path.read_text() if secrets_path.exists() else ""
-                    section_header = f"[sources.{source_name}."
-                    if section_header not in existing:
-                        # Pre-populate template with wizard-collected params
-                        # (e.g., zendesk subdomain). defaultdict(str) returns ""
-                        # for unknown placeholders — prevents wizard crash from
-                        # registry template typos (caught during manual testing).
-                        from collections import defaultdict
-
-                        template_vars = defaultdict(str, source_name=source_name, **params)
-                        template_text = secrets_template.format_map(template_vars)
-                        prefix = existing.rstrip() + "\n\n" if existing.strip() else ""
-                        new_content = prefix + template_text + "\n"
-                        secrets_path.write_text(new_content)
+                    written = write_secrets_toml_template(
+                        self.project_root, source_type, source_name, params
+                    )
+                    if written:
                         console.print(
                             "\n[green]✓[/green] Added credential template to "
                             "[cyan].dlt/secrets.toml[/cyan]"
@@ -402,19 +380,9 @@ class SourceWizard:
                         "\n[bold]Enable automatic analysis?[/bold]",
                         default=True,
                     ):
-                        from dango.analysis.config import add_monitors_to_config
-
-                        header = None
-                        if source_type in ("csv", "local_files"):
-                            header = (
-                                f"NOTE: Tables will be created in the raw_{source_name}"
-                                f" schema. Replace 'your_table' with your actual"
-                                f" table name after first sync."
-                            )
-                        add_monitors_to_config(self.project_root, templates, header_comment=header)
+                        added = add_analysis_monitors(self.project_root, source_type, source_name)
                         console.print(
-                            f"[green]✅ Added {len(templates)} analysis"
-                            f" monitor(s) to monitors.yml[/green]"
+                            f"[green]✅ Added {added} analysis monitor(s) to monitors.yml[/green]"
                         )
             except Exception:
                 pass  # Never block source add
@@ -961,45 +929,8 @@ class SourceWizard:
             engine.dispose()
 
     def _is_credential_param(self, param: dict[str, Any], source_type: str) -> bool:
-        """Check if a parameter is a credential/secret that should be skipped when using OAuth
-
-        Args:
-            param: Parameter configuration from registry
-            source_type: Source type key (e.g., "facebook_ads", "google_ads")
-        """
-        param_name = param.get("name", "").lower()
-        param_type = param.get("type", "")
-
-        # Check if it's a secret type
-        if param_type == "secret":
-            return True
-
-        # Check common credential parameter name patterns
-        credential_patterns = [
-            "credentials",
-            "credential",
-            "access_token",
-            "api_key",
-            "secret",
-            "_env",  # Parameters ending in _env are typically env var references
-        ]
-
-        for pattern in credential_patterns:
-            if pattern in param_name:
-                return True
-
-        # Source-specific credential parameters that are collected during OAuth
-        # These are stored in .dlt/secrets.toml by the OAuth provider
-        oauth_collected_params = {
-            "facebook_ads": [],  # account_id is a required wizard param, not OAuth-collected
-            "google_ads": [],  # customer_id is source-specific, not OAuth-collected
-        }
-
-        if source_type in oauth_collected_params:
-            if param_name in oauth_collected_params[source_type]:
-                return True
-
-        return False
+        """Check if a parameter is a credential/secret that should be skipped when using OAuth"""
+        return is_credential_param(param, source_type)
 
     def _setup_dlt_native_source(self) -> bool:
         """Guided setup for dlt_native sources — generates template + registers in sources.yml.
@@ -1883,27 +1814,7 @@ def {module_name}_resource(api_key: str):
             # Secret/env var parameter - generate unique env var name per source instance
             # This allows multiple sources of same type with different credentials
 
-            # Get base env var from registry (e.g., "STRIPE_API_KEY")
-            base_env_var = param.get("env_var", param_name.upper())
-
-            # Use full source_name to generate unique env var
-            name_suffix = source_name
-
-            # Generate unique env var by replacing service prefix with source name
-            # Examples:
-            #   slack + SLACK_ACCESS_TOKEN → SLACK_ACCESS_TOKEN
-            #   marketing_slack + SLACK_ACCESS_TOKEN → MARKETING_SLACK_ACCESS_TOKEN
-            #   stripe_test + STRIPE_API_KEY → STRIPE_TEST_API_KEY
-
-            # Extract suffix from base env var (everything after first _)
-            # STRIPE_API_KEY → API_KEY, SHOPIFY_ACCESS_TOKEN → ACCESS_TOKEN
-            if "_" in base_env_var:
-                suffix = "_".join(base_env_var.split("_")[1:])
-                source_prefix = name_suffix.upper().replace("-", "_")
-                env_var = f"{source_prefix}_{suffix}"
-            else:
-                # Fallback: just append name suffix
-                env_var = f"{base_env_var}_{name_suffix.upper().replace('-', '_')}"
+            env_var = compute_env_var_name(param, source_name)
 
             # Check if env var already exists in .env
             env_exists = False
@@ -2424,148 +2335,62 @@ def {module_name}_resource(api_key: str):
         metadata: dict[str, Any],
     ) -> dict[str, Any]:
         """Create source configuration dictionary"""
-        config = {
-            "name": source_name,
-            "type": source_type,
-            "enabled": True,
-            "description": f"{metadata.get('display_name')} - added via wizard",
-        }
-
-        # Note: OAuth credentials are stored at sources.{source_type}.credentials.*
-        # No oauth_ref needed - dlt finds credentials automatically
-
-        # Add type-specific config block
-        # Sources with a dedicated DataSource field use that field name;
-        # all others use generic_config (e.g., postgres, mongodb)
-        from dango.config.models import DataSource
-
-        if source_type in DataSource.model_fields:
-            config[source_type] = params if params else {}
-        else:
-            config["generic_config"] = params if params else {}
-
-        return config
+        return build_source_config(source_type, source_name, params)
 
     def _provision_geo_targets(self, source_name: str) -> None:
         """Provision geo_targets seed CSV and staging join model for Google Ads."""
-        templates_dir = Path(__file__).parent.parent / "templates" / "dbt"
-
-        # 1. Copy geo_targets.csv to dbt/seeds/
-        seeds_dir = self.project_root / "dbt" / "seeds"
-        seed_dest = seeds_dir / "geo_targets.csv"
-        if not seed_dest.exists():
-            seeds_dir.mkdir(parents=True, exist_ok=True)
-            seed_src = templates_dir / "seeds" / "geo_targets.csv"
-            seed_dest.write_text(seed_src.read_text(encoding="utf-8"), encoding="utf-8")
-            console.print("[green]✓[/green] Provisioned dbt/seeds/geo_targets.csv (country names)")
-
-        # 2. Create staging join model from template
-        staging_dir = self.project_root / "dbt" / "models" / "staging"
-        model_dest = staging_dir / f"stg_{source_name}__geo_names.sql"
-        if not model_dest.exists():
-            staging_dir.mkdir(parents=True, exist_ok=True)
-            template = (templates_dir / "stg_geo_names.sql").read_text(encoding="utf-8")
-            model_sql = template.replace("__SOURCE_NAME__", source_name)
-            model_dest.write_text(model_sql, encoding="utf-8")
-            console.print(
-                f"[green]✓[/green] Provisioned staging model stg_{source_name}__geo_names.sql"
-            )
+        for path in provision_geo_targets(self.project_root, source_name):
+            if path.endswith("geo_targets.csv"):
+                console.print(
+                    "[green]✓[/green] Provisioned dbt/seeds/geo_targets.csv (country names)"
+                )
+            else:
+                console.print(f"[green]✓[/green] Provisioned staging model {Path(path).name}")
 
     def _write_config_template(self, source_type: str, metadata: dict[str, Any]) -> None:
-        """
-        Write default_config to .dlt/config.toml for pipeline stability.
-
-        This writes the default configuration at source creation time so that:
-        1. Users can customize the config before first sync
-        2. Defaults don't change unexpectedly on Dango upgrades
-        3. Config is visible and documented in user's project
-
-        Args:
-            source_type: Source type key (e.g., "google_analytics")
-            metadata: Source metadata from registry containing default_config
-        """
-        try:
-            import tomlkit
-
-            default_config = metadata.get("default_config", {})
-            if not default_config:
-                return
-
-            dlt_dir = self.project_root / ".dlt"
-            config_path = dlt_dir / "config.toml"
-
-            # Ensure .dlt directory exists
-            dlt_dir.mkdir(parents=True, exist_ok=True)
-
-            # Load existing config or create new
-            if config_path.exists():
-                doc = tomlkit.parse(config_path.read_text())
-            else:
-                doc = tomlkit.document()
-
-            # Ensure [sources] table exists
-            if "sources" not in doc:
-                doc.add("sources", tomlkit.table())
-
-            # Ensure [sources.{source_type}] table exists
-            if source_type not in doc["sources"]:
-                doc["sources"].add(source_type, tomlkit.table())
-
-            # Write default_config values
-            source_table = doc["sources"][source_type]
-
-            for key, value in default_config.items():
-                if key in source_table:
-                    if not click.confirm(
-                        f"  Overwrite existing '{key}' config for {source_type}?",
-                        default=False,
-                    ):
-                        continue  # skip this key, keep existing
-                    # In-place update preserves key position in file
-                    source_table[key] = value
-                    continue
-
-                # New key — add with optional comments
-                if key == "queries":
-                    # Special handling for queries (GA4)
-                    source_table.add(tomlkit.comment(""))
-                    source_table.add(tomlkit.comment("Default queries for Google Analytics 4"))
-                    source_table.add(
-                        tomlkit.comment(
-                            "Each query creates a table with the specified dimensions and metrics"
-                        )
-                    )
-                    source_table.add(
-                        tomlkit.comment("Customize by editing, adding, or removing queries")
-                    )
-                    source_table.add(
-                        tomlkit.comment("GA4 API limits: max 9 dimensions, 10 metrics per query")
-                    )
-                    source_table.add(
-                        tomlkit.comment(
-                            "Docs: https://developers.google.com/analytics/devguides/reporting/data/v1"
-                        )
-                    )
-                    source_table.add(tomlkit.comment(""))
-
-                # Convert value to TOML-compatible format
-                source_table.add(key, value)
-
-            # Write config file
-            config_path.write_text(tomlkit.dumps(doc))
+        """Write default_config to .dlt/config.toml for pipeline stability (prompts on overwrite)."""
+        written = write_default_config(
+            self.project_root,
+            source_type,
+            confirm_overwrite=lambda key: click.confirm(
+                f"  Overwrite existing '{key}' config for {source_type}?",
+                default=False,
+            ),
+        )
+        if written:
             console.print("[green]✅ Created config template: .dlt/config.toml[/green]")
             console.print(
                 f"[dim]   Edit this file to customize {metadata.get('display_name')} queries[/dim]"
             )
-
-        except ImportError:
-            console.print("[yellow]⚠️  tomlkit not installed - skipping config template[/yellow]")
-        except Exception as e:
-            console.print(f"[yellow]⚠️  Could not write config template: {e}[/yellow]")
+        else:
+            console.print("[yellow]⚠️  Could not write config template[/yellow]")
 
     def _save_source(self, source_config: dict[str, Any]) -> None:
         """Save source to sources.yml"""
         config = load_config(self.project_root)
+
+        if source_config.get("type") in REPLACE_MODE_SOURCE_TYPES:
+            console.print(
+                "\nThis source replaces its entire table on every sync. "
+                "If a sync ever returns 0 rows:\n"
+            )
+            questions = [
+                inquirer.List(
+                    "empty_sync_choice",
+                    message="Choose what happens",
+                    choices=[
+                        "Keep the existing data, fail the sync, and alert you (recommended)",
+                        "Replace the existing data — the table becomes empty too",
+                    ],
+                    carousel=True,
+                    default="Keep the existing data, fail the sync, and alert you (recommended)",
+                )
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if answers and answers["empty_sync_choice"].startswith("Replace"):
+                source_config["empty_sync_policy"] = "allow"
+            else:
+                source_config["empty_sync_policy"] = "block"
 
         # Add new source
         config.sources.sources.append(DataSource(**source_config))

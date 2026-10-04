@@ -609,6 +609,39 @@ class TestMainEntrypoint:
         assert parsed.get("sync_id") == "abc123"
         assert parsed.get("record_id") == 42
 
+    def test_missing_allow_empty_replace_resolves_to_none(self, tmp_path):
+        """1.0.10-S10 regression test: the __main__ block's JSON-arg parsing must
+        resolve a missing allow_empty_replace key to None, not False — a scheduled
+        sync's JSON args dict omits the key when no override was requested, and
+        this must fall through to the source's stored empty_sync_policy (S6),
+        not silently force "block"."""
+        args_json = json.dumps({"project_root": str(tmp_path), "sources": ["src1"]})
+
+        with patch(
+            f"{_PATCH_HISTORY}.run_manual_sync",
+            return_value={"status": "success"},
+        ) as mock_run:
+            import dango.platform.scheduling.sync_trigger as mod
+
+            parsed = json.loads(args_json)
+            mod.run_manual_sync(
+                project_root=tmp_path,
+                sources=parsed["sources"],
+                full_refresh=parsed.get("full_refresh", False),
+                backfill_days=parsed.get("backfill_days"),
+                start_date=parsed.get("start_date"),
+                end_date=parsed.get("end_date"),
+                write_progress=parsed.get("write_progress", False),
+                source_label=parsed.get("source_label", "manual"),
+                skip_dbt=parsed.get("skip_dbt", False),
+                max_lock_wait=parsed.get("max_lock_wait", 0),
+                sync_id=parsed.get("sync_id"),
+                record_id=parsed.get("record_id"),
+                allow_empty_replace=parsed.get("allow_empty_replace", None),
+            )
+
+        assert mock_run.call_args.kwargs["allow_empty_replace"] is None
+
 
 @pytest.mark.unit
 class TestDbtFailureHandling:

@@ -412,9 +412,14 @@ class DockerManager:
         timeout = 600 if first_run else 120
 
         try:
+            # stdin is closed on purpose: if an existing volume's labels/config differ from
+            # docker-compose.yml, Compose asks "Recreate (data will be lost)? (y/N)". Inheriting the
+            # terminal makes that prompt block until the timeout; a closed stdin makes Compose
+            # answer "No" and keep the existing volume. Never add --yes here.
             result = subprocess.run(
                 cmd,
                 cwd=self.project_root,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=timeout,

@@ -54,26 +54,13 @@ class SchemaManager:
         Returns:
             Layer name (intermediate, marts, staging) or None
         """
-        # Check intermediate directory
-        intermediate_path = self.models_dir / "intermediate" / f"{model_name}.sql"
-        if intermediate_path.exists():
-            return "intermediate"
+        from dango.transformation.model_service import ModelServiceError, find_model
 
-        # Check marts directory
-        marts_path = self.models_dir / "marts" / f"{model_name}.sql"
-        if marts_path.exists():
-            return "marts"
-
-        # Check staging (we don't update these, but good to know)
-        staging_dirs = self.models_dir / "staging"
-        if staging_dirs.exists():
-            for source_dir in staging_dirs.iterdir():
-                if source_dir.is_dir():
-                    staging_path = source_dir / f"{model_name}.sql"
-                    if staging_path.exists():
-                        return "staging"
-
-        return None
+        try:
+            found = find_model(self.project_root, model_name)
+        except ModelServiceError:
+            return None
+        return found[1] if found else None
 
     def _update_schema_for_model(self, model_name: str, layer: str) -> None:
         """
@@ -90,8 +77,16 @@ class SchemaManager:
             # Model doesn't exist in DB yet (run failed?)
             return
 
-        # Schema.yml path
-        schema_path = self.models_dir / layer / "schema.yml"
+        # Schema.yml path: the file already documenting this model (may be hand-made or
+        # nested), else the layer default
+        from dango.transformation.model_docs import resolve_docs_path
+        from dango.transformation.model_service import ModelServiceError
+
+        try:
+            schema_path = resolve_docs_path(self.project_root, layer, model_name)
+        except ModelServiceError as e:
+            console.print(f"[yellow]⚠️[/yellow]  Skipping schema.yml for {model_name}: {e}")
+            return
 
         # Load existing schema.yml or create new
         existing_schema = self._load_schema_yml(schema_path)
@@ -195,12 +190,14 @@ class SchemaManager:
 
         # Build column name -> description map from existing
         existing_descriptions = {}
+        existing_columns: dict[str, dict[str, Any]] = {}
         if existing_model and "columns" in existing_model:
             for col in existing_model["columns"]:
                 col_name = col.get("name")
                 col_desc = col.get("description", "")
                 if col_name:
                     existing_descriptions[col_name] = col_desc
+                    existing_columns[col_name] = col
 
         # Build new columns list
         new_columns = []
@@ -216,7 +213,11 @@ class SchemaManager:
                 description = "TODO: Add description\n(Auto-generated - edit in dbt/models/[layer]/schema.yml)"
                 added_columns.append(col_name)
 
-            new_columns.append({"name": col_name, "description": description})
+            # Keep every other key the user wrote (data_tests, meta, ...)
+            entry = dict(existing_columns.get(col_name, {}))
+            entry["name"] = col_name
+            entry["description"] = description
+            new_columns.append(entry)
 
         # Detect removed columns
         actual_col_names = {col["name"] for col in actual_columns}
@@ -237,36 +238,28 @@ class SchemaManager:
             readable = readable.replace("_", " ").strip().capitalize()
             description = f"{layer.capitalize()} model: {readable}"
 
-        new_model = {
-            "name": model_name,
-            "description": description,
-            "columns": new_columns,
-        }
+        # Start from the existing entry so config, data_tests, meta, ... survive
+        new_model: dict[str, Any] = dict(existing_model) if existing_model else {}
+        new_model["name"] = model_name
+        new_model["description"] = description
+        new_model["columns"] = new_columns
 
-        # Build full schema structure
-        if existing_schema and "models" in existing_schema:
-            # Update existing model or add new
-            updated_models = []
-            found = False
-            for model in existing_schema["models"]:
-                if model.get("name") == model_name:
-                    updated_models.append(new_model)
-                    found = True
-                else:
-                    updated_models.append(model)
-
-            if not found:
+        # Build full schema structure, keeping other top-level keys (sources, exposures, ...)
+        updated_schema = dict(existing_schema) if existing_schema else {}
+        existing_models = updated_schema.get("models")
+        updated_models = []
+        found = False
+        for model in existing_models if isinstance(existing_models, list) else []:
+            if isinstance(model, dict) and model.get("name") == model_name:
                 updated_models.append(new_model)
-                changes["is_new"] = True
-
-            updated_schema = {
-                "version": existing_schema.get("version", 2),
-                "models": updated_models,
-            }
-        else:
-            # Create new schema file
-            updated_schema = {"version": 2, "models": [new_model]}
+                found = True
+            else:
+                updated_models.append(model)
+        if not found:
+            updated_models.append(new_model)
             changes["is_new"] = True
+        updated_schema["version"] = updated_schema.get("version", 2)
+        updated_schema["models"] = updated_models
 
         return updated_schema, changes
 

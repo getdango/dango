@@ -202,15 +202,19 @@ class TestSetupMetabaseApi:
             coll_list_resp,
         ]
         # Order of POST: /api/setup, /api/session, /api/database (create),
-        #   /api/collection (Shared), /api/collection (Personal)
+        #   /api/collection (Shared), /api/collection (Personal), then the
+        #   final protected-credential verification login.
         mock_session.post.side_effect = [
             setup_resp,
             login_resp,
             create_db_resp,
             coll_create_resp,
             coll_create_resp,
+            login_resp,
         ]
         mock_session.put.side_effect = [set_default_resp]
+        credential_store = MagicMock()
+        credential_store.load_pending.return_value = None
 
         with (
             patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
@@ -221,6 +225,10 @@ class TestSetupMetabaseApi:
             patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
             patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+            patch(
+                "dango.visualization.metabase.MetabaseCredentialStore",
+                return_value=credential_store,
+            ),
         ):
             result = setup_metabase(tmp_path, "test-project", "admin@example.com")
 

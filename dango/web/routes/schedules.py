@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
 
 import dango
 from dango.auth.audit import AuditEvent, log_auth_event
@@ -267,6 +268,89 @@ async def internal_reload_schedules(request: Request) -> JSONResponse:
     )
 
     return JSONResponse(content=result.model_dump(mode="json"))
+
+
+class InternalScheduleStatus(BaseModel):
+    """One schedule's runtime state in the internal scheduler status response."""
+
+    name: str
+    enabled: bool
+    loaded: bool  # a job with get_schedule_job_id(name) exists in the scheduler
+    next_run_time: str | None  # from the APScheduler job, ISO 8601
+
+
+class InternalSchedulerStatusResponse(BaseModel):
+    """Scheduler running state plus per-schedule status for this project."""
+
+    running: bool
+    job_count: int
+    project_root: str  # lets callers confirm they reached the right project
+    schedules: list[InternalScheduleStatus]
+
+
+@router.get("/api/internal/scheduler/status", response_model=InternalSchedulerStatusResponse)
+async def internal_scheduler_status(request: Request) -> Any:
+    """CLI/MCP scheduler status -- localhost only, no auth required, read-only."""
+    # Same proxy/localhost guard as internal_reload_schedules().
+    if request.headers.get("x-forwarded-for"):
+        return JSONResponse(status_code=403, content={"error": "Localhost only"})
+    client_host = request.client.host if request.client else None
+    if client_host not in ("127.0.0.1", "::1"):
+        return JSONResponse(status_code=403, content={"error": "Localhost only"})
+
+    # Local mode allows any CORS origin, so a web page in the user's browser (or a
+    # DNS-rebinding host) could otherwise read this unauthenticated response.
+    # Browsers always send Origin on cross-origin fetches; the CLI/MCP clients never do.
+    if request.headers.get("origin"):
+        return JSONResponse(status_code=403, content={"error": "Localhost only"})
+    # DNS rebinding makes the attacker page same-origin (no Origin header) while the
+    # TCP peer is still 127.0.0.1; the Host header then carries the attacker's name.
+    host_header = request.headers.get("host", "")
+    hostname = (
+        host_header[1 : host_header.index("]")]
+        if host_header.startswith("[") and "]" in host_header
+        else host_header.rsplit(":", 1)[0]
+        if host_header.count(":") == 1
+        else host_header
+    )
+    if hostname.lower() not in ("localhost", "127.0.0.1", "::1"):
+        return JSONResponse(status_code=403, content={"error": "Localhost only"})
+
+    scheduler = _get_scheduler(request)
+    if scheduler is None:
+        return JSONResponse(
+            status_code=503,
+            content={"message": "Scheduler not available"},
+        )
+
+    project_root = get_project_root()
+    status = scheduler.get_status()
+    running = bool(status.get("running"))
+    config = load_schedules_config(project_root)
+
+    next_runs: dict[str, str | None] = {}
+    if running:
+        for job in scheduler.get_jobs():
+            next_runs[job.id] = job.next_run_time.isoformat() if job.next_run_time else None
+
+    schedules = []
+    for sched in config.schedules:
+        job_id = get_schedule_job_id(sched.name)
+        schedules.append(
+            InternalScheduleStatus(
+                name=sched.name,
+                enabled=sched.enabled,
+                loaded=job_id in next_runs,
+                next_run_time=next_runs.get(job_id),
+            )
+        )
+
+    return InternalSchedulerStatusResponse(
+        running=running,
+        job_count=int(status.get("job_count", 0)),
+        project_root=str(Path(project_root).resolve()),
+        schedules=schedules,
+    )
 
 
 @router.get("/api/schedules")

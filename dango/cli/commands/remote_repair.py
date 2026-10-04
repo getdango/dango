@@ -9,10 +9,96 @@ triggers registration by importing this module at the bottom of ``remote.py``.
 
 from __future__ import annotations
 
+import re
+import shlex
+
 import click
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
+
+_METABASE_SECRET_PROJECT_ID_RE = re.compile(r"^[a-f0-9]{32}$")
+
+
+def _metabase_secret_project_id_command(server_project_dir: str) -> str:
+    """Return the remote command that resolves the credential-store identity.
+
+    ``MetabaseCredentialStore`` validates and returns the full persisted
+    project ID used to name its credential file.  SSH output is never used as
+    an arbitrary shell fragment.
+    """
+    script = (
+        "from pathlib import Path; "
+        "from dango.security.metabase_credentials import MetabaseCredentialStore; "
+        f"print(MetabaseCredentialStore(Path({server_project_dir!r}), cloud_mode=True).project_id)"
+    )
+    return f"/srv/dango/venv/bin/python -c {shlex.quote(script)}"
+
+
+def _validated_metabase_secret_project_id(output: str) -> str | None:
+    """Return a safe project ID from remote output, or ``None`` if invalid."""
+    project_id = output.strip()
+    if _METABASE_SECRET_PROJECT_ID_RE.fullmatch(project_id):
+        return project_id
+    return None
+
+
+def _metabase_schema_scan_script() -> str:
+    """Build the server-side script that triggers a Metabase schema scan.
+
+    The command runs from the cloud project directory.  Credential resolution
+    is intentionally delegated to the installed Dango security boundary so a
+    protected cloud credential is used when one exists, with the narrowly
+    scoped legacy compatibility behavior retained there during migration.
+    """
+    return """
+from pathlib import Path
+
+from dango.security.metabase_config import (
+    load_metabase_admin_credentials,
+    load_metabase_metadata,
+)
+
+project_root = Path(".")
+metadata = load_metabase_metadata(project_root)
+credentials = load_metabase_admin_credentials(project_root)
+database = metadata.get("database") if metadata else None
+database_id = database.get("id") if isinstance(database, dict) else None
+if not credentials or not database_id:
+    raise SystemExit(0)
+
+email, password = credentials
+import requests
+
+response = requests.post(
+    "http://localhost:3000/api/session",
+    json={"username": email, "password": password},
+    timeout=10,
+)
+session_id = response.json().get("id") if response.status_code == 200 else None
+if not session_id:
+    raise SystemExit(0)
+
+requests.post(
+    f"http://localhost:3000/api/database/{database_id}/sync_schema",
+    headers={"X-Metabase-Session": session_id},
+    timeout=10,
+)
+""".strip()
+
+
+def _metabase_schema_scan_command(server_project_dir: str) -> str:
+    """Return the SSH shell command for the non-fatal schema scan.
+
+    SSH commands do not inherit the ``dango-web`` systemd unit environment.
+    Set cloud mode explicitly so ``MetabaseCredentialStore`` uses the
+    server-owned ``/srv/dango/secrets`` path rather than a local fallback.
+    """
+    return (
+        f"cd {shlex.quote(server_project_dir)} && "
+        "DANGO_CLOUD_MODE=true /srv/dango/venv/bin/python -c "
+        f"{shlex.quote(_metabase_schema_scan_script())}"
+    )
 
 
 @remote.command("repair")
@@ -130,21 +216,7 @@ def remote_repair(ctx: click.Context) -> None:
             # Trigger schema scan
             console.print("[bold]Triggering Metabase schema scan...[/bold]")
             scan_result = ssh.exec_command(
-                f"cd {_server_project_dir} && "
-                f'/srv/dango/venv/bin/python -c "'
-                "import yaml, requests, time; "
-                "creds = yaml.safe_load(open('.dango/metabase.yml')); "
-                "email = creds.get('admin', {}).get('email'); "
-                "pw = creds.get('admin', {}).get('password'); "
-                "db_id = creds.get('database', {}).get('id'); "
-                "[exit(0) for _ in range(1) if not all([email, pw, db_id])]; "
-                "r = requests.post('http://localhost:3000/api/session', "
-                "json={'username': email, 'password': pw}, timeout=10); "
-                "sid = r.json().get('id') if r.status_code == 200 else None; "
-                "[exit(0) for _ in range(1) if not sid]; "
-                "requests.post(f'http://localhost:3000/api/database/{db_id}/sync_schema', "
-                "headers={'X-Metabase-Session': sid}, timeout=10)"
-                '"',
+                _metabase_schema_scan_command(_server_project_dir),
                 timeout=30,
             )
             if scan_result.success:
@@ -189,7 +261,8 @@ def remote_reset_metabase(ctx: click.Context) -> None:
 
     console.print(
         "[yellow]This will reset Metabase to factory state.[/yellow]\n"
-        "  - All Metabase dashboards and questions will be lost\n"
+        "  - Project-exported dashboards can be re-imported after reset\n"
+        "  - Metabase-only dashboards and questions will be lost\n"
         "  - Your DuckDB warehouse data is NOT affected\n"
         "  - Admin account will be re-created on next startup\n"
     )
@@ -213,6 +286,26 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         console.print("Stopping dango-web...")
         ssh.exec_command("systemctl stop dango-web 2>/dev/null || true", timeout=15)
 
+        # Resolve before changing Metabase state. The strict validation keeps a
+        # compromised or malformed remote response from widening the deletion
+        # target beyond this project's protected credential directory.
+        project_id_result = ssh.exec_command(
+            _metabase_secret_project_id_command(_server_project_dir),
+            timeout=15,
+        )
+        project_id = (
+            _validated_metabase_secret_project_id(project_id_result.stdout)
+            if project_id_result.success
+            else None
+        )
+        if project_id is None:
+            console.print(
+                "[red]Error:[/red] Could not safely resolve this project's "
+                "Metabase credential identity. Dango-web remains stopped; "
+                "no Metabase data or credentials were removed."
+            )
+            raise click.Abort()
+
         # 2. Stop and remove Metabase container + volume
         console.print("Removing Metabase data...")
         ssh.exec_command(
@@ -228,6 +321,20 @@ def remote_reset_metabase(ctx: click.Context) -> None:
             f"rm -f {_server_project_dir}/.dango/metabase.yml",
             timeout=10,
         )
+
+        # The ID was validated above, so this is a literal per-project path,
+        # never a wildcard or the shared secrets root.
+        console.print("Removing protected Metabase credential...")
+        delete_secret_result = ssh.exec_command(
+            f"rm -rf /srv/dango/secrets/metabase/{project_id}",
+            timeout=10,
+        )
+        if not delete_secret_result.success:
+            console.print(
+                "[red]Error:[/red] Could not remove this project's protected "
+                "Metabase credential. Dango-web remains stopped."
+            )
+            raise click.Abort()
 
         # 4. Restart dango-web (triggers Docker rebuild + Metabase setup)
         console.print("Restarting dango-web (this may take a few minutes)...")
@@ -287,6 +394,8 @@ def remote_reset_metabase(ctx: click.Context) -> None:
             "Run [bold]dango remote status[/bold] to check progress."
         )
 
+    except click.Abort:
+        raise
     except Exception as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise SystemExit(1) from exc

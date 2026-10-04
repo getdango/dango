@@ -24,8 +24,9 @@ Integrates with Metabase for dashboard provisioning, auto-setup, schema synchron
 ## Dependencies
 
 **Imports from:**
-- Mostly isolated (uses `requests` to call Metabase API, reads credentials from
-  `.dango/metabase.yml` at runtime), with one exception: `metabase.py`'s Site URL
+- Mostly isolated (uses `requests` to call Metabase API and resolves administrator
+  credentials through `dango.security.metabase_config` at runtime), with one exception:
+  `metabase.py`'s Site URL
   handling (1.0.8-W — `_should_apply_local_site_url()`, `_apply_metabase_site_url_catchup()`)
   lazy-imports `dango.config.ConfigLoader`, `dango.config.helpers.is_cloud_mode`, and
   `dango.platform.local.network.NetworkConfig` to check deployment topology (cloud mode,
@@ -33,6 +34,10 @@ Integrates with Metabase for dashboard provisioning, auto-setup, schema synchron
   URL — all Level 0–2 imports, consistent with this module's Level 2 position in the
   dependency hierarchy.
 - `DASHBOARD_QUERIES`' SQL (not Python imports) reads the `_dango_meta` schema tables written by `dango.utils.pipeline_health.materialize_pipeline_health()` (1.0.8-DASH-1) — `cli/commands/dashboard.py` calls that function (and `refresh_metabase_connection()`, below) before provisioning, not this module.
+- Metabase metadata and administrator credentials are accessed through
+  `dango.security.metabase_config`. Callers must not write `admin.password` back to
+  `.dango/metabase.yml`; lifecycle migration owns deleting legacy password fields after
+  rotation succeeds.
 
 **Used by:**
 - `dango/cli/main.py` — Metabase CLI commands (`dango metabase setup/sync/export/import/provision/refresh`)
@@ -42,7 +47,6 @@ Integrates with Metabase for dashboard provisioning, auto-setup, schema synchron
 
 ## Testing
 
-- **Unit:** None yet (will be `tests/unit/test_visualization.py`)
 - **Integration:** None yet (will be `tests/integration/test_visualization.py`)
 - **Manual:** `dango start` then `dango metabase export` / `dango metabase import`
 

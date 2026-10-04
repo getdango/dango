@@ -7,7 +7,8 @@ call `dango mcp` directly. Users run `dango mcp setup` once to configure
 their LLM client.
 
 Session E: read tools + setup
-Session F: mutation tools (add_source, create_model, add_schedule, run_sync, run_transform)
+Session F: mutation tools (create_source, add_schedule, run_sync, run_transform; models: mcp_models.py)
+  (add_schedule moved to mcp_schedules.py in 1.0.10-M1, alongside the other schedule tools)
 
 CRITICAL: all *dango.* imports that touch real project/database/config state
 are lazy (inside function bodies), never at module top level. The MCP server
@@ -41,10 +42,30 @@ from dango.cli.commands.mcp_helpers import (
 mcp = FastMCP(
     "dango",
     instructions=(
-        "Dango data platform MCP server. Use these tools to read catalog information, "
-        "inspect schemas and lineage, query data, and trigger Dango operations. "
-        "Always prefer these tools over direct file edits — they validate inputs and "
-        "ensure consistency with Dango's conventions."
+        "Dango is a data platform for small teams: dlt ingestion, a DuckDB warehouse, dbt "
+        "transformation and Metabase dashboards. Prefer these tools over editing project "
+        "files directly; they validate inputs. "
+        "For CSV, JSON or Parquet files use source_type local_files (the legacy csv type is "
+        "not supported) and give file_path. "
+        "Typical order: list_sources / list_source_types, get_source_setup_schema, "
+        "create_source, run_sync, run_transform, then get_table_schema, query or list_models "
+        "to inspect. Models: create_model, validate_model, update_model. Schedules: the "
+        "*_schedule tools. Docs: docs_coverage, update_model, update_source_table_docs. "
+        "Diagnosis: run_doctor, get_logs, get_sync_history, get_platform_status. "
+        "Secrets: no tool accepts credentials. If a result has credentials_required, tell "
+        "the user to add the values to .env themselves (relay next_steps; OAuth sources "
+        "use `dango oauth <type>`); never ask them to paste secrets into the chat. "
+        "validate_source's ready means configured, not that a credential works; the first "
+        "run_sync is the real test. "
+        "PII: query masks columns whose names match PII-flagged raw columns. This is a "
+        "guardrail against accidental exposure, not a security boundary (an aliased column "
+        "or an expression such as upper(email) is not masked); do not try to work around it. "
+        "Remote: remote_push changes a real server. It defaults to a dry run; a real push "
+        "needs dry_run=False and confirm=True, so show the user the dry-run result and get "
+        "explicit approval first. Remote tools have not been verified against a live server "
+        "in this release. "
+        "Writes are serialized (one warehouse writer): if a result says the warehouse is "
+        "busy or locked, wait and retry rather than looping."
     ),
 )
 
@@ -107,69 +128,6 @@ async def list_sources() -> list[dict[str, Any]]:
             }
         )
     return results
-
-
-@mcp.tool()
-def get_table_schema(table_name: str, schema: str | None = None) -> dict[str, Any]:
-    """Get the schema (columns, types, descriptions) for a table in the warehouse.
-
-    Args:
-        table_name: Table name (e.g. "stg_stripe__customers")
-        schema: Schema name (e.g. "staging", "raw_stripe"). Auto-detected if omitted.
-
-    Returns dict with: table_name, schema, columns (list of {name, type}).
-    """
-    project_root = _get_project_root()
-    db_path = project_root / "data" / "warehouse.duckdb"
-    if not db_path.exists():
-        return {"error": "No warehouse found. Run dango sync first."}
-
-    try:
-        conn = _connect_readonly_with_retry(db_path)
-        try:
-            if schema:
-                result = conn.execute(
-                    "SELECT column_name, data_type FROM information_schema.columns "
-                    "WHERE table_name = ? AND table_schema = ? ORDER BY ordinal_position",
-                    [table_name, schema],
-                ).fetchall()
-            else:
-                result = conn.execute(
-                    "SELECT table_schema, column_name, data_type FROM information_schema.columns "
-                    "WHERE table_name = ? ORDER BY table_schema, ordinal_position",
-                    [table_name],
-                ).fetchall()
-        finally:
-            conn.close()
-
-        if not result:
-            return {"error": f"Table '{table_name}' not found in warehouse"}
-
-        other_schemas: list[str] = []
-        if not schema:
-            # A table name can exist in more than one schema (e.g. a generic
-            # name reused across two raw sources). Filter to the first
-            # (alphabetically) schema's columns rather than silently merging
-            # every matching table's columns into one list — that would
-            # report a schema name whose columns don't actually match it.
-            all_schemas = list(dict.fromkeys(r[0] for r in result))
-            detected_schema = all_schemas[0]
-            other_schemas = all_schemas[1:]
-            result = [r for r in result if r[0] == detected_schema]
-        else:
-            detected_schema = schema
-
-        columns = [{"name": r[-2], "type": r[-1]} for r in result]
-        response = {"table_name": table_name, "schema": detected_schema, "columns": columns}
-        if other_schemas:
-            response["other_schemas"] = other_schemas
-            response["note"] = (
-                f"'{table_name}' also exists in {other_schemas}; showing '{detected_schema}'. "
-                "Pass schema= to select a different one."
-            )
-        return response
-    except Exception as e:
-        return {"error": str(e)}
 
 
 @mcp.tool()
@@ -254,7 +212,11 @@ def get_lineage(model_name: str | None = None) -> dict[str, Any]:
             "model_count": len([n for n in nodes.values() if n.get("resource_type") == "model"]),
             "source_count": len(sources),
             "models": [
-                {"name": n["name"], "schema": n.get("schema"), "layer": _infer_layer(n["name"])}
+                {
+                    "name": n["name"],
+                    "schema": n.get("schema"),
+                    "layer": _infer_layer(n["name"], n.get("original_file_path")),
+                }
                 for n in nodes.values()
                 if n.get("resource_type") == "model"
             ],
@@ -279,7 +241,7 @@ def list_models() -> list[dict[str, Any]]:
         return [
             {
                 "name": n["name"],
-                "layer": _infer_layer(n["name"]),
+                "layer": _infer_layer(n["name"], n.get("original_file_path")),
                 "schema": n.get("schema"),
                 "path": n.get("original_file_path"),
             }
@@ -335,6 +297,9 @@ async def query(sql: str, row_limit: int = 500) -> dict[str, Any]:
     web query endpoint) — the tool call returns an error at that point *and*
     the in-flight DuckDB query is interrupted, not just abandoned in the
     background.
+
+    PII-flagged columns are masked by default by output name only (aliases, expressions,
+    filters, aggregates are not covered; see pii_masking); opt out: api.mcp_mask_pii: false.
     """
     if len(sql) > _MAX_QUERY_SQL_LENGTH:
         return {"error": f"SQL query too long (max {_MAX_QUERY_SQL_LENGTH} characters)"}
@@ -352,6 +317,11 @@ async def query(sql: str, row_limit: int = 500) -> dict[str, Any]:
         return {"error": "No warehouse found. Run dango sync first."}
 
     timeout_seconds = _get_query_timeout_seconds(project_root)
+
+    from dango.cli.commands.mcp_governance import _mcp_pii_mask_columns
+    from dango.governance.pii_masking import mask_query_result
+
+    mask = await asyncio.to_thread(_mcp_pii_mask_columns, project_root)
 
     try:
         conn = await asyncio.to_thread(_connect_readonly_with_retry, db_path)
@@ -371,7 +341,8 @@ async def query(sql: str, row_limit: int = 500) -> dict[str, Any]:
         asyncio.to_thread(_execute_query_on_connection, conn, sql, row_limit)
     )
     try:
-        return await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
+        result = await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
+        return mask_query_result(result, mask) if mask is not None else result
     except asyncio.TimeoutError:
         conn.interrupt()
         try:
@@ -469,16 +440,21 @@ def mcp_run(ctx: click.Context) -> None:
 
 
 # ── Register subcommands / tools from separate modules ──────────────────────────
-# Mirrors the cross-file registration pattern in commands/remote.py: mcp_setup.py
-# imports mcp_group from here and self-registers `setup`/`status` via
-# @mcp_group.command(...) decorators. Split out to keep this file (the read
-# tools + FastMCP server definition) under the 500-line file-size check.
-#
-# mcp_mutations.py (Session F) follows the same bottom-of-file import pattern,
-# but registers onto `mcp` (the FastMCP instance) via @mcp.tool() rather than
-# onto `mcp_group` (the Click group) — it adds mutation tools (run_sync,
-# run_transform, run_doctor, add_source, list_source_types, create_model,
-# add_schedule), not CLI subcommands.
+# Each module self-registers on import: Click subcommands via @mcp_group.command()
+# (mcp_setup) or tools via @mcp.tool(). Split out to keep this file under the
+# 500-line file-size check; add new tool modules to the tuple below.
+import importlib  # noqa: E402
 
-import dango.cli.commands.mcp_mutations as _mcp_mutations  # noqa: E402, F401
-import dango.cli.commands.mcp_setup as _mcp_setup  # noqa: E402, F401
+_REGISTRATION_MODULES = (
+    "mcp_debug",
+    "mcp_docs",
+    "mcp_governance",
+    "mcp_models",
+    "mcp_operations",
+    "mcp_remote",
+    "mcp_schedules",
+    "mcp_sources",
+    "mcp_setup",
+)
+for _module in _REGISTRATION_MODULES:
+    importlib.import_module(f"dango.cli.commands.{_module}")
