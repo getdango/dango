@@ -76,6 +76,7 @@ platform/
 | `docker.py` | Docker Compose lifecycle + persisted project-identity (1.0.8-Q9) + collision guard (1.0.8-Q8) | `DockerManager`, `ServiceStatus`, `get_compose_project_name()`, `render_docker_compose()`, `_get_existing_container_working_dirs()`, `_legacy_path_hash()` |
 | `common/startup.py` | Shared startup helpers | `run_pending_migrations`, `ensure_dbt_schemas`, `check_duckdb_version_alignment`, `ensure_duckdb_driver`, `start_docker_services`, `setup_metabase_if_needed`, `metabase_startup_work_pending`, `wait_for_metabase_if_needed`, `import_dashboards` |
 | `common/metabase_credential_migration.py` | Legacy Metabase credential state machine | `prepare_metabase_credential_migration`, `migration_pending`, `complete_metabase_credential_migration` |
+| `common/metabase_admin_repair.py` | Automatic data-preserving recovery of a lost Metabase admin credential (offline `reset-password` CLI, never deletes the volume) | `repair_admin_credential` |
 | `local/network.py` | Shared nginx routing (local dev) | `NetworkConfig`, `NginxManager`, `HostsManager` |
 | `local/watcher.py` | File change detection | `DebouncedFileHandler`, `FileWatcher`, `MultiTargetWatcher`, `SyncTrigger` |
 | `local/watcher_lifecycle.py` | Watcher subprocess lifecycle | `start_file_watcher`, `stop_file_watcher`, `get_watcher_status`, `get_watcher_pid_file_path` |
