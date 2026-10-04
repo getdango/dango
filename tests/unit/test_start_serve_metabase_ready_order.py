@@ -69,11 +69,11 @@ def _run_local(
         "dango.config.credentials.ensure_sensitive_artifact_gitignores",
         side_effect=_harden_gitignore,
     )
-    ignore_patcher.start()
 
     # Entered via ExitStack: the combined ``with`` below would exceed Python's
     # static block-nesting limit if these two patches were added to it.
     stack = ExitStack()
+    stack.enter_context(ignore_patcher)
     stack.enter_context(patch(f"{_STARTUP}.wait_for_metabase_if_needed", side_effect=_wait))
     stack.enter_context(
         patch(f"{_STARTUP}.metabase_startup_work_pending", return_value=work_pending)
@@ -116,7 +116,6 @@ def _run_local(
     ):
         socket_cls.return_value.connect_ex.return_value = 1
         result = CliRunner().invoke(start, ["--yes"], obj={})
-    ignore_patcher.stop()
     return result, events
 
 
@@ -144,9 +143,9 @@ def _run_cloud(
         "dango.config.credentials.ensure_sensitive_artifact_gitignores",
         side_effect=_harden_gitignore,
     )
-    ignore_patcher.start()
 
     with (
+        ignore_patcher,
         patch(f"{_STARTUP}.wait_for_metabase_if_needed", side_effect=_wait),
         patch.dict(os.environ, {}, clear=False),
         patch("dango.cli.utils.require_project_context", return_value=project_root),
@@ -178,7 +177,6 @@ def _run_cloud(
         patch("uvicorn.run"),
     ):
         result = CliRunner().invoke(serve, [], obj={})
-    ignore_patcher.stop()
     return result, events
 
 
