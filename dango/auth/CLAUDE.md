@@ -212,6 +212,8 @@ Session bridging syncs Dango auth state to Metabase so users get single sign-on.
 
 **Role sync** (`sync_user_to_metabase`): Admin → Metabase superuser. Editor → "Dango Editors" group. Viewer → "All Users" only (default read access). Groups created by `ensure_metabase_groups()`.
 
+- The Metabase admin account's password has a single owner (`platform/common/metabase_credential_migration.py`, `metabase_link.py`); `sync_user_to_metabase` and `metabase-repair` never rotate it and never store an unapplied password (1.0.12).
+
 **Troubleshooting:**
 - Missing `metabase_user_id` on User → run `sync_user_to_metabase()` for that user
 - Stale group membership → `sync_all_users_to_metabase()` for full reconciliation
