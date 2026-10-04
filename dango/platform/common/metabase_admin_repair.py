@@ -36,20 +36,50 @@ _TOKEN_PATTERN = re.compile(r"OK \[\[\[(.+?)\]\]\]")
 _CLI_TIMEOUT_SECONDS = 300
 
 
-def repair_admin_credential(project_root: Path, *, ready_timeout: int = 180) -> dict[str, object]:
+_OUTCOME_TEXT = {
+    "attempted_recently": "A repair was attempted less than an hour ago.",
+    "missing_admin_email": "The project has no Metabase admin email on record.",
+    "missing_metabase_url": "The project has no Metabase URL on record.",
+    "no_local_compose": "This project has no local docker-compose.yml.",
+    "metabase_unreachable": "Metabase is not responding, so it was left untouched.",
+    "metabase_not_running": "Metabase is not running; start the project first.",
+    "reset_cli_failed": "Metabase's offline reset did not complete; Metabase was restarted.",
+    "metabase_not_ready": "Metabase did not become ready again in time.",
+    "token_not_accepted": "Metabase did not accept the reset token.",
+    "new_credential_not_accepted": "The new credential could not sign in.",
+    "pending_promotion_failed": "The new credential could not be saved.",
+    "candidate_staging_failed": "The new credential could not be staged safely.",
+}
+_GENERIC_OUTCOME = "Admin access could not be restored automatically."
+
+
+def describe_repair_outcome(result: dict[str, object]) -> str:
+    """Plain-text, secret-free description of a repair result (unknown reason -> generic)."""
+    if result.get("status") == "repaired":
+        return "Metabase admin access restored."
+    reason = result.get("reason")
+    if isinstance(reason, str) and reason in _OUTCOME_TEXT:
+        return _OUTCOME_TEXT[reason]
+    return _GENERIC_OUTCOME
+
+
+def repair_admin_credential(
+    project_root: Path, *, ready_timeout: int = 180, force: bool = False
+) -> dict[str, object]:
     """Regain Metabase admin access without touching Metabase data.
 
     Returns ``{"status": "repaired"}`` or ``{"status": "failed", "reason": <slug>}`` /
     ``{"status": "skipped", "reason": <slug>}``. Never raises; never includes a secret.
+    ``force`` ignores the one-hour failure memory (manual command only).
     """
     root = Path(project_root)
     try:
-        return _repair(root, ready_timeout)
+        return _repair(root, ready_timeout, force)
     except Exception:
         return _failed(root, "unexpected_error")
 
 
-def _repair(root: Path, ready_timeout: int) -> dict[str, object]:
+def _repair(root: Path, ready_timeout: int, force: bool) -> dict[str, object]:
     metadata = load_metabase_metadata(root)
     admin = metadata.get("admin") if isinstance(metadata, dict) else None
     admin_email = admin.get("email") if isinstance(admin, dict) else None
@@ -65,7 +95,7 @@ def _repair(root: Path, ready_timeout: int) -> dict[str, object]:
     metabase_url = metabase_url.rstrip("/")
     if not (root / "docker-compose.yml").exists():
         return {"status": "skipped", "reason": "no_local_compose"}
-    if _attempted_recently(root):
+    if not force and _attempted_recently(root):
         return {"status": "skipped", "reason": "attempted_recently"}
 
     from dango.auth.metabase_sync import generate_metabase_password
@@ -74,13 +104,33 @@ def _repair(root: Path, ready_timeout: int) -> dict[str, object]:
 
     with _migration._migration_lock(root):
         store = MetabaseCredentialStore(root)
+        # A retained pending credential (interrupted setup/migration) is tried first.
+        try:
+            retained = store.load_pending()
+        except Exception:
+            retained = None
+        if retained:
+            session = _migration._create_session(metabase_url, admin_email, retained)
+            if session is not None:
+                return _finish(root, store, metadata or {}, metabase_url, session, admin_email)
+
+        if not _metabase_healthy(metabase_url):
+            return {"status": "skipped", "reason": "metabase_unreachable"}
+
+        from dango.auth.metabase_sync import generate_metabase_password
+        from dango.platform.docker import get_compose_project_name
+        from dango.visualization.metabase import wait_for_metabase_ready
+
+        env = {**os.environ, "COMPOSE_PROJECT_NAME": get_compose_project_name(root)}
+        if not _metabase_running(root, env):
+            return {"status": "skipped", "reason": "metabase_not_running"}
+
         new_password = generate_metabase_password()
         try:
             store.save_pending(new_password)
         except Exception:
             return _failed(root, "candidate_staging_failed")
 
-        env = {**os.environ, "COMPOSE_PROJECT_NAME": get_compose_project_name(root)}
         token: str | None = None
         try:
             _compose(root, env, "stop", "metabase", timeout=90)
@@ -102,18 +152,55 @@ def _repair(root: Path, ready_timeout: int) -> dict[str, object]:
         session = _migration._create_session(metabase_url, admin_email, new_password)
         if session is None:
             return _failed(root, "new_credential_not_accepted")
-        try:
-            active = store.promote_pending()
-        except Exception:
-            return _failed(root, "pending_promotion_failed")
-        result = _migration._refresh_sso_and_cleanup(
-            root, metadata or {}, metabase_url, session, admin_email, active
+        return _finish(root, store, metadata or {}, metabase_url, session, admin_email)
+
+
+def _finish(
+    root: Path,
+    store: MetabaseCredentialStore,
+    metadata: dict[str, Any],
+    metabase_url: str,
+    session: str,
+    admin_email: str,
+) -> dict[str, object]:
+    """Promote the verified pending credential, refresh SSO, clean the YAML password."""
+    try:
+        active = store.promote_pending()
+    except Exception:
+        return _failed(root, "pending_promotion_failed")
+    result = _migration._refresh_sso_and_cleanup(
+        root, metadata, metabase_url, session, admin_email, active
+    )
+    if result.get("status") != "secure_rotated":
+        # The new credential is promoted and works; only the follow-up tidy-up failed.
+        return _failed(root, f"followup_{result.get('reason', 'failed')}")
+    _clear_state(root)
+    return {"status": "repaired"}
+
+
+def _metabase_healthy(metabase_url: str) -> bool:
+    import requests
+
+    try:
+        return requests.get(f"{metabase_url}/api/health", timeout=5).status_code == 200
+    except Exception:
+        return False
+
+
+def _metabase_running(root: Path, env: dict[str, str]) -> bool:
+    try:
+        proc = subprocess.run(
+            ["docker", "compose", "ps", "--status", "running", "-q", "metabase"],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
         )
-        if result.get("status") != "secure_rotated":
-            # The new credential is promoted and works; only the follow-up tidy-up failed.
-            return _failed(root, f"followup_{result.get('reason', 'failed')}")
-        _clear_state(root)
-        return {"status": "repaired"}
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    return proc.returncode == 0 and bool((proc.stdout or "").strip())
 
 
 def _compose(root: Path, env: dict[str, str], *args: str, timeout: int) -> None:
@@ -145,7 +232,9 @@ def _run_reset_cli(root: Path, env: dict[str, str], admin_email: str) -> str | N
     if proc.returncode != 0:
         return None
     match = _TOKEN_PATTERN.search(proc.stdout or "")
-    return match.group(1) if match else None
+    token = match.group(1) if match else None
+    del proc  # CLI stdout/stderr is never kept beyond the token
+    return token
 
 
 def _redeem_token(metabase_url: str, token: str, password: str) -> bool:

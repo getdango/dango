@@ -607,7 +607,28 @@ def start(ctx: click.Context, yes: bool) -> None:
                 )
 
                 message, _retryable = describe_migration_failure(credential_migration)
-                console.print(f"[yellow]⚠[/yellow] {message}")
+                repaired = False
+                if credential_migration.get("reason") == "current_credential_not_accepted":
+                    from dango.platform.common.metabase_admin_repair import (
+                        describe_repair_outcome,
+                        repair_admin_credential,
+                    )
+
+                    console.print(
+                        "[dim]Restoring Metabase admin access (Metabase restarts briefly; "
+                        "no data is changed)...[/dim]"
+                    )
+                    repair = repair_admin_credential(project_root)
+                    repaired = repair.get("status") == "repaired"
+                    if repaired:
+                        console.print("[green]✓[/green] Metabase admin access restored.")
+                if not repaired:
+                    console.print(f"[yellow]⚠[/yellow] {message}")
+                    if credential_migration.get("reason") == "current_credential_not_accepted":
+                        console.print(
+                            f"[dim]{describe_repair_outcome(repair)} "
+                            'Run "dango metabase repair-admin" to try again.[/dim]'
+                        )
         except Exception:
             console.print(
                 "[yellow]⚠[/yellow] Metabase credential migration is incomplete; "
