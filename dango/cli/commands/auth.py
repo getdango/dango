@@ -755,6 +755,61 @@ def auth_metabase_repair(ctx: click.Context, email: str, yes: bool) -> None:
             print_error(f"User '{email}' has no Metabase account linked yet — nothing to repair.")
             raise click.Abort()
 
+        from dango.security.metabase_config import (
+            is_metabase_admin_email,
+            load_metabase_admin_credentials,
+        )
+
+        if is_metabase_admin_email(project_root, user.email):
+            # The admin account's password has a single owner (migration/link): never
+            # rotate it here, only re-sync the SSO copy from the working credential.
+            admin_creds = _load_metabase_credentials(project_root)
+            if not admin_creds or not admin_creds.get("metabase_url"):
+                print_error(
+                    "Metabase not configured for this project (missing .dango/metabase.yml)."
+                )
+                raise click.Abort()
+            admin_credentials = load_metabase_admin_credentials(project_root)
+            if admin_credentials is None:
+                print_error("No Metabase admin credential is available to re-sync.")
+                raise click.Abort()
+            previous_enc = user.metabase_password_enc
+            update_user(
+                db_path,
+                user.id,
+                UserUpdate(
+                    metabase_password_enc=encrypt_metabase_password(
+                        admin_credentials[1], project_root
+                    )
+                ),
+            )
+
+            from dango.auth.audit import AuditEvent, log_auth_event
+
+            log_auth_event(
+                event_type=AuditEvent.PASSWORD_RESET,
+                email=user.email,
+                user_id=user.id,
+                details={"via": "cli", "target": "metabase_bridge", "account": "admin_resync"},
+                log_dir=project_root / ".dango" / "logs",
+            )
+            refreshed = get_user_by_email(db_path, email)
+            assert refreshed is not None  # just written above
+            if _check_metabase_login(admin_creds["metabase_url"], refreshed, project_root):
+                print_success(
+                    f"Re-synced and verified: '{refreshed.email}' (the Metabase admin account) "
+                    "can log in to Metabase."
+                )
+                return
+            if previous_enc is not None:
+                # Do not leave an unverified credential in place of the previous one.
+                update_user(db_path, user.id, UserUpdate(metabase_password_enc=previous_enc))
+            print_error(
+                f"Re-synced the SSO credential for '{refreshed.email}' but verification login "
+                "still failed. Check that Metabase is running and reachable."
+            )
+            raise click.Abort()
+
         if not yes:
             console.print(
                 f"This will regenerate the Metabase password for [bold]{user.email}[/bold] "

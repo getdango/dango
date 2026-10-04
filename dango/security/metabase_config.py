@@ -41,6 +41,17 @@ def load_metabase_metadata(project_root: Path) -> dict[str, Any] | None:
     return metadata
 
 
+def is_metabase_admin_email(project_root: Path, email: str) -> bool:
+    """True if ``email`` is the Metabase admin account recorded in ``.dango/metabase.yml``.
+
+    Case-insensitive; False when there is no metadata or no admin email. Read-only.
+    """
+    metadata = load_metabase_metadata(Path(project_root))
+    admin = metadata.get("admin") if isinstance(metadata, dict) else None
+    admin_email = admin.get("email") if isinstance(admin, dict) else None
+    return isinstance(admin_email, str) and admin_email.strip().lower() == email.strip().lower()
+
+
 def load_metabase_admin_credentials(project_root: Path) -> tuple[str, str] | None:
     """Return the administrator email and protected password when available.
 
