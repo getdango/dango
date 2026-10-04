@@ -386,6 +386,41 @@ def _link_metabase_admin(project_root: Path, admin_email: str) -> None:
     link_metabase_admin(project_root, admin_email)
 
 
+def metabase_startup_work_pending(project_root: Path) -> bool:
+    """True when startup must authenticate to Metabase.
+
+    That is the case while a legacy admin-password migration is pending or when
+    dashboard exports exist to import. Read-only; makes no HTTP request.
+    """
+    from dango.platform.common.metabase_credential_migration import migration_pending
+
+    if migration_pending(project_root):
+        return True
+    legacy_dir = project_root / "dashboards"
+    metabase_dir = project_root / "metabase"
+    return bool(
+        (legacy_dir.exists() and any(legacy_dir.glob("*.yml")))
+        or (metabase_dir.exists() and any(metabase_dir.rglob("*.yml")))
+    )
+
+
+def wait_for_metabase_if_needed(project_root: Path, timeout: int = 120) -> bool | None:
+    """Block until Metabase answers ``/api/health`` if startup is about to authenticate.
+
+    Returns None when nothing needs Metabase (no wait), True once it is ready, False on
+    timeout. Polls the unauthenticated health endpoint only: no login attempt is made here,
+    so waiting can never trip Metabase's login throttle.
+    """
+    if not metabase_startup_work_pending(project_root):
+        return None
+    from dango.security.metabase_config import load_metabase_metadata
+    from dango.visualization.metabase import wait_for_metabase_ready
+
+    metadata = load_metabase_metadata(project_root) or {}
+    url = str(metadata.get("metabase_url") or "http://localhost:3000").rstrip("/")
+    return wait_for_metabase_ready(url, timeout=timeout)
+
+
 def import_dashboards(project_root: Path) -> dict[str, Any] | None:
     """
     Import YAML dashboards if any exist, in either the legacy dashboards/

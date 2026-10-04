@@ -42,6 +42,17 @@ def prepare_metabase_credential_migration(project_root: Path) -> dict[str, objec
         return state
 
 
+def migration_pending(project_root: Path) -> bool:
+    """True while a legacy project-local Metabase admin password still needs migrating.
+
+    Read-only: loads ``.dango/metabase.yml`` and makes no HTTP request.
+    """
+    try:
+        return _legacy_password(load_metabase_metadata(Path(project_root))) is not None
+    except Exception:
+        return False
+
+
 def complete_metabase_credential_migration(project_root: Path) -> dict[str, object]:
     """Move a legacy credential into protected storage after Metabase is ready.
 

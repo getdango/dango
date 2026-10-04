@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+## [1.0.11] - 2026-10-04
+
+### Fixed
+
+- `dango start` and `dango serve` now wait for Metabase to be ready before migrating a legacy Metabase admin password and before importing dashboards. In 1.0.10 these steps ran while Metabase was still starting, so on projects created before 1.0.10 the credential migration never completed ("Metabase credential migration is incomplete" on every start, with failed Metabase logins and a failed dashboard import in the output). Upgraded projects now complete the migration on their first start; no data was affected. Restarts with nothing to migrate are unchanged and do not wait.
+
+### Security
+
+- The legacy Metabase admin password now actually moves out of `.dango/metabase.yml` into protected storage on the first start after upgrading, as intended in 1.0.10.
+
 ## [1.0.10] - 2026-10-04
 
 ### Added

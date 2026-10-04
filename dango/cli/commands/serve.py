@@ -161,6 +161,20 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
     if warning := legacy_backup_artifact_warning(project_root):
         print(f"WARNING: {warning}", file=sys.stderr)
 
+    # The migration below and the dashboard import further down authenticate to
+    # Metabase, which is still booting right after the Docker services start.
+    try:
+        from dango.platform.common.startup import wait_for_metabase_if_needed
+
+        if wait_for_metabase_if_needed(project_root) is False:
+            print(
+                "WARNING: Metabase was not ready after 120s; credential migration and "
+                "dashboard import will retry on the next restart.",
+                file=sys.stderr,
+            )
+    except Exception:
+        pass
+
     # Complete a pending legacy credential migration only after that identity
     # exists, and before setup decides whether Metabase needs configuration.
     try:

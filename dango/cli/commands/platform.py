@@ -579,6 +579,24 @@ def start(ctx: click.Context, yes: bool) -> None:
         if warning := legacy_backup_artifact_warning(project_root):
             console.print(f"[yellow]⚠[/yellow] {warning}")
 
+        # The migration below and the dashboard import further down authenticate to
+        # Metabase, which is still booting right after `docker compose up -d`.
+        try:
+            from dango.platform.common.startup import (
+                metabase_startup_work_pending,
+                wait_for_metabase_if_needed,
+            )
+
+            if metabase_startup_work_pending(project_root):
+                console.print("[dim]Waiting for Metabase to be ready...[/dim]")
+            if wait_for_metabase_if_needed(project_root) is False:
+                console.print(
+                    "[yellow]⚠[/yellow] Metabase was not ready after 120s; credential "
+                    "migration and dashboard import will retry on the next start."
+                )
+        except Exception:
+            logger.debug("metabase_ready_wait_failed", exc_info=True)
+
         # Complete a pending legacy credential migration only after that identity
         # exists, and before setup decides whether Metabase needs configuration.
         try:
