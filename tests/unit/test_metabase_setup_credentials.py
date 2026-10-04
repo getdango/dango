@@ -167,15 +167,13 @@ def test_initialized_volume_recovers_verified_pending_without_setup_or_reset(
     with ExitStack() as stack:
         _enter_setup_patches(stack, session, store)
         stack.enter_context(patch("dango.visualization.metabase.write_metabase_metadata"))
-        reset_volume = stack.enter_context(
-            patch("dango.visualization.metabase._reset_metabase_volume")
-        )
+        docker = stack.enter_context(patch("dango.visualization.metabase.subprocess.run"))
         result = setup_metabase(tmp_path, "Test Project", "admin@example.com")
 
     assert result["success"] is True
+    docker.assert_not_called()
     store.save_pending.assert_not_called()
     store.promote_pending.assert_called_once_with()
-    reset_volume.assert_not_called()
     assert all(not call.args[0].endswith("/api/setup") for call in session.post.call_args_list)
 
 
@@ -194,17 +192,15 @@ def test_initialized_volume_retains_unverified_pending_without_reset_or_new_pass
 
     with ExitStack() as stack:
         _enter_setup_patches(stack, session, store)
-        reset_volume = stack.enter_context(
-            patch("dango.visualization.metabase._reset_metabase_volume")
-        )
+        docker = stack.enter_context(patch("dango.visualization.metabase.subprocess.run"))
         result = setup_metabase(tmp_path, "Test Project", "admin@example.com")
 
     assert result["success"] is False
+    docker.assert_not_called()
     assert any("recovery candidate was retained" in error for error in result["errors"])
     store.discard_pending.assert_not_called()
     store.promote_pending.assert_not_called()
     store.save_pending.assert_not_called()
-    reset_volume.assert_not_called()
     assert all(not call.args[0].endswith("/api/setup") for call in session.post.call_args_list)
 
 

@@ -24,7 +24,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/upgrade.py` (236 lines) | `upgrade` command — local Dango upgrade via pip + migrations | `upgrade()`, `get_latest_version_cached()` |
 | `commands/data.py` (388 lines) | `db` group (`status`, `clean`) + `validate` | `db`, `validate()` |
 | `commands/config_cmd.py` (240 lines) | `config` group (`validate`, `show`, `do-token`) | `config` |
-| `commands/metabase_cmd.py` (412 lines) | `metabase` group (`save`, `load`, `refresh`) | `metabase` |
+| `commands/metabase_cmd.py` (412 lines) | `metabase` group (`save`, `load`, `refresh`, `repair-admin`) | `metabase` |
 | `commands/model.py` (244 lines) | `model` group (`add`, `remove`) | `model` |
 | `commands/seed.py` (135 lines) | `seed` group (`add`, `list`) — dbt seed CSV management | `seed` |
 | `commands/dashboard.py` (215 lines) | `dashboard` group (`provision`) — materializes pipeline-health state via `dango.utils.pipeline_health` before provisioning (1.0.8-DASH-1) | `dashboard` |

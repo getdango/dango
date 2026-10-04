@@ -15,6 +15,7 @@ import requests
 from dango.auth.database import get_user_by_id, list_users, update_user
 from dango.auth.models import Role, UserUpdate
 from dango.security.metabase_config import (
+    is_metabase_admin_email,
     load_metabase_admin_credentials,
     load_metabase_metadata,
 )
@@ -353,10 +354,24 @@ def sync_user_to_metabase(
             if existing is None:
                 return None
             mb_user_id: int = existing["id"]
-            # Update password on existing Metabase user so we can bridge SSO
-            password = generate_metabase_password()
-            if not update_metabase_user_password(metabase_url, session, mb_user_id, password):
-                logger.warning("Failed to update Metabase password for user %s", mb_user_id)
+            if is_metabase_admin_email(project_root, user.email):
+                # The admin account's password is owned by the credential migration/link code:
+                # never rotate it here. The session above was created with the working admin
+                # credential, so link the SSO copy to that same value.
+                admin_credentials = load_metabase_admin_credentials(project_root)
+                if admin_credentials is None:
+                    logger.warning(
+                        "No working Metabase admin credential to link for user %s", user_id
+                    )
+                    return None
+                password = admin_credentials[1]
+            else:
+                # Update password on existing Metabase user so we can bridge SSO
+                password = generate_metabase_password()
+                if not update_metabase_user_password(metabase_url, session, mb_user_id, password):
+                    # Never store a password that was not applied: the SSO login would fail.
+                    logger.warning("Failed to update Metabase password for user %s", mb_user_id)
+                    return None
         else:
             mb_user_id = mb_user["id"]
         encrypted_pw = encrypt_metabase_password(password, project_root)

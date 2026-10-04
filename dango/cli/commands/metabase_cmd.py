@@ -22,6 +22,7 @@ def metabase(ctx: click.Context) -> None:
     Commands:
       dango metabase save     Export dashboards/questions to files
       dango metabase load     Import dashboards/questions from files
+      dango metabase repair-admin  Restore Dango's Metabase admin access
     """
     pass
 
@@ -431,3 +432,41 @@ def metabase_refresh(ctx: click.Context) -> None:
 
             console.print(traceback.format_exc())
         raise click.Abort() from e
+
+
+@metabase.command("repair-admin")
+@click.pass_context
+def metabase_repair_admin(ctx: click.Context) -> None:
+    """
+    Restore Dango's Metabase admin access (local projects only).
+
+    Uses Metabase's own offline reset-password tool. Metabase restarts for about
+    a minute; no Metabase data (dashboards, questions) is changed or deleted.
+
+    Examples:
+      dango metabase repair-admin
+    """
+    from dango.platform.common.metabase_admin_repair import (
+        describe_repair_outcome,
+        repair_admin_credential,
+    )
+
+    from ..utils import require_project_context
+
+    project_root = require_project_context(ctx)
+    if not (project_root / "docker-compose.yml").exists():
+        console.print(
+            "[red]✗[/red] This command is for local projects (no docker-compose.yml here)."
+        )
+        raise click.Abort()
+
+    console.print(
+        "\n[cyan]Restoring Metabase admin access.[/cyan] Metabase restarts for about a "
+        "minute; no data is changed.\n"
+    )
+    result = repair_admin_credential(project_root, force=True)
+    if result.get("status") == "repaired":
+        console.print(f"[green]✓[/green] {describe_repair_outcome(result)}")
+        return
+    console.print(f"[red]✗[/red] {describe_repair_outcome(result)}")
+    raise click.Abort()
