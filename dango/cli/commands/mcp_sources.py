@@ -128,6 +128,11 @@ def get_source_setup_schema(source_type: str) -> dict[str, Any]:
             if source_type in _LEGACY_SOURCE_TYPES:
                 schema["use_instead"] = _LEGACY_SOURCE_TYPES[source_type]
                 schema["note"] = _legacy_note(source_type)
+            elif source_type == "local_files":
+                schema["note"] = (
+                    "To import a local file, pass file_path to create_source and omit "
+                    "'directory': the file is copied to data/uploads/<source_name>/."
+                )
             return schema
         except SourceSetupError as e:
             return _service_error(e)
@@ -216,7 +221,7 @@ def create_source(
             )
             extra: list[str] = []
             if file_path:
-                src = Path(file_path)
+                src = Path(file_path).expanduser()  # users write ~/data/x.csv
                 src = src if src.is_absolute() else project_root / src
                 dest, err = _validate_file(src, prepared, project_root)
                 if err or dest is None:
