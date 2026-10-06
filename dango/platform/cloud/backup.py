@@ -540,7 +540,7 @@ def list_local_backups(ssh: SSHManager) -> list[dict[str, Any]]:
         if not path:
             continue
         name = path.rsplit("/", 1)[-1]
-        size_result = ssh.exec_command(f"stat --format='%s' {path} 2>/dev/null")
+        size_result = ssh.exec_command(f"stat --format='%s' {shlex.quote(path)} 2>/dev/null")
         try:
             size = int(size_result.stdout.strip()) if size_result.success else 0
         except ValueError:
@@ -569,7 +569,7 @@ def rollback(
             raise CloudProvisioningError("No backups found to restore from")
         backup_path = backups[0]["path"]
     else:
-        if not ssh.exec_command(f"test -f {backup_path}").success:
+        if not ssh.exec_command(f"test -f {shlex.quote(backup_path)}").success:
             raise CloudProvisioningError(f"Backup archive not found: {backup_path}")
     _notify(on_progress, "find_backup", "done")
 
@@ -589,7 +589,7 @@ def restore_from_archive(
     warnings: list[str] = []
 
     manifest_path = archive_path.replace(".tar.gz", ".json")
-    manifest_result = ssh.exec_command(f"cat {manifest_path} 2>/dev/null")
+    manifest_result = ssh.exec_command(f"cat {shlex.quote(manifest_path)} 2>/dev/null")
     if manifest_result.success and manifest_result.stdout.strip():
         _notify(on_progress, "read_manifest", "done")
 
@@ -624,7 +624,7 @@ def restore_from_archive(
         _notify(on_progress, "extract_archive", "running")
         _run_checked(
             ssh,
-            f"rm -rf {staging} && tar -xzf {archive_path} -C /tmp",
+            f"rm -rf {shlex.quote(staging)} && tar -xzf {shlex.quote(archive_path)} -C /tmp",
             step="extract_archive",
             timeout=300,
         )
@@ -638,18 +638,18 @@ def restore_from_archive(
                 f"{PROJECT_DIR}/{'/'.join(fpath.split('/')[:-1])}" if "/" in fpath else PROJECT_DIR
             )
             restore_cmds.append(
-                f"test -f {src} && (mkdir -p {dest_dir} && cp {src} {dest_dir}/) || true"
+                f"test -f {shlex.quote(src)} && (mkdir -p {dest_dir} && cp {shlex.quote(src)} {dest_dir}/) || true"
             )
         metabase_source = f"{staging}/{METABASE_CONFIG_FILE}"
         metabase_destination = f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}"
-        if ssh.exec_command(f"test -f {metabase_source}").success:
+        if ssh.exec_command(f"test -f {shlex.quote(metabase_source)}").success:
             warning = _sanitize_remote_metabase_yaml(ssh, metabase_source, metabase_destination)
             if warning:
                 warnings.append(warning)
         for dpath in BACKUP_DIRS:
             src, dest = f"{staging}/{dpath}", f"{PROJECT_DIR}/{dpath}"
             restore_cmds.append(
-                f"test -d {src} && (mkdir -p {dest} && cp -r {src}/. {dest}/) || true"
+                f"test -d {shlex.quote(src)} && (mkdir -p {dest} && cp -r {shlex.quote(src + '/.')} {dest}/) || true"
             )
         _run_checked(ssh, " && ".join(restore_cmds), step="restore_files", timeout=300)
         _notify(on_progress, "restore_files", "done")
@@ -659,7 +659,7 @@ def restore_from_archive(
         if metabase_vol:
             for h2 in ["metabase.db.mv.db", "metabase.db.trace.db"]:
                 ssh.exec_command(
-                    f"test -d {staging}/metabase && cp {staging}/metabase/{h2} {metabase_vol}/ 2>/dev/null || true"
+                    f"test -d {shlex.quote(staging + '/metabase')} && cp {shlex.quote(f'{staging}/metabase/{h2}')} {metabase_vol}/ 2>/dev/null || true"
                 )
         else:
             warnings.append("Metabase Docker volume not found — H2 restore skipped")
@@ -669,7 +669,7 @@ def restore_from_archive(
         _run_checked(ssh, "chown -R dango:dango /srv/dango/project", step="fix_ownership")
         _notify(on_progress, "fix_ownership", "done")
 
-        ssh.exec_command(f"rm -rf {staging}")  # cleanup: silent OK
+        ssh.exec_command(f"rm -rf {shlex.quote(staging)}")  # cleanup: silent OK
     finally:
         _notify(on_progress, "start_services", "running")
         start_services(ssh)
@@ -706,7 +706,7 @@ def rotate_local_backups(ssh: SSHManager, keep: int = MAX_LOCAL_BACKUPS) -> int:
     deleted = 0
     for archive in to_delete:
         ssh.exec_command(
-            f"rm -f {archive} {archive.replace('.tar.gz', '.json')}"
+            f"rm -f {shlex.quote(archive)} {shlex.quote(archive.replace('.tar.gz', '.json'))}"
         )  # cleanup: silent OK
         deleted += 1
     return deleted
