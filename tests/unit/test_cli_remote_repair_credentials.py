@@ -99,8 +99,8 @@ class TestRemoteResetMetabaseCredentials:
     ):
         ssh = MagicMock()
         ssh.exec_command.side_effect = [
-            self._result(),  # stop dango-web
             self._result(project_id_output, success=lookup_success),
+            self._result(),  # stop dango-web (only after the id validated)
             self._result(),  # compose down
             self._result(),  # remove metabase.yml
             self._result(success=delete_success),  # remove protected credential
@@ -131,13 +131,14 @@ class TestRemoteResetMetabaseCredentials:
 
         assert result.exit_code == 0, result.output
         commands = [call.args[0] for call in ssh.exec_command.call_args_list]
-        delete_index = commands.index(f"rm -rf /srv/dango/secrets/metabase/{project_id}")
+        expected = (
+            f"rm -f /srv/dango/secrets/metabase/{project_id}.json "
+            f"/srv/dango/secrets/metabase/{project_id}.pending.json"
+        )
+        delete_index = commands.index(expected)
         restart_index = commands.index("systemctl start dango-web")
         assert delete_index < restart_index
-        assert commands[delete_index] == f"rm -rf /srv/dango/secrets/metabase/{project_id}"
-        assert "rm -rf /srv/dango/secrets/metabase" not in {
-            command for command in commands if command != commands[delete_index]
-        }
+        assert not any("rm -rf" in command for command in commands)
 
     def test_failed_secret_deletion_does_not_restart_dango_web(self) -> None:
         result, ssh = self._invoke_reset("ab12cd34" * 4 + "\n", delete_success=False)
@@ -163,7 +164,7 @@ class TestRemoteResetMetabaseCredentials:
         result, ssh = self._invoke_reset(output, lookup_success=lookup_success)
 
         assert result.exit_code != 0
-        assert "remains stopped" in result.output
+        assert "Nothing was stopped or removed" in result.output
         commands = [call.args[0] for call in ssh.exec_command.call_args_list]
         assert "systemctl start dango-web" not in commands
         assert not any("/srv/dango/secrets/metabase/" in command for command in commands)
@@ -190,7 +191,7 @@ class TestRemoteResetMetabaseCredentials:
         assert _validated_metabase_secret_project_id(output) == "ab12cd34" * 4
 
     @pytest.mark.parametrize(
-        "output", ["dango-" + "ab12cd34" * 4, "ab12cd34", "ab12cd34" * 3 + "ab12cd3g", ""]
+        "output", ["dango-" + "ab12cd34" * 4, "ab12cd34" * 3, "ab12cd34" * 3 + "ab12cd3g", ""]
     )
     def test_rejects_non_secret_path_project_id(self, output: str) -> None:
         assert _validated_metabase_secret_project_id(output) is None
