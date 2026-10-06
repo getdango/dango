@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import shlex
 import subprocess
 import sys
 import time
@@ -98,7 +99,7 @@ def _stop_services() -> None:
     )
     compose_project = get_compose_project_name(PROJECT_DIR)
     subprocess.run(
-        f"COMPOSE_PROJECT_NAME={compose_project} docker compose -f "
+        f"COMPOSE_PROJECT_NAME={shlex.quote(compose_project)} docker compose -f "
         f"{PROJECT_DIR}/docker-compose.yml stop metabase 2>/dev/null || true",
         shell=True,
         timeout=120,
@@ -109,7 +110,7 @@ def _start_services() -> None:
     """Start Metabase then dango-web."""
     compose_project = get_compose_project_name(PROJECT_DIR)
     subprocess.run(
-        f"COMPOSE_PROJECT_NAME={compose_project} docker compose -f "
+        f"COMPOSE_PROJECT_NAME={shlex.quote(compose_project)} docker compose -f "
         f"{PROJECT_DIR}/docker-compose.yml start metabase 2>/dev/null || true",
         shell=True,
         timeout=120,
@@ -152,7 +153,7 @@ def _get_metabase_volume_path() -> str | None:
     compose_project = get_compose_project_name(PROJECT_DIR)
     try:
         result = subprocess.run(
-            f"docker volume inspect {compose_project}_metabase-data "
+            f"docker volume inspect {shlex.quote(compose_project + '_metabase-data')} "
             "--format '{{.Mountpoint}}' 2>/dev/null",
             shell=True,
             capture_output=True,
@@ -232,7 +233,10 @@ def _create_local_archive(
             for h2 in ["metabase.db.mv.db", "metabase.db.trace.db"]:
                 src = Path(metabase_vol) / h2
                 if src.exists():
-                    _run_local(f"cp '{src}' '{mb_staging}/'", step="copy_metabase")
+                    _run_local(
+                        f"cp {shlex.quote(str(src))} {shlex.quote(str(mb_staging) + '/')}",
+                        step="copy_metabase",
+                    )
         else:
             warnings.append("Metabase Docker volume not found — H2 backup skipped")
 
@@ -625,7 +629,10 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             for h2 in ["metabase.db.mv.db", "metabase.db.trace.db"]:
                 src = staging / "metabase" / h2
                 if src.exists():
-                    _run_local(f"cp '{src}' '{metabase_vol}/'", step="restore_metabase")
+                    _run_local(
+                        f"cp {shlex.quote(str(src))} {shlex.quote(metabase_vol + '/')}",
+                        step="restore_metabase",
+                    )
         _run_local("chown -R dango:dango /srv/dango/project", step="fix_ownership")
         subprocess.run(f"rm -rf '{staging}'", shell=True, timeout=30)
     finally:
