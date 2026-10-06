@@ -17,6 +17,8 @@ from rich.status import Status
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
+from dango.exceptions import CloudSSHError
+from dango.platform.cloud.remote_launch import build_background_launch
 
 _VENV_PYTHON = "/srv/dango/venv/bin/python3"
 _PROJECT_ROOT = "/srv/dango/project"
@@ -128,10 +130,10 @@ def remote_sync(
                 console.print(f"[red]Error:[/red] {stderr}")
                 raise SystemExit(1)
         else:
-            # Fire-and-forget: nohup must wrap the sudo command, not the `cd`
-            # builtin (`nohup cd ...` fails and `&&` then skips the sync).
-            bg_cmd = f"{cd_prefix} nohup {sudo_cmd} > /dev/null 2>&1 &"
-            result = ssh.exec_command(bg_cmd, timeout=10, check=False)
+            # Fire-and-forget: only the sync command is backgrounded; the directory check
+            # and a short liveness check run in the foreground (see remote_launch).
+            script = build_background_launch(_PROJECT_ROOT, sudo_cmd)
+            result = ssh.exec_command(f"sh -c {shlex.quote(script)}", timeout=30, check=False)
             if not result.success:
                 stderr = result.stderr.strip() if result.stderr else "Could not start sync"
                 console.print(f"[red]Error:[/red] {stderr}")
@@ -140,5 +142,8 @@ def remote_sync(
                 f"[green]Sync triggered[/green] for [bold]{source}[/bold] "
                 f"(running in background on server)."
             )
+    except CloudSSHError as exc:
+        console.print(f"[red]Error:[/red] SSH command failed: {exc}")
+        raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
