@@ -44,8 +44,14 @@ def _configure_unique_docker_ports(project_root: Path) -> None:
     ProjectInitializer(project_root)._create_docker_compose(config)
 
 
-def _cleanup(project_root: Path, compose_project_name: str, env: dict[str, str]) -> None:
-    """Best-effort teardown of the temporary project's processes, containers and volume."""
+def _cleanup(project_root: Path, env: dict[str, str]) -> None:
+    """Teardown: stop via the CLI (fake HOME), then remove this project's Docker resources."""
+    from dango.platform.docker import get_compose_project_name
+    from tests.integration.docker_leak_support import (
+        assert_no_docker_leftovers,
+        compose_down_and_prune,
+    )
+
     subprocess.run(
         [sys.executable, "-m", "dango.cli.main", "stop"],
         cwd=project_root,
@@ -55,17 +61,9 @@ def _cleanup(project_root: Path, compose_project_name: str, env: dict[str, str])
         env=env,
         stdin=subprocess.DEVNULL,
     )
-    if not compose_project_name:
-        return
-    down_env = {**env, "COMPOSE_PROJECT_NAME": compose_project_name}
-    subprocess.run(
-        ["docker", "compose", "-f", str(project_root / "docker-compose.yml"), "down", "-v"],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-        timeout=180,
-        env=down_env,
-    )
+    name = get_compose_project_name(project_root)  # derived here, so early failures still clean
+    compose_down_and_prune(project_root, name)
+    assert_no_docker_leftovers(name)
 
 
 def _dango_start(project_root: Path, env: dict[str, str]) -> str:
@@ -132,7 +130,6 @@ class TestLegacyMetabaseCredentialMigration:
             "BROWSER": "true",
             "DANGO_LOG_LEVEL": "ERROR",
         }
-        compose_project_name = ""
         try:
             init_project(project_root, skip_wizard=True)
             _configure_unique_docker_ports(project_root)
@@ -141,7 +138,6 @@ class TestLegacyMetabaseCredentialMigration:
             # 1. A normal 1.0.10-style project: real Metabase, protected credential.
             docker_manager = DockerManager(project_root)
             start_docker_services(project_root)
-            compose_project_name = docker_manager.compose_project_name
             setup = setup_metabase_if_needed(project_root, config.project.name, organization=None)
             assert setup.get("success"), f"Metabase setup failed: {setup}"
 
@@ -193,5 +189,5 @@ class TestLegacyMetabaseCredentialMigration:
             assert "migration is incomplete" not in second, second[-3000:]
             assert "Waiting for Metabase to be ready" not in second, second[-3000:]
         finally:
-            _cleanup(project_root, compose_project_name or "", env)
             keyring.set_keyring(previous_backend)
+            _cleanup(project_root, env)
