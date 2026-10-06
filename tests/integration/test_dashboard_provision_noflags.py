@@ -64,7 +64,10 @@ def _cleanup(project_root: Path, compose_project_name: str, env: dict[str, str])
     ``down`` runs with the REAL environment (the fake HOME hides the `docker compose` plugin),
     and ``--rmi local`` also removes the built Metabase image.
     """
-    _dango(project_root, env, "stop", timeout=180)
+    try:
+        _dango(project_root, env, "stop", timeout=180)
+    except Exception as exc:  # noqa: BLE001 - a stuck `stop` must not skip the Docker teardown
+        print(f"dango stop failed during teardown: {exc}", file=sys.stderr)
     if not compose_project_name:
         return
     down = subprocess.run(
@@ -180,5 +183,11 @@ class TestDashboardProvisionNoFlags:
             ).json()
             assert any(d.get("name") == "Data Pipeline Health" for d in dashboards), dashboards
         finally:
-            _cleanup(project_root, compose_project_name, env)
             keyring.set_keyring(previous_backend)
+            try:
+                _cleanup(project_root, compose_project_name, env)
+            except BaseException as teardown_error:  # noqa: BLE001
+                if sys.exc_info()[0] is None:
+                    raise
+                # Do not mask the test's real failure with a teardown error.
+                print(f"teardown error: {teardown_error!r}", file=sys.stderr)

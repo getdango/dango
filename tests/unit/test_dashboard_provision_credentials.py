@@ -28,7 +28,7 @@ _STORED = ("admin@stored.test", "stored-secret-pw")
 
 
 @pytest.fixture
-def provision(tmp_path: Path) -> Iterator[MagicMock]:
+def provision() -> Iterator[MagicMock]:
     """Patch every collaborator of the command; yield the fake ``provision_dashboard``."""
     fake = MagicMock(return_value=dict(_OK))
     with (
@@ -111,6 +111,18 @@ class TestProvisionCredentialResolution:
         assert "dango metabase repair-admin" in result.output
         provision.assert_not_called()
 
+    def test_provision_unreadable_credential_message_is_markup_safe(
+        self, tmp_path: Path, provision: MagicMock
+    ) -> None:
+        with _creds(MagicMock(side_effect=RuntimeError("bad [/red] [bold x"))):
+            result = _run(tmp_path)
+        assert result.exit_code == 1
+        assert isinstance(result.exception, SystemExit)  # click.Abort, not a MarkupError
+        output = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", result.output)
+        assert "bad [/red] [bold x" in output
+        assert "dango metabase repair-admin" in output
+        provision.assert_not_called()
+
     def test_provision_username_without_password_must_match_stored(
         self, tmp_path: Path, provision: MagicMock
     ) -> None:
@@ -135,16 +147,23 @@ class TestProvisionCredentialResolution:
         assert "Cannot tell which Metabase admin to log in as" in result.output
         provision.assert_not_called()
 
-    def test_provision_auth_failure_points_to_repair_admin(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "login_kwargs",
+        [{"side_effect": OSError("connection refused")}, {"return_value": None}],
+        ids=["login-raises", "login-returns-none-on-non-200"],
+    )
+    def test_provision_auth_failure_points_to_repair_admin(
+        self, tmp_path: Path, login_kwargs: dict[str, Any]
+    ) -> None:
+        # Scope: the provisioner (provision_dashboard -> authenticate -> _metabase_login) makes
+        # exactly one login attempt and no retry is added. The pre-existing refresh step (patched
+        # out here) is a separate login.
         with (
             _creds(MagicMock(return_value=_STORED)),
             patch("dango.utils.pipeline_health.materialize_pipeline_health"),
             patch("dango.visualization.metabase.refresh_metabase_connection"),
-            patch(
-                "dango.visualization.metabase._metabase_login", side_effect=OSError("401")
-            ) as login,
+            patch("dango.visualization.metabase._metabase_login", **login_kwargs) as login,
         ):
-            # Real provision_dashboard + provisioner: a rejected login is attempted exactly once.
             result = _run(tmp_path)
         assert result.exit_code != 0
         output = " ".join(re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", result.output).split())

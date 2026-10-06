@@ -52,6 +52,7 @@ def dashboard_provision(
       dango dashboard provision                  # Uses the project's stored Metabase login
       dango dashboard provision --url http://metabase.local
     """
+    from rich.markup import escape
     from rich.panel import Panel
     from rich.table import Table
 
@@ -84,7 +85,10 @@ def dashboard_provision(
         try:
             stored_credential = load_metabase_admin_credentials(project_root)
         except Exception as exc:  # noqa: BLE001
-            console.print(f"[red]Error:[/red] Could not read the stored Metabase credential: {exc}")
+            console.print(
+                "[red]Error:[/red] Could not read the stored Metabase credential: "
+                f"{escape(str(exc))}"
+            )
             console.print("Run [cyan]dango metabase repair-admin[/cyan] to restore it.")
             raise click.Abort() from exc
         if stored_credential is None:
