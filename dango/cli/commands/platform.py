@@ -545,8 +545,8 @@ def start(ctx: click.Context, yes: bool) -> None:
                 console.print("[red]❌ Error: Required ports are still in use[/red]")
                 console.print()
                 console.print("[bold]Manual cleanup required:[/bold]")
-                console.print("  lsof -ti:3000 | xargs kill -9")
-                console.print("  lsof -ti:8081 | xargs kill -9")
+                console.print(f"  lsof -ti:{platform_config.metabase_port} | xargs kill -9")
+                console.print(f"  lsof -ti:{platform_config.dbt_docs_port} | xargs kill -9")
             else:
                 console.print("[red]❌ Docker services failed to start[/red]")
                 console.print()
@@ -670,7 +670,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                     "[yellow]⚠ Metabase partially configured (DuckDB connected, but setup incomplete)[/yellow]"
                 )
                 console.print(
-                    "[dim]  You can manually complete setup at http://localhost:3000[/dim]"
+                    f"[dim]  You can manually complete setup at http://localhost:{platform_config.metabase_port}[/dim]"
                 )
                 metabase_configured = True  # Allow platform to start
         except RuntimeError as e:
@@ -853,7 +853,9 @@ def start(ctx: click.Context, yes: bool) -> None:
 
             try:
                 if not metabase_ready:
-                    metabase_response = requests.get("http://localhost:3000/api/health", timeout=1)
+                    metabase_response = requests.get(
+                        f"http://localhost:{platform_config.metabase_port}/api/health", timeout=1
+                    )
                     if metabase_response.status_code == 200:
                         metabase_ready = True
                         console.print("[dim]  ✓ Metabase ready[/dim]")
