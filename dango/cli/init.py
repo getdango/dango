@@ -1331,6 +1331,7 @@ on-run-end:
         import click
 
         from dango.auth.admin import (
+            SKIP_WIZARD_DEFAULT_ADMIN_EMAIL,
             ensure_admin,
             format_credentials_panel,
             get_auth_db_path,
@@ -1365,17 +1366,32 @@ on-run-end:
                     return True
 
             if skip_wizard:
-                # Non-interactive: generate random admin
+                # Non-interactive: random admin unless DANGO_ADMIN_PASSWORD is supplied
                 import os
 
-                email = os.environ.get("DANGO_ADMIN_EMAIL", "admin@localhost")
-                result = ensure_admin(db_path, email=email)
+                email = os.environ.get("DANGO_ADMIN_EMAIL", SKIP_WIZARD_DEFAULT_ADMIN_EMAIL)
+                env_password = os.environ.get("DANGO_ADMIN_PASSWORD") or None
+                if env_password:
+                    issues = check_password_strength(env_password, email=email)
+                    if issues:
+                        console.print(
+                            f"  [red]DANGO_ADMIN_PASSWORD is weak:[/red] {'; '.join(issues)}"
+                        )
+                        console.print("  [yellow]Skipping auth setup.[/yellow]")
+                        return False
+                result = ensure_admin(db_path, email=email, password=env_password)
                 if result is not None:
                     user, password = result
                     set_auth_enabled(self.project_dir, enabled=True)
                     self._write_auth_to_project_yml()
                     console.print()
-                    console.print(format_credentials_panel(user.email, password))
+                    if env_password:
+                        console.print(
+                            f"[green]✓[/green] Admin account created for {user.email} "
+                            "(password from DANGO_ADMIN_PASSWORD)"
+                        )
+                    else:
+                        console.print(format_credentials_panel(user.email, password))
                     console.print()
                 else:
                     set_auth_enabled(self.project_dir, enabled=True)

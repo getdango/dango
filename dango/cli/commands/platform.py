@@ -652,6 +652,18 @@ def start(ctx: click.Context, yes: bool) -> None:
             if setup_result.get("already_configured"):
                 console.print("[green]✓[/green] Metabase already configured")
                 metabase_configured = True
+            elif setup_result.get("skipped"):
+                console.print("[yellow]⚠[/yellow] Metabase was not set up")
+                console.print(
+                    f"[dim]  {setup_result.get('skip_reason', 'No usable admin email.')}[/dim]"
+                )
+                console.print(
+                    "[dim]  To fix: dango auth add-user you@yourcompany.com --role admin --password[/dim]"
+                )
+                console.print(
+                    "[dim]  then: DANGO_ADMIN_EMAIL=you@yourcompany.com dango start[/dim]"
+                )
+                metabase_configured = False
             elif setup_result.get("success"):
                 console.print("[green]✓[/green] Metabase configured automatically")
                 if setup_result.get("collections_created"):

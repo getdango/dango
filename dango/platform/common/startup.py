@@ -302,11 +302,17 @@ def setup_metabase_if_needed(
         from dango.logging import get_logger as _get_logger
 
         _logger = _get_logger(__name__)
-        _logger.warning(
-            "metabase_setup_skipped",
-            reason="No admin email found. Metabase setup will complete on next restart.",
+        reason = (
+            "No usable admin email: the project's admin is admin@localhost (or no admin exists) "
+            "and Metabase needs an address with a dotted domain."
         )
-        return {"already_configured": False, "success": True, "skipped": True}
+        _logger.warning("metabase_setup_skipped", reason=reason)
+        return {
+            "already_configured": False,
+            "success": True,
+            "skipped": True,
+            "skip_reason": reason,
+        }
 
     # Validate email domain — Metabase rejects domains without a dot (e.g. localhost)
     if "@" in admin_email:
@@ -315,11 +321,14 @@ def setup_metabase_if_needed(
             from dango.logging import get_logger as _get_logger2
 
             _logger2 = _get_logger2(__name__)
-            _logger2.warning(
-                "metabase_setup_skipped",
-                reason=f"Admin email domain invalid for Metabase: {domain}",
-            )
-            return {"already_configured": False, "success": True, "skipped": True}
+            reason = f"Admin email domain invalid for Metabase: {domain}"
+            _logger2.warning("metabase_setup_skipped", reason=reason)
+            return {
+                "already_configured": False,
+                "success": True,
+                "skipped": True,
+                "skip_reason": reason,
+            }
 
     # Read the project's actual configured Metabase port rather than relying
     # on setup_metabase()'s own http://localhost:3000 default — a project
