@@ -177,21 +177,48 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
 
     # Complete a pending legacy credential migration only after that identity
     # exists, and before setup decides whether Metabase needs configuration.
+    credential_check_needed = False
     try:
         credential_migration = complete_metabase_credential_migration(project_root)
+        credential_check_needed = credential_migration.get("status") == "not_required"
         if credential_migration.get("status") == "failed_non_destructive":
             from dango.platform.common.metabase_credential_migration import (
                 describe_migration_failure,
             )
 
-            message, _retryable = describe_migration_failure(credential_migration)
-            print(f"WARNING: {message}", file=sys.stderr)
+            message, retryable = describe_migration_failure(credential_migration)
+            if retryable:
+                # serve never repairs, so "will retry on the next start" would be false here.
+                message = message.replace(" and will retry on the next start", "")
+            print(f"WARNING: {message}\n{_repair_instructions()}", file=sys.stderr)
     except Exception:
         print(
             "WARNING: Metabase credential migration is incomplete; "
             "existing configuration is unchanged and will retry on the next restart.",
             file=sys.stderr,
         )
+
+    # Detect (never repair) a missing, unreadable or rejected Metabase admin credential:
+    # the state a restore or migrate leaves behind, which the migration above reports as
+    # "not required". At most one login attempt per start (so only when the migration,
+    # which logs in itself, did not run); never blocks startup.
+    if credential_check_needed:
+        try:
+            from dango.platform.common.startup import metabase_admin_credential_state
+
+            credential_state = metabase_admin_credential_state(project_root)
+            credential_problem = {
+                "missing": "No stored Metabase admin credential was found.",
+                "unreadable": "The stored Metabase admin credential is unreadable.",
+                "rejected": "Metabase rejected the stored admin credential.",
+            }.get(credential_state)
+            if credential_problem is not None:
+                print(
+                    f"WARNING: {credential_problem} {_repair_instructions()}",
+                    file=sys.stderr,
+                )
+        except Exception:
+            pass
 
     # 5. Metabase setup (non-fatal — BUG-103: prevents systemd crash loop)
     # setup_metabase_if_needed returns a dict even on failure — inspect the result.
@@ -268,3 +295,16 @@ def _stop_docker_quiet(project_root: Path) -> None:
         DockerManager(project_root).stop_services()
     except Exception:  # noqa: BLE001
         pass
+
+
+def _repair_instructions() -> str:
+    """Return the operator text naming both ways to repair Metabase admin access."""
+    from dango.platform.common.startup import cloud_repair_admin_command
+
+    return (
+        "Metabase admin access needs repair. On this server run:\n"
+        f"  {cloud_repair_admin_command()}\n"
+        "or from your computer:\n"
+        "  dango remote metabase-repair-admin\n"
+        "(Running it as root would leave root-owned files in the credential store.)"
+    )

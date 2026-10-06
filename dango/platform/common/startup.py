@@ -421,6 +421,55 @@ def wait_for_metabase_if_needed(project_root: Path, timeout: int = 120) -> bool 
     return wait_for_metabase_ready(url, timeout=timeout)
 
 
+def cloud_repair_admin_command() -> str:
+    """Return the server command that repairs Metabase admin access, run as ``dango`` not root.
+
+    Root would leave root-owned files in the credential store; SSH sessions do not inherit
+    the systemd unit's ``DANGO_CLOUD_MODE``, so it is set explicitly.
+    """
+    from dango.platform.cloud.backup import PROJECT_DIR, VENV_PYTHON
+
+    dango_cli = VENV_PYTHON.removesuffix("python") + "dango"
+    sudo = "sudo -u dango -H env DANGO_CLOUD_MODE=true"
+    return f"cd {PROJECT_DIR} && {sudo} {dango_cli} metabase repair-admin"
+
+
+def metabase_admin_credential_state(project_root: Path) -> str:
+    """Classify the Metabase admin credential; never repairs, retries, raises or leaks it.
+
+    Returns ``not_configured``, ``ok``, ``missing``, ``unreadable``, ``rejected`` or
+    ``unreachable`` (Metabase not healthy: the credential is not blamed). At most one
+    health GET and one login POST, because Metabase's login throttle counts attempts.
+    """
+    try:
+        import requests
+
+        from dango.security.metabase_config import (
+            load_metabase_admin_credentials,
+            load_metabase_metadata,
+        )
+
+        metadata = load_metabase_metadata(project_root)
+        admin = metadata.get("admin") if isinstance(metadata, dict) else None
+        email = admin.get("email") if isinstance(admin, dict) else None
+        if metadata is None or not isinstance(email, str) or not email:
+            return "not_configured"
+        try:
+            credentials = load_metabase_admin_credentials(project_root)
+        except Exception:  # noqa: BLE001
+            return "unreadable"
+        if credentials is None:
+            return "missing"
+        url = str(metadata.get("metabase_url") or "http://localhost:3000").rstrip("/")
+        if requests.get(f"{url}/api/health", timeout=5).status_code != 200:
+            return "unreachable"
+        login = {"username": credentials[0], "password": credentials[1]}
+        status = requests.post(f"{url}/api/session", json=login, timeout=10).status_code
+        return {200: "ok", 401: "rejected", 403: "rejected"}.get(status, "unreachable")
+    except Exception:  # noqa: BLE001
+        return "unreachable"
+
+
 def import_dashboards(project_root: Path) -> dict[str, Any] | None:
     """
     Import YAML dashboards if any exist, in either the legacy dashboards/
