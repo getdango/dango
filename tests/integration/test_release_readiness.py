@@ -337,13 +337,8 @@ class TestReleaseReadinessCleanFlow:
         )
 
     def test_metabase_proxy_serves_valid_js(self, project: dict[str, Any]) -> None:
-        """Every JS asset referenced by the real /metabase/ proxy page loads as JS, not HTML.
-
-        This is the exact condition 1.0.8-W's Site URL fix addresses: before
-        that fix, Metabase's Site URL pointed asset references at the wrong
-        place and the proxy would serve back HTML (e.g. a login/error page)
-        for what should have been a JS bundle.
-        """
+        """Every JS asset behind the real /metabase/ proxy loads as decoded JS, not HTML (1.0.8-W) or
+        compressed bytes (C13: the proxy must not forward the browser's Accept-Encoding)."""
         base_url = project["base_url"]
         session = project["session"]
 
@@ -370,8 +365,9 @@ class TestReleaseReadinessCleanFlow:
         )
         asset_paths = [p if p.startswith("/") else f"/metabase/{p}" for p in raw_asset_paths]
 
+        browser_headers = {"Accept-Encoding": "br, gzip, deflate"}  # what Chrome sends (C13)
         for asset_path in asset_paths:
-            asset_resp = session.get(f"{base_url}{asset_path}", timeout=15)
+            asset_resp = session.get(f"{base_url}{asset_path}", headers=browser_headers, timeout=15)
             assert asset_resp.status_code == 200, (
                 f"GET {asset_path} (through the real FastAPI proxy) failed: "
                 f"{asset_resp.status_code}"
@@ -379,8 +375,11 @@ class TestReleaseReadinessCleanFlow:
             content_type = asset_resp.headers.get("content-type", "")
             assert content_type.startswith(_ASSET_JS_CONTENT_TYPES), (
                 f"GET {asset_path} returned Content-Type {content_type!r}, expected one "
-                f"starting with {_ASSET_JS_CONTENT_TYPES!r} — this is the exact bug "
-                "1.0.8-W fixed (wrong Metabase Site URL -> asset requests served as HTML)."
+                f"starting with {_ASSET_JS_CONTENT_TYPES!r} (1.0.8-W: asset served as HTML)."
+            )
+            assert "content-encoding" not in asset_resp.headers
+            assert not any(b < 9 or 13 < b < 32 for b in asset_resp.content[:256]), (
+                f"GET {asset_path} body is binary (compressed bytes served as JS, C13)"
             )
 
     def test_second_source_visible_without_manual_sync(self, project: dict[str, Any]) -> None:
