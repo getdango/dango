@@ -37,7 +37,7 @@ def test_clean_state_passes() -> None:
         mod.assert_no_docker_leftovers("dango-x")
 
 
-def test_missing_docker_raises_clearly() -> None:
+def test_missing_docker_file_not_found_error_propagates() -> None:
     with patch(_RUN, side_effect=FileNotFoundError("docker")):
         with pytest.raises(FileNotFoundError):
             mod.assert_no_docker_leftovers("dango-x")
@@ -68,3 +68,32 @@ def test_down_skipped_without_compose_file(tmp_path: Path) -> None:
 
 
 _ = subprocess  # keep the patched module attribute importable
+
+
+def test_down_raising_still_runs_leak_check_and_reports_both(tmp_path: Path) -> None:
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n")
+    responses = [_done(rc=1, err="boom"), _done(out="dango-x_metabase-data\n"), _done(rc=1)]
+    with patch(_RUN, side_effect=responses):
+        with pytest.raises(AssertionError) as info:
+            mod.teardown_and_check(tmp_path, "dango-x")
+    assert "boom" in str(info.value) and "dango-x_metabase-data" in str(info.value)
+
+
+def test_teardown_error_does_not_mask_failing_test(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n")
+    responses = [_done(rc=1, err="boom"), _done(), _done(rc=1)]
+    with patch(_RUN, side_effect=responses):
+        with pytest.raises(RuntimeError, match="real failure"):
+            try:
+                raise RuntimeError("real failure")
+            finally:
+                mod.teardown_and_check(tmp_path, "dango-x")
+    assert "boom" in capsys.readouterr().err
+
+
+def test_clean_teardown_raises_nothing(tmp_path: Path) -> None:
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n")
+    with patch(_RUN, side_effect=[_done(), _done(), _done(rc=1)]):
+        mod.teardown_and_check(tmp_path, "dango-x")

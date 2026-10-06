@@ -47,10 +47,7 @@ def _configure_unique_docker_ports(project_root: Path) -> None:
 def _cleanup(project_root: Path, env: dict[str, str]) -> None:
     """Teardown: stop via the CLI (fake HOME), then remove this project's Docker resources."""
     from dango.platform.docker import get_compose_project_name
-    from tests.integration.docker_leak_support import (
-        assert_no_docker_leftovers,
-        compose_down_and_prune,
-    )
+    from tests.integration.docker_leak_support import teardown_and_check
 
     subprocess.run(
         [sys.executable, "-m", "dango.cli.main", "stop"],
@@ -62,8 +59,7 @@ def _cleanup(project_root: Path, env: dict[str, str]) -> None:
         stdin=subprocess.DEVNULL,
     )
     name = get_compose_project_name(project_root)  # derived here, so early failures still clean
-    compose_down_and_prune(project_root, name)
-    assert_no_docker_leftovers(name)
+    teardown_and_check(project_root, name)
 
 
 def _dango_start(project_root: Path, env: dict[str, str]) -> str:

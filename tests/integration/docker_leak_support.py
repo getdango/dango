@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -42,3 +43,24 @@ def assert_no_docker_leftovers(compose_project_name: str) -> None:
     if probe.returncode == 0:
         leftovers.append(f"image:{image}")
     assert not leftovers, f"Docker resources leaked by {compose_project_name}: {leftovers}"
+
+
+def teardown_and_check(project_root: Path, compose_project_name: str) -> None:
+    """Prune then leak-check, always attempting both; never mask a failing test body.
+
+    Call from a `finally`. With no exception in flight, teardown errors raise one
+    AssertionError; otherwise they go to stderr so the test's own failure is reported.
+    """
+    errors: list[str] = []
+    for step in (
+        lambda: compose_down_and_prune(project_root, compose_project_name),
+        lambda: assert_no_docker_leftovers(compose_project_name),
+    ):
+        try:
+            step()
+        except Exception as exc:
+            errors.append(str(exc))
+    if errors and sys.exc_info()[0] is None:
+        raise AssertionError("Docker teardown problems: " + " | ".join(errors))
+    if errors:
+        print("Docker teardown problems: " + " | ".join(errors), file=sys.stderr)
