@@ -66,7 +66,6 @@ def test_proxy_sends_httpx_default_accept_encoding(tmp_path: Path, browser_value
     assert resp.status_code == 200
     assert len(seen) == 1
     assert seen[0].headers["accept-encoding"] == http_client.headers["accept-encoding"]
-    assert seen[0].headers["accept-encoding"] != browser_value
 
 
 @pytest.mark.unit

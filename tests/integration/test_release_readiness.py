@@ -377,7 +377,8 @@ class TestReleaseReadinessCleanFlow:
                 f"GET {asset_path} returned Content-Type {content_type!r}, expected one "
                 f"starting with {_ASSET_JS_CONTENT_TYPES!r} (1.0.8-W: asset served as HTML)."
             )
-            assert "content-encoding" not in asset_resp.headers
+            assert "content-encoding" not in asset_resp.headers, "Content-Encoding leaked"
+            assert asset_resp.content, f"GET {asset_path} returned an empty body"
             assert not any(b < 9 or 13 < b < 32 for b in asset_resp.content[:256]), (
                 f"GET {asset_path} body is binary (compressed bytes served as JS, C13)"
             )
