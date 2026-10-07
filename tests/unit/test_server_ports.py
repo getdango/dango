@@ -29,6 +29,14 @@ from dango.platform.cloud.ssh import CommandResult
 
 REMOTE_PROJECT_YML = f"{REMOTE_PROJECT_DIR}/.dango/project.yml"
 
+
+@pytest.fixture(autouse=True)
+def _ports_only():
+    """Isolate the port normalization from the T20 auth-timeout edit (tested separately)."""
+    with patch("dango.platform.cloud.file_sync.apply_cloud_auth_timeouts_bytes", return_value=None):
+        yield
+
+
 CUSTOM = """\
 # my project
 project:
