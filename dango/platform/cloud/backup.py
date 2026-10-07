@@ -10,6 +10,7 @@ All functions require an already-connected ``SSHManager`` (as root).
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import time
 import uuid
@@ -35,6 +36,9 @@ VENV_PYTHON = "/srv/dango/venv/bin/python"
 MAX_LOCAL_BACKUPS = 1
 #: Parent of the generated per-restore staging directories.
 RESTORE_STAGING_ROOT = "/tmp"
+# A project id is uuid4().hex; only the first 8 characters become the compose project name,
+# and that name is interpolated into remote shell commands, so its shape is enforced here.
+_COMPOSE_ID_PREFIX_RE = re.compile(r"[a-f0-9]{8}")
 
 
 def get_remote_compose_project_name(ssh: SSHManager, project_dir: str = PROJECT_DIR) -> str:
@@ -65,7 +69,10 @@ def get_remote_compose_project_name(ssh: SSHManager, project_dir: str = PROJECT_
             data = yaml.safe_load(result.stdout) or {}
             project_id = data.get("project", {}).get("id")
             if isinstance(project_id, str) and project_id:
-                return f"dango-{project_id[:8]}"
+                prefix = project_id[:8]
+                if _COMPOSE_ID_PREFIX_RE.fullmatch(prefix):
+                    return f"dango-{prefix}"
+                _logger.warning("remote_project_id_rejected", project_dir=project_dir)
     except Exception:  # noqa: BLE001
         pass
     return f"dango-{_legacy_path_hash(project_dir)}"
