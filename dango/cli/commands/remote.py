@@ -409,6 +409,11 @@ def remote_push(
             console.print(f"  Removed models: {', '.join(sr.removed_models)}")
         if sr.packages_changed:
             console.print("  packages.yml: [yellow]changed[/yellow]")
+        from dango.platform.cloud.server_ports import format_port_notice
+
+        port_notice = format_port_notice(sr.port_changes)
+        if port_notice:
+            console.print(f"  [dim]{port_notice}[/dim]")
 
         if not dry_run:
             if result.git_info and result.git_info.commit_sha:

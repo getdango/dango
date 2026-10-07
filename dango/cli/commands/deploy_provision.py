@@ -226,11 +226,13 @@ def run_provisioning(
 
         ssh.connect(droplet_ip, username="root")
         try:
-            sync_project_files(
-                ssh,
-                project_root,
-                remote_host=droplet_ip,
-                on_progress=_setup_progress,
+            _print_port_notice(
+                sync_project_files(
+                    ssh,
+                    project_root,
+                    remote_host=droplet_ip,
+                    on_progress=_setup_progress,
+                )
             )
         finally:
             ssh.disconnect()
@@ -472,11 +474,13 @@ def run_byos_setup(
         _status("Syncing project files...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            sync_project_files(
-                ssh,
-                project_root,
-                remote_host=config.server_ip,
-                on_progress=_setup_progress,
+            _print_port_notice(
+                sync_project_files(
+                    ssh,
+                    project_root,
+                    remote_host=config.server_ip,
+                    on_progress=_setup_progress,
+                )
             )
         finally:
             ssh.disconnect()
@@ -642,6 +646,15 @@ def _setup_progress(step: str, status: str) -> None:
         console.print(f"    [dim][{ts}][/dim] [green]Done:[/green] {step}")
     elif status == "skipped":
         console.print(f"    [dim][{ts}] Skipped:[/dim] {step}")
+
+
+def _print_port_notice(sync_result: Any) -> None:
+    """Tell the user once when the uploaded project.yml got the standard server ports."""
+    from dango.platform.cloud.server_ports import format_port_notice
+
+    notice = format_port_notice(sync_result.port_changes)
+    if notice:
+        console.print(f"    [dim]{notice}[/dim]")
 
 
 def _extract_ip(droplet: dict[str, Any]) -> str:
