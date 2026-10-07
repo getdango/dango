@@ -45,12 +45,12 @@ def test_missing_directory_fails(shell: str, tmp_path: Path) -> None:
     missing = tmp_path / "does not exist"
     proc, _ = _run(shell, build_background_launch(str(missing), f"touch {marker}", 1))
     assert proc.returncode == 2
-    assert f"cannot cd to {missing}" in proc.stderr or "cannot cd to '" in proc.stderr
+    assert f"cannot cd to {missing}" in proc.stderr.splitlines()
     assert not marker.exists()
 
 
 def test_long_job_reports_started_quickly(shell: str, tmp_path: Path) -> None:
-    script = build_background_launch(str(tmp_path), "sleep 6", 2)
+    script = build_background_launch(str(tmp_path), "sleep 8", 2)
     pid = None
     try:
         proc, elapsed = _run(shell, script)
@@ -58,7 +58,7 @@ def test_long_job_reports_started_quickly(shell: str, tmp_path: Path) -> None:
         assert proc.stdout.startswith("started pid=")
         pid = int(proc.stdout.strip().split("pid=")[1])
         # capture_output reads until EOF: returning early proves the pipe was released
-        assert elapsed < 4
+        assert elapsed < 6
         os.kill(pid, 0)  # still alive
     finally:
         if pid is not None:
@@ -94,3 +94,22 @@ def test_command_runs_in_project_dir_and_directory_is_quoted(shell: str, tmp_pat
     assert proc.returncode == 0
     assert Path((project / "here.txt").read_text().strip()).resolve() == project.resolve()
     assert not (tmp_path / "pwned").exists() and not (project / "pwned").exists()
+
+
+def test_self_killed_job_does_not_leak_command_text(shell: str, tmp_path: Path) -> None:
+    secret = "SECRET_PAYLOAD_xyz"
+    cmd = f"sh -c 'echo {secret}; kill -9 $$'"
+    proc, _ = _run(shell, build_background_launch(str(tmp_path), cmd, 1))
+    assert proc.returncode == 3
+    assert "command exited early with status 137" in proc.stderr
+    assert secret not in proc.stderr
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="bash required")
+def test_old_command_shape_documents_the_defect(tmp_path: Path) -> None:
+    """The pre-fix `cd X && nohup job &` shape: failures invisible, pipe held for the job."""
+    bad, _ = _run("bash", "cd /nonexistent_dir_t10 && nohup sleep 1 > /dev/null 2>&1 &")
+    assert bad.returncode == 0  # reported as success despite the failed cd
+    proc, elapsed = _run("bash", f"cd {tmp_path} && nohup sleep 4 > /dev/null 2>&1 &")
+    assert proc.returncode == 0
+    assert elapsed >= 3.5  # the whole job held the channel

@@ -32,9 +32,12 @@ def build_background_launch(
         f'cd {quoted_dir} || {{ echo "cannot cd to "{quoted_dir} >&2; exit 2; }}\n'
         f"nohup {command} > /dev/null 2>&1 &\n"
         "pid=$!\n"
+        # Silence the shell's own job-status line ("Killed: 9 <full command>"), which would
+        # leak the command text; keep fd 3 as the real stderr for our own message.
+        "exec 3>&2 2>/dev/null\n"
         f"sleep {grace}\n"
         'if kill -0 "$pid" 2>/dev/null; then echo "started pid=$pid"; exit 0; fi\n'
         'wait "$pid"; rc=$?\n'
         f'if [ "$rc" -eq 0 ]; then echo "started (finished within {grace}s)"; exit 0; fi\n'
-        'echo "command exited early with status $rc" >&2; exit 3\n'
+        'echo "command exited early with status $rc" >&3; exit 3\n'
     )

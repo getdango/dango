@@ -17,8 +17,6 @@ from rich.status import Status
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
-from dango.exceptions import CloudSSHError
-from dango.platform.cloud.remote_launch import build_background_launch
 
 _VENV_PYTHON = "/srv/dango/venv/bin/python3"
 _PROJECT_ROOT = "/srv/dango/project"
@@ -62,6 +60,8 @@ def remote_sync(
         _load_cloud_config_with_ip,
         _make_ssh_manager,
     )
+    from dango.exceptions import CloudSSHError
+    from dango.platform.cloud.remote_launch import build_background_launch
     from dango.validation import parse_backfill_duration
 
     # Validate backfill locally before SSH
