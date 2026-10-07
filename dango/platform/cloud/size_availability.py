@@ -69,13 +69,16 @@ def fetch_sizes(client: Any = None) -> list[dict[str, Any]] | None:
         return None
 
 
-def check_size_in_region(client: Any, region: str, size: str) -> bool:
+def check_size_in_region(region: str, size: str, *, client: Any = None) -> bool:
     """Verify before provisioning that *size* is offered in *region*.
 
+    Always uses a short-timeout, no-retry probe client (see ``fetch_sizes``),
+    so an API outage costs at most one 10 s request.
+
     Args:
-        client: ``DigitalOceanClient`` (only ``list_sizes`` is used).
         region: DO region slug.
         size: Droplet size slug.
+        client: Optional client override (tests); default builds the probe client.
 
     Returns:
         ``True`` if verified available, ``False`` if the check itself failed
@@ -93,9 +96,10 @@ def check_size_in_region(client: Any, region: str, size: str) -> bool:
     if not allowed:
         raise SizeUnavailableError(
             f"Size '{size}' is not offered by DigitalOcean (unknown or unavailable slug). "
-            "Nothing was created."
+            "Nothing was created. Fix: pass --size <another size>."
         )
     raise SizeUnavailableError(
         f"Size '{size}' is not available in region '{region}'. "
-        f"Regions offering it: {', '.join(sorted(allowed))}. Nothing was created."
+        f"Regions offering it: {', '.join(sorted(allowed))}. Nothing was created. "
+        "Fix: pass --region <one of the above> or --size <other>."
     )

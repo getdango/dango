@@ -152,7 +152,7 @@ def run_provisioning(
         tracker.client = client
 
         # --- Sub-step 0: Verify the size exists in the region (creates nothing) ---
-        if not check_size_in_region(client, config.region, config.size_slug):
+        if not check_size_in_region(config.region, config.size_slug):
             console.print(
                 "[yellow]  Warning: could not verify size availability; "
                 "DigitalOcean may reject this region.[/yellow]"

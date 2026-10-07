@@ -52,8 +52,8 @@ class TestRegionsForSize:
 class TestOfferableRegions:
     def test_unknown_api_regions_skipped(self):
         """Matrix 6: API slug missing from the static list is not offered."""
-        slugs = [r.slug for r in offerable_regions({"ams3", "sfo2", "zzz9"})]
-        assert slugs == ["ams3"]
+        slugs = [r.slug for r in offerable_regions({"ams3", "sgp1", "zzz9"})]
+        assert slugs == ["ams3", "sgp1"]
 
 
 @pytest.mark.unit
@@ -72,13 +72,13 @@ class TestFetchAndCheck:
     def test_available_returns_true(self, payload):
         client = MagicMock()
         client.list_sizes.return_value = payload["sizes"]
-        assert check_size_in_region(client, "sgp1", "s-2vcpu-4gb") is True
+        assert check_size_in_region("sgp1", "s-2vcpu-4gb", client=client) is True
 
     def test_unavailable_lists_regions(self, payload):
         client = MagicMock()
         client.list_sizes.return_value = payload["sizes"]
         with pytest.raises(SizeUnavailableError) as exc:
-            check_size_in_region(client, "nyc1", "s-2vcpu-4gb")
+            check_size_in_region("nyc1", "s-2vcpu-4gb", client=client)
         msg = str(exc.value)
         assert "nyc1" in msg
         assert all(r in msg for r in EXPECTED)
@@ -87,12 +87,12 @@ class TestFetchAndCheck:
         client = MagicMock()
         client.list_sizes.return_value = payload["sizes"]
         with pytest.raises(SizeUnavailableError):
-            check_size_in_region(client, "nyc1", "s-99vcpu-1tb")
+            check_size_in_region("nyc1", "s-99vcpu-1tb", client=client)
 
     def test_check_failure_returns_false(self):
         client = MagicMock()
         client.list_sizes.side_effect = CloudAuthError("bad token")
-        assert check_size_in_region(client, "nyc1", "s-2vcpu-4gb") is False
+        assert check_size_in_region("nyc1", "s-2vcpu-4gb", client=client) is False
 
 
 @pytest.mark.unit
@@ -107,12 +107,51 @@ class TestListSizes:
         page2 = MagicMock()
         page2.json.return_value = {"sizes": [{"slug": "s-4vcpu-8gb", "regions": ["nyc1"]}]}
         calls: list[tuple[str, str]] = []
+        params_seen: list[Any] = []
 
         def fake(method, path, **kwargs):
             calls.append((method, path))
+            params_seen.append(kwargs.get("params"))
             return page1 if len(calls) == 1 else page2
 
         monkeypatch.setattr(client, "_request_with_retry", fake)
         sizes = client.list_sizes()
         assert [s["slug"] for s in sizes] == ["s-2vcpu-4gb", "s-4vcpu-8gb"]
         assert calls == [("GET", "/sizes"), ("GET", "/sizes?page=2")]
+        assert params_seen == [{"per_page": 200}, {}]
+
+
+@pytest.mark.unit
+class TestProbeClient:
+    def test_api_failure_is_one_request_and_no_sleep(self, monkeypatch):
+        """The default probe never retries: one request, no backoff sleep."""
+        import httpx
+
+        monkeypatch.setenv("DIGITALOCEAN_TOKEN", "fake-token")
+        requests: list[Any] = []
+
+        def fake_request(self, method, path, **kwargs):
+            requests.append(path)
+            raise httpx.ConnectError("down")
+
+        monkeypatch.setattr(DigitalOceanClient, "_request", fake_request)
+        sleep = MagicMock()
+        monkeypatch.setattr("dango.platform.cloud.digitalocean.time.sleep", sleep)
+        assert check_size_in_region("nyc1", "s-2vcpu-4gb") is False
+        assert requests == ["/sizes"]
+        sleep.assert_not_called()
+
+    def test_probe_client_settings(self, monkeypatch):
+        seen: dict[str, Any] = {}
+
+        class Spy(DigitalOceanClient):
+            def __init__(self, *a: Any, **k: Any) -> None:
+                seen.update(k)
+                super().__init__(token="fake", **k)
+
+            def list_sizes(self) -> list[dict[str, Any]]:
+                return []
+
+        monkeypatch.setattr("dango.platform.cloud.digitalocean.DigitalOceanClient", Spy)
+        fetch_sizes()
+        assert seen == {"timeout": 10.0, "max_retries": 0}

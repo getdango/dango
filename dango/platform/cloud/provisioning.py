@@ -158,6 +158,7 @@ _REGIONS: list[RegionInfo] = [
     RegionInfo("nyc1", "New York 1", "New York", "US", -5.0),
     RegionInfo("nyc3", "New York 3", "New York", "US", -5.0),
     RegionInfo("sfo3", "San Francisco 3", "San Francisco", "US", -8.0),
+    RegionInfo("sfo2", "San Francisco 2", "San Francisco", "US", -8.0),
     RegionInfo("ams3", "Amsterdam 3", "Amsterdam", "NL", 1.0, gdpr=True),
     RegionInfo("sgp1", "Singapore 1", "Singapore", "SG", 8.0),
     RegionInfo("lon1", "London 1", "London", "GB", 0.0),
