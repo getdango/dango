@@ -21,7 +21,11 @@ import click
 from dango.cli import console
 from dango.cli.commands.remote import remote
 from dango.platform.cloud.backup import PROJECT_DIR as REMOTE_PROJECT_DIR
-from dango.platform.cloud.service_logs import LOG_SERVICES, build_log_command
+from dango.platform.cloud.service_logs import (
+    LOG_SERVICES,
+    NO_CONTAINER_MSG,
+    build_log_command,
+)
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -340,7 +344,7 @@ def remote_logs(
         raise SystemExit(1) from exc
     if cmd is None:
         ssh.disconnect()
-        console.print(f"[red]Error:[/red] No {service} container found on the server.")
+        console.print(f"[red]Error:[/red] {NO_CONTAINER_MSG.format(service=service)}")
         raise SystemExit(1)
 
     if follow:

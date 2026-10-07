@@ -35,7 +35,15 @@ def _res(stdout: str = "", stderr: str = "", code: int = 0) -> SimpleNamespace:
 class RecordingSSH:
     """Fake SSH: records every command, answers project.yml, never touches a network."""
 
-    def __init__(self, containers: str = CONTAINER, label_hit: bool = True) -> None:
+    def __init__(
+        self,
+        containers: str = CONTAINER,
+        label_hit: bool = True,
+        stopped: str | None = None,
+        project_yml: str = PROJECT_YML,
+    ) -> None:
+        self.stopped = stopped
+        self.project_yml = project_yml
         self.commands: list[str] = []
         self.containers = containers
         self.label_hit = label_hit
@@ -54,10 +62,12 @@ class RecordingSSH:
     def exec_command(self, cmd: str, **kw: Any) -> SimpleNamespace:
         self.commands.append(cmd)
         if cmd.startswith("cat ") and cmd.endswith("project.yml"):
-            return _res(PROJECT_YML)
+            return _res(self.project_yml)
         if cmd.startswith("docker ps"):
             if "label=" in cmd and not self.label_hit:
                 return _res("")
+            if self.stopped is not None and " -a " in cmd:
+                return _res(self.stopped)
             return _res(self.containers)
         return _res("4")
 
@@ -182,13 +192,39 @@ class TestMetabaseLogsMcp:
     def test_row3_no_container_is_clear_error(self, mcp_ssh: Any) -> None:
         mcp_ssh.ssh = RecordingSSH(containers="")
         out = mcp_remote.remote_logs(service="metabase")
-        assert out == {"error": "Could not read metabase logs: no metabase container found"}
+        assert out == {"error": "No metabase container found on the server."}
         assert not any(c.startswith("docker logs") for c in mcp_ssh.ssh.commands)
 
     def test_name_filter_fallback(self, mcp_ssh: Any) -> None:
         mcp_ssh.ssh = RecordingSSH(label_hit=False)
         mcp_remote.remote_logs(service="metabase", lines=3)
         assert mcp_ssh.ssh.commands[-1] == f"docker logs --tail 3 {CONTAINER}"
+
+    @pytest.mark.parametrize(
+        "other", ["dango-ffffffff-metabase-1", "metabase-proxy", "pg-metabase-db", "x; id"]
+    )
+    def test_other_containers_rejected(self, mcp_ssh: Any, other: str) -> None:
+        mcp_ssh.ssh = RecordingSSH(containers=other)
+        out = mcp_remote.remote_logs(service="metabase")
+        assert out == {"error": "No metabase container found on the server."}
+        assert not any(c.startswith("docker logs") for c in mcp_ssh.ssh.commands)
+
+    def test_running_preferred_then_all(self, mcp_ssh: Any) -> None:
+        mcp_ssh.ssh = RecordingSSH()
+        mcp_remote.remote_logs(service="metabase")
+        ps = [c for c in mcp_ssh.ssh.commands if c.startswith("docker ps")]
+        assert ps and " -a " not in ps[0]
+        mcp_ssh.ssh = RecordingSSH(containers="", stopped=CONTAINER)
+        mcp_remote.remote_logs(service="metabase")
+        assert mcp_ssh.ssh.commands[-1] == f"docker logs --tail 100 {CONTAINER}"
+
+    def test_legacy_project_name(self, mcp_ssh: Any) -> None:
+        from dango.platform.cloud.backup import _legacy_path_hash
+
+        legacy = f"dango-{_legacy_path_hash('/srv/dango/project')}-metabase-1"
+        mcp_ssh.ssh = RecordingSSH(containers=legacy, project_yml="")
+        mcp_remote.remote_logs(service="metabase")
+        assert mcp_ssh.ssh.commands[-1] == f"docker logs --tail 100 {legacy}"
 
     def test_hostile_container_name_is_not_used(self, mcp_ssh: Any) -> None:
         mcp_ssh.ssh = RecordingSSH(containers="x; id")

@@ -20,30 +20,34 @@ LOG_COMMANDS: dict[str, str] = {
 CONTAINER_SERVICES: frozenset[str] = frozenset({"metabase"})
 LOG_SERVICES: tuple[str, ...] = ("dango", "caddy", "metabase")
 
-_CONTAINER_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+NO_CONTAINER_MSG = "No {service} container found on the server."
 
 
 def find_service_container(ssh: Any, service: str, project_dir: str) -> str | None:
-    """Return the name of the Compose container for ``service``, or None if absent."""
+    """Return the Compose container name for ``service`` in this project, or None.
+
+    Only ``<project>-<service>[-<n>]`` matches, so another project's container or one such
+    as ``metabase-proxy`` is never returned. A running container wins over a stopped one.
+    """
     from dango.platform.cloud.backup import get_remote_compose_project_name
 
     project = get_remote_compose_project_name(ssh, project_dir)
-    queries = (
-        "docker ps -a "
+    wanted = re.compile(rf"{re.escape(project)}-{re.escape(service)}(-\d+)?")
+    filters = (
         f"--filter {shlex.quote('label=com.docker.compose.project=' + project)} "
-        f"--filter {shlex.quote('label=com.docker.compose.service=' + service)} "
-        "--format '{{.Names}}'",
-        # Proven fallback (server_status.py): match on the service name only.
-        f"docker ps -a --filter {shlex.quote('name=' + service)} --format '{{{{.Names}}}}'",
+        f"--filter {shlex.quote('label=com.docker.compose.service=' + service)}",
+        f"--filter {shlex.quote(f'name=^{project}-{service}')}",
     )
-    for query in queries:
-        res = ssh.exec_command(query, check=False)
-        if not res.success:
-            continue
-        for line in (res.stdout or "").splitlines():
-            name = line.strip()
-            if _CONTAINER_NAME_RE.fullmatch(name):
-                return name
+    for all_states in ("", "-a "):  # running first, then stopped
+        for flt in filters:
+            res = ssh.exec_command(
+                f"docker ps {all_states}{flt} --format '{{{{.Names}}}}'", check=False
+            )
+            if not res.success:
+                continue
+            for line in (res.stdout or "").splitlines():
+                if wanted.fullmatch(line.strip()):
+                    return line.strip()
     return None
 
 

@@ -105,6 +105,8 @@ def test_remote_logs_redacts_and_caps(deployed: Any) -> None:
     assert out["lines"][-1].startswith("line 399")
 
     def _metabase(cmd: str) -> SimpleNamespace:
+        if cmd.startswith("cat "):
+            return _res(stdout="project:\n  id: ab12cd34ef56\n")
         if cmd.startswith("docker ps"):
             return _res(stdout="dango-ab12cd34-metabase-1")
         return _res(stdout="client_secret=abcSEC\nBearer tokSEC12345")

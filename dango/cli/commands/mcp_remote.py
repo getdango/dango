@@ -114,7 +114,11 @@ def remote_logs(service: str = "dango", lines: int = 100) -> dict[str, Any]:
     still contain non-secret personal data.
     """
     from dango.platform.cloud.backup import PROJECT_DIR
-    from dango.platform.cloud.service_logs import LOG_SERVICES, build_log_command
+    from dango.platform.cloud.service_logs import (
+        LOG_SERVICES,
+        NO_CONTAINER_MSG,
+        build_log_command,
+    )
 
     if service not in LOG_SERVICES:
         return {"error": f"Unknown service '{service}'. Valid values: {', '.join(LOG_SERVICES)}"}
@@ -127,7 +131,7 @@ def remote_logs(service: str = "dango", lines: int = 100) -> dict[str, Any]:
         """Operation body run over the connected SSH session."""
         cmd = build_log_command(ssh, service, n, PROJECT_DIR)
         if cmd is None:
-            return {"error": f"Could not read {service} logs: no {service} container found"}
+            return {"error": NO_CONTAINER_MSG.format(service=service)}
         res = ssh.exec_command(cmd, check=False)
         if not res.success:
             return {"error": f"Could not read {service} logs: {_safe(res.stderr or 'no output')}"}

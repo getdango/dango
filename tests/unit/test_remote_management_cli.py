@@ -251,8 +251,10 @@ class TestRemoteLogsCommand:
         """logs --service metabase resolves the container, then uses docker logs."""
         mock_loader = _make_loader()
         mock_ssh_instance = MagicMock()
-        mock_ssh_instance.exec_command.return_value = _make_command_result(
-            stdout="dango-ab12cd34-metabase-1"
+        mock_ssh_instance.exec_command.side_effect = lambda cmd, **kw: _make_command_result(
+            stdout="project:\n  id: ab12cd34ef56\n"
+            if cmd.startswith("cat ")
+            else "dango-ab12cd34-metabase-1"
         )
 
         with (
