@@ -314,16 +314,17 @@ def remote_sync(
         }
         if backfill_days is not None:
             payload["backfill_days"] = backfill_days
-        cmd = (
-            f"cd {_PROJECT_ROOT} &&"
-            f" sudo -u dango -H env DANGO_CLOUD_MODE=true"
+        sudo_cmd = (
+            f"sudo -u dango -H env DANGO_CLOUD_MODE=true"
             f" {_VENV_PYTHON} -m dango.platform.scheduling.sync_trigger"
             f" {shlex.quote(json.dumps(payload))}"
         )
+        cmd = f"cd {_PROJECT_ROOT} && {sudo_cmd}"
         if not wait:
-            # nohup must wrap the sudo command, not the `cd` builtin (nohup cd fails).
-            bg = cmd.replace(" && sudo ", " && nohup sudo ", 1)
-            res = ssh.exec_command(f"{bg} > /dev/null 2>&1 &", timeout=10, check=False)
+            from dango.platform.cloud.remote_launch import build_background_launch
+
+            script = build_background_launch(_PROJECT_ROOT, sudo_cmd)
+            res = ssh.exec_command(f"sh -c {shlex.quote(script)}", timeout=30, check=False)
             if not res.success:
                 return {"status": "failed", "error": _safe(res.stderr or "Could not start sync")}
             return {"status": "started", "source": source_name}

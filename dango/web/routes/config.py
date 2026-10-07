@@ -34,7 +34,7 @@ async def get_config() -> dict[str, object]:
         return {
             "web_port": web_port,
             "web_url": f"http://localhost:{web_port}",
-            "metabase_url": "http://localhost:3000",
+            "metabase_url": f"http://localhost:{config.platform.metabase_port}",
             "dbt_docs_url": "http://localhost:8081",
             "api_url": f"http://localhost:{web_port}/api",
             "project_name": project_name,
