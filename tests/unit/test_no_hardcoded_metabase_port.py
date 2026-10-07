@@ -11,7 +11,7 @@ from pathlib import Path
 
 _PACKAGE = Path(__file__).resolve().parents[2] / "dango"
 _PATTERN = re.compile(r"(localhost|127\.0\.0\.1):3000")
-_SUFFIXES = {".py", ".js", ".html", ".j2", ".sh", ".yml"}
+_SUFFIXES = {".py", ".js", ".html", ".j2", ".sh", ".yml", ".yaml", ".md", ".toml", ".json"}
 
 _FALLBACK = (
     "fallback when metadata has no metabase_url (metabase.yml always carries it once set up)"
@@ -37,7 +37,6 @@ _ALLOWED: dict[str, tuple[int, str]] = {
         13,
         "parameter defaults/docstrings/fallbacks; every in-repo caller passes a URL or reads metabase.yml",
     ),
-    "web/helpers.py": (1, "check_service_via_http has no caller (dead code)"),
     "web/routes/config.py": (1, "load-failure fallback response"),
     "web/routes/metabase_proxy.py": (1, _FALLBACK),
     "web/static/js/app.js": (
@@ -50,7 +49,9 @@ _ALLOWED: dict[str, tuple[int, str]] = {
 def _scan() -> dict[str, int]:
     counts: dict[str, int] = {}
     for path in _PACKAGE.rglob("*"):
-        if not path.is_file() or path.suffix not in _SUFFIXES:
+        if not path.is_file() or not (
+            path.suffix in _SUFFIXES or path.name.startswith("Dockerfile")
+        ):
             continue
         if path.name.endswith(".min.js") or path.name.startswith("tailwind"):
             continue

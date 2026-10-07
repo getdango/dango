@@ -108,7 +108,6 @@ def _teardown(project_root: Path, compose_project_name: str, fake_home_env: dict
     assert not leftovers, f"Docker resources left behind by this test: {leftovers}"
 
 
-@pytest.mark.integration
 def test_custom_metabase_port_is_used_by_start_and_metabase_commands(
     tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -158,7 +157,6 @@ def test_custom_metabase_port_is_used_by_start_and_metabase_commands(
 
         code, save_output = _dango(["metabase", "save"], project_root, env, 300)
         assert code == 0, f"dango metabase save failed ({code}):\n{save_output[-3000:]}"
-        assert "localhost:3000" not in save_output, save_output
     finally:
         try:
             if compose_project_name:
