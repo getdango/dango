@@ -23,12 +23,18 @@ def dashboard(ctx: click.Context) -> None:
 @dashboard.command("provision")
 @click.option("--url", default=None, help="Metabase URL (default: project's configured port)")
 @click.option(
-    "--username", default=None, help="Metabase admin username (auto-detected from auth DB)"
+    "--username",
+    default=None,
+    help="Metabase admin email (default: the project's stored Metabase admin)",
 )
-@click.option("--password", prompt=True, hide_input=True, help="Metabase admin password")
+@click.option(
+    "--password",
+    default=None,
+    help="Metabase admin password (default: the project's stored credential; never prompted)",
+)
 @click.pass_context
 def dashboard_provision(
-    ctx: click.Context, url: str | None, username: str | None, password: str
+    ctx: click.Context, url: str | None, username: str | None, password: str | None
 ) -> None:
     """
     Provision Data Pipeline Health dashboard in Metabase.
@@ -43,9 +49,10 @@ def dashboard_provision(
     The dashboard provides instant visibility into your data pipeline.
 
     Examples:
-      dango dashboard provision                  # Use the project's configured Metabase port
+      dango dashboard provision                  # Uses the project's stored Metabase login
       dango dashboard provision --url http://metabase.local
     """
+    from rich.markup import escape
     from rich.panel import Panel
     from rich.table import Table
 
@@ -68,27 +75,52 @@ def dashboard_provision(
             pass
         url = f"http://localhost:{metabase_port}"
 
-    # Resolve admin email: env var → auth DB → fallback
-    if username is None:
-        import os
+    # Resolve the Metabase admin login: explicit flags, else the project's stored credential.
+    from dango.security.metabase_config import (
+        load_metabase_admin_credentials,
+        load_metabase_metadata,
+    )
 
-        username = os.environ.get("DANGO_ADMIN_EMAIL", "")
-        if not username:
-            try:
-                from dango.auth.admin import get_auth_db_path
-                from dango.auth.database import list_users
-                from dango.auth.models import Role
-
-                db_path = get_auth_db_path(project_root)
-                if db_path.exists():
-                    users = list_users(db_path, active_only=True)
-                    admins = [u for u in users if u.role == Role.ADMIN]
-                    if admins and admins[0].email != "admin@localhost":
-                        username = admins[0].email
-            except Exception:  # noqa: BLE001
-                pass
-        if not username:
-            username = "admin@example.com"
+    if password is None:
+        try:
+            stored_credential = load_metabase_admin_credentials(project_root)
+        except Exception as exc:  # noqa: BLE001
+            console.print(
+                "[red]Error:[/red] Could not read the stored Metabase credential: "
+                f"{escape(str(exc))}"
+            )
+            console.print("Run [cyan]dango metabase repair-admin[/cyan] to restore it.")
+            raise click.Abort() from exc
+        if stored_credential is None:
+            console.print(
+                "[red]Error:[/red] No Metabase admin credential is stored for this project."
+            )
+            console.print(
+                "Run [cyan]dango start[/cyan] first (it configures Metabase), or pass "
+                "--username and --password for an admin you created yourself."
+            )
+            raise click.Abort()
+        stored_email, stored_password = stored_credential
+        if username is not None and username.strip().lower() != stored_email.strip().lower():
+            console.print(
+                "[red]Error:[/red] --username differs from the project's Metabase admin; "
+                "pass --password as well."
+            )
+            raise click.Abort()
+        username, password = stored_email, stored_password
+    elif username is None:
+        try:
+            metadata = load_metabase_metadata(project_root) or {}
+        except Exception:  # noqa: BLE001
+            metadata = {}
+        admin = metadata.get("admin")
+        admin_email = admin.get("email") if isinstance(admin, dict) else None
+        if not isinstance(admin_email, str) or not admin_email:
+            console.print(
+                "[red]Error:[/red] Cannot tell which Metabase admin to log in as; pass --username."
+            )
+            raise click.Abort()
+        username = admin_email
 
     console.print("\n🍡 [bold]Provisioning Metabase Dashboard[/bold]\n")
 
@@ -196,7 +228,10 @@ def dashboard_provision(
             console.print("[yellow]Troubleshooting:[/yellow]")
             console.print("  • Ensure Metabase is running: dango start")
             console.print(f"  • Check Metabase is accessible: {url}")
-            console.print("  • Verify admin credentials are correct")
+            console.print(
+                "  • If the Metabase admin password was changed outside Dango, run "
+                "'dango metabase repair-admin' (local projects)"
+            )
             console.print("  • Check DuckDB database is connected in Metabase")
 
             raise click.Abort()
