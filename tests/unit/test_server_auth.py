@@ -171,3 +171,65 @@ class TestApplyCloudAuthTimeouts:
         assert data["auth"]["session_max_days"] == 30
         assert data["next"] == 1
         assert "  # tail\n" in out
+
+
+@pytest.mark.unit
+class TestRobustness:
+    def test_non_utf8_uploaded_unchanged(self, tmp_path):
+        yml = b"# caf\xe9\nauth:\n  enabled: true\n"
+        ssh, local = _push(tmp_path, yml)
+        assert ssh.uploaded[REMOTE_YML] == yml
+        assert local.read_bytes() == yml
+
+    def test_bom_preserved_on_text_edit_and_fallback(self, tmp_path):
+        bom = b"\xef\xbb\xbf"
+        ssh, _ = _push(tmp_path, bom + b"auth:\n  enabled: true\n")
+        assert ssh.uploaded[REMOTE_YML].startswith(bom)
+        assert _uploaded_auth(ssh)["session_max_days"] == 30
+        ssh2, _ = _push(tmp_path / "b", bom + b"auth: {enabled: true}\n")
+        assert ssh2.uploaded[REMOTE_YML].startswith(bom)
+        assert yaml.safe_load(ssh2.uploaded[REMOTE_YML][3:])["auth"]["idle_timeout_minutes"] == 60
+
+    @pytest.mark.parametrize("key", ["session_max_days", "idle_timeout_minutes"])
+    def test_null_value_is_filled_not_left_to_silent_default(self, tmp_path, key):
+        """AuthConfig rejects None (int field) -> web app falls back to 365 d / 24 h."""
+        from dango.config.models import AuthConfig
+
+        with pytest.raises(ValueError):
+            AuthConfig(**{key: None})
+        ssh, _ = _push(tmp_path, f"auth:\n  enabled: true\n  {key}:\n".encode())
+        auth = _uploaded_auth(ssh)
+        AuthConfig(**auth)  # the uploaded copy validates
+        assert auth["session_max_days"] == 30 or key == "session_max_days"
+        assert auth[key] == CLOUD[key]
+
+
+CLOUD = {"session_max_days": 30, "idle_timeout_minutes": 60}
+
+
+@pytest.mark.unit
+class TestPortsAndAuthChain:
+    YML = b"project: x\r\nplatform:\r\n  port: 8861\r\n  marimo_port: 7999\r\n# keep\r\nauth:\r\n  enabled: true\r\n"
+
+    def test_chain_applies_both_and_keeps_crlf(self, tmp_path):
+        ssh, local = _push(tmp_path, self.YML)
+        out = ssh.uploaded[REMOTE_YML]
+        data = yaml.safe_load(out)
+        assert data["platform"]["port"] == 8800
+        assert data["platform"]["marimo_port"] == 7805
+        assert data["auth"] == {
+            "enabled": True,
+            "session_max_days": 30,
+            "idle_timeout_minutes": 60,
+        }
+        assert b"\r\n" in out and b"\n" not in out.replace(b"\r\n", b"")
+        assert b"# keep" in out
+        assert local.read_bytes() == self.YML
+
+    def test_chain_idempotent_md5_skip_on_combined_result(self, tmp_path):
+        import hashlib
+
+        first, _ = _push(tmp_path, self.YML)
+        digest = hashlib.md5(first.uploaded[REMOTE_YML]).hexdigest()  # noqa: S324
+        second, _ = _push(tmp_path / "again", self.YML, FakeSSH(remote_md5=digest))
+        assert REMOTE_YML not in second.uploaded

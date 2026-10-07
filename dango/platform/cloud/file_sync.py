@@ -41,7 +41,8 @@ from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
-from dango.platform.cloud.server_auth import apply_cloud_auth_timeouts
+from dango.platform.cloud.server_auth import apply_cloud_auth_timeouts_bytes
+from dango.platform.cloud.server_ports import PortChange, normalize_server_ports_bytes
 
 _logger = get_logger(__name__)
 
@@ -54,7 +55,7 @@ if TYPE_CHECKING:
 
 REMOTE_PROJECT_DIR = "/srv/dango/project"
 
-#: Local path of the project config whose server copy gets the cloud auth timeouts.
+#: Project config whose server copy gets standard ports and cloud auth timeouts.
 PROJECT_YML_REL = ".dango/project.yml"
 
 #: Config files to upload via SFTP.  Tuples of (local_relative, remote_relative).
@@ -111,6 +112,8 @@ class SyncResult:
     has_macro_changes: bool = False
     is_first_deploy: bool = False
     dry_run: bool = False
+    #: Ports rewritten in the uploaded ``project.yml`` (empty when none).
+    port_changes: list[PortChange] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +263,7 @@ def _upload_file_if_exists(
     """
     if not local_path.is_file():
         return False
-    if dry_run:
+    if dry_run and content is None:
         return True
     # Skip upload if remote file is identical (MD5 hash check).
     # Avoids re-uploading large files like the ~80MB Metabase DuckDB driver.
@@ -271,6 +274,8 @@ def _upload_file_if_exists(
         remote_hash = hash_result.stdout.strip().split(None, 1)[0]
         if local_hash == remote_hash:
             return False
+    if dry_run:
+        return True
     # Ensure remote parent directory exists
     remote_dir = remote_path.rsplit("/", 1)[0]
     mkdir_result = ssh.exec_command(f"mkdir -p {remote_dir}")
@@ -388,19 +393,24 @@ def sync_project_files(
 
     # --- Step 2: Upload config files via SFTP ---
     _notify(on_progress, "upload_config", "running")
+    port_changes: list[PortChange] = []
     for local_rel, remote_abs in SYNC_CONFIG_FILES:
         local_path = local_project_root / local_rel
         content: bytes | None = None
+        file_changes: list[PortChange] = []
         if local_rel == PROJECT_YML_REL and local_path.is_file():
-            # Cloud auth timeouts (30 d / 60 min) are set at provision; keep them in the
-            # uploaded copy unless the local file sets them. Local file is never modified.
-            original = local_path.read_bytes().decode("utf-8")
-            content = apply_cloud_auth_timeouts(original).encode("utf-8")
+            # Server copy only: standard ports, then cloud auth timeouts. One `content`.
+            raw = local_path.read_bytes()
+            content, file_changes = normalize_server_ports_bytes(raw)
+            with_auth = apply_cloud_auth_timeouts_bytes(content if content is not None else raw)
+            content = with_auth if with_auth is not None else content
         uploaded = _upload_file_if_exists(
             ssh, local_path, remote_abs, dry_run=dry_run, content=content
         )
         if uploaded:
             synced_files.append(local_rel)
+            # Report only what this run actually rewrote and uploads (or would, in dry-run).
+            port_changes = file_changes
     # BUG-124: Fix ownership for metabase-plugins (uploaded as root via SFTP)
     if not dry_run:
         ssh.exec_command(
@@ -486,4 +496,5 @@ def sync_project_files(
         has_macro_changes=has_macro_changes,
         is_first_deploy=first_deploy,
         dry_run=dry_run,
+        port_changes=port_changes,
     )

@@ -21,6 +21,10 @@ import re
 
 import yaml
 
+from dango.logging import get_logger
+
+_logger = get_logger(__name__)
+
 #: Cloud values (must match ``_build_auth_timeout_script`` in ``deploy_provision``).
 CLOUD_AUTH_TIMEOUTS: dict[str, int] = {"session_max_days": 30, "idle_timeout_minutes": 60}
 
@@ -38,7 +42,8 @@ def _fallback(text: str) -> str:
     if not isinstance(auth, dict):
         auth = {}
     for key, value in CLOUD_AUTH_TIMEOUTS.items():
-        auth.setdefault(key, value)
+        if auth.get(key) is None:
+            auth[key] = value
     data["auth"] = auth
     return yaml.dump(data, default_flow_style=False, sort_keys=False)
 
@@ -56,9 +61,14 @@ def apply_cloud_auth_timeouts(text: str) -> str:
     auth = data.get("auth")
     if auth is not None and not isinstance(auth, dict):
         return text
-    missing = [k for k in CLOUD_AUTH_TIMEOUTS if k not in (auth or {})]
-    if not missing:
+    present = auth or {}
+    missing = [k for k in CLOUD_AUTH_TIMEOUTS if k not in present]
+    if not missing and all(present[k] is not None for k in CLOUD_AUTH_TIMEOUTS):
         return text
+    if any(k in present and present[k] is None for k in CLOUD_AUTH_TIMEOUTS):
+        # ``session_max_days:`` with no value fails AuthConfig validation, and the web app
+        # then silently uses the 365 d / 24 h defaults; fill it (re-dump, comments lost).
+        return _fallback(text)
 
     nl = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines()
@@ -108,3 +118,22 @@ def apply_cloud_auth_timeouts(text: str) -> str:
     except yaml.YAMLError:
         pass
     return _fallback(text)
+
+
+def apply_cloud_auth_timeouts_bytes(raw: bytes) -> bytes | None:
+    """Byte-level wrapper used by the uploader.
+
+    Returns ``None`` when nothing needs changing (upload the original bytes) or
+    when *raw* is not valid UTF-8 (uploaded unmodified; logged).  A UTF-8 BOM is kept.
+    """
+    bom = b"\xef\xbb\xbf"
+    body = raw[len(bom) :] if raw.startswith(bom) else raw
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        _logger.warning("server_auth_timeouts_skipped_non_utf8")
+        return None
+    new_text = apply_cloud_auth_timeouts(text)
+    if new_text == text:
+        return None
+    return (bom if raw.startswith(bom) else b"") + new_text.encode("utf-8")
