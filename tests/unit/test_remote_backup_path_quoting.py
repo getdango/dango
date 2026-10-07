@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import re
 import shlex
+import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -19,7 +20,7 @@ from click.testing import CliRunner
 
 from dango.cli.commands.remote_backup import backup_restore
 from dango.platform.cloud import backup
-from dango.platform.cloud.ssh import CommandResult
+from dango.platform.cloud.ssh import CommandResult, SSHManager
 
 HOSTILE_NAMES = [
     "My Backup (1).tar.gz",
@@ -53,6 +54,11 @@ class FakeSSH:
 
     def disconnect(self) -> None:
         pass
+
+
+def _as_ssh(fake: FakeSSH) -> SSHManager:
+    """View the recording fake as an SSHManager for the type checker."""
+    return cast("SSHManager", fake)
 
 
 def _unquoted_shell_chars(cmd: str) -> bool:
@@ -97,6 +103,10 @@ def test_restore_local_uses_generated_remote_name(name: str, tmp_path: Path) -> 
 
 
 def _patched_restore(ssh: FakeSSH, path: str) -> None:
+    _patched_restore_with(ssh, path)
+
+
+def _patched_restore_with(ssh: FakeSSH, path: str) -> None:
     with (
         patch.object(backup, "create_backup"),
         patch.object(backup, "stop_services"),
@@ -105,21 +115,22 @@ def _patched_restore(ssh: FakeSSH, path: str) -> None:
         patch.object(backup, "_get_metabase_volume_path", return_value="/vol/mb"),
         patch.object(backup, "_sanitize_remote_metabase_yaml", return_value=None),
     ):
-        backup.rollback(ssh, backup_path=path)  # type: ignore[arg-type]
+        backup.rollback(_as_ssh(ssh), backup_path=path)
 
 
 @pytest.mark.parametrize("path", HOSTILE_REMOTE_PATHS)
 def test_rollback_quotes_backup_path(path: str) -> None:
     """P3/P4: rollback --backup <path> is one quoted token in every command.
 
-    Covers test -f, cat manifest, tar extract, restore copies and cleanup;
-    no command may contain an unquoted ``;`` or split the path.
+    Covers test -f, manifest cat, tar extract, restore copies and cleanup.
+    No command may contain an unquoted ``;`` or split the path.
     """
     ssh = FakeSSH()
     _patched_restore(ssh, path)
 
-    base = path.rsplit("/", 1)[-1].replace(".tar.gz", "")
-    staging = f"/tmp/{base}"
+    tar_cmd = next(c for c in ssh.commands if "tar -xzf" in c)
+    staging = shlex.split(tar_cmd)[2]
+    assert re.fullmatch(r"/tmp/dango-restore-staging-[0-9a-f]{32}", staging)
     assert len(ssh.commands) >= 5
     all_tokens: list[str] = []
     for cmd in ssh.commands:
@@ -127,10 +138,20 @@ def test_rollback_quotes_backup_path(path: str) -> None:
         all_tokens.extend(shlex.split(cmd))
     assert path in all_tokens
     assert path.replace(".tar.gz", ".json") in all_tokens
-    assert staging in all_tokens
     assert any(t.startswith(f"{staging}/") for t in all_tokens)
-    tar_cmd = next(c for c in ssh.commands if "tar -xzf" in c)
-    assert shlex.split(tar_cmd) == ["rm", "-rf", staging, "&&", "tar", "-xzf", path, "-C", "/tmp"]
+    assert shlex.split(tar_cmd) == [
+        "mkdir",
+        "-p",
+        staging,
+        "&&",
+        "tar",
+        "-xzf",
+        path,
+        "-C",
+        staging,
+        "--strip-components=1",
+    ]
+    assert f"rm -rf {shlex.quote(staging)}" in ssh.commands
     test_cmd = ssh.commands[0]
     assert shlex.split(test_cmd) == ["test", "-f", path]
 
@@ -142,7 +163,8 @@ def test_safe_path_commands_unchanged() -> None:
     _patched_restore(ssh, path)
     assert f"test -f {path}" in ssh.commands
     assert f"cat {path.replace('.tar.gz', '.json')} 2>/dev/null" in ssh.commands
-    assert f"rm -rf /tmp/backup-20260224-143000 && tar -xzf {path} -C /tmp" in ssh.commands
+    tar_cmd = next(c for c in ssh.commands if "tar -xzf" in c)
+    assert f"tar -xzf {path} -C /tmp/dango-restore-staging-" in tar_cmd
 
 
 def test_cleanup_and_stat_quote_listed_names() -> None:
@@ -156,13 +178,68 @@ def test_cleanup_and_stat_quote_listed_names() -> None:
     new = f"{backup.BACKUP_DIR}/backup-20260101-000000.tar.gz"
     ssh = FakeSSH(ls_output="\n".join([new, bad, old]))
 
-    listed = backup.list_local_backups(ssh)  # type: ignore[arg-type]
+    listed = backup.list_local_backups(_as_ssh(ssh))
     assert [b["path"] for b in listed] == [new, bad, old]
     stat_cmd = next(c for c in ssh.commands if "odd" in c and c.startswith("stat"))
     assert shlex.split(stat_cmd)[-2:] == [bad, "2>/dev/null"] or bad in shlex.split(stat_cmd)
 
     ssh.commands.clear()
-    assert backup.rotate_local_backups(ssh, keep=1) == 2  # type: ignore[arg-type]
+    assert backup.rotate_local_backups(_as_ssh(ssh), keep=1) == 2
     rm_cmds = [c for c in ssh.commands if c.startswith("rm -f")]
     assert shlex.split(rm_cmds[0]) == ["rm", "-f", bad, bad.replace(".tar.gz", ".json")]
     assert rm_cmds[1] == f"rm -f {old} {old.replace('.tar.gz', '.json')}"
+
+
+class ExecutingSSH(FakeSSH):
+    """Really runs file-reading/copying commands under sh; records the rest.
+
+    ``rm``, ``chown`` and ``ls`` are recorded but never executed.
+    """
+
+    def exec_command(self, command: str, timeout: int | None = None, check: bool = False) -> Any:
+        self.commands.append(command)
+        if command.startswith(("rm ", "chown ", "ls ")):
+            return CommandResult(stdout="", stderr="", exit_code=0)
+        proc = subprocess.run(["sh", "-c", command], capture_output=True, text=True, check=False)
+        return CommandResult(stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode)
+
+
+@pytest.mark.parametrize(
+    "archive_name",
+    ["backup-20260224-143000.tar.gz", f"dango-restore-{'a1' * 16}.tar.gz"],
+)
+def test_restore_extracts_create_archive_layout_whatever_the_file_name(
+    archive_name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Real tar: an archive in the _create_archive layout restores under any file name.
+
+    The top-level dir (backup-<ts>) differs from the file name for uploaded
+    archives; files must still land in PROJECT_DIR and only the generated
+    staging dir is cleaned up.
+    """
+    top = tmp_path / "build" / "backup-20260224-143000"
+    (top / "data").mkdir(parents=True)
+    (top / "data" / "warehouse.duckdb").write_bytes(b"db")
+    (top / "dbt" / "models").mkdir(parents=True)
+    (top / "dbt" / "models" / "m.sql").write_text("select 1")
+    archive = tmp_path / archive_name
+    subprocess.run(
+        ["tar", "-czf", str(archive), "-C", str(tmp_path / "build"), top.name], check=True
+    )
+    project = tmp_path / "project"
+    stage_root = tmp_path / "stage"
+    stage_root.mkdir()
+    monkeypatch.setattr(backup, "PROJECT_DIR", str(project))
+    monkeypatch.setattr(backup, "RESTORE_STAGING_ROOT", str(stage_root))
+    ssh = ExecutingSSH()
+
+    _patched_restore_with(ssh, str(archive))
+
+    assert (project / "data" / "warehouse.duckdb").read_bytes() == b"db"
+    assert (project / "dbt" / "models" / "m.sql").read_text() == "select 1"
+    rm_cmds = [shlex.split(c) for c in ssh.commands if c.startswith("rm ")]
+    assert len(rm_cmds) == 1
+    assert rm_cmds[0][:2] == ["rm", "-rf"] and len(rm_cmds[0]) == 3
+    assert re.fullmatch(
+        rf"{re.escape(str(stage_root))}/dango-restore-staging-[0-9a-f]{{32}}", rm_cmds[0][2]
+    )

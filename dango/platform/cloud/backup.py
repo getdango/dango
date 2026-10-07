@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import shlex
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -32,6 +33,8 @@ PROJECT_DIR = "/srv/dango/project"
 BACKUP_DIR = "/srv/dango/backups/deploy"
 VENV_PYTHON = "/srv/dango/venv/bin/python"
 MAX_LOCAL_BACKUPS = 1
+#: Parent of the generated per-restore staging directories.
+RESTORE_STAGING_ROOT = "/tmp"
 
 
 def get_remote_compose_project_name(ssh: SSHManager, project_dir: str = PROJECT_DIR) -> str:
@@ -618,13 +621,15 @@ def restore_from_archive(
 
     services_restarted = False
     try:
-        archive_name = archive_path.rsplit("/", 1)[-1].replace(".tar.gz", "")
-        staging = f"/tmp/{archive_name}"
+        # Generated, unique staging dir: independent of the archive's file name
+        # and of the top-level directory name inside the archive.
+        staging = f"{RESTORE_STAGING_ROOT}/dango-restore-staging-{uuid.uuid4().hex}"
 
         _notify(on_progress, "extract_archive", "running")
         _run_checked(
             ssh,
-            f"rm -rf {shlex.quote(staging)} && tar -xzf {shlex.quote(archive_path)} -C /tmp",
+            f"mkdir -p {shlex.quote(staging)}"
+            f" && tar -xzf {shlex.quote(archive_path)} -C {shlex.quote(staging)} --strip-components=1",
             step="extract_archive",
             timeout=300,
         )
