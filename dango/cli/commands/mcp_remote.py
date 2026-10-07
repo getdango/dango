@@ -113,19 +113,21 @@ def remote_logs(service: str = "dango", lines: int = 100) -> dict[str, Any]:
     at 200 KB (oldest lines dropped). Only secret patterns are redacted: log text can
     still contain non-secret personal data.
     """
-    from dango.cli.commands.remote_mgmt import _LOG_COMMANDS
+    from dango.platform.cloud.backup import PROJECT_DIR
+    from dango.platform.cloud.service_logs import LOG_SERVICES, build_log_command
 
-    if service not in _LOG_COMMANDS:
-        return {"error": f"Unknown service '{service}'. Valid values: {', '.join(_LOG_COMMANDS)}"}
+    if service not in LOG_SERVICES:
+        return {"error": f"Unknown service '{service}'. Valid values: {', '.join(LOG_SERVICES)}"}
     try:
         n = max(1, min(int(lines), _MAX_LOG_LINES))
     except (TypeError, ValueError):
         return {"error": "lines must be an integer"}
-    flag = "--tail" if service == "metabase" else "-n"
-    cmd = f"{_LOG_COMMANDS[service]} {flag} {n}"
 
     def go(ssh: Any, _cfg: Any, _root: Path) -> dict[str, Any]:
         """Operation body run over the connected SSH session."""
+        cmd = build_log_command(ssh, service, n, PROJECT_DIR)
+        if cmd is None:
+            return {"error": f"Could not read {service} logs: no {service} container found"}
         res = ssh.exec_command(cmd, check=False)
         if not res.success:
             return {"error": f"Could not read {service} logs: {_safe(res.stderr or 'no output')}"}

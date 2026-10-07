@@ -20,6 +20,8 @@ import click
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
+from dango.platform.cloud.backup import PROJECT_DIR as REMOTE_PROJECT_DIR
+from dango.platform.cloud.service_logs import LOG_SERVICES, build_log_command
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -294,17 +296,11 @@ def remote_history(ctx: click.Context, limit: int) -> None:
 # logs command
 # ---------------------------------------------------------------------------
 
-_LOG_COMMANDS: dict[str, str] = {
-    "dango": "journalctl -u dango-web --no-pager",
-    "caddy": "journalctl -u caddy --no-pager",
-    "metabase": "docker logs metabase",
-}
-
 
 @remote.command("logs")
 @click.option(
     "--service",
-    type=click.Choice(["dango", "caddy", "metabase"]),
+    type=click.Choice(list(LOG_SERVICES)),
     default="dango",
     help="Service to view logs for.",
 )
@@ -336,16 +332,16 @@ def remote_logs(
         console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
         raise SystemExit(1) from exc
 
-    base_cmd = _LOG_COMMANDS[service]
-
-    if service == "metabase":
-        cmd = f"{base_cmd} --tail {tail_n}"
-        if follow:
-            cmd += " -f"
-    else:
-        cmd = f"{base_cmd} -n {tail_n}"
-        if follow:
-            cmd += " -f"
+    try:
+        cmd = build_log_command(ssh, service, tail_n, REMOTE_PROJECT_DIR, follow=follow)
+    except Exception as exc:
+        ssh.disconnect()
+        console.print(f"[red]Error:[/red] Failed to locate {service} container: {exc}")
+        raise SystemExit(1) from exc
+    if cmd is None:
+        ssh.disconnect()
+        console.print(f"[red]Error:[/red] No {service} container found on the server.")
+        raise SystemExit(1)
 
     if follow:
         try:

@@ -104,9 +104,14 @@ def test_remote_logs_redacts_and_caps(deployed: Any) -> None:
     assert sum(len(x) + 1 for x in out["lines"]) <= 200_000
     assert out["lines"][-1].startswith("line 399")
 
-    deployed.ssh = FakeSSH(lambda cmd: _res(stdout="client_secret=abcSEC\nBearer tokSEC12345"))
+    def _metabase(cmd: str) -> SimpleNamespace:
+        if cmd.startswith("docker ps"):
+            return _res(stdout="dango-ab12cd34-metabase-1")
+        return _res(stdout="client_secret=abcSEC\nBearer tokSEC12345")
+
+    deployed.ssh = FakeSSH(_metabase)
     out = mcp_remote.remote_logs(service="metabase", lines=0)
-    assert deployed.ssh.commands[0][0] == "docker logs metabase --tail 1"
+    assert deployed.ssh.commands[-1][0] == "docker logs --tail 1 dango-ab12cd34-metabase-1"
     blob = json.dumps(out)
     assert "abcSEC" not in blob and "tokSEC12345" not in blob and "\x1b" not in blob
 
