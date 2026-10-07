@@ -132,4 +132,9 @@ class TestResetMetabaseCredentials:
         result, commands = _invoke(_ID32 + "\n", start_ok=False)
         assert result.exit_code != 0
         assert "Could not start dango-web" in result.output
+        flat = " ".join(result.output.split())
+        assert "half-applied" in flat
+        assert "credential files are already removed" in flat
+        assert "user re-sync did not run" in flat
+        assert "dango remote reset-metabase" in flat
         assert not any("sync_all_users_to_metabase" in c for c in commands)

@@ -597,7 +597,10 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
     staging = Path(f"/tmp/{archive_name}")
     _stop_services()
     try:
-        _run_local(f"rm -rf '{staging}' && tar -xzf '{local_path}' -C /tmp", step="extract")
+        _run_local(
+            f"rm -rf {shlex.quote(str(staging))} && tar -xzf {shlex.quote(str(local_path))} -C /tmp",
+            step="extract",
+        )
         from dango.platform.cloud.backup import (
             BACKUP_DIRS,
             BACKUP_FILES,
@@ -610,7 +613,9 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             if src.exists():
                 dest = PROJECT_DIR / fpath
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                _run_local(f"cp '{src}' '{dest}'", step="restore_files")
+                _run_local(
+                    f"cp {shlex.quote(str(src))} {shlex.quote(str(dest))}", step="restore_files"
+                )
         metabase_source = staging / METABASE_CONFIG_FILE
         if metabase_source.exists():
             try:
@@ -622,7 +627,10 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             if src.exists():
                 dest = PROJECT_DIR / dpath
                 dest.mkdir(parents=True, exist_ok=True)
-                _run_local(f"cp -r '{src}/.' '{dest}/'", step="restore_dirs")
+                _run_local(
+                    f"cp -r {shlex.quote(str(src) + '/.')} {shlex.quote(str(dest) + '/')}",
+                    step="restore_dirs",
+                )
 
         metabase_vol = _get_metabase_volume_path()
         if metabase_vol and (staging / "metabase").exists():
@@ -634,7 +642,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                         step="restore_metabase",
                     )
         _run_local("chown -R dango:dango /srv/dango/project", step="fix_ownership")
-        subprocess.run(f"rm -rf '{staging}'", shell=True, timeout=30)
+        subprocess.run(f"rm -rf {shlex.quote(str(staging))}", shell=True, timeout=30)
     finally:
         _start_services()
 

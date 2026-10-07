@@ -146,6 +146,8 @@ class TestRemoteResetMetabaseCredentials:
         assert result.exit_code != 0
         assert "Could not remove this project's protected Metabase credential" in result.output
         assert "remains stopped" in result.output
+        assert "half-applied" in result.output
+        assert "re-run" in result.output
         commands = [call.args[0] for call in ssh.exec_command.call_args_list]
         assert "systemctl start dango-web" not in commands
 

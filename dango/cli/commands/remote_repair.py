@@ -354,7 +354,12 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         if not delete_secret_result.success:
             console.print(
                 "[red]Error:[/red] Could not remove this project's protected "
-                "Metabase credential. Dango-web remains stopped."
+                "Metabase credential. Dango-web remains stopped and the reset is "
+                "half-applied (the Metabase volume and metabase.yml are already "
+                "removed). Bring dango-web up with [bold]dango remote repair[/bold] "
+                "(check [bold]dango remote logs[/bold]), then re-run "
+                "[bold]dango remote reset-metabase[/bold] if Metabase or SSO still "
+                "does not work."
             )
             raise click.Abort()
 
@@ -364,8 +369,12 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         if not start_result.success:
             console.print(
                 "[red]Error:[/red] Could not start dango-web after the reset. "
-                "Check [bold]dango remote logs[/bold] and run "
-                "[bold]dango remote repair[/bold]."
+                "The reset is half-applied: the Metabase volume, metabase.yml and "
+                "both credential files are already removed, and the user re-sync "
+                "did not run. Bring dango-web up with [bold]dango remote repair[/bold] "
+                "(check [bold]dango remote logs[/bold]), then re-run "
+                "[bold]dango remote reset-metabase[/bold] if Metabase or SSO still "
+                "does not work."
             )
             raise click.Abort()
 
