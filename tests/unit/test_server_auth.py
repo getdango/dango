@@ -6,6 +6,8 @@ Real YAML files in tmp_path and a fake SSH; nothing touches a network.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -89,7 +91,7 @@ class TestPushKeepsCloudAuthTimeouts:
 
         yml = b"auth:\n  enabled: true\n"
         first, _ = _push(tmp_path, yml)
-        digest = hashlib.md5(first.uploaded[REMOTE_YML]).hexdigest()  # noqa: S324
+        digest = hashlib.md5(first.uploaded[REMOTE_YML], usedforsecurity=False).hexdigest()
         second, _ = _push(tmp_path / "again", yml, FakeSSH(remote_md5=digest))
         assert REMOTE_YML not in second.uploaded
 
@@ -117,7 +119,7 @@ class TestPushKeepsCloudAuthTimeouts:
         server = tmp_path / "srv" / ".dango"
         server.mkdir(parents=True)
         (server / "project.yml").write_bytes(ssh.uploaded[REMOTE_YML])
-        exec(compile(script, "<script>", "exec"), {})  # noqa: S102
+        subprocess.run([sys.executable, "-c", script], check=True, cwd=tmp_path)
         assert yaml.safe_load((server / "project.yml").read_text()) == before
 
     def test_row7_one_code_path_for_do_and_byos(self):
@@ -230,6 +232,6 @@ class TestPortsAndAuthChain:
         import hashlib
 
         first, _ = _push(tmp_path, self.YML)
-        digest = hashlib.md5(first.uploaded[REMOTE_YML]).hexdigest()  # noqa: S324
+        digest = hashlib.md5(first.uploaded[REMOTE_YML], usedforsecurity=False).hexdigest()
         second, _ = _push(tmp_path / "again", self.YML, FakeSSH(remote_md5=digest))
         assert REMOTE_YML not in second.uploaded
