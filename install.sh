@@ -104,7 +104,7 @@ check_docker() {
             print_info "Installation cancelled"
             echo
             echo "Install Docker and run this script again:"
-            echo "  curl -sSL get.getdango.dev | bash"
+            echo "  curl -sSL https://getdango.dev/install.sh | bash"
             echo
             exit 0
         fi
@@ -125,7 +125,7 @@ check_docker() {
             print_info "Installation cancelled"
             echo
             echo "Start Docker and run this script again:"
-            echo "  curl -sSL get.getdango.dev | bash"
+            echo "  curl -sSL https://getdango.dev/install.sh | bash"
             echo
             exit 0
         fi
