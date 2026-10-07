@@ -266,19 +266,24 @@ class TestReleaseReadinessCleanFlow:
                 "database_id": database_id,
             }
         finally:
-            if fastapi_started:
-                from dango.cli.helpers.process_manager import stop_fastapi_server
+            try:
+                try:
+                    if fastapi_started:
+                        from dango.cli.helpers.process_manager import stop_fastapi_server
 
-                stop_fastapi_server(project_root, verbose=False)
-            if docker_manager is not None:
-                docker_manager.stop_services()
-                from tests.integration.docker_leak_support import teardown_and_check
+                        stop_fastapi_server(project_root, verbose=False)
+                    if docker_manager is not None:
+                        docker_manager.stop_services()
+                finally:
+                    if docker_manager is not None:
+                        from tests.integration.docker_leak_support import teardown_and_check
 
-                teardown_and_check(project_root, docker_manager.compose_project_name)
-            if prev_admin_email is None:
-                os.environ.pop("DANGO_ADMIN_EMAIL", None)
-            else:
-                os.environ["DANGO_ADMIN_EMAIL"] = prev_admin_email
+                        teardown_and_check(project_root, docker_manager.compose_project_name)
+            finally:
+                if prev_admin_email is None:
+                    os.environ.pop("DANGO_ADMIN_EMAIL", None)
+                else:
+                    os.environ["DANGO_ADMIN_EMAIL"] = prev_admin_email
 
     def test_fresh_project_reuses_identity_and_metabase_volume_after_restart(
         self, project: dict[str, Any]
