@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.server_auth import apply_cloud_auth_timeouts_bytes
 from dango.platform.cloud.server_ports import PortChange, normalize_server_ports_bytes
 
 _logger = get_logger(__name__)
@@ -54,7 +55,7 @@ if TYPE_CHECKING:
 
 REMOTE_PROJECT_DIR = "/srv/dango/project"
 
-#: Local path of the project config whose server copy gets standard ports.
+#: Project config whose server copy gets standard ports and cloud auth timeouts.
 PROJECT_YML_REL = ".dango/project.yml"
 
 #: Config files to upload via SFTP.  Tuples of (local_relative, remote_relative).
@@ -398,9 +399,11 @@ def sync_project_files(
         content: bytes | None = None
         file_changes: list[PortChange] = []
         if local_rel == PROJECT_YML_REL and local_path.is_file():
-            # The server always uses the standard ports (Caddy proxies to them);
-            # normalize the uploaded copy only, never the local file.
-            content, file_changes = normalize_server_ports_bytes(local_path.read_bytes())
+            # Server copy only: standard ports, then cloud auth timeouts. One `content`.
+            raw = local_path.read_bytes()
+            content, file_changes = normalize_server_ports_bytes(raw)
+            with_auth = apply_cloud_auth_timeouts_bytes(content if content is not None else raw)
+            content = with_auth if with_auth is not None else content
         uploaded = _upload_file_if_exists(
             ssh, local_path, remote_abs, dry_run=dry_run, content=content
         )
