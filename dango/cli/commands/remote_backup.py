@@ -17,6 +17,8 @@ Registered as a subgroup of ``remote`` in ``remote.py`` via
 
 from __future__ import annotations
 
+import shlex
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -602,7 +604,7 @@ def _backup_restore_from_local(ctx: click.Context, source: str, yes: bool) -> No
             return
 
     cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
-    remote_tmp = f"/tmp/{local_path.name}"
+    remote_tmp = f"/tmp/dango-restore-{uuid.uuid4().hex}.tar.gz"
 
     try:
         with Status(f"[bold blue]Uploading {local_path.name}...", console=console):
@@ -633,7 +635,7 @@ def _backup_restore_from_local(ctx: click.Context, source: str, yes: bool) -> No
     finally:
         # Clean up remote temp file (best-effort — SSH may already be dead)
         try:
-            ssh.exec_command(f"rm -f {remote_tmp}")
+            ssh.exec_command(f"rm -f {shlex.quote(remote_tmp)}")
         except Exception:  # noqa: BLE001
             pass
         ssh.disconnect()

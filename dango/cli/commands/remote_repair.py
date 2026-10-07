@@ -16,8 +16,9 @@ import click
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
+from dango.cli.commands.remote_sync import _PROJECT_ROOT, _VENV_PYTHON
 
-_METABASE_SECRET_PROJECT_ID_RE = re.compile(r"^[a-f0-9]{32}$")
+_METABASE_SECRET_PROJECT_ID_RE = re.compile(r"[a-f0-9]{32}|[a-f0-9]{8}")
 
 
 def _metabase_secret_project_id_command(server_project_dir: str) -> str:
@@ -41,6 +42,24 @@ def _validated_metabase_secret_project_id(output: str) -> str | None:
     if _METABASE_SECRET_PROJECT_ID_RE.fullmatch(project_id):
         return project_id
     return None
+
+
+_USER_RESYNC_SCRIPT = """
+import sqlite3
+from pathlib import Path
+
+from dango.auth.admin import get_auth_db_path
+from dango.auth.metabase_sync import sync_all_users_to_metabase
+
+p = Path(".")
+db = get_auth_db_path(p)
+c = sqlite3.connect(str(db))
+c.execute("UPDATE users SET metabase_user_id = NULL")
+c.commit()
+c.close()
+r = sync_all_users_to_metabase(db, p, "http://localhost:3000")
+print(f"Synced: {r['synced']}, Created: {r['created']}")
+""".strip()
 
 
 def _metabase_schema_scan_script() -> str:
@@ -282,13 +301,11 @@ def remote_reset_metabase(ctx: click.Context) -> None:
 
         _proj_name = get_remote_compose_project_name(ssh, _server_project_dir)
 
-        # 1. Stop dango-web (so it doesn't interfere with Metabase restart)
-        console.print("Stopping dango-web...")
-        ssh.exec_command("systemctl stop dango-web 2>/dev/null || true", timeout=15)
-
-        # Resolve before changing Metabase state. The strict validation keeps a
-        # compromised or malformed remote response from widening the deletion
-        # target beyond this project's protected credential directory.
+        # Resolve and validate the credential identity BEFORE changing any
+        # state: the lookup is read-only, and an invalid id must leave
+        # dango-web running. The strict validation keeps a compromised or
+        # malformed remote response from widening the deletion target beyond
+        # this project's protected credential files.
         project_id_result = ssh.exec_command(
             _metabase_secret_project_id_command(_server_project_dir),
             timeout=15,
@@ -301,10 +318,13 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         if project_id is None:
             console.print(
                 "[red]Error:[/red] Could not safely resolve this project's "
-                "Metabase credential identity. Dango-web remains stopped; "
-                "no Metabase data or credentials were removed."
+                "Metabase credential identity. Nothing was stopped or removed."
             )
             raise click.Abort()
+
+        # 1. Stop dango-web (so it doesn't interfere with Metabase restart)
+        console.print("Stopping dango-web...")
+        ssh.exec_command("systemctl stop dango-web 2>/dev/null || true", timeout=15)
 
         # 2. Stop and remove Metabase container + volume
         console.print("Removing Metabase data...")
@@ -322,23 +342,41 @@ def remote_reset_metabase(ctx: click.Context) -> None:
             timeout=10,
         )
 
-        # The ID was validated above, so this is a literal per-project path,
-        # never a wildcard or the shared secrets root.
+        # The ID was validated above, so these are literal per-project file
+        # names (the store writes flat <id>.json / <id>.pending.json), never
+        # a wildcard, the directory, or the shared secrets root.
         console.print("Removing protected Metabase credential...")
+        secrets_dir = "/srv/dango/secrets/metabase"
         delete_secret_result = ssh.exec_command(
-            f"rm -rf /srv/dango/secrets/metabase/{project_id}",
+            f"rm -f {secrets_dir}/{project_id}.json {secrets_dir}/{project_id}.pending.json",
             timeout=10,
         )
         if not delete_secret_result.success:
             console.print(
                 "[red]Error:[/red] Could not remove this project's protected "
-                "Metabase credential. Dango-web remains stopped."
+                "Metabase credential. Dango-web remains stopped and the reset is "
+                "half-applied (the Metabase volume and metabase.yml are already "
+                "removed). Bring dango-web up with [bold]dango remote repair[/bold] "
+                "(check [bold]dango remote logs[/bold]), then re-run "
+                "[bold]dango remote reset-metabase[/bold] if Metabase or SSO still "
+                "does not work."
             )
             raise click.Abort()
 
         # 4. Restart dango-web (triggers Docker rebuild + Metabase setup)
         console.print("Restarting dango-web (this may take a few minutes)...")
-        ssh.exec_command("systemctl start dango-web", timeout=30)
+        start_result = ssh.exec_command("systemctl start dango-web", timeout=30)
+        if not start_result.success:
+            console.print(
+                "[red]Error:[/red] Could not start dango-web after the reset. "
+                "The reset is half-applied: the Metabase volume, metabase.yml and "
+                "both credential files are already removed, and the user re-sync "
+                "did not run. Bring dango-web up with [bold]dango remote repair[/bold] "
+                "(check [bold]dango remote logs[/bold]), then re-run "
+                "[bold]dango remote reset-metabase[/bold] if Metabase or SSO still "
+                "does not work."
+            )
+            raise click.Abort()
 
         # 5. Wait for Metabase to become ready, then re-sync all users
         import time
@@ -365,19 +403,9 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         # the shortcut path that only applies roles.
         console.print("Re-syncing users to Metabase...")
         sync_result = ssh.exec_command(
-            f"cd {_server_project_dir} && "
-            '/srv/dango/venv/bin/python -c "'
-            "import sqlite3; "
-            "from pathlib import Path; "
-            "from dango.auth.admin import get_auth_db_path; "
-            "from dango.auth.metabase_sync import sync_all_users_to_metabase; "
-            "p = Path('.'); db = get_auth_db_path(p); "
-            "c = sqlite3.connect(str(db)); "
-            "c.execute('UPDATE users SET metabase_user_id = NULL'); "
-            "c.commit(); c.close(); "
-            "r = sync_all_users_to_metabase(db, p, 'http://localhost:3000'); "
-            'print(f\'Synced: {r[\\"synced\\"]}, Created: {r[\\"created\\"]}\')'
-            '"',
+            f"cd {_PROJECT_ROOT} && "
+            f"sudo -u dango -H env DANGO_CLOUD_MODE=true {_VENV_PYTHON} "
+            f"-c {shlex.quote(_USER_RESYNC_SCRIPT)}",
             timeout=60,
         )
         if sync_result.success:

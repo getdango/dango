@@ -4,6 +4,7 @@ Platform lifecycle commands (start, stop, status) and port helpers.
 """
 
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -127,6 +128,16 @@ def _check_docker_ports(platform_config: object) -> None:
         console.print()
 
         raise click.Abort()
+
+
+def _print_metabase_skipped(setup_result: dict[str, Any]) -> None:
+    """Tell the user Metabase setup was skipped, why, and the verified way to fix it."""
+    console.print("[yellow]⚠[/yellow] Metabase was not set up")
+    console.print(f"[dim]  {setup_result.get('skip_reason', 'No usable admin email.')}[/dim]")
+    console.print(
+        "[dim]  To fix: dango auth add-user you@yourcompany.com --role admin --password[/dim]"
+    )
+    console.print("[dim]  then: DANGO_ADMIN_EMAIL=you@yourcompany.com dango start[/dim]")
 
 
 @click.command()
@@ -545,8 +556,8 @@ def start(ctx: click.Context, yes: bool) -> None:
                 console.print("[red]❌ Error: Required ports are still in use[/red]")
                 console.print()
                 console.print("[bold]Manual cleanup required:[/bold]")
-                console.print("  lsof -ti:3000 | xargs kill -9")
-                console.print("  lsof -ti:8081 | xargs kill -9")
+                console.print(f"  lsof -ti:{platform_config.metabase_port} | xargs kill -9")
+                console.print(f"  lsof -ti:{platform_config.dbt_docs_port} | xargs kill -9")
             else:
                 console.print("[red]❌ Docker services failed to start[/red]")
                 console.print()
@@ -652,6 +663,9 @@ def start(ctx: click.Context, yes: bool) -> None:
             if setup_result.get("already_configured"):
                 console.print("[green]✓[/green] Metabase already configured")
                 metabase_configured = True
+            elif setup_result.get("skipped"):
+                _print_metabase_skipped(setup_result)
+                metabase_configured = False
             elif setup_result.get("success"):
                 console.print("[green]✓[/green] Metabase configured automatically")
                 if setup_result.get("collections_created"):
@@ -670,7 +684,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                     "[yellow]⚠ Metabase partially configured (DuckDB connected, but setup incomplete)[/yellow]"
                 )
                 console.print(
-                    "[dim]  You can manually complete setup at http://localhost:3000[/dim]"
+                    f"[dim]  You can manually complete setup at http://localhost:{platform_config.metabase_port}[/dim]"
                 )
                 metabase_configured = True  # Allow platform to start
         except RuntimeError as e:
@@ -853,7 +867,9 @@ def start(ctx: click.Context, yes: bool) -> None:
 
             try:
                 if not metabase_ready:
-                    metabase_response = requests.get("http://localhost:3000/api/health", timeout=1)
+                    metabase_response = requests.get(
+                        f"http://localhost:{platform_config.metabase_port}/api/health", timeout=1
+                    )
                     if metabase_response.status_code == 200:
                         metabase_ready = True
                         console.print("[dim]  ✓ Metabase ready[/dim]")
