@@ -19,6 +19,7 @@ import pytest
 from click.testing import CliRunner
 
 from dango.cli.commands.remote_backup import backup_restore
+from dango.exceptions import CloudProvisioningError
 from dango.platform.cloud import backup
 from dango.platform.cloud.ssh import CommandResult, SSHManager
 
@@ -243,3 +244,82 @@ def test_restore_extracts_create_archive_layout_whatever_the_file_name(
     assert re.fullmatch(
         rf"{re.escape(str(stage_root))}/dango-restore-staging-[0-9a-f]{{32}}", rm_cmds[0][2]
     )
+
+
+def _build_archive(tmp_path: Path, layout: str) -> Path:
+    """Build a real archive: 'dir' (backup-<ts>/...), 'dot' (./...) or 'flat' (no common dir)."""
+    src = tmp_path / "src"
+    (src / "data").mkdir(parents=True)
+    (src / "data" / "warehouse.duckdb").write_bytes(b"db")
+    archive = tmp_path / "x.tar.gz"
+    if layout == "dir":
+        top = tmp_path / "build" / "backup-20260224-143000"
+        top.mkdir(parents=True)
+        (top / "data").mkdir()
+        (top / "data" / "warehouse.duckdb").write_bytes(b"db")
+        cmd = ["tar", "-czf", str(archive), "-C", str(top.parent), top.name]
+    elif layout == "dot":
+        cmd = ["tar", "-czf", str(archive), "-C", str(src), "."]
+    else:
+        cmd = ["tar", "-czf", str(archive), "-C", str(src), "data"]
+    subprocess.run(cmd, check=True)
+    return archive
+
+
+@pytest.mark.parametrize(("layout", "ok"), [("dir", True), ("dot", True), ("flat", False)])
+def test_restore_layout_guard(
+    layout: str, ok: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Real tar: the layout guard accepts dir and ./ archives and rejects flat ones.
+
+    A flat multi-entry archive must raise before any copy, with services
+    restarted and the generated staging dir removed.
+    """
+    archive = _build_archive(tmp_path, layout)
+    project = tmp_path / "project"
+    stage_root = tmp_path / "stage"
+    stage_root.mkdir()
+    monkeypatch.setattr(backup, "PROJECT_DIR", str(project))
+    monkeypatch.setattr(backup, "RESTORE_STAGING_ROOT", str(stage_root))
+    ssh = ExecutingSSH()
+    if ok:
+        _patched_restore_with(ssh, str(archive))
+        assert (project / "data" / "warehouse.duckdb").read_bytes() == b"db"
+    else:
+        with pytest.raises(CloudProvisioningError, match="unexpected layout"):
+            _patched_restore_with(ssh, str(archive))
+        assert not project.exists()
+        assert not any(c.startswith("chown ") for c in ssh.commands)
+    assert len([c for c in ssh.commands if c.startswith("rm -rf ")]) == 1
+
+
+def test_failed_extraction_still_removes_only_generated_staging() -> None:
+    """A failing tar step still issues exactly one rm -rf of the generated staging dir.
+
+    Services are restarted by the outer finally; no other command removes anything.
+    """
+
+    class FailingTar(FakeSSH):
+        def exec_command(
+            self, command: str, timeout: int | None = None, check: bool = False
+        ) -> Any:
+            self.commands.append(command)
+            ok = "tar -xzf" not in command
+            return CommandResult(
+                stdout="", stderr="" if ok else "disk full", exit_code=0 if ok else 1
+            )
+
+    ssh = FailingTar()
+    with (
+        patch.object(backup, "create_backup"),
+        patch.object(backup, "stop_services"),
+        patch.object(backup, "start_services") as start,
+        pytest.raises(CloudProvisioningError, match="extract_archive"),
+    ):
+        backup.restore_from_archive(_as_ssh(ssh), "/srv/dango/backups/deploy/b.tar.gz")
+
+    start.assert_called_once()
+    removals = [shlex.split(c) for c in ssh.commands if "rm " in c]
+    assert len(removals) == 1
+    assert removals[0][:2] == ["rm", "-rf"]
+    assert re.fullmatch(r"/tmp/dango-restore-staging-[0-9a-f]{32}", removals[0][2])

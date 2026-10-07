@@ -626,62 +626,80 @@ def restore_from_archive(
     stop_services(ssh)
     _notify(on_progress, "stop_services", "done")
 
+    # Generated, unique staging dir: independent of the archive's file name
+    # and of the top-level directory name inside the archive.
+    staging = f"{RESTORE_STAGING_ROOT}/dango-restore-staging-{uuid.uuid4().hex}"
+
     services_restarted = False
     try:
-        # Generated, unique staging dir: independent of the archive's file name
-        # and of the top-level directory name inside the archive.
-        staging = f"{RESTORE_STAGING_ROOT}/dango-restore-staging-{uuid.uuid4().hex}"
-
-        _notify(on_progress, "extract_archive", "running")
-        _run_checked(
-            ssh,
-            f"mkdir -p {shlex.quote(staging)}"
-            f" && tar -xzf {shlex.quote(archive_path)} -C {shlex.quote(staging)} --strip-components=1",
-            step="extract_archive",
-            timeout=300,
-        )
-        _notify(on_progress, "extract_archive", "done")
-
-        _notify(on_progress, "restore_files", "running")
-        restore_cmds: list[str] = []
-        for fpath in BACKUP_FILES:
-            src = f"{staging}/{fpath}"
-            dest_dir = (
-                f"{PROJECT_DIR}/{'/'.join(fpath.split('/')[:-1])}" if "/" in fpath else PROJECT_DIR
+        try:
+            _notify(on_progress, "extract_archive", "running")
+            _run_checked(
+                ssh,
+                f"mkdir -p {shlex.quote(staging)}"
+                f" && tar -xzf {shlex.quote(archive_path)} -C {shlex.quote(staging)} --strip-components=1",
+                step="extract_archive",
+                timeout=300,
             )
-            restore_cmds.append(
-                f"test -f {shlex.quote(src)} && (mkdir -p {dest_dir} && cp {shlex.quote(src)} {dest_dir}/) || true"
-            )
-        metabase_source = f"{staging}/{METABASE_CONFIG_FILE}"
-        metabase_destination = f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}"
-        if ssh.exec_command(f"test -f {shlex.quote(metabase_source)}").success:
-            warning = _sanitize_remote_metabase_yaml(ssh, metabase_source, metabase_destination)
-            if warning:
-                warnings.append(warning)
-        for dpath in BACKUP_DIRS:
-            src, dest = f"{staging}/{dpath}", f"{PROJECT_DIR}/{dpath}"
-            restore_cmds.append(
-                f"test -d {shlex.quote(src)} && (mkdir -p {dest} && cp -r {shlex.quote(src + '/.')} {dest}/) || true"
-            )
-        _run_checked(ssh, " && ".join(restore_cmds), step="restore_files", timeout=300)
-        _notify(on_progress, "restore_files", "done")
+            _notify(on_progress, "extract_archive", "done")
 
-        _notify(on_progress, "restore_metabase", "running")
-        metabase_vol = _get_metabase_volume_path(ssh)
-        if metabase_vol:
-            for h2 in ["metabase.db.mv.db", "metabase.db.trace.db"]:
-                ssh.exec_command(
-                    f"test -d {shlex.quote(staging + '/metabase')} && cp {shlex.quote(f'{staging}/metabase/{h2}')} {metabase_vol}/ 2>/dev/null || true"
+            # Hand-made archives without a single top-level directory extract to
+            # nothing recognisable; fail before any copy rather than report success.
+            expected = [
+                f"{staging}/{rel}" for rel in ("manifest.json", METABASE_CONFIG_FILE, *BACKUP_FILES)
+            ] + [f"{staging}/{rel}" for rel in (*BACKUP_DIRS, "metabase")]
+            layout_check = " || ".join(f"test -e {shlex.quote(path)}" for path in expected)
+            if not ssh.exec_command(layout_check).success:
+                raise CloudProvisioningError(
+                    "Archive does not look like a Dango backup (unexpected layout): "
+                    "nothing was restored"
                 )
-        else:
-            warnings.append("Metabase Docker volume not found — H2 restore skipped")
-        _notify(on_progress, "restore_metabase", "done")
 
-        _notify(on_progress, "fix_ownership", "running")
-        _run_checked(ssh, "chown -R dango:dango /srv/dango/project", step="fix_ownership")
-        _notify(on_progress, "fix_ownership", "done")
+            _notify(on_progress, "restore_files", "running")
+            restore_cmds: list[str] = []
+            for fpath in BACKUP_FILES:
+                src = f"{staging}/{fpath}"
+                dest_dir = (
+                    f"{PROJECT_DIR}/{'/'.join(fpath.split('/')[:-1])}"
+                    if "/" in fpath
+                    else PROJECT_DIR
+                )
+                restore_cmds.append(
+                    f"test -f {shlex.quote(src)} && (mkdir -p {dest_dir} && cp {shlex.quote(src)} {dest_dir}/) || true"
+                )
+            metabase_source = f"{staging}/{METABASE_CONFIG_FILE}"
+            metabase_destination = f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}"
+            if ssh.exec_command(f"test -f {shlex.quote(metabase_source)}").success:
+                warning = _sanitize_remote_metabase_yaml(ssh, metabase_source, metabase_destination)
+                if warning:
+                    warnings.append(warning)
+            for dpath in BACKUP_DIRS:
+                src, dest = f"{staging}/{dpath}", f"{PROJECT_DIR}/{dpath}"
+                restore_cmds.append(
+                    f"test -d {shlex.quote(src)} && (mkdir -p {dest} && cp -r {shlex.quote(src + '/.')} {dest}/) || true"
+                )
+            _run_checked(ssh, " && ".join(restore_cmds), step="restore_files", timeout=300)
+            _notify(on_progress, "restore_files", "done")
 
-        ssh.exec_command(f"rm -rf {shlex.quote(staging)}")  # cleanup: silent OK
+            _notify(on_progress, "restore_metabase", "running")
+            metabase_vol = _get_metabase_volume_path(ssh)
+            if metabase_vol:
+                for h2 in ["metabase.db.mv.db", "metabase.db.trace.db"]:
+                    ssh.exec_command(
+                        f"test -d {shlex.quote(staging + '/metabase')} && cp {shlex.quote(f'{staging}/metabase/{h2}')} {metabase_vol}/ 2>/dev/null || true"
+                    )
+            else:
+                warnings.append("Metabase Docker volume not found — H2 restore skipped")
+            _notify(on_progress, "restore_metabase", "done")
+
+            _notify(on_progress, "fix_ownership", "running")
+            _run_checked(ssh, "chown -R dango:dango /srv/dango/project", step="fix_ownership")
+            _notify(on_progress, "fix_ownership", "done")
+        finally:
+            try:
+                ssh.exec_command(f"rm -rf {shlex.quote(staging)}")  # cleanup: best effort
+            except Exception:  # noqa: BLE001
+                pass
     finally:
         _notify(on_progress, "start_services", "running")
         start_services(ssh)
