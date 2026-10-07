@@ -689,6 +689,7 @@ def domain_remove(ctx: click.Context) -> None:
 # Register subgroups from separate modules
 # ---------------------------------------------------------------------------
 
+import dango.cli.commands.remote_metabase_admin as _remote_metabase_admin  # noqa: E402, F401
 import dango.cli.commands.remote_mgmt as _remote_mgmt  # noqa: E402, F401
 import dango.cli.commands.remote_ops as _remote_ops  # noqa: E402, F401
 import dango.cli.commands.remote_repair as _remote_repair  # noqa: E402, F401
