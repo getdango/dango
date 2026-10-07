@@ -102,8 +102,8 @@ class TestDropletSizeTier:
 @pytest.mark.unit
 class TestRegionInfo:
     def test_region_count(self):
-        """list_regions returns exactly 10 regions."""
-        assert len(list_regions()) == 10
+        """list_regions returns exactly 11 regions."""
+        assert len(list_regions()) == 11
 
     def test_gdpr_regions(self):
         """ams3 and fra1 are flagged as GDPR regions."""

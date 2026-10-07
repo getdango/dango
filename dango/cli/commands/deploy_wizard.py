@@ -166,18 +166,38 @@ def _step_prereqs(project_root: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _step_region() -> str:
-    """Step 2: Select deployment region.
+def _step_region(allowed_slugs: set[str] | None = None) -> str:
+    """Step 3: Select deployment region.
+
+    Args:
+        allowed_slugs: Region slugs where the chosen size is available.  When
+            ``None`` (availability could not be verified) the full static list
+            is offered with a warning.
 
     Returns:
         DO region slug.
     """
     from dango.platform.cloud.provisioning import list_regions, suggest_nearest_region
+    from dango.platform.cloud.size_availability import offerable_regions
 
-    suggested = suggest_nearest_region()
     regions = list_regions()
+    console.print("\n[bold]Step 3: Select Region[/bold]")
+    if allowed_slugs is None:
+        console.print(
+            "[yellow]Could not verify size availability; "
+            "DigitalOcean may reject this region.[/yellow]"
+        )
+    else:
+        offered = offerable_regions(allowed_slugs)
+        if offered:
+            regions = offered
+        else:
+            console.print(
+                "[yellow]No known region was reported for this size; showing all "
+                "regions. DigitalOcean may reject your choice.[/yellow]"
+            )
+    suggested = suggest_nearest_region(regions)
 
-    console.print("\n[bold]Step 2: Select Region[/bold]")
     console.print(
         f"  Suggested (nearest): [green]{suggested.name}[/green] ({suggested.slug})"
         f" [dim]— nearest match based on your UTC offset[/dim]\n"
@@ -216,8 +236,11 @@ def _step_region() -> str:
 # ---------------------------------------------------------------------------
 
 
-def _step_size() -> tuple[str, Any | None]:
-    """Step 3: Select droplet size.
+def _step_size(sizes: list[dict[str, Any]] | None = None) -> tuple[str, Any | None]:
+    """Step 2: Select droplet size.
+
+    Args:
+        sizes: DO size catalogue used to verify custom slugs (``None`` = unverified).
 
     Returns:
         Tuple of (size_slug, DropletSizeTier or None).
@@ -228,8 +251,9 @@ def _step_size() -> tuple[str, Any | None]:
         get_size_tier,
         validate_custom_size,
     )
+    from dango.platform.cloud.size_availability import regions_for_size
 
-    console.print("\n[bold]Step 3: Select Server Size[/bold]\n")
+    console.print("\n[bold]Step 2: Select Server Size[/bold]\n")
 
     for i, tier in enumerate(SIZE_TIERS, 1):
         default_marker = " (recommended)" if tier == DEFAULT_TIER else ""
@@ -254,11 +278,17 @@ def _step_size() -> tuple[str, Any | None]:
             # Custom slug
             while True:
                 slug = click.prompt("  Enter DO size slug (e.g. s-2vcpu-4gb)")
-                if validate_custom_size(slug):
+                if not validate_custom_size(slug):
+                    console.print(
+                        "  [red]Invalid slug format.[/red] Expected format: s-{vcpus}vcpu-{ram}gb"
+                    )
+                elif sizes is not None and not regions_for_size(sizes, slug):
+                    console.print(
+                        f"  [red]Size '{slug}' is not offered by DigitalOcean[/red] "
+                        "(unknown slug or unavailable). See https://slugs.do-api.dev/"
+                    )
+                else:
                     return slug, get_size_tier(slug)
-                console.print(
-                    "  [red]Invalid slug format.[/red] Expected format: s-{vcpus}vcpu-{ram}gb"
-                )
                 if not _safe_confirm("  Try again?", default=True):
                     console.print(f"  Using default: {DEFAULT_TIER.name}")
                     return DEFAULT_TIER.slug, DEFAULT_TIER
@@ -659,11 +689,14 @@ def run_wizard(project_root: Path) -> WizardConfig:
     _step_prereqs(project_root)
     console.print("  [green]Prerequisites OK.[/green]")
 
-    # Step 2: Region
-    region = _step_region()
+    # Step 2: Size (before region: only regions offering the size are listed)
+    from dango.platform.cloud.size_availability import fetch_sizes, regions_for_size
 
-    # Step 3: Size
-    size_slug, size_tier = _step_size()
+    sizes = fetch_sizes()
+    size_slug, size_tier = _step_size(sizes)
+
+    # Step 3: Region
+    region = _step_region(regions_for_size(sizes, size_slug) if sizes is not None else None)
 
     # Step 4: Admin credentials
     admin_email, admin_password = _step_admin()

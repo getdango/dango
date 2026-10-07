@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import socket
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -157,6 +158,7 @@ _REGIONS: list[RegionInfo] = [
     RegionInfo("nyc1", "New York 1", "New York", "US", -5.0),
     RegionInfo("nyc3", "New York 3", "New York", "US", -5.0),
     RegionInfo("sfo3", "San Francisco 3", "San Francisco", "US", -8.0),
+    RegionInfo("sfo2", "San Francisco 2", "San Francisco", "US", -8.0),
     RegionInfo("ams3", "Amsterdam 3", "Amsterdam", "NL", 1.0, gdpr=True),
     RegionInfo("sgp1", "Singapore 1", "Singapore", "SG", 8.0),
     RegionInfo("lon1", "London 1", "London", "GB", 0.0),
@@ -179,16 +181,21 @@ def list_regions() -> list[RegionInfo]:
     return list(_REGIONS)
 
 
-def suggest_nearest_region() -> RegionInfo:
+def suggest_nearest_region(candidates: Sequence[RegionInfo] | None = None) -> RegionInfo:
     """Suggest the geographically closest DO region based on local UTC offset.
 
     Uses ``time.timezone`` / ``time.altzone`` to determine the local UTC offset
     without making any network requests.  Picks the region whose ``utc_offset``
     has the smallest absolute difference from the local offset.
 
+    Args:
+        candidates: Regions to choose from (e.g. only those offering the chosen
+            size).  Defaults to every known region.
+
     Returns:
         The closest ``RegionInfo`` — defaults to ``nyc1`` on any error.
     """
+    pool = list(candidates) if candidates else _REGIONS
     try:
         # time.timezone is seconds *west* of UTC (sign is opposite of UTC offset).
         # Use tm_isdst > 0 to check if DST is *currently active* (not just observed).
@@ -198,9 +205,9 @@ def suggest_nearest_region() -> RegionInfo:
             local_offset_seconds = -time.timezone
         local_offset_hours = local_offset_seconds / 3600.0
     except Exception:
-        return _REGION_BY_SLUG["nyc1"]
+        return next((r for r in pool if r.slug == "nyc1"), pool[0])
 
-    best = min(_REGIONS, key=lambda r: abs(r.utc_offset - local_offset_hours))
+    best = min(pool, key=lambda r: abs(r.utc_offset - local_offset_hours))
     return best
 
 

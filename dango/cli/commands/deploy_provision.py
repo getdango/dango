@@ -136,6 +136,10 @@ def run_provisioning(
         CloudProvisioningError: On unrecoverable failure (after cleanup).
     """
     from dango.platform.cloud.digitalocean import DigitalOceanClient
+    from dango.platform.cloud.size_availability import (
+        SizeUnavailableError,
+        check_size_in_region,
+    )
     from dango.platform.cloud.ssh import SSHManager
 
     # BUG-251: Resolve project_root so Path(".").name is never empty
@@ -146,6 +150,13 @@ def run_provisioning(
     try:
         client = DigitalOceanClient()
         tracker.client = client
+
+        # --- Sub-step 0: Verify the size exists in the region (creates nothing) ---
+        if not check_size_in_region(config.region, config.size_slug):
+            console.print(
+                "[yellow]  Warning: could not verify size availability; "
+                "DigitalOcean may reject this region.[/yellow]"
+            )
 
         # --- Sub-step 1: Generate SSH key ---
         _status("Generating SSH key pair...")
@@ -372,6 +383,10 @@ def run_provisioning(
             warnings=warnings,
         )
 
+    except SizeUnavailableError as exc:
+        # Nothing was created, so there is nothing to clean up.
+        console.print(f"\n[red]Cannot deploy:[/red] {exc}")
+        raise CloudProvisioningError(str(exc)) from exc
     except Exception as exc:
         # BUG-122: Handle empty exception messages (e.g. SSH timeout)
         err_msg = str(exc) or f"{type(exc).__name__} (no detail)"
