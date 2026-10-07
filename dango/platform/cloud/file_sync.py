@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.server_auth import apply_cloud_auth_timeouts
 
 _logger = get_logger(__name__)
 
@@ -53,6 +54,9 @@ if TYPE_CHECKING:
 
 REMOTE_PROJECT_DIR = "/srv/dango/project"
 
+#: Local path of the project config whose server copy gets the cloud auth timeouts.
+PROJECT_YML_REL = ".dango/project.yml"
+
 #: Config files to upload via SFTP.  Tuples of (local_relative, remote_relative).
 #: Files that may not exist locally are skipped gracefully.
 #: NOTE: See also backup.py BACKUP_FILES/BACKUP_DIRS for what gets backed up.
@@ -62,7 +66,7 @@ SYNC_CONFIG_FILES: list[tuple[str, str]] = [
     (".dango/sources.yml", f"{REMOTE_PROJECT_DIR}/.dango/sources.yml"),
     (".dango/schedules.yml", f"{REMOTE_PROJECT_DIR}/.dango/schedules.yml"),
     (".dango/monitors.yml", f"{REMOTE_PROJECT_DIR}/.dango/monitors.yml"),
-    (".dango/project.yml", f"{REMOTE_PROJECT_DIR}/.dango/project.yml"),
+    (PROJECT_YML_REL, f"{REMOTE_PROJECT_DIR}/.dango/project.yml"),
     ("dbt/dbt_project.yml", f"{REMOTE_PROJECT_DIR}/dbt/dbt_project.yml"),
     ("dbt/packages.yml", f"{REMOTE_PROJECT_DIR}/dbt/packages.yml"),
     # Docker build context files — both required to build the Metabase image on the server
@@ -244,8 +248,12 @@ def _upload_file_if_exists(
     remote_path: str,
     *,
     dry_run: bool = False,
+    content: bytes | None = None,
 ) -> bool:
     """Upload *local_path* to *remote_path* via SFTP if the local file exists.
+
+    When *content* is given it is uploaded (and hashed for the change check)
+    instead of the bytes of *local_path*; the local file is never modified.
 
     Returns:
         True if the file was uploaded (or would be in dry-run), False if missing.
@@ -256,7 +264,8 @@ def _upload_file_if_exists(
         return True
     # Skip upload if remote file is identical (MD5 hash check).
     # Avoids re-uploading large files like the ~80MB Metabase DuckDB driver.
-    local_hash = hashlib.md5(local_path.read_bytes(), usedforsecurity=False).hexdigest()
+    data = content if content is not None else local_path.read_bytes()
+    local_hash = hashlib.md5(data, usedforsecurity=False).hexdigest()
     hash_result = ssh.exec_command(f"md5sum {remote_path} 2>/dev/null", timeout=10, check=False)
     if hash_result.success and hash_result.stdout.strip():
         remote_hash = hash_result.stdout.strip().split(None, 1)[0]
@@ -271,7 +280,10 @@ def _upload_file_if_exists(
     last_err: Exception | None = None
     for attempt in range(3):
         try:
-            ssh.upload_file(local_path, remote_path)
+            if content is not None:
+                ssh.write_remote_file(remote_path, content)
+            else:
+                ssh.upload_file(local_path, remote_path)
             return True
         except Exception as e:
             last_err = e
@@ -378,7 +390,15 @@ def sync_project_files(
     _notify(on_progress, "upload_config", "running")
     for local_rel, remote_abs in SYNC_CONFIG_FILES:
         local_path = local_project_root / local_rel
-        uploaded = _upload_file_if_exists(ssh, local_path, remote_abs, dry_run=dry_run)
+        content: bytes | None = None
+        if local_rel == PROJECT_YML_REL and local_path.is_file():
+            # Cloud auth timeouts (30 d / 60 min) are set at provision; keep them in the
+            # uploaded copy unless the local file sets them. Local file is never modified.
+            original = local_path.read_bytes().decode("utf-8")
+            content = apply_cloud_auth_timeouts(original).encode("utf-8")
+        uploaded = _upload_file_if_exists(
+            ssh, local_path, remote_abs, dry_run=dry_run, content=content
+        )
         if uploaded:
             synced_files.append(local_rel)
     # BUG-124: Fix ownership for metabase-plugins (uploaded as root via SFTP)
