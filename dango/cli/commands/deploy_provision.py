@@ -692,7 +692,8 @@ def _build_admin_script(
 
     ``systemctl start dango-web`` returns immediately, so on a first deploy the
     server may not have created/migrated ``auth.db`` yet.  The script waits for
-    the ``users`` table (polling every 2 s up to ``wait_seconds``), then falls
+    the ``users`` table and no pending auth migrations (polling every 2 s up to
+    ``wait_seconds``), then falls
     back to ``apply_all_pending`` (idempotent) before creating the user.  Only
     APIs present in released Dango 1.0.12 are used because the server may run
     an older version than this client.
@@ -708,7 +709,8 @@ def _build_admin_script(
         "from dango.auth.database import create_user, get_user_by_email, update_user\n"
         "from dango.auth.models import Role, User, UserUpdate\n"
         "from dango.exceptions import UserExistsError\n"
-        "from dango.migrations import apply_all_pending\n"
+        "from dango.migrations import apply_all_pending, get_migrations_base_dir\n"
+        "from dango.migrations.runner import MigrationRunner\n"
         f"email = {email!r}\n"
         f"pw_hash = {pw_hash!r}\n"
         f"wait_seconds = {int(wait_seconds)}\n"
@@ -727,11 +729,21 @@ def _build_admin_script(
         "        return False\n"
         "    finally:\n"
         "        conn.close()\n"
-        "# The server creates auth.db during startup; wait for it, else migrate ourselves\n"
+        "def auth_ready():\n"
+        "    # users table present AND no pending auth migrations (each runs in its own\n"
+        "    # transaction, so the table can appear before later columns do)\n"
+        "    if not users_table_exists():\n"
+        "        return False\n"
+        "    try:\n"
+        "        runner = MigrationRunner(db_path, 'auth', get_migrations_base_dir() / 'auth')\n"
+        "        return runner.get_pending() == []\n"
+        "    except Exception:\n"
+        "        return False\n"
+        "# The server migrates auth.db during startup; wait for it, else migrate ourselves\n"
         "deadline = time.monotonic() + wait_seconds\n"
-        "while not users_table_exists() and time.monotonic() < deadline:\n"
+        "while not auth_ready() and time.monotonic() < deadline:\n"
         "    time.sleep(min(2, max(0.0, deadline - time.monotonic())))\n"
-        "if not users_table_exists():\n"
+        "if not auth_ready():\n"
         "    apply_all_pending(Path(project_path))\n"
         "user = User(email=email, password_hash=pw_hash, role=Role.ADMIN, must_change_password=True)\n"
         "try:\n"

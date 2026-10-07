@@ -111,6 +111,62 @@ class TestAdminScriptMatrix:
         assert elapsed >= 3.0
         assert [u[0] for u in _users(project)] == [EMAIL]
 
+    def test_waits_for_last_migration_not_just_users_table(self, project: Path) -> None:
+        from dango.migrations import get_migrations_base_dir
+        from dango.migrations.runner import MigrationRunner
+
+        runner = MigrationRunner(
+            project / ".dango" / "auth.db", "auth", get_migrations_base_dir() / "auth"
+        )
+        pending = runner.get_pending()
+        assert len(pending) >= 6
+
+        def apply_stepwise() -> None:
+            time.sleep(0.5)
+            for migration in pending:
+                runner.apply_one(migration)
+                time.sleep(1.5)
+
+        t = threading.Thread(target=apply_stepwise)
+        t.start()
+        proc, elapsed = _run(project, wait=60)
+        t.join()
+        assert proc.returncode == 0, proc.stderr
+        assert elapsed >= 0.5 + 1.5 * (len(pending) - 1)
+        assert runner.get_pending() == []
+        assert [u[0] for u in _users(project)] == [EMAIL]
+
+    def test_timeout_with_partial_migrations_applies_the_rest(self, project: Path) -> None:
+        from dango.migrations import get_migrations_base_dir
+        from dango.migrations.runner import MigrationRunner
+
+        runner = MigrationRunner(
+            project / ".dango" / "auth.db", "auth", get_migrations_base_dir() / "auth"
+        )
+        runner.apply_one(runner.get_pending()[0])
+        proc, elapsed = _run(project, wait=3)
+        assert proc.returncode == 0, proc.stderr
+        assert elapsed >= 3.0
+        assert runner.get_pending() == []
+        assert [u[0] for u in _users(project)] == [EMAIL]
+
+    def test_existing_rows_are_unchanged(self, project: Path) -> None:
+        from dango.auth.database import create_user, get_user_by_email
+        from dango.auth.models import Role, User
+        from dango.migrations import apply_all_pending
+
+        apply_all_pending(project)
+        db = project / ".dango" / "auth.db"
+        other = create_user(
+            db, User(email="other@example.com", password_hash="h0", role=Role.ADMIN)
+        )
+        proc, _ = _run(project, wait=5)
+        assert proc.returncode == 0, proc.stderr
+        kept = get_user_by_email(db, "other@example.com")
+        assert kept is not None
+        assert (kept.id, kept.password_hash) == (other.id, "h0")
+        assert sorted(u[0] for u in _users(project)) == [EMAIL, "other@example.com"]
+
     def test_row6_unrelated_failure_surfaces_real_error(self, tmp_path: Path) -> None:
         # ".dango" is a regular file, so auth.db cannot be created/opened.
         (tmp_path / ".dango").write_text("not a directory")
