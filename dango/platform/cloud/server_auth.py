@@ -21,12 +21,12 @@ import re
 
 import yaml
 
+from dango.config.auth_loading import CLOUD_AUTH_TIMEOUTS
 from dango.logging import get_logger
 
 _logger = get_logger(__name__)
 
-#: Cloud values (must match ``_build_auth_timeout_script`` in ``deploy_provision``).
-CLOUD_AUTH_TIMEOUTS: dict[str, int] = {"session_max_days": 30, "idle_timeout_minutes": 60}
+# Cloud values live in the config layer (single definition); re-exported here.
 
 _AUTH_RE = re.compile(r"^auth\s*:\s*(#.*)?$")
 _AUTH_EMPTY_RE = re.compile(r"^auth\s*:\s*(\{\s*\}|~|null)\s*(#.*)?$")

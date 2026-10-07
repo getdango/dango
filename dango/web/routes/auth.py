@@ -152,16 +152,11 @@ async def _bridge_metabase_session(
 
 
 def _get_auth_config(request: Request) -> AuthConfig | None:
-    """Load AuthConfig from project config. Returns None on failure."""
-    try:
-        from dango.config.helpers import load_config
+    """Load AuthConfig from project config (warns and falls back safely when invalid)."""
+    from dango.config.auth_loading import load_auth_config_safe
 
-        project_root: Path = request.app.state.project_root
-        config = load_config(project_root)
-        return config.auth
-    except Exception:
-        logger.debug("auth_config_not_loaded", reason="no project config, using defaults")
-        return None
+    project_root: Path = request.app.state.project_root
+    return load_auth_config_safe(project_root)
 
 
 def _get_current_token_hash(request: Request) -> str | None:
