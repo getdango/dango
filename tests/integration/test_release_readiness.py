@@ -84,20 +84,6 @@ def _inspect_docker_volume(name: str) -> dict[str, Any]:
     return volumes[0]
 
 
-def _compose_down_and_remove_volume(project_root: Path, compose_project_name: str) -> None:
-    """Best-effort cleanup for a temporary release-readiness Compose project only."""
-    env = os.environ.copy()
-    env["COMPOSE_PROJECT_NAME"] = compose_project_name
-    subprocess.run(
-        ["docker", "compose", "-f", str(project_root / "docker-compose.yml"), "down", "-v"],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        env=env,
-    )
-
-
 def _write_csv_source(project_root: Path, name: str) -> None:
     """Write a minimal one-file CSV source directory and register it in sources.yml."""
     from dango.config import ConfigLoader, CSVSourceConfig, DataSource, SourceType
@@ -286,7 +272,9 @@ class TestReleaseReadinessCleanFlow:
                 stop_fastapi_server(project_root, verbose=False)
             if docker_manager is not None:
                 docker_manager.stop_services()
-                _compose_down_and_remove_volume(project_root, docker_manager.compose_project_name)
+                from tests.integration.docker_leak_support import teardown_and_check
+
+                teardown_and_check(project_root, docker_manager.compose_project_name)
             if prev_admin_email is None:
                 os.environ.pop("DANGO_ADMIN_EMAIL", None)
             else:
