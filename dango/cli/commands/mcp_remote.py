@@ -113,19 +113,25 @@ def remote_logs(service: str = "dango", lines: int = 100) -> dict[str, Any]:
     at 200 KB (oldest lines dropped). Only secret patterns are redacted: log text can
     still contain non-secret personal data.
     """
-    from dango.cli.commands.remote_mgmt import _LOG_COMMANDS
+    from dango.platform.cloud.backup import PROJECT_DIR
+    from dango.platform.cloud.service_logs import (
+        LOG_SERVICES,
+        NO_CONTAINER_MSG,
+        build_log_command,
+    )
 
-    if service not in _LOG_COMMANDS:
-        return {"error": f"Unknown service '{service}'. Valid values: {', '.join(_LOG_COMMANDS)}"}
+    if service not in LOG_SERVICES:
+        return {"error": f"Unknown service '{service}'. Valid values: {', '.join(LOG_SERVICES)}"}
     try:
         n = max(1, min(int(lines), _MAX_LOG_LINES))
     except (TypeError, ValueError):
         return {"error": "lines must be an integer"}
-    flag = "--tail" if service == "metabase" else "-n"
-    cmd = f"{_LOG_COMMANDS[service]} {flag} {n}"
 
     def go(ssh: Any, _cfg: Any, _root: Path) -> dict[str, Any]:
         """Operation body run over the connected SSH session."""
+        cmd = build_log_command(ssh, service, n, PROJECT_DIR)
+        if cmd is None:
+            return {"error": NO_CONTAINER_MSG.format(service=service)}
         res = ssh.exec_command(cmd, check=False)
         if not res.success:
             return {"error": f"Could not read {service} logs: {_safe(res.stderr or 'no output')}"}
@@ -314,16 +320,17 @@ def remote_sync(
         }
         if backfill_days is not None:
             payload["backfill_days"] = backfill_days
-        cmd = (
-            f"cd {_PROJECT_ROOT} &&"
-            f" sudo -u dango -H env DANGO_CLOUD_MODE=true"
+        sudo_cmd = (
+            f"sudo -u dango -H env DANGO_CLOUD_MODE=true"
             f" {_VENV_PYTHON} -m dango.platform.scheduling.sync_trigger"
             f" {shlex.quote(json.dumps(payload))}"
         )
+        cmd = f"cd {_PROJECT_ROOT} && {sudo_cmd}"
         if not wait:
-            # nohup must wrap the sudo command, not the `cd` builtin (nohup cd fails).
-            bg = cmd.replace(" && sudo ", " && nohup sudo ", 1)
-            res = ssh.exec_command(f"{bg} > /dev/null 2>&1 &", timeout=10, check=False)
+            from dango.platform.cloud.remote_launch import build_background_launch
+
+            script = build_background_launch(_PROJECT_ROOT, sudo_cmd)
+            res = ssh.exec_command(f"sh -c {shlex.quote(script)}", timeout=30, check=False)
             if not res.success:
                 return {"status": "failed", "error": _safe(res.stderr or "Could not start sync")}
             return {"status": "started", "source": source_name}

@@ -348,16 +348,10 @@ def create_app(project_root: Path | None = None) -> FastAPI:
 
 
 def _load_auth_config(project_root: Path | None) -> AuthConfig | None:
-    """Try to load auth config from project.yml. Returns None on failure."""
-    try:
-        from dango.config.helpers import load_config
+    """Load auth config from project.yml; warns and applies safe fallbacks on invalid config."""
+    from dango.config.auth_loading import load_auth_config_safe
 
-        root = project_root or Path.cwd()
-        config = load_config(root)
-        return config.auth
-    except Exception:
-        logger.debug("auth_config_not_loaded", reason="no project config found, using defaults")
-        return None
+    return load_auth_config_safe(project_root)
 
 
 def _load_rate_limit_config(project_root: Path | None) -> RateLimitConfig | None:

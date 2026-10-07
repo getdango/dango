@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import re
+import shlex
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -136,6 +137,10 @@ def run_provisioning(
         CloudProvisioningError: On unrecoverable failure (after cleanup).
     """
     from dango.platform.cloud.digitalocean import DigitalOceanClient
+    from dango.platform.cloud.size_availability import (
+        SizeUnavailableError,
+        check_size_in_region,
+    )
     from dango.platform.cloud.ssh import SSHManager
 
     # BUG-251: Resolve project_root so Path(".").name is never empty
@@ -146,6 +151,13 @@ def run_provisioning(
     try:
         client = DigitalOceanClient()
         tracker.client = client
+
+        # --- Sub-step 0: Verify the size exists in the region (creates nothing) ---
+        if not check_size_in_region(config.region, config.size_slug):
+            console.print(
+                "[yellow]  Warning: could not verify size availability; "
+                "DigitalOcean may reject this region.[/yellow]"
+            )
 
         # --- Sub-step 1: Generate SSH key ---
         _status("Generating SSH key pair...")
@@ -214,11 +226,13 @@ def run_provisioning(
 
         ssh.connect(droplet_ip, username="root")
         try:
-            sync_project_files(
-                ssh,
-                project_root,
-                remote_host=droplet_ip,
-                on_progress=_setup_progress,
+            _print_port_notice(
+                sync_project_files(
+                    ssh,
+                    project_root,
+                    remote_host=droplet_ip,
+                    on_progress=_setup_progress,
+                )
             )
         finally:
             ssh.disconnect()
@@ -306,11 +320,7 @@ def run_provisioning(
             from dango.platform.cloud.backup import get_remote_compose_project_name
 
             compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
-            result = ssh.exec_command(
-                f"cd /srv/dango/project && COMPOSE_PROJECT_NAME={compose_proj} "
-                "sudo -u dango docker compose build",
-                timeout=900,
-            )
+            result = ssh.exec_command(_prebuild_command(compose_proj), timeout=900)
             if result.exit_code != 0:
                 raise CloudProvisioningError(
                     f"Docker image build failed:\n{result.stderr.strip() or result.stdout.strip()}"
@@ -372,14 +382,24 @@ def run_provisioning(
             warnings=warnings,
         )
 
+    except SizeUnavailableError as exc:
+        # Nothing was created, so there is nothing to clean up.
+        console.print(f"\n[red]Cannot deploy:[/red] {exc}")
+        raise CloudProvisioningError(str(exc)) from exc
     except Exception as exc:
         # BUG-122: Handle empty exception messages (e.g. SSH timeout)
         err_msg = str(exc) or f"{type(exc).__name__} (no detail)"
         console.print(f"\n[red]Provisioning failed:[/red] {err_msg}")
-        console.print(
-            "\n[dim]This is usually a transient infrastructure issue (not a Dango bug)."
-            "\nRun [bold]dango deploy[/bold] to retry with a fresh server.[/dim]"
-        )
+        if isinstance(exc, AdminCreationError):
+            console.print(
+                "\n[dim]The admin-creation step failed on the server (details above)."
+                "\nRun [bold]dango deploy[/bold] to retry with a fresh server.[/dim]"
+            )
+        else:
+            console.print(
+                "\n[dim]This is usually a transient infrastructure issue (not a Dango bug)."
+                "\nRun [bold]dango deploy[/bold] to retry with a fresh server.[/dim]"
+            )
         console.print("Cleaning up resources...")
         errors = tracker.cleanup()
         if errors:
@@ -454,11 +474,13 @@ def run_byos_setup(
         _status("Syncing project files...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            sync_project_files(
-                ssh,
-                project_root,
-                remote_host=config.server_ip,
-                on_progress=_setup_progress,
+            _print_port_notice(
+                sync_project_files(
+                    ssh,
+                    project_root,
+                    remote_host=config.server_ip,
+                    on_progress=_setup_progress,
+                )
             )
         finally:
             ssh.disconnect()
@@ -519,11 +541,7 @@ def run_byos_setup(
             from dango.platform.cloud.backup import get_remote_compose_project_name
 
             compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
-            result = ssh.exec_command(
-                f"cd /srv/dango/project && COMPOSE_PROJECT_NAME={compose_proj} "
-                "sudo -u dango docker compose build",
-                timeout=900,
-            )
+            result = ssh.exec_command(_prebuild_command(compose_proj), timeout=900)
             if result.exit_code != 0:
                 raise CloudProvisioningError(
                     f"Docker image build failed:\n{result.stderr.strip() or result.stdout.strip()}"
@@ -595,6 +613,18 @@ def run_byos_setup(
 # ---------------------------------------------------------------------------
 
 
+def _prebuild_command(compose_proj: str) -> str:
+    """Build the pre-deploy ``docker compose build`` command.
+
+    The variable is passed through ``env`` *after* sudo: ``VAR=x sudo ...`` is dropped by
+    sudo's env_reset, so Compose would fall back to the directory name and build twice.
+    """
+    return (
+        "cd /srv/dango/project && sudo -u dango env "
+        f"COMPOSE_PROJECT_NAME={shlex.quote(compose_proj)} docker compose build"
+    )
+
+
 def _status(msg: str) -> None:
     """Print a provisioning status message with timestamp."""
     from datetime import datetime
@@ -616,6 +646,15 @@ def _setup_progress(step: str, status: str) -> None:
         console.print(f"    [dim][{ts}][/dim] [green]Done:[/green] {step}")
     elif status == "skipped":
         console.print(f"    [dim][{ts}] Skipped:[/dim] {step}")
+
+
+def _print_port_notice(sync_result: Any) -> None:
+    """Tell the user once when the uploaded project.yml got the standard server ports."""
+    from dango.platform.cloud.server_ports import format_port_notice
+
+    notice = format_port_notice(sync_result.port_changes)
+    if notice:
+        console.print(f"    [dim]{notice}[/dim]")
 
 
 def _extract_ip(droplet: dict[str, Any]) -> str:
@@ -653,23 +692,77 @@ def _push_secrets(
         ssh.exec_command(f"chown dango:dango {' '.join(pushed_paths)} 2>/dev/null; true")
 
 
-def _build_admin_script(email: str, pw_hash: str) -> str:
+_ADMIN_SCRIPT_WAIT_SECONDS = 120
+_ADMIN_SCRIPT_SSH_TIMEOUT = 180
+
+
+class AdminCreationError(CloudProvisioningError):
+    """The remote admin-creation step failed (message carries the real error)."""
+
+
+def _build_admin_script(
+    email: str,
+    pw_hash: str,
+    project_path: str = "/srv/dango/project",
+    wait_seconds: int = _ADMIN_SCRIPT_WAIT_SECONDS,
+) -> str:
     """Build the Python script that creates/updates the admin user on the server.
+
+    ``systemctl start dango-web`` returns immediately, so on a first deploy the
+    server may not have created/migrated ``auth.db`` yet.  The script waits for
+    the ``users`` table and no pending auth migrations (polling every 2 s up to
+    ``wait_seconds``), then falls
+    back to ``apply_all_pending`` (idempotent) before creating the user.  Only
+    APIs present in released Dango 1.0.12 are used because the server may run
+    an older version than this client.
 
     Extracted for testability — validates via ``ast.parse()`` in unit tests.
     """
     return (
-        "import sys, os\n"
-        "sys.path.insert(0, '/srv/dango/project')\n"
-        "os.chdir('/srv/dango/project')\n"
+        "import sys, os, time, sqlite3\n"
+        f"project_path = {project_path!r}\n"
+        "sys.path.insert(0, project_path)\n"
+        "os.chdir(project_path)\n"
         "from pathlib import Path\n"
         "from dango.auth.database import create_user, get_user_by_email, update_user\n"
         "from dango.auth.models import Role, User, UserUpdate\n"
         "from dango.exceptions import UserExistsError\n"
+        "from dango.migrations import apply_all_pending, get_migrations_base_dir\n"
+        "from dango.migrations.runner import MigrationRunner\n"
         f"email = {email!r}\n"
         f"pw_hash = {pw_hash!r}\n"
+        f"wait_seconds = {int(wait_seconds)}\n"
         "db_path = Path('.dango/auth.db')\n"
-        "# DB already initialized by server lifespan — just create/update user\n"
+        "def users_table_exists():\n"
+        "    try:\n"
+        "        conn = sqlite3.connect(f'file:{db_path.resolve()}?mode=ro', uri=True)\n"
+        "    except sqlite3.Error:\n"
+        "        return False\n"
+        "    try:\n"
+        "        row = conn.execute(\n"
+        "            \"SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'\"\n"
+        "        ).fetchone()\n"
+        "        return row is not None\n"
+        "    except sqlite3.Error:\n"
+        "        return False\n"
+        "    finally:\n"
+        "        conn.close()\n"
+        "def auth_ready():\n"
+        "    # users table present AND no pending auth migrations (each runs in its own\n"
+        "    # transaction, so the table can appear before later columns do)\n"
+        "    if not users_table_exists():\n"
+        "        return False\n"
+        "    try:\n"
+        "        runner = MigrationRunner(db_path, 'auth', get_migrations_base_dir() / 'auth')\n"
+        "        return runner.get_pending() == []\n"
+        "    except Exception:\n"
+        "        return False\n"
+        "# The server migrates auth.db during startup; wait for it, else migrate ourselves\n"
+        "deadline = time.monotonic() + wait_seconds\n"
+        "while not auth_ready() and time.monotonic() < deadline:\n"
+        "    time.sleep(min(2, max(0.0, deadline - time.monotonic())))\n"
+        "if not auth_ready():\n"
+        "    apply_all_pending(Path(project_path))\n"
         "user = User(email=email, password_hash=pw_hash, role=Role.ADMIN, must_change_password=True)\n"
         "try:\n"
         "    create_user(db_path, user)\n"
@@ -723,10 +816,10 @@ def _create_admin_and_enable_auth(
     result = ssh.exec_command(
         f"sudo -u dango /srv/dango/venv/bin/python3 -c "
         f"\"import base64; exec(base64.b64decode('{encoded}'))\"",
-        timeout=30,
+        timeout=_ADMIN_SCRIPT_SSH_TIMEOUT,
     )
     if result.exit_code != 0:
-        raise CloudProvisioningError(
+        raise AdminCreationError(
             f"Admin account creation failed:\n{result.stderr or result.stdout}"
         )
 

@@ -409,6 +409,11 @@ def remote_push(
             console.print(f"  Removed models: {', '.join(sr.removed_models)}")
         if sr.packages_changed:
             console.print("  packages.yml: [yellow]changed[/yellow]")
+        from dango.platform.cloud.server_ports import format_port_notice
+
+        port_notice = format_port_notice(sr.port_changes)
+        if port_notice:
+            console.print(f"  [dim]{port_notice}[/dim]")
 
         if not dry_run:
             if result.git_info and result.git_info.commit_sha:
@@ -689,6 +694,7 @@ def domain_remove(ctx: click.Context) -> None:
 # Register subgroups from separate modules
 # ---------------------------------------------------------------------------
 
+import dango.cli.commands.remote_metabase_admin as _remote_metabase_admin  # noqa: E402, F401
 import dango.cli.commands.remote_mgmt as _remote_mgmt  # noqa: E402, F401
 import dango.cli.commands.remote_ops as _remote_ops  # noqa: E402, F401
 import dango.cli.commands.remote_repair as _remote_repair  # noqa: E402, F401

@@ -7,13 +7,29 @@
 
 **Open-source data platform for small teams.**
 
-Dango gives you a complete data stack — ingestion, warehouse, transformations, and dashboards — with the operational machinery a self-assembled stack doesn't have: sync queue management, lock recovery, empty-replace protection, schema drift detection, credential health checks, and backups. It combines [dlt](https://dlthub.com/) for data loading, [DuckDB](https://duckdb.org/) as the analytics database, [dbt](https://www.getdbt.com/) for SQL transformations, and [Metabase](https://www.metabase.com/) for dashboards. One `pip install`, one command to start.
+Dango gives you a complete data stack — ingestion, warehouse, transformations, and dashboards — with the operational machinery a self-assembled stack doesn't have: sync queue management, lock recovery, empty-replace protection, schema drift detection, credential health checks, and backups. It combines [dlt](https://dlthub.com/) for data loading, [DuckDB](https://duckdb.org/) as the analytics database, [dbt](https://www.getdbt.com/) for SQL transformations, and [Metabase](https://www.metabase.com/) for dashboards. One install, one command to start.
 
 > **Upgrading from v0.1.x?** v1.0.0 is a complete rewrite. Back up your data and run `dango init` to create a new v1 project. See the [migration guide](https://docs.getdango.dev) for details.
+
+<img src="https://raw.githubusercontent.com/getdango/dango/main/docs/assets/demo/dango-demo-v1.gif" alt="Dango demo: install with one command, add and sync a data source, then tour the web UI and chart the data in Metabase (148 seconds)" width="800">
 
 ## Quick Start
 
 **Prerequisites:** Python 3.10-3.13, [Docker](https://docs.docker.com/desktop/) (for Metabase and dbt docs)
+
+**macOS / Linux:**
+
+```bash
+curl -sSL https://getdango.dev/install.sh | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://getdango.dev/install.ps1 | iex
+```
+
+**Prefer pip?**
 
 ```bash
 mkdir my-project && cd my-project
@@ -23,12 +39,6 @@ dango start
 ```
 
 Open [http://localhost:8800](http://localhost:8800) to see your data platform.
-
-Or use the install script:
-
-```bash
-curl -sSL https://getdango.dev/install.sh | bash
-```
 
 For detailed installation instructions, see the [documentation](https://docs.getdango.dev).
 

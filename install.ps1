@@ -169,7 +169,7 @@ function Test-Docker {
             Write-Info "Installation cancelled"
             Write-Host ""
             Write-Host "Install Docker and run this script again:"
-            Write-Host "  irm get.getdango.dev | iex"
+            Write-Host "  irm https://getdango.dev/install.ps1 | iex"
             Write-Host ""
             exit 0
         }
@@ -199,7 +199,7 @@ function Test-Docker {
             Write-Info "Installation cancelled"
             Write-Host ""
             Write-Host "Start Docker and run this script again:"
-            Write-Host "  irm get.getdango.dev | iex"
+            Write-Host "  irm https://getdango.dev/install.ps1 | iex"
             Write-Host ""
             exit 0
         }
