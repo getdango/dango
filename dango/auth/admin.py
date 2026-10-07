@@ -21,6 +21,10 @@ from dango.auth.security import generate_temp_password, hash_password
 from dango.config.loader import ConfigLoader
 from dango.exceptions import UserExistsError
 
+# Default admin address for ``dango init --skip-wizard`` when DANGO_ADMIN_EMAIL is unset.
+# Metabase rejects addresses whose domain has no dot (e.g. ``admin@localhost``).
+SKIP_WIZARD_DEFAULT_ADMIN_EMAIL = "admin@dango.test"
+
 # ---------------------------------------------------------------------------
 # Path helpers
 # ---------------------------------------------------------------------------
@@ -78,8 +82,12 @@ def set_auth_enabled(project_root: Path, *, enabled: bool) -> None:
 def ensure_admin(
     db_path: Path,
     email: str,
+    password: str | None = None,
 ) -> tuple[User, str] | None:
     """Create an admin user if none exists.
+
+    ``password`` is used as given (and not flagged for change) when supplied; otherwise a
+    temporary password is generated and the user must change it at first login.
 
     Returns ``(user, raw_password)`` if a new admin was created, or
     ``None`` if an admin already exists.
@@ -89,12 +97,12 @@ def ensure_admin(
     if admins:
         return None
 
-    password = generate_temp_password()
+    raw_password = password if password is not None else generate_temp_password()
     user = User(
         email=email,
-        password_hash=hash_password(password),
+        password_hash=hash_password(raw_password),
         role=Role.ADMIN,
-        must_change_password=True,
+        must_change_password=password is None,
         password_changed_at=datetime.now(timezone.utc),
     )
     try:
@@ -102,7 +110,7 @@ def ensure_admin(
     except UserExistsError:
         # Another worker already created admin (multi-worker race)
         return None
-    return user, password
+    return user, raw_password
 
 
 # ---------------------------------------------------------------------------

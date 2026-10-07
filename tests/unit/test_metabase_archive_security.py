@@ -6,6 +6,7 @@ Regression coverage for password-free Metabase backup and restore paths.
 from __future__ import annotations
 
 import io
+import re
 import tarfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -151,11 +152,13 @@ class TestMetabaseArchiveSanitization:
         ):
             create_backup.return_value.archive_path = "/srv/dango/backups/deploy/safety.tar.gz"
             restore_from_archive(ssh, "/srv/dango/backups/deploy/backup-20260929-010101.tar.gz")
-            sanitize.assert_called_once_with(
-                ssh,
-                "/tmp/backup-20260929-010101/.dango/metabase.yml",
-                "/srv/dango/project/.dango/metabase.yml",
+            sanitize.assert_called_once()
+            call_ssh, source, destination = sanitize.call_args.args
+            assert call_ssh is ssh
+            assert re.fullmatch(
+                r"/tmp/dango-restore-staging-[0-9a-f]{32}/\.dango/metabase\.yml", source
             )
+            assert destination == "/srv/dango/project/.dango/metabase.yml"
 
     def test_remote_malformed_yaml_warning_never_logs_parser_content(self):
         """Remote sanitization errors report only a generic, non-secret warning."""
