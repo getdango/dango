@@ -9,6 +9,7 @@ registration by importing this module at the bottom of ``remote.py``.
 from __future__ import annotations
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
@@ -37,7 +38,6 @@ def remote_metabase_repair_admin(ctx: click.Context, yes: bool) -> None:
         _load_cloud_config_with_ip,
         _make_ssh_manager,
     )
-    from dango.exceptions import CloudSSHError
     from dango.platform.common.startup import cloud_repair_admin_command
 
     cloud_cfg, project_root = _load_cloud_config_with_ip(ctx)
@@ -54,8 +54,8 @@ def remote_metabase_repair_admin(ctx: click.Context, yes: bool) -> None:
         result = ssh.exec_command(
             cloud_repair_admin_command(), timeout=_REPAIR_TIMEOUT_SECONDS, check=False
         )
-    except CloudSSHError as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
         raise click.Abort() from None
     finally:
         try:
@@ -63,11 +63,22 @@ def remote_metabase_repair_admin(ctx: click.Context, yes: bool) -> None:
         except Exception:  # noqa: BLE001
             pass
 
-    output = (result.stdout or "").strip()
     if result.success:
-        console.print(f"[green]{output or 'Metabase admin access restored.'}[/green]")
+        # Server output is untrusted text: never let rich read its brackets as markup.
+        console.print(
+            _last_line(result.stdout) or "Metabase admin access restored.",
+            style="green",
+            markup=False,
+            highlight=False,
+        )
         return
 
-    reason = output or (result.stderr or "").strip() or "No output from the server."
-    console.print(f"[red]Metabase admin repair failed:[/red] {reason}")
+    reason = _last_line(result.stdout) or _last_line(result.stderr) or "No output from server."
+    console.print("[red]Metabase admin repair failed:[/red]", escape(reason), highlight=False)
     raise click.Abort()
+
+
+def _last_line(text: str | None) -> str:
+    """Return the last non-empty line of server output (the repair's one-line outcome)."""
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    return lines[-1] if lines else ""

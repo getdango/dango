@@ -12,6 +12,8 @@ Reuses all startup helpers from ``dango.platform.common.startup``.
 from __future__ import annotations
 
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -202,21 +204,19 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
     # the state a restore or migrate leaves behind, which the migration above reports as
     # "not required". At most one login attempt per start (so only when the migration,
     # which logs in itself, did not run); never blocks startup.
+    watch_credential = False
     if credential_check_needed:
         try:
             from dango.platform.common.startup import metabase_admin_credential_state
 
-            credential_state = metabase_admin_credential_state(project_root)
+            credential_state = metabase_admin_credential_state(project_root, probe=False)
             credential_problem = {
                 "missing": "No stored Metabase admin credential was found.",
                 "unreadable": "The stored Metabase admin credential is unreadable.",
-                "rejected": "Metabase rejected the stored admin credential.",
             }.get(credential_state)
             if credential_problem is not None:
-                print(
-                    f"WARNING: {credential_problem} {_repair_instructions()}",
-                    file=sys.stderr,
-                )
+                print(f"WARNING: {credential_problem} {_repair_instructions()}", file=sys.stderr)
+            watch_credential = credential_state == "unverified"
         except Exception:
             pass
 
@@ -247,6 +247,13 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
 
     # H4: Check port availability before starting uvicorn
     _check_port(effective_port)
+
+    if watch_credential:
+        # The login check needs a healthy Metabase, which is usually still booting here.
+        # Run it off the startup path: no delay before the port binds.
+        threading.Thread(
+            target=_watch_for_rejected_credential, args=(project_root,), daemon=True
+        ).start()
 
     # Set project root env var so uvicorn workers can resolve it on import
     import os
@@ -308,3 +315,37 @@ def _repair_instructions() -> str:
         "  dango remote metabase-repair-admin\n"
         "(Running it as root would leave root-owned files in the credential store.)"
     )
+
+
+def _watch_for_rejected_credential(project_root: Path) -> None:
+    """Wait (bounded) for Metabase health, then check the admin credential once.
+
+    Daemon-thread body: polls only ``/api/health`` (no login) every 5 s for up to 180 s,
+    then makes the single login of ``metabase_admin_credential_state``. Prints the repair
+    commands only for ``rejected``; prints nothing if Metabase never becomes healthy. Never
+    raises and never prints a password.
+    """
+    try:
+        import requests
+
+        from dango.platform.common.startup import metabase_admin_credential_state
+        from dango.security.metabase_config import load_metabase_metadata
+
+        metadata = load_metabase_metadata(project_root) or {}
+        url = str(metadata.get("metabase_url") or "http://localhost:3000").rstrip("/")
+        for _attempt in range(36):
+            try:
+                if requests.get(f"{url}/api/health", timeout=5).status_code == 200:
+                    break
+            except Exception:
+                pass
+            time.sleep(5)
+        else:
+            return
+        if metabase_admin_credential_state(project_root) == "rejected":
+            print(
+                f"WARNING: Metabase rejected the stored admin credential. {_repair_instructions()}",
+                file=sys.stderr,
+            )
+    except Exception:
+        pass

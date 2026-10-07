@@ -92,6 +92,20 @@ def test_state_ok(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_state_probe_false_makes_no_http_call(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    with (
+        patch(_LOADER, return_value=("admin@example.com", _SECRET)),
+        patch("requests.get") as get,
+        patch("requests.post") as post,
+    ):
+        state = metabase_admin_credential_state(tmp_path, probe=False)
+    assert state == "unverified"
+    get.assert_not_called()
+    post.assert_not_called()
+
+
+@pytest.mark.unit
 def test_state_missing(tmp_path: Path) -> None:
     _write_project(tmp_path)
     state, get, post = _state(tmp_path, credentials=None)

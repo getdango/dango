@@ -422,24 +422,24 @@ def wait_for_metabase_if_needed(project_root: Path, timeout: int = 120) -> bool 
 
 
 def cloud_repair_admin_command() -> str:
-    """Return the server command that repairs Metabase admin access, run as ``dango`` not root.
+    """Return the server command that repairs Metabase admin access, as ``dango`` (not root).
 
-    Root would leave root-owned files in the credential store; SSH sessions do not inherit
-    the systemd unit's ``DANGO_CLOUD_MODE``, so it is set explicitly.
+    Root would leave root-owned credential files; SSH does not inherit ``DANGO_CLOUD_MODE``.
     """
-    from dango.platform.cloud.backup import PROJECT_DIR, VENV_PYTHON
+    from dango.platform.cloud.backup import PROJECT_DIR
+    from dango.platform.cloud.deployer import VENV_BIN
 
-    dango_cli = VENV_PYTHON.removesuffix("python") + "dango"
     sudo = "sudo -u dango -H env DANGO_CLOUD_MODE=true"
-    return f"cd {PROJECT_DIR} && {sudo} {dango_cli} metabase repair-admin"
+    return f"cd {PROJECT_DIR} && {sudo} {VENV_BIN}/dango metabase repair-admin"
 
 
-def metabase_admin_credential_state(project_root: Path) -> str:
+def metabase_admin_credential_state(project_root: Path, *, probe: bool = True) -> str:
     """Classify the Metabase admin credential; never repairs, retries, raises or leaks it.
 
     Returns ``not_configured``, ``ok``, ``missing``, ``unreadable``, ``rejected`` or
-    ``unreachable`` (Metabase not healthy: the credential is not blamed). At most one
-    health GET and one login POST, because Metabase's login throttle counts attempts.
+    ``unreachable`` (Metabase unhealthy: the credential is not blamed). At most one health
+    GET and one login POST (the throttle counts attempts); ``probe=False`` makes no HTTP
+    call and returns ``unverified`` if a credential exists.
     """
     try:
         import requests
@@ -460,6 +460,8 @@ def metabase_admin_credential_state(project_root: Path) -> str:
             return "unreadable"
         if credentials is None:
             return "missing"
+        if not probe:
+            return "unverified"
         url = str(metadata.get("metabase_url") or "http://localhost:3000").rstrip("/")
         if requests.get(f"{url}/api/health", timeout=5).status_code != 200:
             return "unreachable"

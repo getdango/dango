@@ -6,6 +6,7 @@ connection. It confirms first (unless --yes) and reports failures without a trac
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -38,6 +39,10 @@ def _invoke(
         return CliRunner().invoke(
             remote, ["metabase-repair-admin", *args], input=input_text, obj={}
         )
+
+
+def _plain(output: str) -> str:
+    return re.sub(r"\x1b\[[0-9;]*m", "", output)
 
 
 def _ssh(result: CommandResult) -> MagicMock:
@@ -119,4 +124,35 @@ def test_connect_failure_aborts_without_traceback() -> None:
 
     assert result.exit_code == 1
     assert "SSH authentication failed" in result.output
+    ssh.exec_command.assert_not_called()
+
+
+@pytest.mark.unit
+def test_server_output_brackets_are_not_read_as_markup() -> None:
+    ssh = _ssh(CommandResult("banner\nrepaired [bold]x[/bold] [/nope]\n", "", 0))
+    result = _invoke(["-y"], ssh)
+
+    assert result.exit_code == 0, result.output
+    assert "repaired [bold]x[/bold] [/nope]" in _plain(result.output)
+    assert "banner" not in result.output
+
+
+@pytest.mark.unit
+def test_failure_prints_only_the_servers_one_line_reason() -> None:
+    ssh = _ssh(CommandResult("Welcome banner\nMetabase [x] is not reachable.\n", "", 1))
+    result = _invoke(["-y"], ssh)
+
+    assert result.exit_code == 1
+    assert "Metabase [x] is not reachable." in _plain(result.output)
+    assert "Welcome banner" not in result.output
+
+
+@pytest.mark.unit
+def test_unexpected_connect_error_aborts_without_traceback() -> None:
+    ssh = MagicMock()
+    ssh.connect.side_effect = OSError("network down")
+    result = _invoke(["-y"], ssh)
+
+    assert result.exit_code == 1
+    assert "network down" in result.output
     ssh.exec_command.assert_not_called()

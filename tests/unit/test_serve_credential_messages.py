@@ -1,11 +1,12 @@
 """tests/unit/test_serve_credential_messages.py
 
 Verify dango serve tells the operator how to repair a lost Metabase admin credential.
-Both repair commands appear verbatim, serve never repairs, and it makes at most one login.
+Both commands appear verbatim, serve never repairs, and a rejected login check runs off-path.
 """
 
 from __future__ import annotations
 
+import io
 import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -55,8 +56,8 @@ def _serve(
     migration: dict[str, object],
     *,
     credentials: object = None,
-    login: int = 200,
 ) -> tuple[str, MagicMock, MagicMock]:
+    """Run serve; return (output, Thread mock, requests.post mock). No real thread runs."""
     loader = (
         {"side_effect": credentials}
         if isinstance(credentials, Exception)
@@ -66,52 +67,105 @@ def _serve(
         patch(_REPAIR) as repair,
         patch(_LOADER, **loader),
         patch("requests.get", return_value=_response(200)),
-        patch("requests.post", return_value=_response(login)) as post,
+        patch("requests.post", return_value=_response(200)) as post,
+        patch("dango.cli.commands.serve.threading.Thread") as thread,
     ):
         result, _events = _run_cloud(root, migration)
     assert result.exit_code == 0, result.output
     repair.assert_not_called()
-    return _ANSI_RE.sub("", result.output), repair, post
+    return _ANSI_RE.sub("", result.output), thread, post
+
+
+def _watch(
+    root: Path, *, health: list[int | Exception], login: int = 401
+) -> tuple[str, MagicMock, MagicMock, MagicMock]:
+    """Run the background check body with a fake clock; return output and the HTTP mocks."""
+    from dango.cli.commands.serve import _watch_for_rejected_credential
+
+    def _get(*_a: object, **_k: object) -> MagicMock:
+        item = health.pop(0) if health else 503
+        if isinstance(item, Exception):
+            raise item
+        return _response(item)
+
+    err = io.StringIO()
+    with (
+        patch(_LOADER, return_value=("a@b.co", "plain-secret-xyz")),
+        patch("requests.get", side_effect=_get) as get,
+        patch("requests.post", return_value=_response(login)) as post,
+        patch("dango.cli.commands.serve.time.sleep") as sleep,
+        patch("sys.stderr", err),
+    ):
+        _watch_for_rejected_credential(root)
+    return err.getvalue(), get, post, sleep
 
 
 @pytest.mark.unit
 def test_serve_missing_credential_prints_both_commands(tmp_path: Path) -> None:
     _write_project(tmp_path)
-    output, _repair, post = _serve(tmp_path, _NOT_REQUIRED, credentials=None)
+    output, thread, post = _serve(tmp_path, _NOT_REQUIRED, credentials=None)
     _assert_actionable(output)
     post.assert_not_called()
+    thread.assert_not_called()
 
 
 @pytest.mark.unit
 def test_serve_unreadable_credential_prints_both_commands(tmp_path: Path) -> None:
     _write_project(tmp_path)
-    output, _repair, post = _serve(tmp_path, _NOT_REQUIRED, credentials=RuntimeError("bad"))
+    output, thread, post = _serve(tmp_path, _NOT_REQUIRED, credentials=RuntimeError("bad"))
     assert "unreadable" in output
     _assert_actionable(output)
     post.assert_not_called()
+    thread.assert_not_called()
 
 
 @pytest.mark.unit
-def test_serve_rejected_credential_prints_both_commands_after_one_login(tmp_path: Path) -> None:
+def test_serve_with_credential_starts_one_daemon_thread_and_makes_no_login(
+    tmp_path: Path,
+) -> None:
     _write_project(tmp_path)
-    secret = "plain-secret-xyz"
-    output, _repair, post = _serve(
-        tmp_path, _NOT_REQUIRED, credentials=("a@b.co", secret), login=401
-    )
-    _assert_actionable(output)
-    assert post.call_count == 1
-    assert secret not in output
-
-
-@pytest.mark.unit
-def test_serve_is_silent_when_credential_works_or_not_configured(tmp_path: Path) -> None:
-    output, _repair, post = _serve(tmp_path, _NOT_REQUIRED)
+    output, thread, post = _serve(tmp_path, _NOT_REQUIRED, credentials=("a@b.co", "pw"))
     assert _HEADER not in output
     post.assert_not_called()
+    thread.assert_called_once()
+    assert thread.call_args.kwargs["daemon"] is True
+    thread.return_value.start.assert_called_once()
 
-    _write_project(tmp_path)
-    output, _repair, post = _serve(tmp_path, _NOT_REQUIRED, credentials=("a@b.co", "pw"))
+
+@pytest.mark.unit
+def test_serve_not_configured_starts_no_thread(tmp_path: Path) -> None:
+    output, thread, post = _serve(tmp_path, _NOT_REQUIRED)
     assert _HEADER not in output
+    thread.assert_not_called()
+    post.assert_not_called()
+
+
+@pytest.mark.unit
+def test_watch_polls_health_until_ready_then_one_login_and_message(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    err, _get, post, sleep = _watch(tmp_path, health=[503, 503, ConnectionError("boot"), 200, 200])
+    _assert_actionable(err)
+    assert err.count(_HEADER) == 1
+    assert post.call_count == 1
+    assert sleep.call_count == 3
+    assert "plain-secret-xyz" not in err
+
+
+@pytest.mark.unit
+def test_watch_never_healthy_makes_no_login_and_prints_nothing(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    err, get, post, sleep = _watch(tmp_path, health=[])
+    assert err == ""
+    post.assert_not_called()
+    assert get.call_count == 36
+    assert sleep.call_count == 36
+
+
+@pytest.mark.unit
+def test_watch_accepted_credential_prints_nothing(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+    err, _get, post, _sleep = _watch(tmp_path, health=[200, 200], login=200)
+    assert err == ""
     assert post.call_count == 1
 
 
@@ -121,18 +175,19 @@ def test_serve_is_silent_when_credential_works_or_not_configured(tmp_path: Path)
 )
 def test_serve_recovery_pending_message_has_cloud_command(tmp_path: Path, reason: str) -> None:
     _write_project(tmp_path)
-    output, _repair, post = _serve(
+    output, thread, post = _serve(
         tmp_path, {"status": "failed_non_destructive", "reason": reason}, credentials=None
     )
     _assert_actionable(output)
     # The migration already attempted its own login, so serve adds no second one.
     post.assert_not_called()
+    thread.assert_not_called()
     assert output.count(_HEADER) == 1
 
 
 @pytest.mark.unit
 def test_serve_permanent_rejection_keeps_message_and_adds_commands(tmp_path: Path) -> None:
-    output, _repair, _post = _serve(
+    output, _thread, _post = _serve(
         tmp_path,
         {"status": "failed_non_destructive", "reason": "current_credential_not_accepted"},
     )
