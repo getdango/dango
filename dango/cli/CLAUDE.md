@@ -68,7 +68,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `utils.py` (164 lines) | Display helpers + project context | `require_project_context()` |
 | `validate.py` (787 lines) | Project validation logic | `validate_project()` |
 | `db_helpers.py` (11 lines) | Re-exports from `utils/db_health.py` for backwards compatibility | `build_schema_table_mapping()`, `is_table_configured()` |
-| `env_helpers.py` (319 lines) | `.env` file management | `create_env_template()`, `validate_env_file()`, `guide_env_setup()` |
+| `env_helpers.py` (328 lines) | `.env` file management (atomic write via owner-only `.env.<hex>.tmp`, git-ignored by `.env*.tmp`) | `create_env_template()`, `validate_env_file()`, `guide_env_setup()` |
 | `oauth.py` (439 lines) | OAuth CLI flows | `authenticate_facebook()`, `authenticate_google()`, `check_token_expiry()` |
 | `schema_manager.py` (352 lines) | dbt `schema.yml` auto-generation | `update_model_schemas()` |
 | `helpers/__init__.py` (6 lines) | Package marker | — |
