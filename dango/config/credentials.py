@@ -19,6 +19,7 @@ SENSITIVE_ARTIFACT_GITIGNORE_PATTERNS = (
     ".dango/credentials",
     ".dlt/.encryption_key",
     ".env*.backup",
+    ".env*.tmp",
 )
 
 

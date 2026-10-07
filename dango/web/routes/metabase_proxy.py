@@ -144,6 +144,14 @@ async def _rebridge_if_needed(request: Request, metabase_url: str) -> str | None
 # ---------------------------------------------------------------------------
 
 
+# Request headers the proxy must not forward. ``accept-encoding`` is dropped so the shared
+# httpx client advertises only the encodings it can decode itself. Forwarding the browser's
+# value (``br``, ``zstd``) makes Metabase answer in a format httpx may leave undecoded, and
+# ``_build_response`` removes ``Content-Encoding`` from the reply, so the browser would get
+# compressed bytes it is told are plain (C13).
+_SKIP_REQUEST_HEADERS = frozenset(("host", "connection", "content-length", "accept-encoding"))
+
+
 async def proxy_to_metabase(
     request: Request,
     target_path: str,
@@ -174,7 +182,7 @@ async def proxy_to_metabase(
     # Prepare headers
     headers: dict[str, str] = {}
     for key, value in request.headers.items():
-        if key.lower() not in ("host", "connection", "content-length"):
+        if key.lower() not in _SKIP_REQUEST_HEADERS:
             headers[key] = value
 
     # Get request body if present
