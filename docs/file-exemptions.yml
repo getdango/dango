@@ -129,7 +129,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/remote.py
-    lines: 702
+    lines: 708
     category: exempt
     reason: "Remote server management: push + rollback + firewall subgroup + domain subgroup + registration of management and backup subgroups. P8-004 added git guard rails (--allow-dirty/--allow-branch) to push command. R12-K added auth subgroup registration."
     review_by: "v1.1"
@@ -153,7 +153,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/remote_backup.py
-    lines: 521
+    lines: 795
     category: exempt
     reason: "R2-D10: Added --from-local flag + _backup_restore_from_local helper for restoring from local backup files."
     review_by: "v1.1"
@@ -309,13 +309,13 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/cloud/backup.py
-    lines: 545
+    lines: 742
     category: exempt
     reason: "TASK-035+R12-M2: SSH-based backup and rollback. R12-M2 added logging import and service control warning logs."
     review_by: "v1.1"
 
   - file: dango/platform/cloud/scheduled_backup.py
-    lines: 606
+    lines: 692
     category: exempt
     reason: "TASK-103: Server-side scheduled backup to Spaces with list/restore/enable/disable. R12-N1 added logging import + debug to bare exception."
     review_by: "v1.1"

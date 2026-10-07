@@ -441,7 +441,7 @@ mypy dango/
 
 ### Git Workflow
 
-**⚠️ Active integration branch: `v1.0.7`** — During the 1.0.7 release cycle all feature branches are created off `v1.0.7` and PRs target `v1.0.7`, NOT `main`. Your session prompt specifies the exact base branch — follow it, not the general pattern below.
+**Integration branch:** during a release cycle, feature branches are created off that cycle's integration branch (e.g. `v1.0.13`) and PRs target it, NOT `main`. Your session prompt or task file names the exact base branch — follow it, not the general pattern below.
 
 All development happens on feature branches. Never commit directly to `main` or the integration branch.
 

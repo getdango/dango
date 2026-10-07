@@ -15,6 +15,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+## [1.0.13] - 2026-10-08
+
+### Fixed
+
+- **Metabase renders again through Dango's `/metabase` page on new projects.** Projects created with Dango 1.0.8 through 1.0.12 use Metabase v0.62.18, whose JavaScript the proxy returned as compressed bytes without saying so, so the Dashboards tab showed a blank page in a modern browser. The proxy now asks Metabase for an encoding it can decode itself. Projects created before 1.0.8 (Metabase v0.59.1) were not affected.
+- **`dango init --skip-wizard` (CI / scripted setups) now ends with a working Metabase.** Without `DANGO_ADMIN_EMAIL` it used to create the admin as `admin@localhost`, which Metabase rejects, so Metabase was never set up even though `dango start` said it was configured. See "Changed" for the new default. `dango start` now says plainly when it skipped Metabase setup, why, and the two commands that fix it.
+- **`DANGO_ADMIN_PASSWORD` is honoured by `dango init --skip-wizard`** (it was ignored and a random password was generated).
+- **`dango dashboard provision` works as documented.** It no longer asks for a Metabase password nobody knows; it uses the credential Dango already stores (`--username`/`--password` remain as overrides, and are never prompted).
+- **A custom `metabase_port` now works end to end.** `dango start`'s final readiness check and its hints, `dango metabase save` / `load`, the dashboard import at startup, the web UI's service status probe on Windows and `/api/config` all use your configured port instead of assuming 3000.
+- **`.env` files Dango writes are owner-only (0600)** and the temporary file used while writing is git-ignored (`.env*.tmp`).
+- **Cloud: a lost Metabase admin credential on a server is now reported.** After a restore or migration the credential store may be empty or out of step with Metabase; `dango serve` now says so and prints the exact repair commands (it never repairs on its own). New: `dango remote metabase-repair-admin` runs the repair on the server over SSH. *(Same-server restore with an intact store is only reported once Metabase is healthy, within about three minutes of start.)*
+- **Cloud: `dango remote sync` (without `--wait`) reports a failed start** (bad project directory, command exits immediately) instead of "Sync triggered", and a sync that takes longer than a few seconds no longer ends in an SSH error.
+- **Cloud: `dango remote reset-metabase`** now removes the Metabase credential files that actually exist (it removed a path that never existed), accepts legacy 8-character project ids, checks the project id before stopping anything, and reports a failed `dango-web` start with how to recover.
+- **Cloud: `dango remote backup restore <file>`** works for file names with spaces or quotes and no longer leaves a full copy of the archive in `/tmp` when a restore fails; an archive that does not look like a Dango backup now fails loudly instead of "restoring" nothing.
+- **Cloud: `dango deploy` no longer fails on the first admin account.** The server could create the admin before its database migrations had finished; provisioning now waits for them.
+- **Cloud: `dango deploy` checks that the chosen region/size is available** and says so before creating anything, instead of failing mid-provision.
+- **Cloud: `dango remote push` no longer changes your server's ports or weakens its login timeouts.** Custom local ports are uploaded as the standard server ports (your local file is untouched, and a notice says what changed), and the server's cloud session limits (30 days, 60 minutes idle) survive every push; before, the first push silently reset them to the local 365 days / 24 hours.
+- **Cloud: an invalid `auth:` section can no longer silently weaken login timeouts.** The server now logs a warning and, in cloud mode, falls back to the cloud limits (including at login and 2FA).
+- **Cloud: `dango remote logs --service metabase` works** (it looked for a container named `metabase`; Compose names it per project). The first `dango deploy` also builds the Metabase image once instead of twice.
+- The installer's "re-run this command" hints (`install.sh`, `install.ps1`) pointed at a host that does not resolve; they now show `https://getdango.dev/install.sh` / `install.ps1`.
+
+### Security
+
+- The project id read from a server is validated before it is used in any remote command (it was inserted unquoted into root shell commands). Values written to root shell commands in the scheduled-backup job, and user-supplied backup paths in `remote rollback` / `remote backup restore`, are now shell-quoted.
+
+### Changed
+
+- **`dango init --skip-wizard` now creates the admin as `admin@dango.test` when `DANGO_ADMIN_EMAIL` is not set** (it was `admin@localhost`). Scripts that log in with the old default must use the email printed by `init` or set `DANGO_ADMIN_EMAIL` explicitly. Existing projects are unchanged; a project whose admin is still `admin@localhost` gets a clear warning and fix at `dango start`. If you set a weak `DANGO_ADMIN_PASSWORD`, init now skips auth setup (it used to ignore the variable).
+- `dango remote rollback --backup <path>` no longer lets the server's shell expand `~`, `$VAR` or wildcards in the path.
+- The README now leads with the one-line installer (macOS/Linux; Windows command alongside) and shows the demo.
+
+### Internal
+
+- Real-Docker integration tests no longer leave a Docker volume and image behind; the test suite now guards that.
+
+> **Cloud status:** the cloud items above were exercised on a live DigitalOcean server on 2026-10-07 (deploy, push, sync, backup, rollback, reset-metabase, lost-credential detection and repair, hostile project id). Not exercised live: Spaces backup download/restore, the scheduled-backup timer, and the single Metabase image build on first deploy; those are covered by automated tests only.
+
 ## [1.0.12] - 2026-10-05
 
 ### Fixed
