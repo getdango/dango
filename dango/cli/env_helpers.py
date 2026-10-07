@@ -7,6 +7,7 @@ import os
 import platform
 import subprocess
 from pathlib import Path
+from uuid import uuid4
 
 import click
 from rich.console import Console
@@ -92,10 +93,11 @@ def create_env_template(
 
     # Atomic write: temp file + rename
     if new_content or not env_file.exists():
-        temp_file = env_file.with_suffix(".env.tmp")
+        temp_file = env_file.with_name(f"{env_file.name}.{uuid4().hex}.tmp")
         try:
-            # Write combined content to temp file
-            with open(temp_file, "w") as f:
+            # Write combined content to temp file, owner-only from creation: .env holds credentials
+            fd = os.open(temp_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as f:
                 if existing_lines:
                     f.write("\n".join(existing_lines))
                 if new_content:
