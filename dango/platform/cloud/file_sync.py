@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.server_ports import PortChange, normalize_server_ports_bytes
 
 _logger = get_logger(__name__)
 
@@ -53,6 +54,9 @@ if TYPE_CHECKING:
 
 REMOTE_PROJECT_DIR = "/srv/dango/project"
 
+#: Local path of the project config whose server copy gets standard ports.
+PROJECT_YML_REL = ".dango/project.yml"
+
 #: Config files to upload via SFTP.  Tuples of (local_relative, remote_relative).
 #: Files that may not exist locally are skipped gracefully.
 #: NOTE: See also backup.py BACKUP_FILES/BACKUP_DIRS for what gets backed up.
@@ -62,7 +66,7 @@ SYNC_CONFIG_FILES: list[tuple[str, str]] = [
     (".dango/sources.yml", f"{REMOTE_PROJECT_DIR}/.dango/sources.yml"),
     (".dango/schedules.yml", f"{REMOTE_PROJECT_DIR}/.dango/schedules.yml"),
     (".dango/monitors.yml", f"{REMOTE_PROJECT_DIR}/.dango/monitors.yml"),
-    (".dango/project.yml", f"{REMOTE_PROJECT_DIR}/.dango/project.yml"),
+    (PROJECT_YML_REL, f"{REMOTE_PROJECT_DIR}/.dango/project.yml"),
     ("dbt/dbt_project.yml", f"{REMOTE_PROJECT_DIR}/dbt/dbt_project.yml"),
     ("dbt/packages.yml", f"{REMOTE_PROJECT_DIR}/dbt/packages.yml"),
     # Docker build context files — both required to build the Metabase image on the server
@@ -107,6 +111,8 @@ class SyncResult:
     has_macro_changes: bool = False
     is_first_deploy: bool = False
     dry_run: bool = False
+    #: Ports rewritten in the uploaded ``project.yml`` (empty when none).
+    port_changes: list[PortChange] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -244,24 +250,31 @@ def _upload_file_if_exists(
     remote_path: str,
     *,
     dry_run: bool = False,
+    content: bytes | None = None,
 ) -> bool:
     """Upload *local_path* to *remote_path* via SFTP if the local file exists.
+
+    When *content* is given it is uploaded (and hashed for the change check)
+    instead of the bytes of *local_path*; the local file is never modified.
 
     Returns:
         True if the file was uploaded (or would be in dry-run), False if missing.
     """
     if not local_path.is_file():
         return False
-    if dry_run:
+    if dry_run and content is None:
         return True
     # Skip upload if remote file is identical (MD5 hash check).
     # Avoids re-uploading large files like the ~80MB Metabase DuckDB driver.
-    local_hash = hashlib.md5(local_path.read_bytes(), usedforsecurity=False).hexdigest()
+    data = content if content is not None else local_path.read_bytes()
+    local_hash = hashlib.md5(data, usedforsecurity=False).hexdigest()
     hash_result = ssh.exec_command(f"md5sum {remote_path} 2>/dev/null", timeout=10, check=False)
     if hash_result.success and hash_result.stdout.strip():
         remote_hash = hash_result.stdout.strip().split(None, 1)[0]
         if local_hash == remote_hash:
             return False
+    if dry_run:
+        return True
     # Ensure remote parent directory exists
     remote_dir = remote_path.rsplit("/", 1)[0]
     mkdir_result = ssh.exec_command(f"mkdir -p {remote_dir}")
@@ -271,7 +284,10 @@ def _upload_file_if_exists(
     last_err: Exception | None = None
     for attempt in range(3):
         try:
-            ssh.upload_file(local_path, remote_path)
+            if content is not None:
+                ssh.write_remote_file(remote_path, content)
+            else:
+                ssh.upload_file(local_path, remote_path)
             return True
         except Exception as e:
             last_err = e
@@ -376,11 +392,22 @@ def sync_project_files(
 
     # --- Step 2: Upload config files via SFTP ---
     _notify(on_progress, "upload_config", "running")
+    port_changes: list[PortChange] = []
     for local_rel, remote_abs in SYNC_CONFIG_FILES:
         local_path = local_project_root / local_rel
-        uploaded = _upload_file_if_exists(ssh, local_path, remote_abs, dry_run=dry_run)
+        content: bytes | None = None
+        file_changes: list[PortChange] = []
+        if local_rel == PROJECT_YML_REL and local_path.is_file():
+            # The server always uses the standard ports (Caddy proxies to them);
+            # normalize the uploaded copy only, never the local file.
+            content, file_changes = normalize_server_ports_bytes(local_path.read_bytes())
+        uploaded = _upload_file_if_exists(
+            ssh, local_path, remote_abs, dry_run=dry_run, content=content
+        )
         if uploaded:
             synced_files.append(local_rel)
+            # Report only what this run actually rewrote and uploads (or would, in dry-run).
+            port_changes = file_changes
     # BUG-124: Fix ownership for metabase-plugins (uploaded as root via SFTP)
     if not dry_run:
         ssh.exec_command(
@@ -466,4 +493,5 @@ def sync_project_files(
         has_macro_changes=has_macro_changes,
         is_first_deploy=first_deploy,
         dry_run=dry_run,
+        port_changes=port_changes,
     )
