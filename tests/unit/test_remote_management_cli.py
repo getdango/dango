@@ -248,10 +248,14 @@ class TestRemoteLogsCommand:
         assert "journalctl -u caddy" in cmd
 
     def test_metabase_service_logs(self, tmp_path):
-        """logs --service metabase uses docker logs."""
+        """logs --service metabase resolves the container, then uses docker logs."""
         mock_loader = _make_loader()
         mock_ssh_instance = MagicMock()
-        mock_ssh_instance.exec_command.return_value = _make_command_result(stdout="metabase logs")
+        mock_ssh_instance.exec_command.side_effect = lambda cmd, **kw: _make_command_result(
+            stdout="project:\n  id: ab12cd34ef56\n"
+            if cmd.startswith("cat ")
+            else "dango-ab12cd34-metabase-1"
+        )
 
         with (
             patch(_PATCH_REQUIRE_CTX, return_value=tmp_path),
@@ -262,7 +266,7 @@ class TestRemoteLogsCommand:
 
         assert result.exit_code == 0
         cmd = mock_ssh_instance.exec_command.call_args[0][0]
-        assert "docker logs metabase" in cmd
+        assert cmd == "docker logs --tail 50 dango-ab12cd34-metabase-1"
 
     def test_custom_tail_count(self, tmp_path):
         """logs --tail 20 passes through the tail count."""
