@@ -665,8 +665,10 @@ def close_health_check_client() -> None:
 def check_service_via_http(service_name: str) -> str:
     """Check service via HTTP health endpoint (faster on Windows)."""
     # Map service names to their health check URLs
+    from dango.security.metabase_config import resolve_metabase_url
+
     health_urls = {
-        "metabase": "http://localhost:3000/api/health",
+        "metabase": f"{resolve_metabase_url(get_project_root())}/api/health",
         "dbt-docs": "http://localhost:8081",
     }
 

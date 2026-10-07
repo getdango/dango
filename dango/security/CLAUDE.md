@@ -11,7 +11,7 @@ storage.
 |------|---------|----------------------|
 | `__init__.py` | Public exports | `SecureTokenStorage`, `MetabaseCredentialStore` |
 | `metabase_credentials.py` | Per-project Metabase admin-password storage outside the project tree | `MetabaseCredentialStore` |
-| `metabase_config.py` | Metabase metadata and administrator-credential access boundary | `load_metabase_metadata`, `load_metabase_admin_credentials`, `write_metabase_metadata` |
+| `metabase_config.py` | Metabase metadata and administrator-credential access boundary | `load_metabase_metadata`, `resolve_metabase_url` (host-side URL: metadata, then configured port, then 3000; tested by `test_resolve_metabase_url.py`), `load_metabase_admin_credentials`, `write_metabase_metadata` |
 | `token_storage.py` | Token encryption/decryption with OS keychain key storage | `SecureTokenStorage` |
 
 ## Common Tasks

@@ -12,7 +12,10 @@ import requests
 import yaml
 from rich.console import Console
 
-from dango.security.metabase_config import load_metabase_admin_credentials
+from dango.security.metabase_config import (
+    load_metabase_admin_credentials,
+    resolve_metabase_url,
+)
 
 console = Console()
 
@@ -25,7 +28,7 @@ class DashboardManager:
     def __init__(
         self,
         project_root: Path,
-        metabase_url: str = "http://localhost:3000",
+        metabase_url: str | None = None,
         session_token: str | None = None,
     ):
         """
@@ -33,11 +36,11 @@ class DashboardManager:
 
         Args:
             project_root: Path to Dango project root
-            metabase_url: Metabase URL
+            metabase_url: Metabase URL (default: the project's configured Metabase URL)
             session_token: Metabase session token (optional, will read from credentials)
         """
         self.project_root = project_root
-        self.metabase_url = metabase_url.rstrip("/")
+        self.metabase_url = (metabase_url or resolve_metabase_url(project_root)).rstrip("/")
         self.state_file = project_root / ".dango" / "state" / "dashboard_sync.json"
 
         self.session_token = session_token
