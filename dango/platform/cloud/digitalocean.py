@@ -197,6 +197,32 @@ class DigitalOceanClient:
         raise CloudError("Retry loop exhausted without result")  # pragma: no cover
 
     # ------------------------------------------------------------------
+    # Size catalogue
+    # ------------------------------------------------------------------
+
+    def list_sizes(self) -> list[dict[str, Any]]:
+        """List all Droplet sizes with the regions each is offered in.
+
+        Paginates through all pages (``per_page=200``).
+
+        Returns:
+            List of ``size`` objects (``slug``, ``regions``, ``available``,
+            ``price_monthly``, ...).
+        """
+        sizes: list[dict[str, Any]] = []
+        path: str | None = "/sizes"
+        params: dict[str, Any] = {"per_page": 200}
+
+        while path:
+            response = self._request_with_retry("GET", path, params=params)
+            data: dict[str, Any] = response.json()
+            sizes.extend(data.get("sizes", []))
+            params = {}
+            path = _next_page_path(data)
+
+        return sizes
+
+    # ------------------------------------------------------------------
     # Droplet operations
     # ------------------------------------------------------------------
 

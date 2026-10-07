@@ -1,0 +1,18 @@
+{
+  "sizes": [
+    {
+      "slug": "s-2vcpu-4gb",
+      "memory": 4096,
+      "vcpus": 2,
+      "disk": 80,
+      "transfer": 4.0,
+      "price_monthly": 24,
+      "price_hourly": 0.03571,
+      "regions": ["ams3", "blr1", "fra1", "lon1", "sfo2", "sgp1", "syd1", "tor1"],
+      "available": true,
+      "description": "Basic"
+    }
+  ],
+  "links": {},
+  "meta": {"total": 1}
+}
