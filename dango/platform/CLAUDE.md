@@ -46,6 +46,7 @@ platform/
 │   ├── __init__.py      # Re-exports 69 symbols (clients, provisioning, firewall, backup, deploy, journal, etc.)
 │   ├── digitalocean.py  # DO REST API v2 client (Droplets, SSH Keys, Firewalls)
 │   ├── provisioning.py  # Size tiers, regions, provision_droplet() orchestration (TASK-023)
+│   ├── size_availability.py  # Size-in-region availability check (T16)
 │   ├── firewall.py      # Firewall lifecycle, IP allowlisting (TASK-025)
 │   ├── spaces.py        # DO Spaces client (S3-compatible via boto3)
 │   ├── ssh.py           # SSH key management, TOFU known-hosts, exec/SFTP (TASK-024)
@@ -92,6 +93,7 @@ platform/
 | `notifications/slack.py` | Slack Block Kit formatter for webhook payloads | `format_slack_message` |
 | `cloud/digitalocean.py` | DigitalOcean REST API v2 client | `DigitalOceanClient` |
 | `cloud/provisioning.py` | Droplet size tiers, regions, provisioning orchestration | `DropletSizeTier`, `RegionInfo`, `SIZE_TIERS`, `DEFAULT_TIER`, `provision_droplet`, `wait_for_droplet_ready`, `wait_for_ssh`, `suggest_nearest_region`, `save_provisioning_metadata` |
+| `cloud/size_availability.py` | Which DO regions offer a droplet size (wizard region filter + pre-provision check, T16) | `regions_for_size`, `offerable_regions`, `fetch_sizes`, `check_size_in_region`, `SizeUnavailableError` |
 | `cloud/firewall.py` | Firewall lifecycle and IP allowlisting | `create_default_firewall`, `add_allowed_ip`, `restrict_web_to_ips`, `allow_all_web`, `validate_ip_or_cidr`, `save_firewall_metadata` |
 | `cloud/spaces.py` | DigitalOcean Spaces (S3-compatible) client | `SpacesClient` |
 | `cloud/ssh.py` | SSH key management, TOFU known-hosts, command exec, SFTP | `SSHManager`, `CommandResult` |
