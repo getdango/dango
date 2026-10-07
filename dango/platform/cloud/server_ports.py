@@ -10,16 +10,18 @@ listen on a port Caddy does not proxy to (HTTP 502).  The uploaded copy is
 therefore rewritten to the standard server ports; the local file is never
 touched.
 
-The edit is a targeted text substitution of the four scalar keys so comments,
-ordering and every other key survive.  If a key uses a form the substitution
-cannot reach (e.g. a flow-style ``platform: {port: 1}``), the content is
-re-dumped through PyYAML as a fallback (comments are lost in that case).
+The edit is a targeted text substitution of the four scalar keys (direct
+children of ``platform:`` only) so comments, ordering, line endings and every
+other key survive.  If a key uses a form the substitution cannot reach (e.g. a
+flow-style ``platform: {port: 1}``), the content is re-dumped through PyYAML
+as a fallback (comments are lost in that case).
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Any
 
 import yaml
 
@@ -32,18 +34,19 @@ _logger = get_logger(__name__)
 SERVER_PORT_KEYS: tuple[str, ...] = ("port", "metabase_port", "dbt_docs_port", "marimo_port")
 
 _PLATFORM_RE = re.compile(r"^platform\s*:\s*(#.*)?$")
+_INDENT_RE = re.compile(r"^(?P<indent>[ \t]+)\S")
 _KEY_RE = re.compile(
     r"^(?P<indent>[ \t]+)(?P<key>port|metabase_port|dbt_docs_port|marimo_port)"
-    r"(?P<sep>\s*:\s*)(?P<quote>['\"]?)(?P<value>\d+)(?P=quote)(?P<tail>\s*(?:#.*)?)$"
+    r"(?P<sep>\s*:\s*)(?P<value>'[^']*'|\"[^\"]*\"|[^\s#'\"]+)(?P<tail>\s*(?:#.*)?)$"
 )
 
 
 @dataclass(frozen=True)
 class PortChange:
-    """One port key rewritten in the uploaded copy."""
+    """One port key rewritten in the uploaded copy (``old`` is None if not a valid port)."""
 
     key: str
-    old: int
+    old: int | None
     new: int
 
 
@@ -52,8 +55,22 @@ def server_port_defaults() -> dict[str, int]:
     return {key: int(PlatformSettings.model_fields[key].default) for key in SERVER_PORT_KEYS}
 
 
+def _as_port(value: Any) -> int | None:
+    """Coerce a YAML scalar to an int port, or ``None`` if it is not one."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
 def _non_standard(text: str, defaults: dict[str, int]) -> list[PortChange]:
-    """Return the keys in *text* whose parsed value differs from the standard one."""
+    """Return the keys in *text* whose value is not the standard one (after int coercion)."""
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError:
@@ -63,11 +80,10 @@ def _non_standard(text: str, defaults: dict[str, int]) -> list[PortChange]:
         return []
     changes: list[PortChange] = []
     for key in SERVER_PORT_KEYS:
-        if key in platform and platform[key] != defaults[key]:
-            try:
-                changes.append(PortChange(key, int(platform[key]), defaults[key]))
-            except (TypeError, ValueError):
-                changes.append(PortChange(key, -1, defaults[key]))
+        if key in platform:
+            old = _as_port(platform[key])
+            if old != defaults[key]:
+                changes.append(PortChange(key, old, defaults[key]))
     return changes
 
 
@@ -85,20 +101,31 @@ def normalize_server_ports(text: str) -> tuple[str, list[PortChange]]:
     lines = text.splitlines(keepends=True)
     changes: list[PortChange] = []
     in_platform = False
+    child_indent: str | None = None
     for i, line in enumerate(lines):
         body = line.rstrip("\r\n")
         eol = line[len(body) :]
         if not in_platform:
             in_platform = bool(_PLATFORM_RE.match(body))
+            child_indent = None
             continue
         if body and not body[0].isspace() and not body.startswith("#"):
             in_platform = bool(_PLATFORM_RE.match(body))
+            child_indent = None
             continue
+        indent_match = _INDENT_RE.match(body)
+        if indent_match is None or body.lstrip().startswith("#"):
+            continue
+        if child_indent is None:
+            child_indent = indent_match["indent"]
+        if indent_match["indent"] != child_indent:
+            continue  # nested deeper (or dedented oddly): not a direct child
         match = _KEY_RE.match(body)
         if match is None:
             continue
-        key = match.group("key")
-        old = int(match.group("value"))
+        key = match["key"]
+        raw = match["value"]
+        old = _as_port(yaml.safe_load(raw))
         if old == defaults[key]:
             continue
         lines[i] = f"{match['indent']}{key}{match['sep']}{defaults[key]}{match['tail']}{eol}"
@@ -117,6 +144,23 @@ def normalize_server_ports(text: str) -> tuple[str, list[PortChange]]:
     return new_text, changes
 
 
+def normalize_server_ports_bytes(raw: bytes) -> tuple[bytes | None, list[PortChange]]:
+    """Byte-level wrapper used by the uploader.
+
+    Returns ``(None, [])`` when nothing needs changing (upload the original
+    bytes) or when *raw* is not valid UTF-8 (upload unmodified; logged).
+    """
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        _logger.warning("server_ports_skipped_non_utf8")
+        return None, []
+    new_text, changes = normalize_server_ports(text)
+    if not changes:
+        return None, []
+    return new_text.encode("utf-8"), changes
+
+
 def format_port_notice(changes: list[PortChange]) -> str | None:
     """User-facing one-line notice, or ``None`` when nothing was changed."""
     if not changes:
@@ -126,7 +170,10 @@ def format_port_notice(changes: list[PortChange]) -> str | None:
         f"web {defaults['port']}, metabase {defaults['metabase_port']}, "
         f"dbt docs {defaults['dbt_docs_port']}, marimo {defaults['marimo_port']}"
     )
-    changed = ", ".join(f"{c.key} {c.old} -> {c.new}" for c in changes)
+    changed = ", ".join(
+        f"{c.key} {c.old} -> {c.new}" if c.old is not None else f"{c.key} invalid value -> {c.new}"
+        for c in changes
+    )
     return (
         f"Using the standard server ports ({standard}); your local ports are unchanged. "
         f"Changed in the uploaded copy: {changed}."

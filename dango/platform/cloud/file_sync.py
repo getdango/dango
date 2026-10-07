@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
-from dango.platform.cloud.server_ports import PortChange, normalize_server_ports
+from dango.platform.cloud.server_ports import PortChange, normalize_server_ports_bytes
 
 _logger = get_logger(__name__)
 
@@ -262,7 +262,7 @@ def _upload_file_if_exists(
     """
     if not local_path.is_file():
         return False
-    if dry_run:
+    if dry_run and content is None:
         return True
     # Skip upload if remote file is identical (MD5 hash check).
     # Avoids re-uploading large files like the ~80MB Metabase DuckDB driver.
@@ -273,6 +273,8 @@ def _upload_file_if_exists(
         remote_hash = hash_result.stdout.strip().split(None, 1)[0]
         if local_hash == remote_hash:
             return False
+    if dry_run:
+        return True
     # Ensure remote parent directory exists
     remote_dir = remote_path.rsplit("/", 1)[0]
     mkdir_result = ssh.exec_command(f"mkdir -p {remote_dir}")
@@ -394,18 +396,18 @@ def sync_project_files(
     for local_rel, remote_abs in SYNC_CONFIG_FILES:
         local_path = local_project_root / local_rel
         content: bytes | None = None
+        file_changes: list[PortChange] = []
         if local_rel == PROJECT_YML_REL and local_path.is_file():
             # The server always uses the standard ports (Caddy proxies to them);
             # normalize the uploaded copy only, never the local file.
-            original = local_path.read_text(encoding="utf-8")
-            normalized, port_changes = normalize_server_ports(original)
-            if port_changes:
-                content = normalized.encode("utf-8")
+            content, file_changes = normalize_server_ports_bytes(local_path.read_bytes())
         uploaded = _upload_file_if_exists(
             ssh, local_path, remote_abs, dry_run=dry_run, content=content
         )
         if uploaded:
             synced_files.append(local_rel)
+            # Report only what this run actually rewrote and uploads (or would, in dry-run).
+            port_changes = file_changes
     # BUG-124: Fix ownership for metabase-plugins (uploaded as root via SFTP)
     if not dry_run:
         ssh.exec_command(

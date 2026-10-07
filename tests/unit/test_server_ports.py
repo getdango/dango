@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -211,6 +213,87 @@ class TestNormalizeEdgeCases:
 
 
 @pytest.mark.unit
+class TestFollowUp:
+    def test_crlf_preserved_on_sync_path(self, tmp_path):
+        text = "platform:\r\n  port: 8861\r\n  auto_sync: true\r\nauth:\r\n  enabled: true\r\n"
+        root = _project(tmp_path, text)
+        ssh = FakeSSH()
+
+        _sync(ssh, root)
+
+        assert ssh.uploaded[REMOTE_PROJECT_YML] == text.replace("8861", "8800").encode()
+
+    def test_quoted_standard_port_is_standard(self):
+        text = 'platform:\n  port: "8800"  # ok\n'
+        assert normalize_server_ports(text) == (text, [])
+
+    def test_quoted_standard_with_other_custom_keeps_text_edit(self):
+        text = '# c\nplatform:\n  port: "8800"\n  marimo_port: 7861\n'
+        out, changes = normalize_server_ports(text)
+        assert out == '# c\nplatform:\n  port: "8800"\n  marimo_port: 7805\n'
+        assert [(c.key, c.old, c.new) for c in changes] == [("marimo_port", 7861, 7805)]
+
+    @pytest.mark.parametrize("bad", ["true", "abc", "'abc'"])
+    def test_invalid_values_replaced_without_sentinel(self, bad):
+        text = f"# c\nplatform:\n  port: {bad}\n"
+        out, changes = normalize_server_ports(text)
+        assert out == "# c\nplatform:\n  port: 8800\n"
+        assert [(c.key, c.old, c.new) for c in changes] == [("port", None, 8800)]
+        notice = format_port_notice(changes)
+        assert notice is not None
+        assert "port invalid value -> 8800" in notice
+        assert "-1" not in notice
+
+    def test_non_utf8_uploaded_raw_without_crash(self, tmp_path):
+        raw = b"# caf\xe9\nplatform:\n  port: 8861\n"
+        (tmp_path / ".dango").mkdir()
+        (tmp_path / ".dango" / "project.yml").write_bytes(raw)
+        ssh = FakeSSH()
+
+        result = _sync(ssh, tmp_path)
+
+        assert ssh.uploaded[REMOTE_PROJECT_YML] == raw
+        assert result.port_changes == []
+
+    def test_nested_port_key_not_rewritten(self):
+        text = "platform:\n  extra:\n    port: 99\n  port: 8861\n"
+        out, changes = normalize_server_ports(text)
+        assert out == "platform:\n  extra:\n    port: 99\n  port: 8800\n"
+        assert [c.key for c in changes] == ["port"]
+
+    def test_nested_only_is_untouched(self):
+        text = "platform:\n  extra:\n    port: 99\n"
+        assert normalize_server_ports(text) == (text, [])
+
+    def test_no_notice_when_remote_already_normalized(self, tmp_path):
+        root = _project(tmp_path, CUSTOM)
+        normalized, _ = normalize_server_ports(CUSTOM)
+        ssh = FakeSSH(remote_project_yml=normalized.encode())
+
+        assert _sync(ssh, root).port_changes == []
+        assert _sync(ssh, root, dry_run=True).port_changes == []
+
+    def test_dry_run_reports_when_remote_differs(self, tmp_path):
+        root = _project(tmp_path, CUSTOM)
+        ssh = FakeSSH(remote_project_yml=b"old: 1\n")
+
+        assert len(_sync(ssh, root, dry_run=True).port_changes) == 4
+        assert ssh.uploaded == {}
+
+    def test_sync_project_files_is_only_project_yml_upload_site(self):
+        """Grep-style guard: no other module uploads/writes project.yml to a server."""
+        root = Path(__file__).resolve().parents[2] / "dango"
+        offenders = []
+        for path in root.rglob("*.py"):
+            if path.name in {"file_sync.py", "server_ports.py"}:
+                continue
+            for n, line in enumerate(path.read_text().splitlines(), 1):
+                if "project.yml" in line and ("upload_file" in line or "write_remote_file" in line):
+                    offenders.append(f"{path.relative_to(root)}:{n}")
+        assert offenders == []
+
+
+@pytest.mark.unit
 class TestNotice:
     def test_row8_notice_only_when_changed(self):
         assert format_port_notice([]) is None
@@ -233,7 +316,7 @@ class TestNotice:
 
 @pytest.mark.unit
 class TestAuthTimeoutStillApplies:
-    def test_row7_auth_script_applies_on_normalized_file(self, tmp_path, monkeypatch):
+    def test_row7_auth_script_applies_on_normalized_file(self, tmp_path):
         """The server-side edit runs after the upload and keeps the standard ports."""
         normalized, _ = normalize_server_ports(CUSTOM)
         (tmp_path / ".dango").mkdir()
@@ -241,9 +324,8 @@ class TestAuthTimeoutStillApplies:
         script = _build_auth_timeout_script()
         ast.parse(script)
         script = script.replace("/srv/dango/project", str(tmp_path))
-        monkeypatch.chdir(tmp_path)
 
-        exec(compile(script, "<auth-timeout>", "exec"), {})  # noqa: S102
+        subprocess.run([sys.executable, "-c", script], check=True, cwd=tmp_path)
 
         data = yaml.safe_load((tmp_path / ".dango" / "project.yml").read_text())
         assert data["auth"]["session_max_days"] == 30
