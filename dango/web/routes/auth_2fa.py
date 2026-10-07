@@ -118,15 +118,11 @@ def _set_session_cookie(
 
 
 def _get_auth_config(request: Request) -> AuthConfig | None:
-    """Load AuthConfig from project config. Returns None on failure."""
-    try:
-        from dango.config.helpers import load_config
+    """Load AuthConfig from project config (warns and falls back safely when invalid)."""
+    from dango.config.auth_loading import load_auth_config_safe
 
-        project_root: Path = request.app.state.project_root
-        config = load_config(project_root)
-        return config.auth
-    except Exception:
-        return None
+    project_root: Path = request.app.state.project_root
+    return load_auth_config_safe(project_root)
 
 
 # ---------------------------------------------------------------------------

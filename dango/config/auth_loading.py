@@ -20,9 +20,9 @@ from dango.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Designed cloud session limits (match the values provisioned on cloud servers).
-CLOUD_IDLE_TIMEOUT_MINUTES = 60
-CLOUD_SESSION_MAX_DAYS = 30
+# (file, error, cloud) combinations already warned about; the loader is called from
+# create_app, lifespan and per-request route helpers, so warn once per distinct problem.
+_warned: set[tuple[str, str, bool]] = set()
 
 
 def _describe_error(exc: Exception) -> tuple[str, str | None]:
@@ -39,25 +39,42 @@ def _describe_error(exc: Exception) -> tuple[str, str | None]:
 
 def _fallback() -> AuthConfig | None:
     if is_running_on_cloud():
-        return AuthConfig(
-            idle_timeout_minutes=CLOUD_IDLE_TIMEOUT_MINUTES,
-            session_max_days=CLOUD_SESSION_MAX_DAYS,
-        )
+        from dango.platform.cloud.server_auth import CLOUD_AUTH_TIMEOUTS
+
+        return AuthConfig.model_validate(CLOUD_AUTH_TIMEOUTS)
     return None
+
+
+def _warn_once(file: Path, field: str | None, message: str) -> None:
+    cloud = is_running_on_cloud()
+    key = (str(file), message, cloud)
+    if key in _warned:
+        return
+    _warned.add(key)
+    fallback: dict[str, Any] = {"fallback": "local_defaults"}
+    if cloud:
+        from dango.platform.cloud.server_auth import CLOUD_AUTH_TIMEOUTS
+
+        fallback = {"fallback": "cloud_defaults", **CLOUD_AUTH_TIMEOUTS}
+    logger.warning("auth_config_invalid", file=str(file), field=field, error=message, **fallback)
 
 
 def load_auth_config_safe(project_root: Path | None) -> AuthConfig | None:
     """Load ``auth:`` from project.yml.
 
     Returns None when there is no project config (or on local-mode failure, so
-    callers use the local defaults). On a cloud server a failure returns an
-    AuthConfig with the cloud timeouts. Failures are logged at WARNING.
+    callers use the local defaults). On a cloud server a failure, or a missing
+    project.yml, returns an AuthConfig with the cloud timeouts. Problems are
+    logged at WARNING (once per distinct problem per process).
     """
     loader = ConfigLoader(project_root or Path.cwd())
     project_file = loader.project_file
     if not project_file.exists():
-        logger.debug("auth_config_not_loaded", reason="no project config found, using defaults")
-        return None
+        if is_running_on_cloud():
+            _warn_once(project_file, None, "project.yml not found")
+        else:
+            logger.debug("auth_config_not_loaded", reason="no project config found, using defaults")
+        return _fallback()
 
     try:
         data: Any = yaml.safe_load(project_file.read_text()) or {}
@@ -66,14 +83,5 @@ def load_auth_config_safe(project_root: Path | None) -> AuthConfig | None:
         return AuthConfig(**data.get("auth", {}))
     except Exception as exc:
         message, field = _describe_error(exc)
-        cloud = is_running_on_cloud()
-        logger.warning(
-            "auth_config_invalid",
-            file=str(project_file),
-            field=field,
-            error=message,
-            fallback="cloud_defaults" if cloud else "local_defaults",
-            idle_timeout_minutes=(CLOUD_IDLE_TIMEOUT_MINUTES if cloud else None),
-            session_max_days=(CLOUD_SESSION_MAX_DAYS if cloud else None),
-        )
+        _warn_once(project_file, field, message)
         return _fallback()
