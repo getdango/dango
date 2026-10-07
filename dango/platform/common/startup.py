@@ -282,6 +282,8 @@ def setup_metabase_if_needed(
 
     # Resolve admin email: env var > auth DB > fallback
     admin_email = os.environ.get("DANGO_ADMIN_EMAIL", "")
+    email_from_env = bool(admin_email)
+    auth_db_missing = False
     if not admin_email:
         try:
             from dango.auth.admin import get_auth_db_path
@@ -289,7 +291,8 @@ def setup_metabase_if_needed(
             from dango.auth.models import Role
 
             db_path = get_auth_db_path(project_root)
-            if db_path.exists():
+            auth_db_missing = not db_path.exists()
+            if not auth_db_missing:
                 users = list_users(db_path, active_only=True)
                 admins = [u for u in users if u.role == Role.ADMIN]
                 if admins and admins[0].email != "admin@localhost":
@@ -302,11 +305,20 @@ def setup_metabase_if_needed(
         from dango.logging import get_logger as _get_logger
 
         _logger = _get_logger(__name__)
-        _logger.warning(
-            "metabase_setup_skipped",
-            reason="No admin email found. Metabase setup will complete on next restart.",
-        )
-        return {"already_configured": False, "success": True, "skipped": True}
+        if auth_db_missing:
+            reason = "No auth database found. Run 'dango migrate run' to create it first."
+        else:
+            reason = (
+                "No usable admin email: the project's admin is admin@localhost (or no admin "
+                "exists) and Metabase needs an address with a dotted domain."
+            )
+        _logger.warning("metabase_setup_skipped", reason=reason)
+        return {
+            "already_configured": False,
+            "success": True,
+            "skipped": True,
+            "skip_reason": reason,
+        }
 
     # Validate email domain — Metabase rejects domains without a dot (e.g. localhost)
     if "@" in admin_email:
@@ -315,11 +327,15 @@ def setup_metabase_if_needed(
             from dango.logging import get_logger as _get_logger2
 
             _logger2 = _get_logger2(__name__)
-            _logger2.warning(
-                "metabase_setup_skipped",
-                reason=f"Admin email domain invalid for Metabase: {domain}",
-            )
-            return {"already_configured": False, "success": True, "skipped": True}
+            source = "DANGO_ADMIN_EMAIL domain" if email_from_env else "Admin email domain"
+            reason = f"{source} invalid for Metabase: {domain}"
+            _logger2.warning("metabase_setup_skipped", reason=reason)
+            return {
+                "already_configured": False,
+                "success": True,
+                "skipped": True,
+                "skip_reason": reason,
+            }
 
     # Read the project's actual configured Metabase port rather than relying
     # on setup_metabase()'s own http://localhost:3000 default — a project
@@ -419,57 +435,6 @@ def wait_for_metabase_if_needed(project_root: Path, timeout: int = 120) -> bool 
     metadata = load_metabase_metadata(project_root) or {}
     url = str(metadata.get("metabase_url") or "http://localhost:3000").rstrip("/")
     return wait_for_metabase_ready(url, timeout=timeout)
-
-
-def cloud_repair_admin_command() -> str:
-    """Return the server command that repairs Metabase admin access, as ``dango`` (not root).
-
-    Root would leave root-owned credential files; SSH does not inherit ``DANGO_CLOUD_MODE``.
-    """
-    from dango.platform.cloud.backup import PROJECT_DIR
-    from dango.platform.cloud.deployer import VENV_BIN
-
-    sudo = "sudo -u dango -H env DANGO_CLOUD_MODE=true"
-    return f"cd {PROJECT_DIR} && {sudo} {VENV_BIN}/dango metabase repair-admin"
-
-
-def metabase_admin_credential_state(project_root: Path, *, probe: bool = True) -> str:
-    """Classify the Metabase admin credential; never repairs, retries, raises or leaks it.
-
-    Returns ``not_configured``, ``ok``, ``missing``, ``unreadable``, ``rejected`` or
-    ``unreachable`` (Metabase unhealthy: the credential is not blamed). At most one health
-    GET and one login POST (the throttle counts attempts); ``probe=False`` makes no HTTP
-    call and returns ``unverified`` if a credential exists.
-    """
-    try:
-        import requests
-
-        from dango.security.metabase_config import (
-            load_metabase_admin_credentials,
-            load_metabase_metadata,
-        )
-
-        metadata = load_metabase_metadata(project_root)
-        admin = metadata.get("admin") if isinstance(metadata, dict) else None
-        email = admin.get("email") if isinstance(admin, dict) else None
-        if metadata is None or not isinstance(email, str) or not email:
-            return "not_configured"
-        try:
-            credentials = load_metabase_admin_credentials(project_root)
-        except Exception:  # noqa: BLE001
-            return "unreadable"
-        if credentials is None:
-            return "missing"
-        if not probe:
-            return "unverified"
-        url = str(metadata.get("metabase_url") or "http://localhost:3000").rstrip("/")
-        if requests.get(f"{url}/api/health", timeout=5).status_code != 200:
-            return "unreachable"
-        login = {"username": credentials[0], "password": credentials[1]}
-        status = requests.post(f"{url}/api/session", json=login, timeout=10).status_code
-        return {200: "ok", 401: "rejected", 403: "rejected"}.get(status, "unreachable")
-    except Exception:  # noqa: BLE001
-        return "unreachable"
 
 
 def import_dashboards(project_root: Path) -> dict[str, Any] | None:

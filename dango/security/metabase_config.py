@@ -41,6 +41,30 @@ def load_metabase_metadata(project_root: Path) -> dict[str, Any] | None:
     return metadata
 
 
+def resolve_metabase_url(project_root: Path) -> str:
+    """Return the project's Metabase base URL without a trailing slash.
+
+    Order: ``metabase_url`` in ``.dango/metabase.yml`` (written at first setup from the
+    configured port), then ``platform.metabase_port`` from the project config, then 3000.
+    Never raises.
+    """
+    try:
+        metadata = load_metabase_metadata(Path(project_root))
+    except Exception:
+        metadata = None
+    url = metadata.get("metabase_url") if isinstance(metadata, dict) else None
+    if isinstance(url, str) and url.strip():
+        return url.strip().rstrip("/")
+    port = 3000
+    try:
+        from dango.config.helpers import load_config
+
+        port = load_config(Path(project_root)).platform.metabase_port
+    except Exception:
+        pass
+    return f"http://localhost:{port}"
+
+
 def is_metabase_admin_email(project_root: Path, email: str) -> bool:
     """True if ``email`` is the Metabase admin account recorded in ``.dango/metabase.yml``.
 

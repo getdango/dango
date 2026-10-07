@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-from dango.platform.common.startup import metabase_admin_credential_state
+from dango.platform.common.metabase_credential_state import metabase_admin_credential_state
 
 _LOADER = "dango.security.metabase_config.load_metabase_admin_credentials"
 _SECRET = "s3cret-pass-do-not-leak"

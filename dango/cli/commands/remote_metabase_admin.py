@@ -38,7 +38,7 @@ def remote_metabase_repair_admin(ctx: click.Context, yes: bool) -> None:
         _load_cloud_config_with_ip,
         _make_ssh_manager,
     )
-    from dango.platform.common.startup import cloud_repair_admin_command
+    from dango.platform.common.metabase_credential_state import cloud_repair_admin_command
 
     cloud_cfg, project_root = _load_cloud_config_with_ip(ctx)
 

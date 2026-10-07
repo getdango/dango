@@ -2,7 +2,7 @@
 
 Real-Docker check (local project, not a cloud test) that metabase_admin_credential_state
 classifies a live Metabase correctly: ok, then missing, then rejected after one login.
-Teardown uses the real Docker environment and asserts nothing of the project is left over.
+Teardown uses the shared docker_leak_support helper (real Docker env, leftovers asserted).
 """
 
 from __future__ import annotations
@@ -10,11 +10,12 @@ from __future__ import annotations
 import os
 import shutil
 import socket
-import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
+from tests.integration.docker_leak_support import teardown_and_check
 
 pytestmark = pytest.mark.integration
 
@@ -42,51 +43,6 @@ def _configure_unique_docker_ports(project_root: Path) -> None:
     ProjectInitializer(project_root)._create_docker_compose(config)
 
 
-def _docker_lines(*args: str) -> list[str]:
-    """Run a read-only docker query with the real environment and return its lines."""
-    result = subprocess.run(
-        ["docker", *args], capture_output=True, text=True, timeout=60, env=dict(os.environ)
-    )
-    assert result.returncode == 0, result.stderr
-    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
-
-
-def _teardown_and_assert_clean(project_root: Path, compose_project_name: str) -> None:
-    """Remove only this project's Compose resources, then assert none are left."""
-    assert compose_project_name.startswith("dango-"), compose_project_name
-    # Real environment on purpose: a fake HOME makes docker look in the wrong place and leaks.
-    env = {**os.environ, "COMPOSE_PROJECT_NAME": compose_project_name}
-    result = subprocess.run(
-        [
-            "docker",
-            "compose",
-            "-f",
-            str(project_root / "docker-compose.yml"),
-            "down",
-            "-v",
-            "--rmi",
-            "local",
-        ],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-        timeout=300,
-        env=env,
-        stdin=subprocess.DEVNULL,
-    )
-    assert result.returncode == 0, f"docker compose down failed: {result.stderr[-2000:]}"
-
-    containers = _docker_lines("ps", "-a", "--format", "{{.Names}}")
-    volumes = _docker_lines("volume", "ls", "--format", "{{.Name}}")
-    images = _docker_lines("image", "ls", "--format", "{{.Repository}}")
-    leftovers = (
-        [c for c in containers if c.startswith(f"{compose_project_name}-")]
-        + [v for v in volumes if v.startswith(f"{compose_project_name}_")]
-        + [i for i in images if i.startswith(f"{compose_project_name}-")]
-    )
-    assert not leftovers, f"Docker resources left behind: {leftovers}"
-
-
 class TestServeCredentialState:
     """The three detection states against a real Metabase, with one login each at most."""
 
@@ -110,11 +66,10 @@ class TestServeCredentialState:
         from dango.cli.init import init_project
         from dango.config import ConfigLoader
         from dango.platform import DockerManager
-        from dango.platform.common.startup import (
+        from dango.platform.common.metabase_credential_state import (
             metabase_admin_credential_state,
-            setup_metabase_if_needed,
-            start_docker_services,
         )
+        from dango.platform.common.startup import setup_metabase_if_needed, start_docker_services
         from dango.security import metabase_credentials
         from dango.security.metabase_config import load_metabase_admin_credentials
         from dango.security.metabase_credentials import MetabaseCredentialStore
@@ -187,6 +142,6 @@ class TestServeCredentialState:
         finally:
             try:
                 if compose_project_name:
-                    _teardown_and_assert_clean(project_root, compose_project_name)
+                    teardown_and_check(project_root, compose_project_name)
             finally:
                 keyring.set_keyring(previous_backend)

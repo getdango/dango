@@ -207,7 +207,9 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
     watch_credential = False
     if credential_check_needed:
         try:
-            from dango.platform.common.startup import metabase_admin_credential_state
+            from dango.platform.common.metabase_credential_state import (
+                metabase_admin_credential_state,
+            )
 
             credential_state = metabase_admin_credential_state(project_root, probe=False)
             credential_problem = {
@@ -306,7 +308,7 @@ def _stop_docker_quiet(project_root: Path) -> None:
 
 def _repair_instructions() -> str:
     """Return the operator text naming both ways to repair Metabase admin access."""
-    from dango.platform.common.startup import cloud_repair_admin_command
+    from dango.platform.common.metabase_credential_state import cloud_repair_admin_command
 
     return (
         "Metabase admin access needs repair. On this server run:\n"
@@ -328,11 +330,10 @@ def _watch_for_rejected_credential(project_root: Path) -> None:
     try:
         import requests
 
-        from dango.platform.common.startup import metabase_admin_credential_state
-        from dango.security.metabase_config import load_metabase_metadata
+        from dango.platform.common.metabase_credential_state import metabase_admin_credential_state
+        from dango.security.metabase_config import resolve_metabase_url
 
-        metadata = load_metabase_metadata(project_root) or {}
-        url = str(metadata.get("metabase_url") or "http://localhost:3000").rstrip("/")
+        url = resolve_metabase_url(project_root)
         for _attempt in range(36):
             try:
                 if requests.get(f"{url}/api/health", timeout=5).status_code == 200:
