@@ -20,6 +20,10 @@ from dango.logging import get_logger
 
 logger = get_logger(__name__)
 
+#: Designed cloud session limits (must match ``_build_auth_timeout_script`` in
+#: ``deploy_provision``); re-exported by ``platform/cloud/server_auth.py``.
+CLOUD_AUTH_TIMEOUTS: dict[str, int] = {"session_max_days": 30, "idle_timeout_minutes": 60}
+
 # (file, error, cloud) combinations already warned about; the loader is called from
 # create_app, lifespan and per-request route helpers, so warn once per distinct problem.
 _warned: set[tuple[str, str, bool]] = set()
@@ -39,8 +43,6 @@ def _describe_error(exc: Exception) -> tuple[str, str | None]:
 
 def _fallback() -> AuthConfig | None:
     if is_running_on_cloud():
-        from dango.platform.cloud.server_auth import CLOUD_AUTH_TIMEOUTS
-
         return AuthConfig.model_validate(CLOUD_AUTH_TIMEOUTS)
     return None
 
@@ -53,8 +55,6 @@ def _warn_once(file: Path, field: str | None, message: str) -> None:
     _warned.add(key)
     fallback: dict[str, Any] = {"fallback": "local_defaults"}
     if cloud:
-        from dango.platform.cloud.server_auth import CLOUD_AUTH_TIMEOUTS
-
         fallback = {"fallback": "cloud_defaults", **CLOUD_AUTH_TIMEOUTS}
     logger.warning("auth_config_invalid", file=str(file), field=field, error=message, **fallback)
 
