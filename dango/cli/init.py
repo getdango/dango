@@ -1315,11 +1315,12 @@ on-run-end:
         """Set up authentication: create admin user and enable auth.
 
         Runs database migrations to create auth.db, then either prompts for
-        admin credentials (interactive) or generates a random admin
-        (skip-wizard mode).
+        admin credentials (interactive) or creates the admin non-interactively
+        (skip-wizard mode: ``DANGO_ADMIN_EMAIL`` or ``admin@dango.test``, and
+        ``DANGO_ADMIN_PASSWORD`` if set, otherwise a random temporary password).
 
         Args:
-            skip_wizard: If True, generate random admin credentials.
+            skip_wizard: If True, create the admin non-interactively.
             force: If True, skip admin creation when admins already exist.
 
         Returns:
@@ -1331,6 +1332,7 @@ on-run-end:
         import click
 
         from dango.auth.admin import (
+            SKIP_WIZARD_DEFAULT_ADMIN_EMAIL,
             ensure_admin,
             format_credentials_panel,
             get_auth_db_path,
@@ -1365,17 +1367,34 @@ on-run-end:
                     return True
 
             if skip_wizard:
-                # Non-interactive: generate random admin
+                # Non-interactive: random admin unless DANGO_ADMIN_PASSWORD is supplied
                 import os
 
-                email = os.environ.get("DANGO_ADMIN_EMAIL", "admin@localhost")
-                result = ensure_admin(db_path, email=email)
+                env_email = os.environ.get("DANGO_ADMIN_EMAIL") or None
+                email = env_email or SKIP_WIZARD_DEFAULT_ADMIN_EMAIL
+                env_password = os.environ.get("DANGO_ADMIN_PASSWORD") or None
+                if env_password:
+                    # Only check against an email the user actually chose.
+                    issues = check_password_strength(env_password, email=env_email)
+                    if issues:
+                        console.print(
+                            f"  [red]DANGO_ADMIN_PASSWORD is weak:[/red] {'; '.join(issues)}"
+                        )
+                        console.print("  [yellow]Skipping auth setup.[/yellow]")
+                        return False
+                result = ensure_admin(db_path, email=email, password=env_password)
                 if result is not None:
                     user, password = result
                     set_auth_enabled(self.project_dir, enabled=True)
                     self._write_auth_to_project_yml()
                     console.print()
-                    console.print(format_credentials_panel(user.email, password))
+                    if env_password:
+                        console.print(
+                            f"[green]✓[/green] Admin account created for {user.email} "
+                            "(password from DANGO_ADMIN_PASSWORD)"
+                        )
+                    else:
+                        console.print(format_credentials_panel(user.email, password))
                     console.print()
                 else:
                     set_auth_enabled(self.project_dir, enabled=True)

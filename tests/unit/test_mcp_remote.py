@@ -249,15 +249,16 @@ def test_remote_sync_builds_cli_command(deployed: Any, known_source: str) -> Non
 
 
 @pytest.mark.unit
-def test_remote_sync_no_wait_uses_nohup(deployed: Any, known_source: str) -> None:
+def test_remote_sync_no_wait_uses_background_launcher(deployed: Any, known_source: str) -> None:
     out = mcp_remote.remote_sync(known_source, wait=False)
     cmd, kw = deployed.ssh.commands[0]
-    assert cmd.startswith(
-        "cd /srv/dango/project && nohup sudo -u dango -H env DANGO_CLOUD_MODE=true"
-    )
-    assert cmd.endswith("> /dev/null 2>&1 &") and not cmd.startswith("nohup")
-    assert kw["timeout"] == 10
-    assert out["status"] == "started"
+    assert cmd.startswith("sh -c ")
+    script = shlex.split(cmd)[2]
+    assert script.startswith("cd /srv/dango/project || {")
+    assert "\nnohup sudo -u dango -H env DANGO_CLOUD_MODE=true" in script
+    assert "nohup cd" not in script and "> /dev/null 2>&1 &\n" in script
+    assert kw == {"timeout": 30, "check": False}
+    assert out == {"status": "started", "source": known_source}
 
 
 @pytest.mark.unit
@@ -342,9 +343,41 @@ def test_remote_tools_registered() -> None:
 
 
 @pytest.mark.unit
-def test_remote_sync_no_wait_reports_start_failure(deployed: Any, known_source: str) -> None:
-    deployed.ssh = FakeSSH(lambda c: _res(stderr="nohup: failed", code=127))
-    assert mcp_remote.remote_sync(known_source, wait=False)["status"] == "failed"
+@pytest.mark.parametrize(
+    ("res", "expected"),
+    [
+        (_res(stderr="cannot cd to /srv/dango/project", code=2), "cannot cd to /srv/dango/project"),
+        (_res(stderr="command exited early with status 7", code=3), "status 7"),
+        (_res(stderr="", code=3), "Could not start sync"),
+    ],
+)
+def test_remote_sync_no_wait_reports_start_failure(
+    deployed: Any, known_source: str, res: Any, expected: str
+) -> None:
+    deployed.ssh = FakeSSH(lambda c: res)
+    out = mcp_remote.remote_sync(known_source, wait=False)
+    assert out["status"] == "failed" and expected in out["error"]
+
+
+@pytest.mark.unit
+def test_remote_sync_no_wait_started_when_launcher_succeeds(
+    deployed: Any, known_source: str
+) -> None:
+    deployed.ssh = FakeSSH(lambda c: _res(stdout="started (finished within 2s)\n"))
+    assert mcp_remote.remote_sync(known_source, wait=False)["status"] == "started"
+
+
+@pytest.mark.unit
+def test_remote_sync_no_wait_ssh_error_is_reported_not_raised(
+    deployed: Any, known_source: str
+) -> None:
+    from dango.exceptions import CloudSSHError
+
+    def boom(cmd: str) -> Any:
+        raise CloudSSHError("channel timed out")
+
+    deployed.ssh = FakeSSH(boom)
+    assert "channel timed out" in mcp_remote.remote_sync(known_source, wait=False)["error"]
 
 
 @pytest.mark.unit
