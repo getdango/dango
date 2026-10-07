@@ -4,6 +4,7 @@ Platform lifecycle commands (start, stop, status) and port helpers.
 """
 
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -127,6 +128,16 @@ def _check_docker_ports(platform_config: object) -> None:
         console.print()
 
         raise click.Abort()
+
+
+def _print_metabase_skipped(setup_result: dict[str, Any]) -> None:
+    """Tell the user Metabase setup was skipped, why, and the verified way to fix it."""
+    console.print("[yellow]⚠[/yellow] Metabase was not set up")
+    console.print(f"[dim]  {setup_result.get('skip_reason', 'No usable admin email.')}[/dim]")
+    console.print(
+        "[dim]  To fix: dango auth add-user you@yourcompany.com --role admin --password[/dim]"
+    )
+    console.print("[dim]  then: DANGO_ADMIN_EMAIL=you@yourcompany.com dango start[/dim]")
 
 
 @click.command()
@@ -653,16 +664,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                 console.print("[green]✓[/green] Metabase already configured")
                 metabase_configured = True
             elif setup_result.get("skipped"):
-                console.print("[yellow]⚠[/yellow] Metabase was not set up")
-                console.print(
-                    f"[dim]  {setup_result.get('skip_reason', 'No usable admin email.')}[/dim]"
-                )
-                console.print(
-                    "[dim]  To fix: dango auth add-user you@yourcompany.com --role admin --password[/dim]"
-                )
-                console.print(
-                    "[dim]  then: DANGO_ADMIN_EMAIL=you@yourcompany.com dango start[/dim]"
-                )
+                _print_metabase_skipped(setup_result)
                 metabase_configured = False
             elif setup_result.get("success"):
                 console.print("[green]✓[/green] Metabase configured automatically")

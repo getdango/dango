@@ -1315,11 +1315,12 @@ on-run-end:
         """Set up authentication: create admin user and enable auth.
 
         Runs database migrations to create auth.db, then either prompts for
-        admin credentials (interactive) or generates a random admin
-        (skip-wizard mode).
+        admin credentials (interactive) or creates the admin non-interactively
+        (skip-wizard mode: ``DANGO_ADMIN_EMAIL`` or ``admin@dango.test``, and
+        ``DANGO_ADMIN_PASSWORD`` if set, otherwise a random temporary password).
 
         Args:
-            skip_wizard: If True, generate random admin credentials.
+            skip_wizard: If True, create the admin non-interactively.
             force: If True, skip admin creation when admins already exist.
 
         Returns:
@@ -1369,10 +1370,12 @@ on-run-end:
                 # Non-interactive: random admin unless DANGO_ADMIN_PASSWORD is supplied
                 import os
 
-                email = os.environ.get("DANGO_ADMIN_EMAIL", SKIP_WIZARD_DEFAULT_ADMIN_EMAIL)
+                env_email = os.environ.get("DANGO_ADMIN_EMAIL") or None
+                email = env_email or SKIP_WIZARD_DEFAULT_ADMIN_EMAIL
                 env_password = os.environ.get("DANGO_ADMIN_PASSWORD") or None
                 if env_password:
-                    issues = check_password_strength(env_password, email=email)
+                    # Only check against an email the user actually chose.
+                    issues = check_password_strength(env_password, email=env_email)
                     if issues:
                         console.print(
                             f"  [red]DANGO_ADMIN_PASSWORD is weak:[/red] {'; '.join(issues)}"

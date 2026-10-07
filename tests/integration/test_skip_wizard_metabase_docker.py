@@ -17,8 +17,12 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    import requests
 
 pytestmark = pytest.mark.integration
 
@@ -159,7 +163,9 @@ def _wait_healthy(base_url: str) -> None:
     pytest.fail(f"Dango web server never became healthy at {base_url}")
 
 
-def _dango_login(base_url: str, email: str, password: str):  # type: ignore[no-untyped-def]
+def _dango_login(
+    base_url: str, email: str, password: str
+) -> tuple[requests.Session, requests.Response]:
     import requests
 
     session = requests.Session()
@@ -310,6 +316,9 @@ def test_replacing_default_admin_keeps_metabase_and_sso_working(docker_project: 
     url = _metabase_url(root)
     creds_before = load_metabase_admin_credentials(root)
     yml_before = (root / ".dango" / "metabase.yml").read_text()
+    import yaml
+
+    assert yaml.safe_load(yml_before)["admin"]["email"] == "admin@dango.test"
     assert creds_before and _metabase_login(url, *creds_before) == 200
 
     new_email = "second@dango-t3.test"
@@ -333,6 +342,8 @@ def test_replacing_default_admin_keeps_metabase_and_sso_working(docker_project: 
     session2, _ = _dango_login(base_url, new_email, new_password)
     proxied = session2.get(f"{base_url}/metabase/api/user/current", timeout=30)
     report.append(f"(3) second admin via proxy /metabase/api/user/current: {proxied.status_code}")
+    proxied_email = proxied.json().get("email") if proxied.status_code == 200 else None
+    report.append(f"(3b) proxied identity email: {proxied_email}")
     code4, again = _run_dango(root, env, "start", "-y")
     report.append(
         f"(4) restart exit={code4} repair={'Restoring Metabase admin access' in again} "
@@ -349,5 +360,6 @@ def test_replacing_default_admin_keeps_metabase_and_sso_working(docker_project: 
     assert "deleted." in deleted, summary
     assert mb_login_after == 200, summary
     assert proxied.status_code == 200, summary
+    assert proxied_email == new_email, summary
     assert code4 == 0 and "Restoring Metabase admin access" not in again, summary
     assert "Metabase was not set up" not in again, summary

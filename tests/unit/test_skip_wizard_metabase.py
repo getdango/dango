@@ -89,9 +89,62 @@ class TestSkipWizardAuth:
         (admin,) = _admins(tmp_path)
         assert admin.must_change_password is True
 
+    def test_skip_wizard_empty_email_env_uses_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("DANGO_ADMIN_EMAIL", "")
+        monkeypatch.setenv("DANGO_ADMIN_PASSWORD", _STRONG_PASSWORD)
+        assert ProjectInitializer(tmp_path)._setup_auth(skip_wizard=True) is True
+        (admin,) = _admins(tmp_path)
+        assert admin.email == SKIP_WIZARD_DEFAULT_ADMIN_EMAIL
+
+    def test_skip_wizard_password_check_ignores_default_email(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A password containing 'admin' is fine when the user never chose the email."""
+        monkeypatch.setenv("DANGO_ADMIN_PASSWORD", "Admin-Tr0ub4dor-Horse-Battery-9!")
+        with patch("dango.cli.init.console"):
+            assert ProjectInitializer(tmp_path)._setup_auth(skip_wizard=True) is True
+        assert len(_admins(tmp_path)) == 1
+
+    def test_skip_wizard_password_check_uses_chosen_email(self, tmp_path: Path) -> None:
+        """When the user sets DANGO_ADMIN_EMAIL, the strength check still receives it."""
+        with (
+            patch.dict(
+                "os.environ",
+                {"DANGO_ADMIN_EMAIL": "ops@example.com", "DANGO_ADMIN_PASSWORD": _STRONG_PASSWORD},
+            ),
+            patch("dango.auth.security.check_password_strength", return_value=[]) as check,
+        ):
+            ProjectInitializer(tmp_path)._setup_auth(skip_wizard=True)
+        check.assert_called_once_with(_STRONG_PASSWORD, email="ops@example.com")
+
+    def test_skip_wizard_password_check_gets_no_email_when_unset(self, tmp_path: Path) -> None:
+        with (
+            patch.dict("os.environ", {"DANGO_ADMIN_PASSWORD": _STRONG_PASSWORD}),
+            patch("dango.auth.security.check_password_strength", return_value=[]) as check,
+        ):
+            ProjectInitializer(tmp_path)._setup_auth(skip_wizard=True)
+        check.assert_called_once_with(_STRONG_PASSWORD, email=None)
+
 
 def _no_next_restart(logger: MagicMock) -> bool:
     return "next restart" not in str(logger.mock_calls)
+
+
+@pytest.mark.unit
+class TestStartSkipMessage:
+    def test_skip_message_shows_reason_and_remedy_not_configured(self) -> None:
+        from dango.cli.commands.platform import _print_metabase_skipped
+
+        with patch("dango.cli.commands.platform.console") as console:
+            _print_metabase_skipped({"skipped": True, "skip_reason": "REASON-XYZ"})
+        out = "\n".join(str(c.args[0]) for c in console.print.call_args_list)
+        assert "Metabase was not set up" in out
+        assert "REASON-XYZ" in out
+        assert "dango auth add-user you@yourcompany.com --role admin --password" in out
+        assert "DANGO_ADMIN_EMAIL=you@yourcompany.com dango start" in out
+        assert "configured automatically" not in out
 
 
 @pytest.mark.unit
@@ -114,7 +167,7 @@ class TestSetupMetabaseSkipReason:
             result = setup_metabase_if_needed(tmp_path, "P", None)
         assert result["skipped"] is True
         assert result["success"] is True
-        assert result["skip_reason"]
+        assert "dango migrate run" in result["skip_reason"]
         assert _no_next_restart(get_logger.return_value)
 
     def test_setup_metabase_skip_reports_auth_db_read_error(self, tmp_path: Path) -> None:
@@ -136,5 +189,6 @@ class TestSetupMetabaseSkipReason:
             result = setup_metabase_if_needed(tmp_path, "P", None)
         assert result["skipped"] is True
         assert result["success"] is True
+        assert "DANGO_ADMIN_EMAIL" in result["skip_reason"]
         assert "corp" in result["skip_reason"]
         assert _no_next_restart(get_logger.return_value)

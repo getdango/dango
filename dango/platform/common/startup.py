@@ -282,6 +282,8 @@ def setup_metabase_if_needed(
 
     # Resolve admin email: env var > auth DB > fallback
     admin_email = os.environ.get("DANGO_ADMIN_EMAIL", "")
+    email_from_env = bool(admin_email)
+    auth_db_missing = False
     if not admin_email:
         try:
             from dango.auth.admin import get_auth_db_path
@@ -289,7 +291,8 @@ def setup_metabase_if_needed(
             from dango.auth.models import Role
 
             db_path = get_auth_db_path(project_root)
-            if db_path.exists():
+            auth_db_missing = not db_path.exists()
+            if not auth_db_missing:
                 users = list_users(db_path, active_only=True)
                 admins = [u for u in users if u.role == Role.ADMIN]
                 if admins and admins[0].email != "admin@localhost":
@@ -302,10 +305,13 @@ def setup_metabase_if_needed(
         from dango.logging import get_logger as _get_logger
 
         _logger = _get_logger(__name__)
-        reason = (
-            "No usable admin email: the project's admin is admin@localhost (or no admin exists) "
-            "and Metabase needs an address with a dotted domain."
-        )
+        if auth_db_missing:
+            reason = "No auth database found. Run 'dango migrate run' to create it first."
+        else:
+            reason = (
+                "No usable admin email: the project's admin is admin@localhost (or no admin "
+                "exists) and Metabase needs an address with a dotted domain."
+            )
         _logger.warning("metabase_setup_skipped", reason=reason)
         return {
             "already_configured": False,
@@ -321,7 +327,8 @@ def setup_metabase_if_needed(
             from dango.logging import get_logger as _get_logger2
 
             _logger2 = _get_logger2(__name__)
-            reason = f"Admin email domain invalid for Metabase: {domain}"
+            source = "DANGO_ADMIN_EMAIL domain" if email_from_env else "Admin email domain"
+            reason = f"{source} invalid for Metabase: {domain}"
             _logger2.warning("metabase_setup_skipped", reason=reason)
             return {
                 "already_configured": False,
