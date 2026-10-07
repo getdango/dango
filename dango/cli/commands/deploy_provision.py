@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import re
+import shlex
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -319,11 +320,7 @@ def run_provisioning(
             from dango.platform.cloud.backup import get_remote_compose_project_name
 
             compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
-            result = ssh.exec_command(
-                f"cd /srv/dango/project && COMPOSE_PROJECT_NAME={compose_proj} "
-                "sudo -u dango docker compose build",
-                timeout=900,
-            )
+            result = ssh.exec_command(_prebuild_command(compose_proj), timeout=900)
             if result.exit_code != 0:
                 raise CloudProvisioningError(
                     f"Docker image build failed:\n{result.stderr.strip() or result.stdout.strip()}"
@@ -544,11 +541,7 @@ def run_byos_setup(
             from dango.platform.cloud.backup import get_remote_compose_project_name
 
             compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
-            result = ssh.exec_command(
-                f"cd /srv/dango/project && COMPOSE_PROJECT_NAME={compose_proj} "
-                "sudo -u dango docker compose build",
-                timeout=900,
-            )
+            result = ssh.exec_command(_prebuild_command(compose_proj), timeout=900)
             if result.exit_code != 0:
                 raise CloudProvisioningError(
                     f"Docker image build failed:\n{result.stderr.strip() or result.stdout.strip()}"
@@ -618,6 +611,18 @@ def run_byos_setup(
 # ---------------------------------------------------------------------------
 # Sub-step helpers
 # ---------------------------------------------------------------------------
+
+
+def _prebuild_command(compose_proj: str) -> str:
+    """Build the pre-deploy ``docker compose build`` command.
+
+    The variable is passed through ``env`` *after* sudo: ``VAR=x sudo ...`` is dropped by
+    sudo's env_reset, so Compose would fall back to the directory name and build twice.
+    """
+    return (
+        "cd /srv/dango/project && sudo -u dango env "
+        f"COMPOSE_PROJECT_NAME={shlex.quote(compose_proj)} docker compose build"
+    )
 
 
 def _status(msg: str) -> None:
