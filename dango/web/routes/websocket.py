@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["websocket"])
 
 _MAX_WS_MESSAGE_SIZE = 4096  # 4 KB
+MAX_WS_CONNECTIONS = 100
 
 
 class ConnectionManager:
@@ -92,7 +93,15 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     - Sync progress and completion
     - Errors and warnings
     - Data freshness changes
+
+    Authentication happens in ``AuthMiddleware``. Connections beyond
+    ``MAX_WS_CONNECTIONS`` are refused with close code 1013 (try again later).
     """
+    if len(ws_manager.active_connections) >= MAX_WS_CONNECTIONS:
+        logger.warning("WebSocket connection refused: limit of %d reached", MAX_WS_CONNECTIONS)
+        await websocket.close(code=1013)
+        return
+
     await ws_manager.connect(websocket)
 
     try:
