@@ -1,6 +1,6 @@
 """tests/integration/test_rsync_hostkey_docker.py
 
-rsync push refuses a server whose host key differs from the pinned one (two real sshd containers)."""
+rsync push refuses a server whose host key differs from the pinned one (real sshd containers)."""
 
 from __future__ import annotations
 
@@ -16,17 +16,18 @@ from pathlib import Path
 import paramiko
 import pytest
 
-from dango.exceptions import CloudProvisioningError
+from dango.exceptions import CloudProvisioningError, CloudSSHError
 from dango.platform.cloud.file_sync import _rsync_directory
+from dango.platform.cloud.ssh import SSHManager
 
-_IMAGE = "dango-test-rsync-sshd:1"
+_IMAGE = "dango-test-rsync-sshd:2"
 _DOCKERFILE = """\
 FROM alpine:3.20
 RUN apk add --no-cache openssh rsync && sed -i 's/^root:!/root:*/' /etc/shadow
-CMD ["/bin/sh", "-c", "ssh-keygen -q -t ed25519 -N '' -f /etc/ssh/ssh_host_ed25519_key \
+CMD ["/bin/sh", "-c", "ssh-keygen -q -t ${KEYTYPE:-ed25519} -N '' -f /etc/ssh/hostkey \
 && mkdir -p /root/.ssh && echo \\"$AUTHORIZED_KEY\\" > /root/.ssh/authorized_keys \
 && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys \
-&& exec /usr/sbin/sshd -D -e -o HostKey=/etc/ssh/ssh_host_ed25519_key \
+&& exec /usr/sbin/sshd -D -e -o HostKey=/etc/ssh/hostkey \
 -o PasswordAuthentication=no -o PermitRootLogin=prohibit-password"]
 """
 
@@ -82,7 +83,7 @@ def sshd_pair(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
     names: list[str] = []
     ports: dict[str, int] = {}
     try:
-        for role in ("real", "impostor"):
+        for role, keytype in (("real", "ed25519"), ("impostor", "ed25519"), ("ecdsa", "ecdsa")):
             name = f"dango-rsync-hostkey-{role}-{uuid.uuid4().hex[:8]}"
             port = _free_port()
             _docker(
@@ -95,6 +96,8 @@ def sshd_pair(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
                 f"127.0.0.1:{port}:22",
                 "-e",
                 f"AUTHORIZED_KEY={(work / 'id_ed25519.pub').read_text().strip()}",
+                "-e",
+                f"KEYTYPE={keytype}",
                 _IMAGE,
             )
             names.append(name)
@@ -103,9 +106,10 @@ def sshd_pair(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
         real_key = _server_key(ports["real"])
         impostor_key = _server_key(ports["impostor"])
         assert real_key.asbytes() != impostor_key.asbytes(), "containers share a host key"
+        assert _server_key(ports["ecdsa"]).get_name().startswith("ecdsa-")
 
-        # Pin the real server's key for BOTH addresses: the impostor answers on an address
-        # whose pinned key it does not hold, as a man-in-the-middle would.
+        # Pin the real server's ED25519 key for EVERY address: the impostors answer on an
+        # address whose pinned key they do not hold, as a man-in-the-middle would.
         known_hosts = work / "known_hosts"
         hk = paramiko.HostKeys()
         for port in ports.values():
@@ -113,7 +117,7 @@ def sshd_pair(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
         hk.save(str(known_hosts))
 
         yield {
-            "names": dict(zip(("real", "impostor"), names, strict=True)),
+            "names": dict(zip(("real", "impostor", "ecdsa"), names, strict=True)),
             "ports": ports,
             "key": client_key,
             "known_hosts": known_hosts,
@@ -159,3 +163,13 @@ class TestRsyncHostKeyAgainstRealSshd:
         assert "Host key verification failed" in message or "has changed" in message
         listing = _docker("exec", sshd_pair["names"]["impostor"], "ls", "/srv", check=False)
         assert "push" not in listing
+
+    def test_paramiko_refuses_other_key_type_for_pinned_host(self, sshd_pair: dict) -> None:
+        """A server offering only ECDSA for an address pinned to ED25519 is refused."""
+        known_hosts = sshd_pair["known_hosts"]
+        before = known_hosts.read_bytes()
+        manager = SSHManager(key_path=sshd_pair["key"], known_hosts_path=known_hosts)
+        with pytest.raises(CloudSSHError, match="changed"):
+            manager.connect("127.0.0.1", port=sshd_pair["ports"]["ecdsa"])
+        manager.disconnect()
+        assert known_hosts.read_bytes() == before

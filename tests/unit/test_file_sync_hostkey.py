@@ -24,21 +24,37 @@ from dango.platform.cloud.ssh import CommandResult, SSHManager
 _HOST = "203.0.113.10"
 
 
-def _pin(known_hosts: Path, name: str) -> None:
+def _pin(known_hosts: Path, name: str, key: paramiko.PKey | None = None) -> paramiko.PKey:
     """Write a known_hosts entry for *name* the way SSHManager's TOFU policy does."""
     hk = paramiko.HostKeys()
     if known_hosts.exists():
         hk.load(str(known_hosts))
-    key = paramiko.ECDSAKey.generate()
+    key = key or paramiko.ECDSAKey.generate()
     hk.add(name, key.get_name(), key)
     known_hosts.parent.mkdir(parents=True, exist_ok=True)
     hk.save(str(known_hosts))
+    return key
 
 
-def _ssh_mock(known_hosts: Path, *, host: str = _HOST, port: int = 22) -> MagicMock:
+def _pinned_keys(known_hosts: Path, name: str) -> list[bytes]:
+    if not known_hosts.exists():
+        return []
+    hk = paramiko.HostKeys(str(known_hosts))
+    entry = hk.lookup(name)
+    return [k.asbytes() for k in entry.values()] if entry else []
+
+
+def _ssh_mock(
+    known_hosts: Path,
+    *,
+    host: str = _HOST,
+    port: int = 22,
+    legacy: list[Path] | None = None,
+) -> MagicMock:
     ssh = MagicMock()
     ssh.key_path = known_hosts.parent / "id_ed25519"
     ssh.known_hosts_path = known_hosts
+    ssh.legacy_known_hosts_paths = legacy or []
     ssh.host = host
     ssh.port = port
     ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=0)
@@ -167,28 +183,115 @@ class TestSSHManagerRecordsEndpoint:
 
 
 @pytest.mark.unit
+class TestLegacyKnownHostsForRsync:
+    """Hosts pinned before 1.0.14 in ``<key dir>/known_hosts`` keep working without re-TOFU."""
+
+    @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
+    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    def test_host_pinned_only_in_legacy_file_pushes(
+        self, mock_run: MagicMock, _which: MagicMock, tmp_path: Path
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        primary = tmp_path / "home" / ".dango" / "known_hosts"
+        legacy = tmp_path / "project" / ".dango" / "known_hosts"
+        key = _pin(legacy, _HOST)
+        ssh = _ssh_mock(primary, legacy=[legacy])
+
+        sync_project_files(ssh, _project(tmp_path), remote_host=_HOST)
+
+        assert _pinned_keys(primary, _HOST) == [key.asbytes()]  # trusted pin carried over
+        e_args = _rsync_e_args(mock_run)
+        assert e_args
+        for arg in e_args:
+            assert f'UserKnownHostsFile="{primary}"' in arg
+            assert "StrictHostKeyChecking=yes" in arg
+
+    @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
+    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    def test_conflicting_pins_refused(
+        self, mock_run: MagicMock, _which: MagicMock, tmp_path: Path
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        primary = tmp_path / "home" / ".dango" / "known_hosts"
+        legacy = tmp_path / "project" / ".dango" / "known_hosts"
+        _pin(primary, _HOST)
+        _pin(legacy, _HOST)  # same key type, different key
+        ssh = _ssh_mock(primary, legacy=[legacy])
+
+        with pytest.raises(CloudProvisioningError, match="changed"):
+            sync_project_files(ssh, _project(tmp_path), remote_host=_HOST)
+        assert _rsync_e_args(mock_run) == []
+
+    @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
+    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    def test_remote_host_must_match_connected_host(
+        self, mock_run: MagicMock, _which: MagicMock, tmp_path: Path
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        primary = tmp_path / "known_hosts"
+        _pin(primary, _HOST)
+        _pin(primary, "198.51.100.7")
+        ssh = _ssh_mock(primary, host="198.51.100.7")
+
+        with pytest.raises(CloudProvisioningError):
+            sync_project_files(ssh, _project(tmp_path), remote_host=_HOST)
+        assert _rsync_e_args(mock_run) == []
+
+    def test_manager_lists_existing_legacy_file_only(self, tmp_path: Path) -> None:
+        key_path = tmp_path / "project" / ".dango" / "cloud_key"
+        primary = tmp_path / "home" / ".dango" / "known_hosts"
+        manager = SSHManager(key_path=key_path, known_hosts_path=primary)
+        assert manager.legacy_known_hosts_paths == []
+        _pin(key_path.parent / "known_hosts", _HOST)
+        assert manager.legacy_known_hosts_paths == [key_path.parent / "known_hosts"]
+        same = SSHManager(key_path=key_path, known_hosts_path=key_path.parent / "known_hosts")
+        assert same.legacy_known_hosts_paths == []
+
+
+def _invoke_remote_ssh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[list[str], Path]:
+    from dango.cli.commands.remote import remote
+
+    home = tmp_path / "home"
+    home.mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(home))
+    cfg = MagicMock()
+    cfg.droplet_ip = "1.2.3.4"
+    cfg.ssh_key_path = ".dango/cloud_key"
+    loader = MagicMock()
+    loader.load_cloud_config.return_value = cfg
+    key_path = tmp_path / ".dango" / "cloud_key"
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    key_path.touch()
+
+    with (
+        patch("dango.cli.utils.require_project_context", return_value=tmp_path),
+        patch("dango.config.loader.ConfigLoader", return_value=loader),
+        patch("dango.cli.commands.remote_mgmt.os.execvp") as mock_execvp,
+    ):
+        result = CliRunner().invoke(remote, ["ssh"], obj={"project_root": tmp_path})
+
+    assert result.exit_code == 0, result.output
+    return mock_execvp.call_args[0][1], key_path
+
+
+@pytest.mark.unit
 class TestRemoteSshKnownHosts:
-    def test_remote_ssh_uses_manager_known_hosts_file(self, tmp_path: Path) -> None:
-        from dango.cli.commands.remote import remote
-
-        cfg = MagicMock()
-        cfg.droplet_ip = "1.2.3.4"
-        cfg.ssh_key_path = ".dango/cloud_key"
-        loader = MagicMock()
-        loader.load_cloud_config.return_value = cfg
-        key_path = tmp_path / ".dango" / "cloud_key"
-        key_path.parent.mkdir(parents=True)
-        key_path.touch()
-
-        with (
-            patch("dango.cli.utils.require_project_context", return_value=tmp_path),
-            patch("dango.config.loader.ConfigLoader", return_value=loader),
-            patch("dango.cli.commands.remote_mgmt.os.execvp") as mock_execvp,
-        ):
-            result = CliRunner().invoke(remote, ["ssh"], obj={"project_root": tmp_path})
-
-        assert result.exit_code == 0, result.output
-        argv = mock_execvp.call_args[0][1]
+    def test_remote_ssh_uses_manager_known_hosts_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        argv, key_path = _invoke_remote_ssh(tmp_path, monkeypatch)
         expected = SSHManager(key_path=key_path).known_hosts_path
+        assert expected == tmp_path / "home" / ".dango" / "known_hosts"
         assert f"UserKnownHostsFile={expected}" in argv
         assert "StrictHostKeyChecking=accept-new" in argv
+
+    def test_remote_ssh_carries_over_legacy_pin(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        legacy = tmp_path / ".dango" / "known_hosts"
+        key = _pin(legacy, "1.2.3.4")
+        argv, _ = _invoke_remote_ssh(tmp_path, monkeypatch)
+        primary = tmp_path / "home" / ".dango" / "known_hosts"
+        assert f"UserKnownHostsFile={primary}" in argv
+        # accept-new must not re-TOFU a host already pinned in the legacy file
+        assert _pinned_keys(primary, "1.2.3.4") == [key.asbytes()]
