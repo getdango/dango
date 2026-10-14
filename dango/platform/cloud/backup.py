@@ -655,6 +655,7 @@ def restore_from_archive(
     staging = f"{RESTORE_STAGING_ROOT}/dango-restore-staging-{uuid.uuid4().hex}"
 
     services_restarted = False
+    copies_started = False
     try:
         try:
             _notify(on_progress, "extract_archive", "running")
@@ -685,6 +686,7 @@ def restore_from_archive(
                 )
 
             _notify(on_progress, "restore_files", "running")
+            copies_started = True
             restore_cmds: list[str] = []
             for fpath in BACKUP_FILES:
                 src = f"{staging}/{fpath}"
@@ -723,6 +725,12 @@ def restore_from_archive(
             _notify(on_progress, "fix_ownership", "running")
             _run_checked(ssh, "chown -R dango:dango /srv/dango/project", step="fix_ownership")
             _notify(on_progress, "fix_ownership", "done")
+        except Exception:
+            if copies_started:
+                # A failed copy leaves a partial, root-owned restore; give it back
+                # to the service user before services restart on it.
+                ssh.exec_command("chown -R dango:dango /srv/dango/project")  # best effort
+            raise
         finally:
             try:
                 ssh.exec_command(f"rm -rf {shlex.quote(staging)}")  # cleanup: best effort

@@ -133,6 +133,8 @@ def test_restore_files_cp_failure_raises(tmp_path: Path, failing: str) -> None:
 
     assert "restore_files" in str(exc.value)
     start.assert_called_once()
+    # The partial restore is handed back to the service user before services restart.
+    assert any(c.startswith("chown -R dango:dango") for c in ssh.commands)
 
 
 @pytest.mark.unit
@@ -168,6 +170,9 @@ def test_restore_layout_check_requires_real_content(tmp_path: Path) -> None:
         pytest.raises(CloudProvisioningError, match="unexpected layout"),
     ):
         restore_from_archive(ssh, archive)
+
+    assert not any(c.startswith("chown") for c in ssh.commands)
+    assert not any("cp " in c for c in ssh.commands)
 
 
 # ---------------------------------------------------------------------------
