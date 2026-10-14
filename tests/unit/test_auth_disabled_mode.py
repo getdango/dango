@@ -118,3 +118,54 @@ class TestAuthDisabledMode:
         resp = client.get("/api/probe")
         assert resp.status_code == 200
         assert resp.json()["auth_disabled"] is True
+
+
+@pytest.mark.unit
+class TestAuthDisabledSameOriginOnly:
+    """Auth-disabled mode applies only to same-origin requests (local CORS allows any origin)."""
+
+    @pytest.mark.parametrize(
+        "extra_headers",
+        [
+            {"host": "localhost:8800", "origin": "http://localhost:8800"},  # dashboard
+            {"host": "127.0.0.1:8800", "origin": "http://localhost:8800"},  # loopback alias
+            {},  # curl / CLI: no Origin header
+        ],
+        ids=["same-origin", "loopback-alias", "no-origin"],
+    )
+    def test_auth_disabled_same_origin_or_no_origin_allowed(
+        self, project: AuthProject, no_manifest: object, extra_headers: dict[str, str]
+    ) -> None:
+        project.write_toggle("enabled: false\n")
+        client = build_client(project.root, dbt_router)
+
+        resp = client.post(_RUN_MODEL, headers={**_CSRF, **extra_headers})
+
+        assert resp.status_code == 404  # passed the permission check
+
+    @pytest.mark.parametrize(
+        "origin",
+        ["https://evil.example", "http://localhost:9999", "null"],
+        ids=["other-site", "other-local-port", "null-origin"],
+    )
+    def test_auth_disabled_cross_origin_post_refused(
+        self, project: AuthProject, no_manifest: object, origin: str
+    ) -> None:
+        project.write_toggle("enabled: false\n")
+        client = build_client(project.root, dbt_router)
+
+        resp = client.post(
+            _RUN_MODEL, headers={**_CSRF, "host": "localhost:8800", "origin": origin}
+        )
+
+        assert resp.status_code == 401
+
+    def test_auth_disabled_cross_origin_flag_false(self, project: AuthProject) -> None:
+        project.write_toggle("enabled: false\n")
+        client = build_client(project.root)
+
+        body = client.get(
+            "/api/probe", headers={"host": "localhost:8800", "origin": "https://evil.example"}
+        ).json()
+
+        assert body["auth_disabled"] is False
