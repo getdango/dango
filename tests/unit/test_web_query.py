@@ -452,9 +452,9 @@ class TestSQLValidation:
                 _validate_sql("SELECT some_duckdb_specific_syntax()")
 
     def test_fallback_rejects_non_select(self) -> None:
-        """When sqlglot is unavailable, keyword guard should reject non-SELECT."""
+        """When sqlglot is unavailable, validation fails closed (non-SELECT still rejected)."""
         from dango.web.routes.query import _validate_sql
 
         with patch.dict("sys.modules", {"sqlglot": None, "sqlglot.expressions": None}):
-            with pytest.raises(ValueError, match="SELECT"):
+            with pytest.raises(ValueError, match="SQL validation is unavailable"):
                 _validate_sql("EXPORT DATABASE '/tmp/dump'")

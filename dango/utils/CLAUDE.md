@@ -23,6 +23,7 @@ Shared utilities for process management, activity logging, sync history tracking
 | `post_sync.py` (~804 lines) | Post-sync hook dispatcher + sync notification | `dispatch_post_sync_hooks()`, `_run_profiling()`, `_profile_dbt_models()`, `_enrich_staging_tests()`, `_run_pii_scan()`, `_run_analysis()`, `_run_dbt_snapshots()`, `_materialize_pipeline_health()`, `_ensure_default_metrics()`, `_send_sync_notification()` |
 | `pipeline_health.py` | Materializes sync history / dbt test results / source list into DuckDB tables (`_dango_meta` schema) for the "Data Pipeline Health" dashboard (1.0.8-DASH-1) — Metabase's container can't read the underlying JSON files directly | `materialize_pipeline_health()`, `SCHEMA` |
 | `git_info.py` | Git repository info, deployment guardrails, and warn-only mutation guardrails (CLI wizards + MCP tools, 1.0.8-OPS-3) | `GitInfo`, `GitGuardrailResult`, `collect_git_info()`, `check_git_guardrails()`, `check_mutation_guardrails()` |
+| `query_connection.py` | Locked-down read-only DuckDB connection for user/agent SQL (web `/api/query`, MCP `query`/catalog tools): in-memory connection, warehouse attached READ_ONLY under its file stem, memory limit, external access off, configuration locked | `open_locked_query_connection()` |
 | `driver.py` | Metabase DuckDB driver version management + version alignment check | `METABASE_DUCKDB_DRIVER_VERSION`, `METABASE_DUCKDB_DRIVER_URL`, `get_duckdb_driver_url()`, `read_driver_version()`, `write_driver_version()`, `driver_needs_update()`, `check_version_alignment()` |
 
 ## Common Tasks
@@ -58,6 +59,7 @@ Shared utilities for process management, activity logging, sync history tracking
 - `dango/cli/commands/cleanup.py` — db_health, log_rotation
 - `dango/platform/local/watcher_runner.py` — dbt_lock, dbt_status
 - `dango/platform/common/startup.py` — log_rotation, driver (ensure_duckdb_driver)
+- `dango/web/routes/query.py`, `dango/cli/commands/mcp_helpers.py` — query_connection (open_locked_query_connection, lazy import)
 - `dango/cli/init.py` — driver (DuckDB driver download during init)
 - `dango/transformation/__init__.py` — dbt_status
 - `dango/governance/` — dango_db (connect)
