@@ -339,8 +339,32 @@ def test_web_query_out_of_memory_message_is_readable(env: dict[str, Path]) -> No
     assert resp.status_code == 400
     body = resp.json()
     assert set(body) == {"error_code", "message"}
-    assert "more memory than" in body["message"]
-    assert "100MB" in body["message"]
+    assert body["error_code"] == "DANGO-Q007"
+    assert "more memory than the 100MB limit" in body["message"]
+    assert "api.query_memory_limit" in body["message"]
+
+
+@pytest.mark.anyio
+async def test_query_memory_limit_falls_back_on_bad_config(
+    mcp_project: dict[str, Path], caplog: pytest.LogCaptureFixture
+) -> None:
+    """An invalid api.query_memory_limit never fails the query: 1GB default plus a warning."""
+    from dango.cli.commands import mcp_server
+
+    project, db = mcp_project["project"], mcp_project["db"]
+    _write_project(project, api={"query_memory_limit": "1GB; select 1"})
+    probe = "select current_setting('memory_limit') as m"
+
+    with patch("dango.web.routes.query.logger") as web_logger:
+        assert _web_post(project, db, probe).json()["rows"] == [[DEFAULT_LIMIT]]
+    assert any(
+        c.args[0] == "query_memory_limit_config_unreadable"
+        for c in web_logger.warning.call_args_list
+    )
+
+    with caplog.at_level("WARNING", logger="dango.cli.commands.mcp_helpers"):
+        assert (await mcp_server.query(probe))["rows"] == [[DEFAULT_LIMIT]]
+    assert "query_memory_limit_config_unreadable" in caplog.text
 
 
 # ---------------------------------------------------------------------------
