@@ -6,6 +6,7 @@ Server backup/restore shell commands must fail on a failed copy and remove stale
 from __future__ import annotations
 
 import json
+import re
 import tarfile
 import uuid
 from collections.abc import Iterator
@@ -86,7 +87,7 @@ def _full_archive(tmp_path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.integration
+@pytest.mark.unit
 def test_restore_commands_remove_wal_and_do_not_swallow_cp(tmp_path: Path) -> None:
     from dango.platform.cloud.backup import restore_from_archive
 
@@ -109,14 +110,16 @@ def test_restore_commands_remove_wal_and_do_not_swallow_cp(tmp_path: Path) -> No
     # Command shape: the WAL removal precedes the warehouse copy; no copy is followed by `|| true`.
     restore_cmd = next(c for c in ssh.commands if "dango-restore-staging" in c and "cp " in c)
     rm_at = restore_cmd.find(f"rm -f {project}/data/warehouse.duckdb.wal")
-    cp_at = restore_cmd.find("data/warehouse.duckdb ")
+    copy = re.search(r"cp \S+/data/warehouse\.duckdb ", restore_cmd)
+    assert copy is not None
+    cp_at = copy.start()
     assert rm_at != -1 and rm_at < cp_at
     staging_copies = [c for c in ssh.commands if "dango-restore-staging" in c and "cp " in c]
     assert staging_copies
     assert not [c for c in staging_copies if "|| true" in c]
 
 
-@pytest.mark.integration
+@pytest.mark.unit
 @pytest.mark.parametrize("failing", ["data/warehouse.duckdb", "dbt/models"])
 def test_restore_files_cp_failure_raises(tmp_path: Path, failing: str) -> None:
     from dango.platform.cloud.backup import restore_from_archive
@@ -132,7 +135,7 @@ def test_restore_files_cp_failure_raises(tmp_path: Path, failing: str) -> None:
     start.assert_called_once()
 
 
-@pytest.mark.integration
+@pytest.mark.unit
 def test_restore_skips_missing_optional_files(tmp_path: Path) -> None:
     from dango.platform.cloud.backup import restore_from_archive
 
@@ -152,7 +155,7 @@ def test_restore_skips_missing_optional_files(tmp_path: Path) -> None:
     assert (project / "dbt" / "packages.yml").read_text() == "live\n"
 
 
-@pytest.mark.integration
+@pytest.mark.unit
 def test_restore_layout_check_requires_real_content(tmp_path: Path) -> None:
     from dango.platform.cloud.backup import restore_from_archive
 
@@ -209,7 +212,7 @@ def _populate_project(project: Path) -> None:
     (project / "dbt" / "models" / "m.sql").write_text("select 1\n")
 
 
-@pytest.mark.integration
+@pytest.mark.unit
 @pytest.mark.parametrize("failing", ["data/warehouse.duckdb", ".dango/project.yml", "dbt/models"])
 def test_create_backup_fails_when_warehouse_copy_fails(tmp_path: Path, failing: str) -> None:
     from dango.platform.cloud.backup import create_backup
@@ -225,7 +228,7 @@ def test_create_backup_fails_when_warehouse_copy_fails(tmp_path: Path, failing: 
     assert not list(backups.glob("*.tar.gz")), "an archive was produced despite a failed copy"
 
 
-@pytest.mark.integration
+@pytest.mark.unit
 def test_create_backup_without_warehouse_ok(tmp_path: Path) -> None:
     from dango.platform.cloud.backup import create_backup
 

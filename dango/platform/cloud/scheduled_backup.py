@@ -606,6 +606,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             BACKUP_FILES,
             METABASE_CONFIG_FILE,
             _write_sanitized_metabase_yaml,
+            wal_sidecar_names,
         )
 
         for fpath in BACKUP_FILES:
@@ -613,6 +614,9 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             if src.exists():
                 dest = PROJECT_DIR / fpath
                 dest.parent.mkdir(parents=True, exist_ok=True)
+                # A leftover live WAL would be replayed into the restored database.
+                for sidecar in wal_sidecar_names(fpath):
+                    (PROJECT_DIR / sidecar).unlink(missing_ok=True)
                 _run_local(
                     f"cp {shlex.quote(str(src))} {shlex.quote(str(dest))}", step="restore_files"
                 )

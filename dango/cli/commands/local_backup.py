@@ -25,6 +25,7 @@ from dango.platform.cloud.backup import (
     METABASE_CONFIG_FILE,
     _sanitized_metabase_yaml,
     _sanitized_metabase_yaml_text,
+    wal_sidecar_names,
 )
 
 # ---------------------------------------------------------------------------
@@ -112,6 +113,9 @@ def _extract_archive(archive_path: Path, project_root: Path) -> None:
                                 "YAML could not be safely sanitized."
                             )
                             continue
+                    # A leftover live WAL would be replayed into the restored database.
+                    for sidecar in wal_sidecar_names(str(dest)):
+                        Path(sidecar).unlink(missing_ok=True)
                     dest.write_bytes(content)
 
 

@@ -64,7 +64,7 @@ def _local_restore(project: Path, archive: Path) -> Any:
         )
 
 
-@pytest.mark.integration
+@pytest.mark.unit
 def test_local_restore_removes_leftover_duckdb_wal(tmp_path: Path) -> None:
     project = tmp_path / "project"
     live_db = project / "data" / "warehouse.duckdb"
@@ -84,7 +84,7 @@ def test_local_restore_removes_leftover_duckdb_wal(tmp_path: Path) -> None:
     assert values == ["archive"]
 
 
-@pytest.mark.integration
+@pytest.mark.unit
 def test_restore_removes_sqlite_sidecars(tmp_path: Path) -> None:
     project = tmp_path / "project"
     live_auth = project / ".dango" / "auth.db"
@@ -102,7 +102,7 @@ def test_restore_removes_sqlite_sidecars(tmp_path: Path) -> None:
     assert sqlite_values(live_auth) == ["archive"]
 
 
-@pytest.mark.integration
+@pytest.mark.unit
 def test_restore_from_spaces_removes_wal(tmp_path: Path) -> None:
     from dango.platform.cloud import scheduled_backup as sb
 

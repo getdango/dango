@@ -223,6 +223,7 @@ def test_restore_extracts_create_archive_layout_whatever_the_file_name(
     (top / "data" / "warehouse.duckdb").write_bytes(b"db")
     (top / "dbt" / "models").mkdir(parents=True)
     (top / "dbt" / "models" / "m.sql").write_text("select 1")
+    (top / "manifest.json").write_text("{}")  # every _create_archive archive has one
     archive = tmp_path / archive_name
     subprocess.run(
         ["tar", "-czf", str(archive), "-C", str(tmp_path / "build"), top.name], check=True
@@ -251,17 +252,19 @@ def _build_archive(tmp_path: Path, layout: str) -> Path:
     src = tmp_path / "src"
     (src / "data").mkdir(parents=True)
     (src / "data" / "warehouse.duckdb").write_bytes(b"db")
+    (src / "manifest.json").write_text("{}")
     archive = tmp_path / "x.tar.gz"
     if layout == "dir":
         top = tmp_path / "build" / "backup-20260224-143000"
         top.mkdir(parents=True)
         (top / "data").mkdir()
         (top / "data" / "warehouse.duckdb").write_bytes(b"db")
+        (top / "manifest.json").write_text("{}")
         cmd = ["tar", "-czf", str(archive), "-C", str(top.parent), top.name]
     elif layout == "dot":
         cmd = ["tar", "-czf", str(archive), "-C", str(src), "."]
     else:
-        cmd = ["tar", "-czf", str(archive), "-C", str(src), "data"]
+        cmd = ["tar", "-czf", str(archive), "-C", str(src), "data", "manifest.json"]
     subprocess.run(cmd, check=True)
     return archive
 

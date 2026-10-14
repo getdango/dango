@@ -118,6 +118,33 @@ SECRET_FILES = [
 ]
 
 
+def wal_sidecar_names(db_rel_path: str) -> list[str]:
+    """Return the SQLite/DuckDB WAL sidecar paths for a database file (relative path in, relative paths out)."""
+    if db_rel_path.endswith(".duckdb"):
+        return [db_rel_path + ".wal"]
+    if db_rel_path.endswith(".db"):
+        return [db_rel_path + "-wal", db_rel_path + "-shm"]
+    return []
+
+
+def _copy_file_cmd(src: str, dest_dir: str, remove_first: list[str] | None = None) -> str:
+    """Shell step copying *src* into *dest_dir* if it exists; a failed copy fails the step."""
+    steps = [f"rm -f {shlex.quote(path)}" for path in remove_first or []]
+    steps += [
+        f"mkdir -p {shlex.quote(dest_dir)}",
+        f"cp {shlex.quote(src)} {shlex.quote(dest_dir)}/",
+    ]
+    return f"if [ -f {shlex.quote(src)} ]; then {' && '.join(steps)}; fi"
+
+
+def _copy_dir_cmd(src: str, dest: str) -> str:
+    """Shell step copying the contents of *src* into *dest* if it exists; a failed copy fails the step."""
+    return (
+        f"if [ -d {shlex.quote(src)} ]; then mkdir -p {shlex.quote(dest)}"
+        f" && cp -r {shlex.quote(src + '/.')} {shlex.quote(dest)}/; fi"
+    )
+
+
 def _sanitized_metabase_yaml_text(raw_config: str) -> str:
     """Return password-free Metabase metadata from YAML text.
 
@@ -370,15 +397,15 @@ def _create_archive(
         if include_secrets:
             file_list.extend(SECRET_FILES)
 
-        # Build copy commands for all files/dirs/metabase
+        # Build copy commands for all files/dirs/metabase.  Sources absent on the
+        # server (e.g. no warehouse yet) are skipped; a failed copy fails the step.
         copy_cmds: list[str] = []
         for fpath in file_list:
             src = f"{PROJECT_DIR}/{fpath}"
             dest_dir = f"{staging}/{'/'.join(fpath.split('/')[:-1])}" if "/" in fpath else staging
-            copy_cmds.append(f"mkdir -p {dest_dir} && cp {src} {dest_dir}/ 2>/dev/null || true")
+            copy_cmds.append(_copy_file_cmd(src, dest_dir))
         for dpath in BACKUP_DIRS:
-            src, dest = f"{PROJECT_DIR}/{dpath}", f"{staging}/{dpath}"
-            copy_cmds.append(f"mkdir -p {dest} && cp -r {src}/. {dest}/ 2>/dev/null || true")
+            copy_cmds.append(_copy_dir_cmd(f"{PROJECT_DIR}/{dpath}", f"{staging}/{dpath}"))
         metabase_source = f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}"
         metabase_destination = f"{staging}/{METABASE_CONFIG_FILE}"
         if ssh.exec_command(f"test -f {metabase_source}").success:
@@ -386,11 +413,8 @@ def _create_archive(
             if warning and warnings is not None:
                 warnings.append(warning)
         if metabase_vol_path:
-            copy_cmds.append(
-                f"mkdir -p {staging}/metabase"
-                f" && cp {metabase_vol_path}/metabase.db.mv.db {staging}/metabase/ 2>/dev/null || true"
-                f" && cp {metabase_vol_path}/metabase.db.trace.db {staging}/metabase/ 2>/dev/null || true"
-            )
+            for h2 in ("metabase.db.mv.db", "metabase.db.trace.db"):
+                copy_cmds.append(_copy_file_cmd(f"{metabase_vol_path}/{h2}", f"{staging}/metabase"))
         _run_checked(ssh, " && ".join(copy_cmds), step="copy_files", timeout=300)
 
         # Get version + file info for manifest
@@ -645,10 +669,15 @@ def restore_from_archive(
 
             # Hand-made archives without a single top-level directory extract to
             # nothing recognisable; fail before any copy rather than report success.
-            expected = [
-                f"{staging}/{rel}" for rel in ("manifest.json", METABASE_CONFIG_FILE, *BACKUP_FILES)
-            ] + [f"{staging}/{rel}" for rel in (*BACKUP_DIRS, "metabase")]
-            layout_check = " || ".join(f"test -e {shlex.quote(path)}" for path in expected)
+            content = [
+                f"{staging}/{rel}"
+                for rel in (METABASE_CONFIG_FILE, *BACKUP_FILES, *BACKUP_DIRS, "metabase")
+            ]
+            layout_check = (
+                f"test -e {shlex.quote(staging + '/manifest.json')} && ( "
+                + " || ".join(f"test -e {shlex.quote(path)}" for path in content)
+                + " )"
+            )
             if not ssh.exec_command(layout_check).success:
                 raise CloudProvisioningError(
                     "Archive does not look like a Dango backup (unexpected layout): "
@@ -664,9 +693,10 @@ def restore_from_archive(
                     if "/" in fpath
                     else PROJECT_DIR
                 )
-                restore_cmds.append(
-                    f"test -f {shlex.quote(src)} && (mkdir -p {dest_dir} && cp {shlex.quote(src)} {dest_dir}/) || true"
-                )
+                # Remove the live database's leftover WAL first, or it is replayed
+                # into the restored file on the next open.
+                sidecars = [f"{PROJECT_DIR}/{s}" for s in wal_sidecar_names(fpath)]
+                restore_cmds.append(_copy_file_cmd(src, dest_dir, remove_first=sidecars))
             metabase_source = f"{staging}/{METABASE_CONFIG_FILE}"
             metabase_destination = f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}"
             if ssh.exec_command(f"test -f {shlex.quote(metabase_source)}").success:
@@ -674,20 +704,18 @@ def restore_from_archive(
                 if warning:
                     warnings.append(warning)
             for dpath in BACKUP_DIRS:
-                src, dest = f"{staging}/{dpath}", f"{PROJECT_DIR}/{dpath}"
-                restore_cmds.append(
-                    f"test -d {shlex.quote(src)} && (mkdir -p {dest} && cp -r {shlex.quote(src + '/.')} {dest}/) || true"
-                )
+                restore_cmds.append(_copy_dir_cmd(f"{staging}/{dpath}", f"{PROJECT_DIR}/{dpath}"))
             _run_checked(ssh, " && ".join(restore_cmds), step="restore_files", timeout=300)
             _notify(on_progress, "restore_files", "done")
 
             _notify(on_progress, "restore_metabase", "running")
             metabase_vol = _get_metabase_volume_path(ssh)
             if metabase_vol:
-                for h2 in ["metabase.db.mv.db", "metabase.db.trace.db"]:
-                    ssh.exec_command(
-                        f"test -d {shlex.quote(staging + '/metabase')} && cp {shlex.quote(f'{staging}/metabase/{h2}')} {metabase_vol}/ 2>/dev/null || true"
-                    )
+                h2_cmds = [
+                    _copy_file_cmd(f"{staging}/metabase/{h2}", metabase_vol)
+                    for h2 in ("metabase.db.mv.db", "metabase.db.trace.db")
+                ]
+                _run_checked(ssh, " && ".join(h2_cmds), step="restore_metabase", timeout=300)
             else:
                 warnings.append("Metabase Docker volume not found — H2 restore skipped")
             _notify(on_progress, "restore_metabase", "done")
