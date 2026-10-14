@@ -26,6 +26,10 @@ _IDLE_TIMEOUT_LOCAL = 7200  # 2 hours
 _IDLE_TIMEOUT_CLOUD = 3600  # 1 hour
 _IDLE_TIMEOUT = _IDLE_TIMEOUT_LOCAL  # backward compat for smoke test
 
+# Upper bound for Marimo to answer its readiness probe after spawn.
+_MARIMO_START_TIMEOUT_SECONDS = 60
+_CLOUD_BASE_PATH = "/notebooks/marimo"
+
 
 def _get_idle_timeout(project_root: Path) -> int:  # noqa: ARG001
     """Return the idle timeout in seconds based on deployment mode."""
@@ -48,22 +52,41 @@ def get_marimo_pid_file_path(project_root: Path) -> Path:
     return project_root / ".dango" / "marimo.pid"
 
 
-def _is_marimo_responding(port: int, timeout: float = 1.0) -> bool:
+def _is_marimo_responding(port: int, timeout: float = 1.0, base_path: str = "/") -> bool:
     """Check if a Marimo server is responding on localhost:port.
 
-    Uses an HTTP GET to verify the response is from Marimo (not an
-    unrelated service that happens to be on the same port).
+    For the default root ``base_path`` this uses an HTTP GET and checks the
+    body mentions Marimo (not an unrelated service on the same port).  When
+    Marimo runs under a base url (cloud: ``--base-url /notebooks/marimo``)
+    the root 404s, so ``<base_path>/health`` is probed and HTTP 200 accepted.
     """
     import urllib.request
 
+    is_root = base_path.strip("/") == ""
+    path = "/" if is_root else base_path.rstrip("/") + "/health"
     try:
-        req = urllib.request.Request(f"http://127.0.0.1:{port}/", method="GET")
+        req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", method="GET")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if not is_root:
+                return bool(resp.status == 200)
             # Marimo returns HTML with "marimo" in the response
             body = resp.read(4096).decode("utf-8", errors="ignore")
             return "marimo" in body.lower()
     except Exception:
         return False
+
+
+def _stop_unready_process(proc: subprocess.Popen[bytes]) -> None:
+    """Terminate a Marimo process that never became ready (kill after 5 s)."""
+    try:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+    except Exception:
+        logger.warning("Could not stop unready Marimo process %s", proc.pid, exc_info=True)
 
 
 def start_marimo(
@@ -144,8 +167,9 @@ def start_marimo(
         # Add base-url for cloud proxy so SPA assets use correct prefix
         from dango.config.helpers import is_running_on_cloud
 
-        if is_running_on_cloud():
-            cmd.extend(["--base-url", "/notebooks/marimo"])
+        base_path = _CLOUD_BASE_PATH if is_running_on_cloud() else "/"
+        if base_path != "/":
+            cmd.extend(["--base-url", base_path])
 
         cmd.append(str(notebooks_dir))
 
@@ -157,15 +181,22 @@ def start_marimo(
             env=env,
         )
 
-        # Wait for Marimo to start responding (poll until ready or dead).
-        # Previously used a fixed 10-attempt loop which redirected to an
-        # unready server if marimo was slow to boot (FUP-15).
-        while True:
+        # Wait for Marimo to start responding (poll until ready, dead, or
+        # the deadline).  A Marimo that never answers is stopped instead of
+        # being polled forever from a shared worker thread.
+        deadline = time.monotonic() + _MARIMO_START_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
             time.sleep(1)
             if proc.poll() is not None:
                 raise RuntimeError(f"Marimo failed to start. Check logs at {log_file}")
-            if _is_marimo_responding(port, timeout=1.0):
+            if _is_marimo_responding(port, timeout=1.0, base_path=base_path):
                 break
+        else:
+            _stop_unready_process(proc)
+            raise RuntimeError(
+                f"Marimo did not become ready within {_MARIMO_START_TIMEOUT_SECONDS} s. "
+                f"Check logs at {log_file}"
+            )
 
         pid_file.write_text(str(proc.pid))
 

@@ -75,8 +75,10 @@ async def _start_marimo_background(project_root: Path, user_email: str) -> None:
         return
     try:
         await asyncio.to_thread(start_marimo, project_root, snapshot_path=snapshot_path)
-    except RuntimeError:
-        pass  # already running (race condition)
+    except RuntimeError as exc:
+        if not str(exc).startswith("Marimo is already running"):
+            logger.warning("Marimo startup failed", exc_info=True)
+        # else: already running (race condition)
     except Exception:
         logger.warning("Marimo startup failed", exc_info=True)
 
