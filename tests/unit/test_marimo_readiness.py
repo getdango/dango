@@ -182,14 +182,13 @@ def test_start_marimo_times_out_and_cleans_up(tmp_path: Path, ignore_terminate: 
     ("message", "logged"),
     [
         ("Marimo did not become ready within 60 s. Check logs at /x/marimo.log", True),
+        ("Marimo failed to start. Check logs at /x/marimo.log", True),
         ("Marimo is already running (PID 1).\nStop it with 'dango stop'", False),
     ],
-    ids=["timeout-logged", "already-running-silent"],
+    ids=["timeout-logged", "early-exit-logged", "already-running-silent"],
 )
-def test_background_start_logs_readiness_timeout(
-    tmp_path: Path, message: str, logged: bool
-) -> None:
-    """The background starter surfaces a readiness timeout but stays quiet on the start race."""
+def test_background_start_logs_start_failures(tmp_path: Path, message: str, logged: bool) -> None:
+    """The background starter surfaces start failures but stays quiet on the start race."""
     from dango.web.routes import notebooks
 
     logger = MagicMock()
