@@ -7,6 +7,9 @@ import logging
 import os
 from pathlib import Path
 
+import keyring
+import keyring.backend
+import keyring.errors
 import pytest
 import yaml
 
@@ -38,6 +41,53 @@ def _block_real_webbrowser_open(monkeypatch):
     that bug class into an immediate, loud test failure instead of a silent side effect.
     """
     monkeypatch.setattr("webbrowser.open", _blocked_webbrowser_open)
+
+
+class _InMemoryKeyring(keyring.backend.KeyringBackend):
+    """Process-local keyring so tests never reach the OS keychain."""
+
+    priority = 1
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._store: dict[tuple[str, str], str] = {}
+
+    def get_password(self, service: str, username: str) -> str | None:
+        return self._store.get((service, username))
+
+    def set_password(self, service: str, username: str, password: str) -> None:
+        self._store[(service, username)] = password
+
+    def delete_password(self, service: str, username: str) -> None:
+        try:
+            del self._store[(service, username)]
+        except KeyError:
+            raise keyring.errors.PasswordDeleteError(username) from None
+
+
+@pytest.fixture(autouse=True)
+def _isolate_keyring():
+    """Every test gets a fresh in-memory keyring; the real keychain is never read or written."""
+    backend = _InMemoryKeyring()
+    previous = keyring.get_keyring()
+    keyring.set_keyring(backend)
+    yield backend
+    keyring.set_keyring(previous)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _keyring_backend_for_subprocesses():
+    """Child processes (e.g. `dango init` in integration tests) inherit a backend that never touches the OS keychain."""
+    mp = pytest.MonkeyPatch()
+    mp.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.fail.Keyring")
+    yield
+    mp.undo()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_home(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch):
+    """`Path.home()` (used by `dango/platform/cloud/ssh.py`, `~/.dango/...`) points at a throwaway dir."""
+    monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home")))
 
 
 def pytest_sessionstart(session):
