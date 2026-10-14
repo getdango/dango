@@ -82,37 +82,93 @@ class TestWebSocketAuth:
 
 @pytest.mark.unit
 class TestWebSocketOrigin:
+    """Origin must match Host. TestClient ignores base_url for WebSockets, so Host is set explicitly."""
+
     def test_ws_cross_origin_refused(self, project: AuthProject) -> None:
         cookie = project.session_cookie(project.add_user())
-        client = build_client(project.root, ws_router, base_url="http://dango.example")
+        client = build_client(project.root, ws_router)
 
-        _assert_refused(client, 1008, headers={"cookie": cookie, "origin": "https://evil.example"})
+        _assert_refused(
+            client,
+            1008,
+            headers={"cookie": cookie, "host": "dango.example", "origin": "https://evil.example"},
+        )
 
     def test_ws_same_origin_connects(self, project: AuthProject) -> None:
         cookie = project.session_cookie(project.add_user())
-        client = build_client(project.root, ws_router, base_url="http://dango.example")
+        client = build_client(project.root, ws_router)
 
         msg = _connect_and_read(
-            client, headers={"cookie": cookie, "origin": "http://dango.example"}
+            client,
+            headers={"cookie": cookie, "host": "dango.example", "origin": "http://dango.example"},
         )
 
         assert msg["event"] == "connected"
 
     def test_ws_localhost_alias_same_port_connects(self, project: AuthProject) -> None:
         cookie = project.session_cookie(project.add_user())
-        client = build_client(project.root, ws_router, base_url="http://127.0.0.1:8800")
+        client = build_client(project.root, ws_router)
 
         msg = _connect_and_read(
-            client, headers={"cookie": cookie, "origin": "http://localhost:8800"}
+            client,
+            headers={"cookie": cookie, "host": "127.0.0.1:8800", "origin": "http://localhost:8800"},
         )
 
         assert msg["event"] == "connected"
 
+    @pytest.mark.parametrize(
+        ("host", "origin"),
+        [
+            ("d.example", "https://d.example"),  # cloud Caddy over https, Host kept
+            ("dango.local", "http://dango.local"),  # local nginx, Host $host, port 80
+            ("localhost:8800", "http://localhost:8800"),  # direct local access
+        ],
+        ids=["caddy-https-domain", "nginx-local-domain", "direct-localhost"],
+    )
+    def test_ws_same_origin_proxy_shapes_connect(
+        self, project: AuthProject, host: str, origin: str
+    ) -> None:
+        cookie = project.session_cookie(project.add_user())
+        client = build_client(project.root, ws_router)
+
+        msg = _connect_and_read(client, headers={"cookie": cookie, "host": host, "origin": origin})
+
+        assert msg["event"] == "connected"
+
+    @pytest.mark.parametrize(
+        ("host", "origin"),
+        [
+            ("localhost:8800", "http://localhost:9999"),  # other local port
+            ("d.example", "http://d.example:8443"),  # explicit non-default port
+            ("d.example", "https://d.example.evil.example"),  # suffix trick
+            ("d.example", "null"),  # opaque origin
+        ],
+        ids=["other-port", "non-default-port", "host-suffix", "null-origin"],
+    )
+    def test_ws_mismatched_origin_refused(
+        self, project: AuthProject, host: str, origin: str
+    ) -> None:
+        cookie = project.session_cookie(project.add_user())
+        client = build_client(project.root, ws_router)
+
+        _assert_refused(client, 1008, headers={"cookie": cookie, "host": host, "origin": origin})
+
+    def test_ws_no_origin_requires_credentials(self, project: AuthProject) -> None:
+        """Non-browser clients send no Origin: allowed only with valid credentials."""
+        key = project.api_key(project.add_user())
+        client = build_client(project.root, ws_router)
+
+        _assert_refused(client, 1008)
+        msg = _connect_and_read(client, headers={"authorization": f"Bearer {key}"})
+        assert msg["event"] == "connected"
+
     def test_ws_cross_origin_refused_even_when_auth_disabled(self, project: AuthProject) -> None:
         project.write_toggle("enabled: false\n")
-        client = build_client(project.root, ws_router, base_url="http://127.0.0.1:8800")
+        client = build_client(project.root, ws_router)
 
-        _assert_refused(client, 1008, headers={"origin": "https://evil.example"})
+        _assert_refused(
+            client, 1008, headers={"host": "127.0.0.1:8800", "origin": "https://evil.example"}
+        )
 
 
 @pytest.mark.unit

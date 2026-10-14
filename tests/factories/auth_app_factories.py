@@ -85,7 +85,6 @@ class AuthProject:
 def build_client(
     project_root: Path,
     *routers: APIRouter,
-    base_url: str = "http://testserver",
 ) -> TestClient:
     """Build a FastAPI app with the real AuthMiddleware in front of *routers*."""
     app = FastAPI()
@@ -104,7 +103,7 @@ def build_client(
                 break
         return JSONResponse(status_code=status_code, content={"error_code": exc.error_code})
 
-    return TestClient(app, base_url=base_url, raise_server_exceptions=False)
+    return TestClient(app, raise_server_exceptions=False)
 
 
 def find_auth_middleware(client: TestClient) -> AuthMiddleware:
