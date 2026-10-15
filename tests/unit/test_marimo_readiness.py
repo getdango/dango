@@ -6,6 +6,7 @@ Marimo startup readiness: cloud base-url probe, bounded wait, cleanup on timeout
 from __future__ import annotations
 
 import asyncio
+import signal
 import subprocess
 import threading
 from collections.abc import Iterator
@@ -64,6 +65,7 @@ class _StubProc:
         self.released = threading.Event()
         self.terminated = False
         self.killed = False
+        self.group_signals: list[int] = []
         self._ignore_terminate = ignore_terminate
 
     def _dead(self) -> bool:
@@ -85,12 +87,29 @@ class _StubProc:
             return -15
         raise subprocess.TimeoutExpired(cmd="marimo", timeout=timeout or 0)
 
+    def group_signal(self, pgid: int, sig: int) -> None:
+        """Fake ``os.killpg``: record the signal and apply it to this process."""
+        assert pgid == self.pid
+        self.group_signals.append(sig)
+        if sig == signal.SIGTERM:
+            self.terminated = True
+        elif sig == signal.SIGKILL:
+            self.killed = True
 
-def _run_start(project_root: Path, port: int, proc: _StubProc, *, cloud: bool) -> dict[str, Any]:
+
+def _run_start(
+    project_root: Path,
+    port: int,
+    proc: _StubProc,
+    *,
+    cloud: bool,
+    killpg: Any = None,
+) -> dict[str, Any]:
     """Call ``start_marimo`` in a worker thread with a hard join timeout.
 
     The worker is always released afterwards (the stub process "exits"), so a
     readiness loop that never ends cannot hang or leak beyond the test.
+    ``os.getpgid``/``os.killpg`` are always faked: no real process is signalled.
     """
     from dango.notebooks.manager import start_marimo
 
@@ -107,6 +126,8 @@ def _run_start(project_root: Path, port: int, proc: _StubProc, *, cloud: bool) -
         patch(f"{_M}._get_idle_timeout", return_value=7200),
         patch(f"{_M}.is_process_running", return_value=False),
         patch(_CLOUD, return_value=cloud),
+        patch(f"{_M}.os.getpgid", side_effect=lambda pid: pid),
+        patch(f"{_M}.os.killpg", side_effect=killpg or proc.group_signal),
     ):
         worker = threading.Thread(target=_target, daemon=True)
         worker.start()
@@ -174,6 +195,8 @@ def test_start_marimo_times_out_and_cleans_up(tmp_path: Path, ignore_terminate: 
     assert "marimo.log" in str(error)
     assert proc.terminated is True
     assert proc.killed is ignore_terminate
+    expected = [signal.SIGTERM, signal.SIGKILL] if ignore_terminate else [signal.SIGTERM]
+    assert proc.group_signals == expected, "the whole process group must be signalled"
     assert not get_marimo_pid_file_path(tmp_path).exists()
 
 
@@ -200,3 +223,42 @@ def test_background_start_logs_start_failures(tmp_path: Path, message: str, logg
         asyncio.run(notebooks._start_marimo_background(tmp_path, "a@example.com"))
 
     assert logger.warning.called is logged
+
+
+@pytest.mark.unit
+def test_start_marimo_timeout_tolerates_vanished_process_group(tmp_path: Path) -> None:
+    """A process group that is already gone does not mask the readiness timeout."""
+    from dango.notebooks.manager import get_marimo_pid_file_path
+
+    proc = _StubProc()
+
+    def _gone(pgid: int, sig: int) -> None:
+        proc.group_signals.append(sig)
+        raise ProcessLookupError
+
+    with (
+        patch(f"{_M}._MARIMO_START_TIMEOUT_SECONDS", 2),
+        patch(f"{_M}._is_marimo_responding", return_value=False),
+    ):
+        outcome = _run_start(tmp_path, 7805, proc, cloud=True, killpg=_gone)
+
+    assert outcome["finished_in_time"]
+    assert "did not become ready" in str(outcome.get("error")), outcome
+    assert signal.SIGTERM in proc.group_signals
+    assert not get_marimo_pid_file_path(tmp_path).exists()
+
+
+@pytest.mark.unit
+def test_start_marimo_stops_process_when_wait_loop_raises(tmp_path: Path) -> None:
+    """Any exception escaping the readiness wait stops the spawned process group."""
+    from dango.notebooks.manager import get_marimo_pid_file_path
+
+    proc = _StubProc()
+    with patch(f"{_M}._is_marimo_responding", side_effect=OSError("probe blew up")):
+        outcome = _run_start(tmp_path, 7805, proc, cloud=True)
+
+    assert outcome["finished_in_time"]
+    assert isinstance(outcome.get("error"), RuntimeError), outcome
+    assert proc.group_signals[:1] == [signal.SIGTERM]
+    assert proc.terminated is True
+    assert not get_marimo_pid_file_path(tmp_path).exists()

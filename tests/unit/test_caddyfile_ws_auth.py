@@ -173,8 +173,11 @@ class _FakeServer:
         *,
         validate_ok: bool = True,
         reload_results: list[bool] | None = None,
+        installed: str | None = "1.0.14",
     ) -> None:
         self.files: dict[str, str] = {} if caddyfile is None else {_CADDYFILE: caddyfile}
+        # Version reported by the server venv: before pip install, then after it.
+        self.versions: list[str | None] = ["1.0.13", installed]
         self.validate_ok = validate_ok
         self.reload_results = list(reload_results or [])
         self.log: list[str] = []
@@ -185,7 +188,10 @@ class _FakeServer:
         ok = CommandResult(stdout="", stderr="", exit_code=0)
         fail = CommandResult(stdout="", stderr="boom", exit_code=1)
         if "import dango" in command:
-            return CommandResult(stdout="1.0.13", stderr="", exit_code=0)
+            version = self.versions.pop(0) if len(self.versions) > 1 else self.versions[0]
+            if version is None:
+                return fail
+            return CommandResult(stdout=version, stderr="", exit_code=0)
         if command.startswith(f"cat {_CADDYFILE}") and _CADDY_TMP not in command:
             if _CADDYFILE not in self.files:
                 return fail
@@ -210,11 +216,11 @@ class _FakeServer:
         self.files[remote_path] = text
 
 
-def _upgrade(server: _FakeServer) -> Any:
+def _upgrade(server: _FakeServer, version: str = "1.0.14", *, force: bool = False) -> Any:
     from dango.platform.cloud.upgrade import upgrade_dango
 
     with patch("dango.platform.cloud.backup.time.sleep"):
-        return upgrade_dango(server, version="1.0.14", skip_backup=True)
+        return upgrade_dango(server, version=version, skip_backup=True, force=force)
 
 
 def _assert_upgrade_completed(server: _FakeServer, result: Any) -> None:
@@ -278,11 +284,11 @@ def test_upgrade_migration_idempotent() -> None:
 @pytest.mark.parametrize(
     "caddyfile",
     [
-        ":80 {\n\thandle {\n\t\treverse_proxy localhost:8800\n\t}\n}\n",
+        ":80 {\n\thandle /notebooks/marimo/ws {\n\t\treverse_proxy 127.0.0.1:7805\n\t}\n}\n",
         _V1013_HTTP + "\n:8080 {\n" + _OLD_BLOCK_7805 + "\n}\n",
         None,
     ],
-    ids=["block-absent", "block-twice", "unreadable"],
+    ids=["block-not-matching", "block-twice", "unreadable"],
 )
 def test_upgrade_migration_skips_unexpected_file(caddyfile: str | None) -> None:
     """Unexpected Caddyfile: no write, a warning naming the file, upgrade continues."""
@@ -323,3 +329,51 @@ def test_upgrade_migration_reload_failure_restores_original() -> None:
     assert result.caddyfile_ws_migration.startswith("Caddyfile WebSocket route skipped: ")
     assert any("restored" in w for w in result.warnings), result.warnings
     _assert_upgrade_completed(server, result)
+
+
+@pytest.mark.unit
+def test_upgrade_migration_no_ws_route_needs_nothing() -> None:
+    """A Caddyfile without any Marimo WebSocket handle needs no migration and no warning."""
+    caddyfile = ":80 {\n\thandle {\n\t\treverse_proxy localhost:8800\n\t}\n}\n"
+    server = _FakeServer(caddyfile)
+    result = _upgrade(server)
+
+    assert server.caddyfile_writes == []
+    assert result.caddyfile_ws_migration == (
+        "Caddyfile WebSocket route: no migration needed (no direct WebSocket route)"
+    )
+    assert not any(_CADDYFILE in w for w in result.warnings), result.warnings
+    _assert_upgrade_completed(server, result)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("installed", "requested", "force"),
+    [("1.0.13", "1.0.13", False), ("1.0.12", "1.0.12", True), (None, "1.0.14", False)],
+    ids=["installed-1.0.13", "downgrade-1.0.12", "installed-unreadable"],
+)
+def test_upgrade_migration_requires_installed_ws_auth(
+    installed: str | None, requested: str, force: bool
+) -> None:
+    """Only a server that now runs a version with /api/notebooks/ws-auth is migrated."""
+    server = _FakeServer(_V1013_DOMAIN, installed=installed)
+    server.versions[0] = "1.0.12" if requested == "1.0.13" else "1.0.13"
+    result = _upgrade(server, requested, force=force)
+
+    assert server.caddyfile_writes == []
+    assert server.files[_CADDYFILE] == _V1013_DOMAIN
+    assert not any(c.startswith("caddy validate") for c in server.log)
+    assert result.caddyfile_ws_migration.startswith("Caddyfile WebSocket route skipped: ")
+    assert any(_CADDYFILE in w for w in result.warnings), result.warnings
+    _assert_upgrade_completed(server, result)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("installed", ["1.0.14", "1.0.15", "1.1.0rc1"])
+def test_upgrade_migration_runs_for_installed_ws_auth(installed: str) -> None:
+    """A server now on 1.0.14 or later is migrated."""
+    server = _FakeServer(_V1013_HTTP, installed=installed)
+    result = _upgrade(server, installed)
+
+    assert server.caddyfile_writes == [_V1013_HTTP.replace(_OLD_BLOCK_7805, _new_block(7805))]
+    assert result.caddyfile_ws_migration == "Caddyfile WebSocket route migrated"
