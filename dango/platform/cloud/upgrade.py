@@ -150,13 +150,20 @@ def _migrate_caddyfile_ws_route(
 
     # Only rewrite when the version now installed on the server serves the
     # forward_auth target; otherwise every notebook WebSocket would be refused.
+    if not installed_version:
+        warnings.append(
+            f"{_CADDYFILE} not updated: the installed Dango version could not be read. "
+            "Re-run `dango remote upgrade` (it retries this step even at the same version), "
+            f"or manually {_WS_MANUAL_STEP}."
+        )
+        return f"{_WS_STATUS} skipped: installed version unknown"
     if not _has_ws_auth_endpoint(installed_version):
         warnings.append(
-            f"{_CADDYFILE} not updated: the installed Dango version "
-            f"({installed_version or 'unknown'}) has no /api/notebooks/ws-auth endpoint "
-            "(added in 1.0.14). Re-run `dango remote upgrade` once 1.0.14 or later is installed."
+            f"{_CADDYFILE} not updated: the installed Dango version ({installed_version}) "
+            "has no /api/notebooks/ws-auth endpoint (added in 1.0.14). Re-run "
+            "`dango remote upgrade` once 1.0.14 or later is installed."
         )
-        return f"{_WS_STATUS} skipped: installed version {installed_version or 'unknown'}"
+        return f"{_WS_STATUS} skipped: installed version {installed_version}"
 
     read = ssh.exec_command(f"cat {_CADDYFILE}", timeout=30)
     if not read.success:
@@ -208,6 +215,17 @@ def _migrate_caddyfile_ws_route(
             "run `systemctl reload-or-restart caddy`"
         )
     return f"{_WS_STATUS} migrated"
+
+
+def _run_ws_migration(ssh: SSHManager, warnings: list[str], installed: str | None) -> str:
+    """Run :func:`_migrate_caddyfile_ws_route`, turning any exception into a warning."""
+    try:
+        return _migrate_caddyfile_ws_route(ssh, warnings, installed)
+    except Exception as exc:
+        warnings.append(
+            f"{_CADDYFILE} not updated ({type(exc).__name__}). Manually {_WS_MANUAL_STEP}."
+        )
+        return f"{_WS_STATUS} skipped: {type(exc).__name__}"
 
 
 def upgrade_dango(
@@ -278,8 +296,15 @@ def upgrade_dango(
             )
         target_version = latest
 
-    # 3. Already at target?
+    # 3. Already at target?  Still finish the Caddyfile WebSocket migration
+    # (idempotent) so a re-run can complete a step an earlier run skipped.
     if old_version == target_version:
+        at_target_warnings = ["Already at target version — no upgrade performed."]
+        ws_status = (
+            _run_ws_migration(ssh, at_target_warnings, old_version)
+            if _has_ws_auth_endpoint(old_version)
+            else None
+        )
         return UpgradeResult(
             old_version=old_version,
             new_version=old_version,
@@ -288,7 +313,8 @@ def upgrade_dango(
             docker_rebuilt=False,
             health_check_passed=True,
             duration_seconds=round(time.monotonic() - start_time, 1),
-            warnings=["Already at target version — no upgrade performed."],
+            warnings=at_target_warnings,
+            caddyfile_ws_migration=ws_status,
         )
 
     # 3b. Downgrade guard
@@ -357,13 +383,7 @@ def upgrade_dango(
         _notify(on_progress, "migrations", "done")
 
         # 8b. Authenticate the Marimo WebSocket route on existing servers
-        try:
-            caddyfile_ws_migration = _migrate_caddyfile_ws_route(ssh, warnings, new_version)
-        except Exception as exc:
-            warnings.append(
-                f"{_CADDYFILE} not updated ({type(exc).__name__}). Manually {_WS_MANUAL_STEP}."
-            )
-            caddyfile_ws_migration = f"{_WS_STATUS} skipped: {type(exc).__name__}"
+        caddyfile_ws_migration = _run_ws_migration(ssh, warnings, new_version)
 
         # 9. Docker rebuild
         _notify(on_progress, "docker_rebuild", "running")
