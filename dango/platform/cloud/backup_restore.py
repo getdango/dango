@@ -2,18 +2,16 @@
 
 Copy helpers shared by the cloud backup and restore paths.
 
-Shell builders (for commands run over SSH by ``backup.py``) copy only sources
-that exist and never swallow a failed ``cp``.  Restore destinations live in
-trees the ``dango`` user can write, while restores run as root, so restore
-helpers replace symlinks in the destination instead of following them.
-``wal_sidecar_names`` lists the WAL files a restore must clear for a database.
+Shell builders copy only sources that exist and never swallow a failed ``cp``.
+Restores run as root, but the project tree belongs to the service user, so project
+files are written as that user; root writes only the Metabase volume, refusing
+symlinked destinations there.  ``wal_sidecar_names`` lists the WAL files a restore
+must clear for a database.
 """
 
 from __future__ import annotations
 
-import os
 import shlex
-from pathlib import Path
 
 
 def wal_sidecar_names(db_rel_path: str) -> list[str]:
@@ -40,59 +38,56 @@ def copy_dir_cmd(src: str, dest: str) -> str:
     )
 
 
-def unlink_symlinks_cmd(root: str, rel: str) -> str:
-    """Shell step removing symlinks at ``root/rel`` and at each of its parents below *root*."""
-    parts = [part for part in rel.split("/") if part]
-    steps = []
-    for depth in range(1, len(parts) + 1):
-        path = shlex.quote(f"{root}/{'/'.join(parts[:depth])}")
-        steps.append(f"if [ -L {path} ]; then rm -f {path}; fi")
-    return " && ".join(steps)
+#: Owner of the project tree on the server; restores write project files as this user.
+SERVICE_USER = "dango"
+#: Shell prefix running a command as :data:`SERVICE_USER` (restores run as root).
+AS_SERVICE_USER = f"runuser -u {SERVICE_USER} --"
+#: Staging name of the sanitized Metabase metadata (written by root, outside the project).
+SANITIZED_METABASE_NAME = "metabase.sanitized.yml"
 
 
-def restore_file_cmd(src: str, root: str, rel: str, before: list[str] | None = None) -> str:
-    """Shell step restoring file *src* to ``root/rel`` without following destination symlinks.
+def hand_staging_to_service_user_cmd(staging: str) -> str:
+    """Shell step giving the extracted archive (except root-only ``metabase/``) to the service user.
 
-    *before* holds shell commands run first, only when *src* exists.  The destination
-    is removed before copying (portable ``cp --remove-destination``).
+    The staging directory itself stays root-owned, so its entries cannot be swapped.
     """
-    dest = f"{root}/{rel}"
+    return (
+        f"find {shlex.quote(staging)} -mindepth 1 -maxdepth 1 ! -name metabase"
+        f" -exec chown -R {SERVICE_USER}:{SERVICE_USER} {{}} +"
+    )
+
+
+def restore_file_cmd(src: str, dest: str, before: list[str] | None = None) -> str:
+    """Shell step restoring file *src* to project path *dest* as the service user.
+
+    Writes are bounded by the service user's own permissions, so a symlink it planted
+    cannot redirect them.  *before* holds shell commands run first, only when *src* exists.
+    """
     q_dest = shlex.quote(dest)
-    steps = [unlink_symlinks_cmd(root, rel), *(before or [])]
-    steps += [
-        f"mkdir -p {shlex.quote(dest.rsplit('/', 1)[0])}",
-        f"rm -f {q_dest}",
-        f"cp {shlex.quote(src)} {q_dest}",
+    steps = [
+        *(before or []),
+        f"{AS_SERVICE_USER} mkdir -p {shlex.quote(dest.rsplit('/', 1)[0])}",
+        f"{AS_SERVICE_USER} cp {shlex.quote(src)} {q_dest}",
     ]
     return f"if [ -f {shlex.quote(src)} ]; then {' && '.join(steps)}; fi"
 
 
-def restore_dir_cmd(src: str, root: str, rel: str) -> str:
-    """Shell step merging directory *src* into ``root/rel`` after removing symlinks there."""
-    q_dest = shlex.quote(f"{root}/{rel}")
-    steps = [
-        unlink_symlinks_cmd(root, rel),
-        f"mkdir -p {q_dest}",
-        f"find {q_dest} -xdev -type l -delete",
-        f"cp -r {shlex.quote(src + '/.')} {q_dest}/",
-    ]
-    return f"if [ -d {shlex.quote(src)} ]; then {' && '.join(steps)}; fi"
+def restore_dir_cmd(src: str, dest: str) -> str:
+    """Shell step merging directory *src* into project path *dest* as the service user."""
+    q_dest = shlex.quote(dest)
+    return (
+        f"if [ -d {shlex.quote(src)} ]; then {AS_SERVICE_USER} mkdir -p {q_dest}"
+        f" && {AS_SERVICE_USER} cp -r {shlex.quote(src + '/.')} {q_dest}/; fi"
+    )
 
 
-def clear_symlinks(root: Path, rel: str) -> None:
-    """Unlink symlinks at ``root/rel`` and at each of its parents below *root*."""
-    parts = [part for part in rel.split("/") if part]
-    for depth in range(1, len(parts) + 1):
-        path = root.joinpath(*parts[:depth])
-        if path.is_symlink():
-            path.unlink()
-
-
-def remove_symlinks_in_tree(top: Path) -> None:
-    """Unlink every symlink below directory *top* (never descending through one)."""
-    for dirpath, dirnames, filenames in os.walk(top):
-        for name in [*dirnames, *filenames]:
-            path = Path(dirpath) / name
-            if path.is_symlink():
-                path.unlink()
-        dirnames[:] = [d for d in dirnames if (Path(dirpath) / d).is_dir()]
+def restore_volume_file_cmd(src: str, volume: str, name: str) -> str:
+    """Shell step copying *src* into a root-written volume; refuses symlinked destinations."""
+    dest = f"{volume}/{name}"
+    q_vol, q_dest = shlex.quote(volume), shlex.quote(dest)
+    refusal = shlex.quote(f"Refusing to write through a symlink: {dest}")
+    return (
+        f"if [ -f {shlex.quote(src)} ]; then"
+        f" if [ -L {q_vol} ] || [ -L {q_dest} ]; then echo {refusal} >&2; false;"
+        f" else cp {shlex.quote(src)} {q_dest}; fi; fi"
+    )

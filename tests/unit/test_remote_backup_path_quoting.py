@@ -22,6 +22,7 @@ from dango.cli.commands.remote_backup import backup_restore
 from dango.exceptions import CloudProvisioningError
 from dango.platform.cloud import backup
 from dango.platform.cloud.ssh import CommandResult, SSHManager
+from tests.factories.backup_shell import shim_env
 
 HOSTILE_NAMES = [
     "My Backup (1).tar.gz",
@@ -194,14 +195,21 @@ def test_cleanup_and_stat_quote_listed_names() -> None:
 class ExecutingSSH(FakeSSH):
     """Really runs file-reading/copying commands under sh; records the rest.
 
-    ``rm``, ``chown`` and ``ls`` are recorded but never executed.
+    ``rm``, ``chown`` and ``ls`` are recorded but never executed.  ``runuser`` and
+    nested ``chown`` calls go through the shims of ``tests.factories.backup_shell``.
     """
+
+    def __init__(self, shim_dir: Path) -> None:
+        super().__init__()
+        self.env = shim_env(shim_dir)
 
     def exec_command(self, command: str, timeout: int | None = None, check: bool = False) -> Any:
         self.commands.append(command)
         if command.startswith(("rm ", "chown ", "ls ")):
             return CommandResult(stdout="", stderr="", exit_code=0)
-        proc = subprocess.run(["sh", "-c", command], capture_output=True, text=True, check=False)
+        proc = subprocess.run(
+            ["sh", "-c", command], capture_output=True, text=True, check=False, env=self.env
+        )
         return CommandResult(stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode)
 
 
@@ -233,7 +241,7 @@ def test_restore_extracts_create_archive_layout_whatever_the_file_name(
     stage_root.mkdir()
     monkeypatch.setattr(backup, "PROJECT_DIR", str(project))
     monkeypatch.setattr(backup, "RESTORE_STAGING_ROOT", str(stage_root))
-    ssh = ExecutingSSH()
+    ssh = ExecutingSSH(tmp_path / "shim")
 
     _patched_restore_with(ssh, str(archive))
 
@@ -284,7 +292,7 @@ def test_restore_layout_guard(
     stage_root.mkdir()
     monkeypatch.setattr(backup, "PROJECT_DIR", str(project))
     monkeypatch.setattr(backup, "RESTORE_STAGING_ROOT", str(stage_root))
-    ssh = ExecutingSSH()
+    ssh = ExecutingSSH(tmp_path / "shim")
     if ok:
         _patched_restore_with(ssh, str(archive))
         assert (project / "data" / "warehouse.duckdb").read_bytes() == b"db"

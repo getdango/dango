@@ -276,7 +276,13 @@ class TestScheduledBackupRestoreQuoting:
             "-C",
             "/tmp",
         ]
-        copies = [shlex.split(c) for c in recorded if c.startswith("cp ")]
+        # Project files are copied as the service user; every path stays one token.
+        split = [shlex.split(c) for c in recorded]
+        copies = [t for t in split if "cp" in t and str(staging / first) in t]
         assert copies
-        assert copies[0] == ["cp", str(staging / first), str(project / first)]
+        tokens = copies[0]
+        cp_at = tokens.index("cp")
+        assert tokens[cp_at - 4 : cp_at] == ["runuser", "-u", "dango", "--"]
+        assert tokens[cp_at + 1] == str(staging / first)
+        assert tokens[cp_at + 2] == f"{project / first};"  # `cp SRC DEST; fi`
         assert shlex.split(mock_run.call_args.args[0]) == ["rm", "-rf", str(staging)]

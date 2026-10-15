@@ -589,6 +589,10 @@ def download_from_spaces(spaces_config: dict[str, Any], key: str, local_path: Pa
 
 def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
     """Download and restore a backup from Spaces. Stops/restarts services."""
+    if PROJECT_DIR.is_symlink():
+        raise CloudProvisioningError(
+            f"{PROJECT_DIR} is a symlink; refusing to restore into it: nothing was restored"
+        )
     name = key.rsplit("/", 1)[-1]
     local_path = BACKUP_DIR / name
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -610,59 +614,68 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             _write_sanitized_metabase_yaml,
         )
         from dango.platform.cloud.backup_restore import (
-            clear_symlinks,
-            remove_symlinks_in_tree,
+            AS_SERVICE_USER,
+            SANITIZED_METABASE_NAME,
+            hand_staging_to_service_user_cmd,
+            restore_dir_cmd,
+            restore_file_cmd,
             wal_sidecar_names,
         )
 
-        # Runs as root into dango-writable trees: symlinks in the destination are
-        # replaced, never followed.
+        # Sanitize Metabase metadata as root while staging is still root-owned,
+        # into staging (never into the project tree).
+        metabase_source = staging / METABASE_CONFIG_FILE
+        if metabase_source.exists():
+            try:
+                _write_sanitized_metabase_yaml(metabase_source, staging / SANITIZED_METABASE_NAME)
+            except ValueError:
+                _logger.warning("metabase_restore_metadata_omitted")
+
+        # Project files are written as the service user, which owns the project tree.
         copies_started = True
+        _run_local(hand_staging_to_service_user_cmd(str(staging)), step="restore_files")
         stamp = time.strftime("%Y%m%d-%H%M%S")
         for fpath in BACKUP_FILES:
             src = staging / fpath
             if src.exists():
-                dest = PROJECT_DIR / fpath
-                clear_symlinks(PROJECT_DIR, fpath)
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                if dest.is_file():
-                    dest.unlink()
                 # A leftover live WAL would be replayed into the restored database.
                 # This path takes no safety backup, so keep it aside, not deleted.
+                before: list[str] = []
                 for sidecar in wal_sidecar_names(fpath):
                     live = PROJECT_DIR / sidecar
-                    if live.exists():
-                        kept = live.with_name(f"{live.name}.pre-restore-{stamp}")
-                        live.replace(kept)
-                        _logger.warning("restore_wal_kept", path=str(kept))
+                    if live.exists() or live.is_symlink():
+                        kept = f"{live}.pre-restore-{stamp}"
+                        before.append(
+                            f"{AS_SERVICE_USER} mv -f {shlex.quote(str(live))} {shlex.quote(kept)}"
+                        )
+                        _logger.warning("restore_wal_kept", path=kept)
                 _run_local(
-                    f"cp {shlex.quote(str(src))} {shlex.quote(str(dest))}", step="restore_files"
+                    restore_file_cmd(str(src), str(PROJECT_DIR / fpath), before=before),
+                    step="restore_files",
                 )
-        metabase_source = staging / METABASE_CONFIG_FILE
-        if metabase_source.exists():
-            clear_symlinks(PROJECT_DIR, METABASE_CONFIG_FILE)
-            try:
-                _write_sanitized_metabase_yaml(metabase_source, PROJECT_DIR / METABASE_CONFIG_FILE)
-            except ValueError:
-                _logger.warning("metabase_restore_metadata_omitted")
+        _run_local(
+            restore_file_cmd(
+                str(staging / SANITIZED_METABASE_NAME), str(PROJECT_DIR / METABASE_CONFIG_FILE)
+            ),
+            step="restore_files",
+        )
         for dpath in BACKUP_DIRS:
-            src = staging / dpath
-            if src.exists():
-                dest = PROJECT_DIR / dpath
-                clear_symlinks(PROJECT_DIR, dpath)
-                dest.mkdir(parents=True, exist_ok=True)
-                remove_symlinks_in_tree(dest)
-                _run_local(
-                    f"cp -r {shlex.quote(str(src) + '/.')} {shlex.quote(str(dest) + '/')}",
-                    step="restore_dirs",
-                )
+            _run_local(
+                restore_dir_cmd(str(staging / dpath), str(PROJECT_DIR / dpath)),
+                step="restore_dirs",
+            )
 
+        # Root writes only the Metabase volume, and never through a symlink.
         metabase_vol = _get_metabase_volume_path()
         if metabase_vol and (staging / "metabase").exists():
             for h2 in ["metabase.db.mv.db", "metabase.db.trace.db"]:
                 src = staging / "metabase" / h2
                 if src.exists():
-                    clear_symlinks(Path(metabase_vol), h2)
+                    vol = Path(metabase_vol)
+                    if vol.is_symlink() or (vol / h2).is_symlink():
+                        raise CloudProvisioningError(
+                            f"Refusing to write through a symlink: {vol / h2}"
+                        )
                     _run_local(
                         f"cp {shlex.quote(str(src))} {shlex.quote(metabase_vol + '/')}",
                         step="restore_metabase",

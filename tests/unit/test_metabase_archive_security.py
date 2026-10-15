@@ -158,7 +158,10 @@ class TestMetabaseArchiveSanitization:
             assert re.fullmatch(
                 r"/tmp/dango-restore-staging-[0-9a-f]{32}/\.dango/metabase\.yml", source
             )
-            assert destination == "/srv/dango/project/.dango/metabase.yml"
+            # The root-run sanitizer writes into staging; the service user copies it on.
+            assert re.fullmatch(
+                r"/tmp/dango-restore-staging-[0-9a-f]{32}/metabase\.sanitized\.yml", destination
+            )
 
     def test_remote_malformed_yaml_warning_never_logs_parser_content(self):
         """Remote sanitization errors report only a generic, non-secret warning."""

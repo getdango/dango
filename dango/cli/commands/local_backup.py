@@ -125,33 +125,39 @@ def _clear_sidecar(sidecar: Path, keep_suffix: str) -> None:
         console.print(f"[yellow]Warning:[/yellow] Live database WAL kept as {kept}")
 
 
-def _extract_archive(archive_path: Path, project_root: Path, *, keep_wal_suffix: str = "") -> None:
+def _member_rel_path(name: str) -> str:
+    """Map an archive member name to a path relative to the project root."""
+    if name.startswith(_SRV_PREFIX):
+        return name[len(_SRV_PREFIX) :]
+    if name.startswith("backup-") and "/" in name:
+        # Legacy path: backup-TIMESTAMP/project/...
+        return name.split("/", 1)[1]
+    return name
+
+
+def _extract_archive(
+    archive_path: Path, project_root: Path, *, keep_wal_suffix: str = ""
+) -> list[str]:
     """Extract backup archive, mapping server paths to local project paths.
 
     Metabase H2 files (metabase/) are skipped — they are Docker volume paths
-    not relevant locally.  Paths that escape *project_root* are silently
-    skipped to prevent path-traversal attacks.
+    not relevant locally.  Paths that resolve outside *project_root* (path
+    traversal, or a symlink pointing elsewhere) are not written; their relative
+    paths are returned so the caller can report an incomplete restore.
     """
     resolved_root = project_root.resolve()
+    skipped: list[str] = []
     with tarfile.open(archive_path, mode="r:gz") as tf:
-        members = tf.getmembers()
-        member_names = {m.name for m in members}
+        members = [m for m in tf.getmembers() if not m.name.startswith("metabase/")]
+        # Where each member lands; a WAL carried by the archive (safety backup) is kept.
+        carried = {(project_root / _member_rel_path(m.name)).resolve() for m in members}
         for member in members:
-            # Skip Metabase H2 files (Docker volume data)
-            if member.name.startswith("metabase/"):
-                continue
-            # Strip server prefix and map to project root
-            if member.name.startswith(_SRV_PREFIX):
-                rel_path = member.name[len(_SRV_PREFIX) :]
-            elif member.name.startswith("backup-") and "/" in member.name:
-                # Legacy path: backup-TIMESTAMP/project/...
-                parts = member.name.split("/", 1)
-                rel_path = parts[1] if len(parts) > 1 else member.name
-            else:
-                rel_path = member.name
+            rel_path = _member_rel_path(member.name)
             dest = (project_root / rel_path).resolve()
-            # Defend against path traversal (absolute paths, .. components)
+            # Defend against path traversal (absolute paths, .. components, outside symlinks)
             if not str(dest).startswith(str(resolved_root) + "/") and dest != resolved_root:
+                if not member.isdir():
+                    skipped.append(rel_path)
                 continue
             if member.isdir():
                 dest.mkdir(parents=True, exist_ok=True)
@@ -170,15 +176,15 @@ def _extract_archive(archive_path: Path, project_root: Path, *, keep_wal_suffix:
                                 "YAML could not be safely sanitized."
                             )
                             continue
-                    # A leftover live WAL would be replayed into the restored database,
-                    # unless the archive carries that WAL itself (a safety backup).
-                    prefix = member.name[: len(member.name) - len(rel_path)]
-                    for side_rel, side in zip(
-                        wal_sidecar_names(rel_path), wal_sidecar_names(str(dest)), strict=True
-                    ):
-                        if prefix + side_rel not in member_names:
-                            _clear_sidecar(Path(side), keep_wal_suffix)
+                    # A leftover live WAL would be replayed into the restored database.
+                    # The database type comes from its logical name; the sidecars sit
+                    # next to the file actually written (which may be a symlink target).
+                    for side_rel in wal_sidecar_names(rel_path):
+                        side = Path(str(dest) + side_rel[len(rel_path) :])
+                        if side not in carried:
+                            _clear_sidecar(side, keep_wal_suffix)
                     dest.write_bytes(content)
+    return skipped
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +290,7 @@ def backup_restore(ctx: click.Context, file: str, yes: bool) -> None:
     try:
         # Without a safety backup, a live WAL may hold the only copy of recent writes.
         keep = "" if safety_path else f".pre-restore-{time.strftime('%Y%m%d-%H%M%S')}"
-        _extract_archive(archive_path, project_root, keep_wal_suffix=keep)
+        skipped = _extract_archive(archive_path, project_root, keep_wal_suffix=keep)
     except (OSError, tarfile.TarError) as exc:
         console.print(f"[red]Error:[/red] Restore failed: {exc}")
         if safety_path and safety_path.exists():
@@ -293,6 +299,17 @@ def backup_restore(ctx: click.Context, file: str, yes: bool) -> None:
                 f"dango backup restore {safety_path} --yes[/yellow]"
             )
         raise click.Abort() from exc
+
+    if skipped:
+        console.print(
+            "[red]Restore incomplete:[/red] these files were not restored because their "
+            "destination is outside the project (for example a symlink pointing elsewhere):"
+        )
+        for rel_path in skipped:
+            console.print(f"  {rel_path}")
+        if safety_path and safety_path.exists():
+            console.print(f"  Safety backup: {safety_path.name}")
+        raise click.Abort()
 
     console.print("[green]Restore complete.[/green]")
     if safety_path and safety_path.exists():

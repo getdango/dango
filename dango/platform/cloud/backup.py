@@ -25,11 +25,14 @@ import yaml
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
 from dango.platform.cloud.backup_restore import (
+    AS_SERVICE_USER,
+    SANITIZED_METABASE_NAME,
     copy_dir_cmd,
     copy_file_cmd,
+    hand_staging_to_service_user_cmd,
     restore_dir_cmd,
     restore_file_cmd,
-    unlink_symlinks_cmd,
+    restore_volume_file_cmd,
     wal_sidecar_names,
 )
 from dango.platform.docker import _legacy_path_hash
@@ -604,6 +607,11 @@ def restore_from_archive(
         _start_time = time.monotonic()
     warnings: list[str] = []
 
+    if not ssh.exec_command(f"test ! -L {shlex.quote(PROJECT_DIR)}").success:
+        raise CloudProvisioningError(
+            f"{PROJECT_DIR} is a symlink; refusing to restore into it: nothing was restored"
+        )
+
     manifest_path = archive_path.replace(".tar.gz", ".json")
     manifest_result = ssh.exec_command(f"cat {shlex.quote(manifest_path)} 2>/dev/null")
     if manifest_result.success and manifest_result.stdout.strip():
@@ -672,7 +680,17 @@ def restore_from_archive(
                 )
 
             _notify(on_progress, "restore_files", "running")
+            # Sanitize Metabase metadata as root while staging is still root-owned,
+            # into staging (never into the project tree).
+            metabase_source = f"{staging}/{METABASE_CONFIG_FILE}"
+            if ssh.exec_command(f"test -f {shlex.quote(metabase_source)}").success:
+                sanitized = f"{staging}/{SANITIZED_METABASE_NAME}"
+                warning = _sanitize_remote_metabase_yaml(ssh, metabase_source, sanitized)
+                if warning:
+                    warnings.append(warning)
+            # Project files are written as the service user, which owns the project tree.
             copies_started = True
+            _run_checked(ssh, hand_staging_to_service_user_cmd(staging), step="restore_files")
             restore_cmds: list[str] = []
             for fpath in BACKUP_FILES:
                 src = f"{staging}/{fpath}"
@@ -683,26 +701,19 @@ def restore_from_archive(
                 for side in (f"{PROJECT_DIR}/{s}" for s in wal_sidecar_names(fpath)):
                     q = shlex.quote(side)
                     if safety_ok:
-                        before.append(f"rm -f {q}")
+                        before.append(f"{AS_SERVICE_USER} rm -f {q}")
                     else:
                         kept = shlex.quote(f"{side}.pre-restore-{stamp}")
-                        before.append(f"if [ -e {q} ]; then mv -f {q} {kept}; fi")
+                        before.append(f"if [ -e {q} ]; then {AS_SERVICE_USER} mv -f {q} {kept}; fi")
                         moved_aside.append(f"{side}.pre-restore-{stamp}")
-                restore_cmds.append(restore_file_cmd(src, PROJECT_DIR, fpath, before=before))
-            metabase_source = f"{staging}/{METABASE_CONFIG_FILE}"
-            metabase_destination = f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}"
-            if ssh.exec_command(f"test -f {shlex.quote(metabase_source)}").success:
-                # Restores run as root into dango-writable trees: never write through a symlink.
-                _run_checked(
-                    ssh,
-                    unlink_symlinks_cmd(PROJECT_DIR, METABASE_CONFIG_FILE),
-                    step="restore_files",
+                restore_cmds.append(restore_file_cmd(src, f"{PROJECT_DIR}/{fpath}", before=before))
+            restore_cmds.append(
+                restore_file_cmd(
+                    f"{staging}/{SANITIZED_METABASE_NAME}", f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}"
                 )
-                warning = _sanitize_remote_metabase_yaml(ssh, metabase_source, metabase_destination)
-                if warning:
-                    warnings.append(warning)
+            )
             for dpath in BACKUP_DIRS:
-                restore_cmds.append(restore_dir_cmd(f"{staging}/{dpath}", PROJECT_DIR, dpath))
+                restore_cmds.append(restore_dir_cmd(f"{staging}/{dpath}", f"{PROJECT_DIR}/{dpath}"))
             _run_checked(ssh, " && ".join(restore_cmds), step="restore_files", timeout=300)
             for kept_path in moved_aside:
                 if ssh.exec_command(f"test -e {shlex.quote(kept_path)}").success:
@@ -713,7 +724,7 @@ def restore_from_archive(
             metabase_vol = _get_metabase_volume_path(ssh)
             if metabase_vol:
                 h2_cmds = [
-                    restore_file_cmd(f"{staging}/metabase/{h2}", metabase_vol, h2)
+                    restore_volume_file_cmd(f"{staging}/metabase/{h2}", metabase_vol, h2)
                     for h2 in ("metabase.db.mv.db", "metabase.db.trace.db")
                 ]
                 _run_checked(ssh, " && ".join(h2_cmds), step="restore_metabase", timeout=300)
