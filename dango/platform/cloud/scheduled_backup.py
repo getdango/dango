@@ -608,16 +608,25 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             BACKUP_FILES,
             METABASE_CONFIG_FILE,
             _write_sanitized_metabase_yaml,
+        )
+        from dango.platform.cloud.backup_restore import (
+            clear_symlinks,
+            remove_symlinks_in_tree,
             wal_sidecar_names,
         )
 
+        # Runs as root into dango-writable trees: symlinks in the destination are
+        # replaced, never followed.
         copies_started = True
         stamp = time.strftime("%Y%m%d-%H%M%S")
         for fpath in BACKUP_FILES:
             src = staging / fpath
             if src.exists():
                 dest = PROJECT_DIR / fpath
+                clear_symlinks(PROJECT_DIR, fpath)
                 dest.parent.mkdir(parents=True, exist_ok=True)
+                if dest.is_file():
+                    dest.unlink()
                 # A leftover live WAL would be replayed into the restored database.
                 # This path takes no safety backup, so keep it aside, not deleted.
                 for sidecar in wal_sidecar_names(fpath):
@@ -631,6 +640,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                 )
         metabase_source = staging / METABASE_CONFIG_FILE
         if metabase_source.exists():
+            clear_symlinks(PROJECT_DIR, METABASE_CONFIG_FILE)
             try:
                 _write_sanitized_metabase_yaml(metabase_source, PROJECT_DIR / METABASE_CONFIG_FILE)
             except ValueError:
@@ -639,7 +649,9 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             src = staging / dpath
             if src.exists():
                 dest = PROJECT_DIR / dpath
+                clear_symlinks(PROJECT_DIR, dpath)
                 dest.mkdir(parents=True, exist_ok=True)
+                remove_symlinks_in_tree(dest)
                 _run_local(
                     f"cp -r {shlex.quote(str(src) + '/.')} {shlex.quote(str(dest) + '/')}",
                     step="restore_dirs",
@@ -650,6 +662,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             for h2 in ["metabase.db.mv.db", "metabase.db.trace.db"]:
                 src = staging / "metabase" / h2
                 if src.exists():
+                    clear_symlinks(Path(metabase_vol), h2)
                     _run_local(
                         f"cp {shlex.quote(str(src))} {shlex.quote(metabase_vol + '/')}",
                         step="restore_metabase",

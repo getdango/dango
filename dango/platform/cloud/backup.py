@@ -24,6 +24,14 @@ import yaml
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.backup_restore import (
+    copy_dir_cmd,
+    copy_file_cmd,
+    restore_dir_cmd,
+    restore_file_cmd,
+    unlink_symlinks_cmd,
+    wal_sidecar_names,
+)
 from dango.platform.docker import _legacy_path_hash
 
 _logger = get_logger(__name__)
@@ -117,36 +125,6 @@ SECRET_FILES = [
     ".dlt/secrets.toml",
     ".env",
 ]
-
-
-def wal_sidecar_names(db_rel_path: str) -> list[str]:
-    """Return the SQLite/DuckDB WAL sidecar paths for a database file (relative path in, relative paths out)."""
-    if db_rel_path.endswith(".duckdb"):
-        return [db_rel_path + ".wal"]
-    if db_rel_path.endswith(".db"):
-        return [db_rel_path + "-wal", db_rel_path + "-shm"]
-    return []
-
-
-def _copy_file_cmd(src: str, dest_dir: str, before: list[str] | None = None) -> str:
-    """Shell step copying *src* into *dest_dir* if it exists; a failed copy fails the step.
-
-    *before* holds shell commands run first, only when *src* exists.
-    """
-    steps = list(before or [])
-    steps += [
-        f"mkdir -p {shlex.quote(dest_dir)}",
-        f"cp {shlex.quote(src)} {shlex.quote(dest_dir)}/",
-    ]
-    return f"if [ -f {shlex.quote(src)} ]; then {' && '.join(steps)}; fi"
-
-
-def _copy_dir_cmd(src: str, dest: str) -> str:
-    """Shell step copying the contents of *src* into *dest* if it exists; a failed copy fails the step."""
-    return (
-        f"if [ -d {shlex.quote(src)} ]; then mkdir -p {shlex.quote(dest)}"
-        f" && cp -r {shlex.quote(src + '/.')} {shlex.quote(dest)}/; fi"
-    )
 
 
 def _sanitized_metabase_yaml_text(raw_config: str) -> str:
@@ -407,9 +385,9 @@ def _create_archive(
         for fpath in file_list:
             src = f"{PROJECT_DIR}/{fpath}"
             dest_dir = f"{staging}/{'/'.join(fpath.split('/')[:-1])}" if "/" in fpath else staging
-            copy_cmds.append(_copy_file_cmd(src, dest_dir))
+            copy_cmds.append(copy_file_cmd(src, dest_dir))
         for dpath in BACKUP_DIRS:
-            copy_cmds.append(_copy_dir_cmd(f"{PROJECT_DIR}/{dpath}", f"{staging}/{dpath}"))
+            copy_cmds.append(copy_dir_cmd(f"{PROJECT_DIR}/{dpath}", f"{staging}/{dpath}"))
         metabase_source = f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}"
         metabase_destination = f"{staging}/{METABASE_CONFIG_FILE}"
         if ssh.exec_command(f"test -f {metabase_source}").success:
@@ -418,7 +396,7 @@ def _create_archive(
                 warnings.append(warning)
         if metabase_vol_path:
             for h2 in ("metabase.db.mv.db", "metabase.db.trace.db"):
-                copy_cmds.append(_copy_file_cmd(f"{metabase_vol_path}/{h2}", f"{staging}/metabase"))
+                copy_cmds.append(copy_file_cmd(f"{metabase_vol_path}/{h2}", f"{staging}/metabase"))
         _run_checked(ssh, " && ".join(copy_cmds), step="copy_files", timeout=300)
 
         # Get version + file info for manifest
@@ -698,11 +676,6 @@ def restore_from_archive(
             restore_cmds: list[str] = []
             for fpath in BACKUP_FILES:
                 src = f"{staging}/{fpath}"
-                dest_dir = (
-                    f"{PROJECT_DIR}/{'/'.join(fpath.split('/')[:-1])}"
-                    if "/" in fpath
-                    else PROJECT_DIR
-                )
                 # Clear the live database's leftover WAL first, or it is replayed into
                 # the restored file on the next open.  Without a safety backup the WAL
                 # may hold the only copy of recent writes, so it is moved aside instead.
@@ -715,15 +688,21 @@ def restore_from_archive(
                         kept = shlex.quote(f"{side}.pre-restore-{stamp}")
                         before.append(f"if [ -e {q} ]; then mv -f {q} {kept}; fi")
                         moved_aside.append(f"{side}.pre-restore-{stamp}")
-                restore_cmds.append(_copy_file_cmd(src, dest_dir, before=before))
+                restore_cmds.append(restore_file_cmd(src, PROJECT_DIR, fpath, before=before))
             metabase_source = f"{staging}/{METABASE_CONFIG_FILE}"
             metabase_destination = f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}"
             if ssh.exec_command(f"test -f {shlex.quote(metabase_source)}").success:
+                # Restores run as root into dango-writable trees: never write through a symlink.
+                _run_checked(
+                    ssh,
+                    unlink_symlinks_cmd(PROJECT_DIR, METABASE_CONFIG_FILE),
+                    step="restore_files",
+                )
                 warning = _sanitize_remote_metabase_yaml(ssh, metabase_source, metabase_destination)
                 if warning:
                     warnings.append(warning)
             for dpath in BACKUP_DIRS:
-                restore_cmds.append(_copy_dir_cmd(f"{staging}/{dpath}", f"{PROJECT_DIR}/{dpath}"))
+                restore_cmds.append(restore_dir_cmd(f"{staging}/{dpath}", PROJECT_DIR, dpath))
             _run_checked(ssh, " && ".join(restore_cmds), step="restore_files", timeout=300)
             for kept_path in moved_aside:
                 if ssh.exec_command(f"test -e {shlex.quote(kept_path)}").success:
@@ -734,7 +713,7 @@ def restore_from_archive(
             metabase_vol = _get_metabase_volume_path(ssh)
             if metabase_vol:
                 h2_cmds = [
-                    _copy_file_cmd(f"{staging}/metabase/{h2}", metabase_vol)
+                    restore_file_cmd(f"{staging}/metabase/{h2}", metabase_vol, h2)
                     for h2 in ("metabase.db.mv.db", "metabase.db.trace.db")
                 ]
                 _run_checked(ssh, " && ".join(h2_cmds), step="restore_metabase", timeout=300)
