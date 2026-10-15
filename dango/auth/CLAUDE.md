@@ -13,7 +13,7 @@ User authentication and access control for Dango. Handles password-based login w
 | `database.py` | 531 | SQLite CRUD (WAL mode, FK enforcement) | `create_user()`, `get_user_by_*()`, `list_users()`, `update_user()`, `create_session()`, `get_session_by_token()`, `create_api_key()` |
 | `security.py` | 389 | Pure crypto utilities | `hash_password()`, `verify_password()`, `check_password_strength()`, `generate_session_token()`, `generate_api_key()`, `generate_invite_token()`, `generate_recovery_codes()` |
 | `sessions.py` | 289 | High-level session + API key lifecycle | `create_session()`, `validate_session()`, `validate_partial_session()`, `create_api_key()`, `validate_api_key()` |
-| `permissions.py` | 196 | 29 permissions, 3 role mappings | `PERMISSIONS`, `ROLE_PERMISSIONS`, `has_permission()`, `require_permission()` |
+| `permissions.py` | 212 | 29 permissions, 3 role mappings; `require_permission()` returns a synthetic local admin when `request.state.auth_disabled` is set, except for `users.manage` | `PERMISSIONS`, `ROLE_PERMISSIONS`, `has_permission()`, `require_permission()` |
 | `lockout.py` | 459 | Brute-force protection (5 attempts / 15-min, IP-based + user-based) | `record_failed_login()`, `check_account_locked()`, `unlock_account()`, `cleanup_expired_login_attempts()` |
 | `audit.py` | 238 | 45 event types + 1 deprecated alias to `.dango/logs/audit.jsonl` | `AuditEvent`, `log_auth_event()`, `query_audit_log()` |
 | `admin.py` | 139 | Bootstrap + path helpers | `ensure_admin(db_path, email, password=None)`, `SKIP_WIZARD_DEFAULT_ADMIN_EMAIL`, `is_auth_enabled()`, `get_auth_db_path()` |
@@ -264,7 +264,7 @@ Session bridging syncs Dango auth state to Metabase so users get single sign-on.
 **External packages:** `pwdlib[bcrypt]`, `pyotp`, `httpx`, `requests`, `pydantic`, `rich`
 
 **Used by:**
-- `web/middleware/auth.py` (324 lines) — session/API key validation on every request
+- `web/middleware/auth.py` (466 lines) — session/API key validation on every HTTP request and WebSocket handshake
 - `web/routes/auth.py` (~852 lines) — login, password change, OAuth, invite accept. Defines `_bridge_metabase_session()` helper (shared with auth_2fa.py).
 - `web/routes/auth_2fa.py` (~340 lines) — TOTP setup/verify/disable. Imports `_bridge_metabase_session` from auth.py.
 - `web/routes/users.py` (527 lines) — user CRUD, invite creation, reinvite
