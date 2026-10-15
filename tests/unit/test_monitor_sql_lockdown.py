@@ -6,6 +6,7 @@ Monitor and drill-down SQL runs on the locked read-only query connection, using 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pytest
@@ -46,14 +47,14 @@ def canary(tmp_path: Path) -> Path:
     return path
 
 
-def _monitor(**kwargs: object) -> MonitorConfig:
-    defaults: dict[str, object] = {
+def _monitor(**kwargs: Any) -> MonitorConfig:
+    defaults: dict[str, Any] = {
         "name": "m",
         "source_table": "raw_stripe.charge",
         "value_expression": "COUNT(*)",
     }
     defaults.update(kwargs)
-    return MonitorConfig(**defaults)  # type: ignore[arg-type]
+    return MonitorConfig(**defaults)
 
 
 def test_metric_still_evaluates(warehouse: Path) -> None:
