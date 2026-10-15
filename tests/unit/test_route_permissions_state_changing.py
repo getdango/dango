@@ -268,3 +268,20 @@ class TestInitialSyncPermissions:
 
         assert client.post(_SKIP, headers=_CSRF).status_code == 200
         assert client.post(_CANCEL, headers=_CSRF).status_code == 200
+
+
+@pytest.mark.unit
+class TestDashboardBannerControls:
+    def test_dashboard_exposes_role_and_gates_skip_cancel(self, project: AuthProject) -> None:
+        from dango.web.routes.ui import router as ui_router
+
+        user = project.add_user("viewer@example.com", Role.VIEWER)
+        client = build_client(project.root, ui_router)
+
+        resp = client.get("/", headers={"Cookie": project.session_cookie(user)})
+
+        assert resp.status_code == 200
+        assert 'window.DANGO_USER_ROLE = "viewer"' in resp.text
+        assert "canManage && phase === 'syncing'" in resp.text
+        assert "canManage && isRunning()" in resp.text
+        assert "Requires Admin" in resp.text
