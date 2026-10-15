@@ -146,6 +146,8 @@ def test_restore_from_spaces_removes_wal(tmp_path: Path) -> None:
         sb.restore_from_spaces({}, "backups/backup-20260101-000000.tar.gz")
 
     assert not duck_wal.exists(), "live DuckDB WAL left in place after Spaces restore"
+    # No safety backup on this path: the live WAL is kept aside, not deleted.
+    assert len(list(duck_wal.parent.glob("warehouse.duckdb.wal.pre-restore-*"))) == 1
     assert not auth_wal.exists() and not auth_shm.exists()
     tables, values = duckdb_state(live_db)
     assert tables == {"t"}

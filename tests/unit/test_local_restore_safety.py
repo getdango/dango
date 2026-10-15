@@ -5,6 +5,7 @@ Local restore must not discard committed WAL-only data that the pre-restore safe
 
 from __future__ import annotations
 
+import shutil
 import tarfile
 from pathlib import Path
 from typing import Any
@@ -67,7 +68,10 @@ def test_safety_archive_preserves_wal_only_rows(tmp_path: Path) -> None:
     safety = sorted((project / ".dango" / "backups").glob("pre-restore-*.tar.gz"))
     assert len(safety) == 1
 
-    back = _restore(project, safety[0])
+    # Restore from a copy: a second restore in the same second reuses the safety file name.
+    kept = tmp_path / safety[0].name
+    shutil.copy(safety[0], kept)
+    back = _restore(project, kept)
     assert back.exit_code == 0, back.output
     _assert_live_rows_back(project)
 
@@ -86,6 +90,27 @@ def test_safety_archive_keeps_sidecars_when_checkpoint_fails(tmp_path: Path) -> 
         names = set(tf.getnames())
     assert {"data/warehouse.duckdb.wal", ".dango/auth.db-wal"} <= names
 
-    back = _restore(project, safety[0])
+    # Restore from a copy: a second restore in the same second reuses the safety file name.
+    kept = tmp_path / safety[0].name
+    shutil.copy(safety[0], kept)
+    back = _restore(project, kept)
     assert back.exit_code == 0, back.output
     _assert_live_rows_back(project)
+
+
+@pytest.mark.unit
+def test_wal_kept_aside_when_safety_backup_failed(tmp_path: Path) -> None:
+    project = _live_project(tmp_path)
+    wal = project / "data" / "warehouse.duckdb.wal"
+    wal_bytes = wal.read_bytes()
+
+    with patch(f"{_LB}._create_safety_backup", return_value=None):
+        result = _restore(project, _archive(tmp_path))
+
+    assert result.exit_code == 0, result.output
+    assert not wal.exists()
+    kept = list((project / "data").glob("warehouse.duckdb.wal.pre-restore-*"))
+    assert len(kept) == 1 and kept[0].read_bytes() == wal_bytes
+    assert len(list((project / ".dango").glob("auth.db-wal.pre-restore-*"))) == 1
+    tables, values = duckdb_state(project / "data" / "warehouse.duckdb")
+    assert tables == {"t"} and values == ["archive"]
