@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
+import uvicorn
+from fastapi.testclient import TestClient
 
 from dango.web.routes.dbt import router as dbt_router
 from tests.factories.auth_app_factories import AuthProject, build_client
@@ -133,3 +136,44 @@ class TestAuthDisabledLocalOnly:
         )
 
         assert resp.status_code == 401
+
+
+# uvicorn kwargs of the two local start paths: `dango serve` (serve.py) passes these
+# explicitly; `dango start` (process_manager.py) runs the uvicorn CLI, whose
+# defaults are the same (proxy_headers on, forwarded_allow_ips 127.0.0.1).
+_SERVE_KWARGS = {"proxy_headers": True, "forwarded_allow_ips": "127.0.0.1"}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("uvicorn_kwargs", [_SERVE_KWARGS, {}], ids=["serve", "start-cli"])
+class TestThroughUvicornProxyHeaders:
+    """scope["client"] after uvicorn's proxy-header rewrite, behind local nginx."""
+
+    def _client(self, project: AuthProject, uvicorn_kwargs: dict[str, object]) -> TestClient:
+        inner = build_client(project.root, dbt_router).app
+        config = uvicorn.Config(app=inner, **cast(dict[str, Any], uvicorn_kwargs))
+        config.load()
+        return TestClient(
+            config.loaded_app,
+            base_url="http://localhost:8800",
+            raise_server_exceptions=False,
+            client=("127.0.0.1", 50000),  # nginx connects from loopback
+        )
+
+    def test_lan_client_via_nginx_not_auth_disabled(
+        self, project: AuthProject, uvicorn_kwargs: dict[str, object]
+    ) -> None:
+        client = self._client(project, uvicorn_kwargs)
+
+        resp = client.post(_RUN_MODEL, headers={**_CSRF, "x-forwarded-for": "192.168.1.5"})
+
+        assert resp.status_code == 401
+
+    def test_loopback_via_nginx_auth_disabled(
+        self, project: AuthProject, uvicorn_kwargs: dict[str, object]
+    ) -> None:
+        client = self._client(project, uvicorn_kwargs)
+
+        resp = client.post(_RUN_MODEL, headers={**_CSRF, "x-forwarded-for": "127.0.0.1"})
+
+        assert resp.status_code == 404
