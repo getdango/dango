@@ -221,53 +221,63 @@ def run_spaces_restore(
     *,
     metabase_vol: Path | None = None,
     fail_cp_match: str | None = None,
+    events: list[str] | None = None,
 ) -> tuple[Path, list[str]]:
-    """Run ``restore_from_spaces`` against *project* with ``tmp_path/top`` as the extracted staging dir.
+    """Run ``restore_from_spaces`` for an archive built from ``tmp_path/top``.
 
-    Shell steps run for real under :func:`shim_env` (download, extraction and the final
-    ``chown`` are skipped).  Returns the shim dir (for :func:`cp_log`) and the event list
-    (shell commands passed to ``subprocess.run`` and ``"start"`` for the service restart).
+    The directory ``tmp_path/top`` is archived under the top-level name *top* (like a
+    server backup) and "downloaded" to the backup dir; every shell step then runs for
+    real under :func:`shim_env` (only the final project ``chown`` is skipped).
+    Returns the shim dir (for :func:`cp_log`) and the event list: ``stop``/``start``
+    for the services, ``run: <cmd>`` for ``_run_local`` and ``sh: <cmd>`` for
+    ``subprocess.run``.  Pass *events* to keep them when the restore raises.
     """
+    import tarfile
     from unittest.mock import patch
 
-    sb = "dango.platform.cloud.scheduled_backup"
     from dango.platform.cloud import scheduled_backup
 
+    sb = "dango.platform.cloud.scheduled_backup"
     shim_dir = tmp_path / "shim"
     env = shim_env(shim_dir, fail_cp_match=fail_cp_match)
-    events: list[str] = []
-    real_path = Path
+    events = [] if events is None else events
     real_run = subprocess.run
+    archive = tmp_path / f"{top}.tar.gz"
+    with tarfile.open(archive, mode="w:gz") as tf:
+        tf.add(str(tmp_path / top), arcname=top)
 
-    def fake_path(value: object = ".") -> Path:
-        text = str(value)
-        if text.startswith("/tmp/"):
-            return tmp_path / text[len("/tmp/") :]
-        return real_path(str(value))
+    def download(_config: object, _key: str, local_path: Path) -> None:
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_bytes(archive.read_bytes())
 
     def run_local(command: str, **_kw: object) -> str:
         from dango.exceptions import CloudProvisioningError
 
-        if "tar -xzf" in command or command.startswith("chown"):
+        events.append(f"run: {command}")
+        if command.startswith("chown"):
             return ""
         proc = real_run(command, shell=True, capture_output=True, text=True, env=env)
         if proc.returncode != 0:
             raise CloudProvisioningError(f"Step failed (exit {proc.returncode}): {proc.stderr}")
         return proc.stdout
 
+    def shell(cmd: object, **_kw: object) -> None:
+        events.append(f"sh: {cmd}")
+        if str(cmd).startswith("rm -rf"):
+            real_run(str(cmd), shell=True, check=False)
+
     with (
         patch(f"{sb}.PROJECT_DIR", project),
         patch(f"{sb}.BACKUP_DIR", tmp_path / "backups"),
-        patch(f"{sb}.download_from_spaces"),
-        patch(f"{sb}.Path", fake_path),
-        patch(f"{sb}._stop_services"),
+        patch(f"{sb}.download_from_spaces", side_effect=download),
+        patch(f"{sb}._stop_services", side_effect=lambda: events.append("stop")),
         patch(f"{sb}._start_services", side_effect=lambda: events.append("start")),
         patch(f"{sb}._run_local", side_effect=run_local),
         patch(
             f"{sb}._get_metabase_volume_path",
             return_value=str(metabase_vol) if metabase_vol else None,
         ),
-        patch(f"{sb}.subprocess.run", side_effect=lambda cmd, **_k: events.append(str(cmd))),
+        patch(f"{sb}.subprocess.run", side_effect=shell),
     ):
         scheduled_backup.restore_from_spaces({}, f"backups/{top}.tar.gz")
     return shim_dir, events
