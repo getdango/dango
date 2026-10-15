@@ -262,3 +262,74 @@ def test_start_marimo_stops_process_when_wait_loop_raises(tmp_path: Path) -> Non
     assert proc.group_signals[:1] == [signal.SIGTERM]
     assert proc.terminated is True
     assert not get_marimo_pid_file_path(tmp_path).exists()
+
+
+def _stop_with(
+    tmp_path: Path, *, pgid_offset: int = 0, survives: bool = False
+) -> tuple[bool, list[int], MagicMock, Path]:
+    """Run ``stop_marimo`` on pid 12345 with every process call faked."""
+    import psutil
+
+    from dango.notebooks.manager import get_marimo_pid_file_path, stop_marimo
+
+    pid_file = get_marimo_pid_file_path(tmp_path)
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text("12345")
+    sent: list[int] = []
+    state = {"alive": True}
+
+    def _killpg(pgid: int, sig: int) -> None:
+        assert pgid == 12345
+        sent.append(sig)
+        if not survives:
+            state["alive"] = False
+
+    def _process(pid: int) -> MagicMock:
+        if not state["alive"]:
+            raise psutil.NoSuchProcess(pid)
+        live = MagicMock()
+        live.status.return_value = "running"
+        return live
+
+    kill = MagicMock(return_value=True)
+    with (
+        patch(f"{_M}.is_process_running", return_value=True),
+        patch(f"{_M}.kill_process", kill),
+        patch(f"{_M}.os.getpgid", side_effect=lambda pid: pid + pgid_offset),
+        patch(f"{_M}.os.killpg", side_effect=_killpg),
+        patch("psutil.Process", side_effect=_process),
+        patch(f"{_M}._STOP_TERM_TIMEOUT_SECONDS", 0.3, create=True),
+        patch(f"{_M}._STOP_KILL_TIMEOUT_SECONDS", 0.3, create=True),
+    ):
+        result = stop_marimo(tmp_path)
+    return result, sent, kill, pid_file
+
+
+@pytest.mark.unit
+def test_stop_marimo_keeps_pid_file_when_process_survives(tmp_path: Path) -> None:
+    """A Marimo that survives SIGTERM and SIGKILL keeps its pid file; stop reports failure."""
+    result, sent, _kill, pid_file = _stop_with(tmp_path, survives=True)
+
+    assert result is False
+    assert sent == [signal.SIGTERM, signal.SIGKILL]
+    assert pid_file.read_text() == "12345"
+
+
+@pytest.mark.unit
+def test_stop_marimo_removes_pid_file_once_group_is_gone(tmp_path: Path) -> None:
+    """The process group gets SIGTERM; the pid file goes only after the process is gone."""
+    result, sent, _kill, pid_file = _stop_with(tmp_path)
+
+    assert result is True
+    assert sent == [signal.SIGTERM]
+    assert not pid_file.exists()
+
+
+@pytest.mark.unit
+def test_stop_marimo_never_signals_a_foreign_process_group(tmp_path: Path) -> None:
+    """A pid that is not its own group leader (reused pid) never gets a group signal."""
+    result, sent, kill, _pid_file = _stop_with(tmp_path, pgid_offset=1)
+
+    assert sent == []
+    kill.assert_called_once()
+    assert kill.call_args.args[0] == 12345
