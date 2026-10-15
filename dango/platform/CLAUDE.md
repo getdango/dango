@@ -54,7 +54,7 @@ platform/
 │   ├── server_status.py # Server resource metrics + service status via SSH (TASK-104)
 │   ├── domain.py        # DNS check, set_domain(), remove_domain() (TASK-027)
 │   ├── backup.py        # SSH-based backup + rollback (TASK-035)
-│   ├── backup_restore.py # Copy helpers for backup/restore (WAL sidecars, fail-on-error, symlink-safe restore)
+│   ├── backup_restore.py # Copy helpers for backup/restore (WAL sidecars, fail-on-error, restore as service user)
 │   ├── file_sync.py     # Project file sync: SFTP + rsync (TASK-028)
 │   ├── deployer.py      # Push deployment workflow + deploy lock (TASK-030)
 │   ├── deploy_journal.py # Append-only JSONL deployment history (P8-004)
@@ -103,7 +103,7 @@ platform/
 | `cloud/server_status.py` | Server resource metrics, service status, PyPI version check | `ServerStatus`, `ServiceInfo`, `collect_server_status`, `check_latest_pypi_version`, `get_local_resource_usage` |
 | `cloud/domain.py` | DNS check, domain set/remove for HTTPS via Caddy | `check_dns`, `set_domain`, `remove_domain` |
 | `cloud/backup.py` | SSH-based backup and rollback (restores remove live WAL sidecars first; a failed copy fails the step) | `create_backup`, `rollback`, `wal_sidecar_names`, `list_local_backups`, `rotate_local_backups`, `BackupManifest`, `BackupResult`, `RestoreResult`, `BACKUP_FILES`, `BACKUP_DIRS`, `SECRET_FILES`, `get_remote_compose_project_name()` |
-| `cloud/backup_restore.py` | Shell/filesystem copy helpers shared by `backup.py` and `scheduled_backup.py`; restores run as root, so destination symlinks are replaced, never followed | `wal_sidecar_names`, `restore_file_cmd`, `restore_dir_cmd`, `unlink_symlinks_cmd`, `clear_symlinks`, `remove_symlinks_in_tree` |
+| `cloud/backup_restore.py` | Shell copy helpers shared by `backup.py` and `scheduled_backup.py`; restores run as root but write project files as the service user (`runuser -u dango --`), and root writes only the Metabase volume (refusing symlinked destinations) | `wal_sidecar_names`, `restore_file_cmd`, `restore_dir_cmd`, `restore_volume_file_cmd`, `hand_staging_to_service_user_cmd`, `AS_SERVICE_USER` |
 | `cloud/file_sync.py` | Project file sync (SFTP + rsync) with change detection | `sync_project_files`, `SyncResult` |
 | `cloud/deployer.py` | Push deployment workflow with deploy lock | `push_deploy`, `DeployLock`, `DeployResult` |
 | `cloud/deploy_journal.py` | Append-only JSONL deployment history | `DeploymentRecord`, `write_local_journal`, `write_remote_journal`, `read_local_journal`, `read_remote_journal`, `get_latest_deployment` |
