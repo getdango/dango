@@ -11,6 +11,7 @@ import os
 import shutil
 import sys
 import textwrap
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -38,15 +39,24 @@ SOURCE_PY = textwrap.dedent(
 
 
 @pytest.fixture
-def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """Project root with isolated dlt data dir; env restored after the test."""
     monkeypatch.setenv("DLT_DATA_DIR", str(tmp_path / ".dlt"))
     monkeypatch.setenv("DLT_PROJECT_DIR", str(tmp_path))
     monkeypatch.delenv("LOAD__DELETE_COMPLETED_JOBS", raising=False)
-    monkeypatch.setenv("RUNTIME__DLTHUB_TELEMETRY", "false")
+    monkeypatch.delenv("RUNTIME__DLTHUB_TELEMETRY", raising=False)  # restored after the test
+    # Opt out of dlt telemetry: no network, and it must not be started in this process
+    # (tests/unit/test_egress_allowlist.py expects to be the first to start it).
+    monkeypatch.setattr("dango.telemetry.get_dlt_telemetry_state", lambda *a, **k: False)
     (tmp_path / "custom_sources").mkdir()
     (tmp_path / "custom_sources" / "c1e_mod.py").write_text(SOURCE_PY)
-    return tmp_path
+    yield tmp_path
+    # dlt caches its runtime config (and telemetry flags) on a process-wide RunContext;
+    # reset it so later tests (egress allowlist) see a fresh dlt runtime.
+    from dlt.common.runtime.telemetry import stop_telemetry
+
+    stop_telemetry()
+    dlt.current.run_context().reset_config()
 
 
 def pipelines_dir(root: Path) -> Path:

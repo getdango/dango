@@ -212,6 +212,59 @@ def _apply_dlt_telemetry_env(project_root: Path) -> None:
     os.environ["RUNTIME__DLTHUB_TELEMETRY"] = "true" if enabled else "false"
 
 
+def _enable_load_package_cleanup() -> None:
+    """Ask dlt to delete completed job files after a successful load.
+
+    Without this dlt keeps every loaded batch (row data included) under
+    ``<pipelines_dir>/<pipeline>/load/loaded/<package>/completed_jobs/``. dlt reads
+    ``LOAD__DELETE_COMPLETED_JOBS`` from ``os.environ`` at load time. ``setdefault``
+    so an operator can override it. Failed packages keep their job files either way.
+    """
+    os.environ.setdefault("LOAD__DELETE_COMPLETED_JOBS", "true")
+
+
+def _package_sort_key(package_dir: Path) -> tuple[float, str]:
+    """Order load package directories oldest to newest (load ids are unix timestamps)."""
+    try:
+        return (float(package_dir.name), package_dir.name)
+    except ValueError:
+        return (package_dir.stat().st_mtime, package_dir.name)
+
+
+def _prune_loaded_packages(pipeline: Any) -> None:
+    """After a successful load: drop old load packages and restrict the pipeline dir.
+
+    Removes every ``load/loaded/<package>`` directory except the newest one (packages
+    written by earlier syncs, before completed-job deletion was enabled, still hold
+    row data). Never touches ``load/new`` or ``load/normalized``. Best effort: a
+    failure is logged and never fails the sync.
+    """
+    import shutil
+
+    raw_working_dir = getattr(pipeline, "working_dir", None)
+    if not isinstance(raw_working_dir, (str, Path)):
+        return
+    working_dir = Path(raw_working_dir)
+    try:
+        loaded_dir = working_dir / "load" / "loaded"
+        if loaded_dir.is_dir():
+            packages = sorted(
+                (d for d in loaded_dir.iterdir() if d.is_dir()), key=_package_sort_key
+            )
+            for old_package in packages[:-1]:
+                shutil.rmtree(old_package, ignore_errors=False)
+    except OSError as exc:
+        _logging.getLogger(__name__).warning(
+            "dlt_loaded_cleanup_failed: pipeline=%s error=%s",
+            getattr(pipeline, "pipeline_name", "?"),
+            exc,
+        )
+    try:
+        os.chmod(working_dir, 0o700)
+    except OSError:
+        pass  # best effort (e.g. Windows)
+
+
 class DltPipelineRunner:
     """
     Generic pipeline runner for all dlt sources
@@ -1161,6 +1214,7 @@ class DltPipelineRunner:
         # too late — confirmed empirically while building this: the
         # opt-out silently didn't apply until this was moved here.
         _apply_dlt_telemetry_env(self.project_root)
+        _enable_load_package_cleanup()
 
         try:
             # Try to import source from custom_sources/ directory first
@@ -1650,6 +1704,7 @@ class DltPipelineRunner:
         # the identical comment in _run_dlt_native_source for why this can't
         # wait until right before dlt.pipeline().
         _apply_dlt_telemetry_env(self.project_root)
+        _enable_load_package_cleanup()
 
         try:
             # Dynamic import of dlt source
@@ -2835,7 +2890,9 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 _LOCK_RETRY_WAIT = 10  # seconds
                 for _attempt in range(_LOCK_MAX_RETRIES):
                     try:
-                        return pipeline.load()
+                        load_info = pipeline.load()
+                        _prune_loaded_packages(pipeline)
+                        return load_info
                     except PipelineStepFailed as _exc:
                         # pipeline.load() always wraps step exceptions in
                         # PipelineStepFailed (see dlt's Pipeline.load()) — the
@@ -3106,6 +3163,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
         _cleanup_staging()
 
         console.print("  🔄 Full refresh: staging reload before swapping into destination")
+        _enable_load_package_cleanup()
         staging_pipeline = dlt.pipeline(
             pipeline_name=staging_pipeline_name,
             destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
