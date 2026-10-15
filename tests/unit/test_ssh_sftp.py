@@ -571,6 +571,7 @@ class TestKnownHosts:
             incoming_key.__eq__ = stored_key.__eq__ = lambda self, other: self is other
             # Make them the same object.
             incoming_key = stored_key
+            incoming_key.get_name.return_value = "ssh-ed25519"
 
             client_mock = MagicMock()
             # Should not raise.

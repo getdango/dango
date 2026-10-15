@@ -113,7 +113,7 @@ class TestRsyncSshArg:
 class TestSyncThreadsPinnedHost:
     @pytest.mark.parametrize(("port", "pinned_name"), [(22, _HOST), (2222, f"[{_HOST}]:2222")])
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_sync_uses_manager_known_hosts_and_port(
         self, mock_run: MagicMock, _which: MagicMock, tmp_path: Path, port: int, pinned_name: str
     ) -> None:
@@ -136,7 +136,7 @@ class TestSyncThreadsPinnedHost:
         [None, "198.51.100.7", _HOST],  # missing file, other host, wrong port (2222)
     )
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_rsync_refuses_unpinned_host(
         self, mock_run: MagicMock, _which: MagicMock, tmp_path: Path, pinned: str | None
     ) -> None:
@@ -150,7 +150,7 @@ class TestSyncThreadsPinnedHost:
             sync_project_files(ssh, _project(tmp_path), remote_host=_HOST)
         assert _rsync_e_args(mock_run) == []
 
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_rsync_directory_refuses_unpinned_host(
         self, mock_run: MagicMock, tmp_path: Path
     ) -> None:
@@ -187,13 +187,13 @@ class TestLegacyKnownHostsForRsync:
     """Hosts pinned before 1.0.14 in ``<key dir>/known_hosts`` keep working without re-TOFU."""
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_host_pinned_only_in_legacy_file_pushes(
         self, mock_run: MagicMock, _which: MagicMock, tmp_path: Path
     ) -> None:
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         primary = tmp_path / "home" / ".dango" / "known_hosts"
-        legacy = tmp_path / "project" / ".dango" / "known_hosts"
+        legacy = tmp_path / "old-project" / ".dango" / "known_hosts"
         key = _pin(legacy, _HOST)
         ssh = _ssh_mock(primary, legacy=[legacy])
 
@@ -207,13 +207,13 @@ class TestLegacyKnownHostsForRsync:
             assert "StrictHostKeyChecking=yes" in arg
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_conflicting_pins_refused(
         self, mock_run: MagicMock, _which: MagicMock, tmp_path: Path
     ) -> None:
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         primary = tmp_path / "home" / ".dango" / "known_hosts"
-        legacy = tmp_path / "project" / ".dango" / "known_hosts"
+        legacy = tmp_path / "old-project" / ".dango" / "known_hosts"
         _pin(primary, _HOST)
         _pin(legacy, _HOST)  # same key type, different key
         ssh = _ssh_mock(primary, legacy=[legacy])
@@ -223,7 +223,7 @@ class TestLegacyKnownHostsForRsync:
         assert _rsync_e_args(mock_run) == []
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_remote_host_must_match_connected_host(
         self, mock_run: MagicMock, _which: MagicMock, tmp_path: Path
     ) -> None:

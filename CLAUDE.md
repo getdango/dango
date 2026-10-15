@@ -243,6 +243,7 @@ dango/                          # Python package source
 │   │   ├── domain.py           # DNS check, domain set/remove
 │   │   ├── backup.py           # Backup + rollback + service lifecycle
 │   │   ├── file_sync.py        # Project file sync (SFTP + rsync)
+│   │   ├── rsync_transport.py  # rsync over ssh, verifying the pinned host key
 │   │   ├── deployer.py         # Push deploy workflow + deploy lock (643 lines)
 │   │   ├── deploy_journal.py   # Append-only JSONL deployment history
 │   │   ├── scheduled_backup.py # Server-side scheduled backup (606 lines)

@@ -59,11 +59,9 @@ def _make_ssh_manager(cloud_cfg: Any, project_root: Path) -> Any:
     """Create SSHManager from CloudConfig, resolving ssh_key_path."""
     from dango.platform.cloud.ssh import SSHManager
 
-    key_path = _resolve_ssh_key_path(cloud_cfg, project_root)
-    return SSHManager(
-        key_path=key_path,
-        known_hosts_path=key_path.parent / "known_hosts",
-    )
+    # Default known_hosts (~/.dango/known_hosts): the one file paramiko, rsync and
+    # `remote ssh` all verify against.  Pins in <key dir>/known_hosts are still honoured.
+    return SSHManager(key_path=_resolve_ssh_key_path(cloud_cfg, project_root))
 
 
 def _resolve_ssh_key_path(cloud_cfg: Any, project_root: Path) -> Path:
@@ -414,8 +412,12 @@ def remote_ssh(ctx: click.Context) -> None:
     """
     cloud_cfg, project_root = _load_cloud_config_with_ip(ctx)
 
-    key_path = _resolve_ssh_key_path(cloud_cfg, project_root)
-    known_hosts = key_path.parent / "known_hosts"
+    from dango.exceptions import CloudSSHError
+    from dango.platform.cloud.ssh import ensure_host_pinned
+
+    manager = _make_ssh_manager(cloud_cfg, project_root)
+    key_path = manager.key_path
+    known_hosts = manager.known_hosts_path
 
     if not key_path.exists():
         console.print(
@@ -423,6 +425,15 @@ def remote_ssh(ctx: click.Context) -> None:
             "Re-provision or check your cloud config."
         )
         raise SystemExit(1)
+
+    # OpenSSH reads only `known_hosts`: carry over a pin from the pre-1.0.14 file first so
+    # accept-new never trusts a key anew for a host that is already pinned.
+    known_hosts.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        ensure_host_pinned(known_hosts, manager.legacy_known_hosts_paths, cloud_cfg.droplet_ip)
+    except CloudSSHError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise click.Abort() from None
 
     args = [
         "ssh",
