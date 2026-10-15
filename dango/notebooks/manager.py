@@ -253,8 +253,8 @@ def start_marimo(
         # Wait for Marimo to start responding (poll until ready, dead, or
         # the deadline).  A Marimo that never answers is stopped instead of
         # being polled forever from a shared worker thread.
-        # Any exception (timeout, early exit, probe error, interrupt) stops
-        # the spawned process group so nothing is left running without a pid file.
+        # Any exception (timeout, early exit, probe error, interrupt, pid file
+        # write) stops the spawned process group: nothing runs untracked.
         deadline = time.monotonic() + _MARIMO_START_TIMEOUT_SECONDS
         try:
             while time.monotonic() < deadline:
@@ -268,11 +268,10 @@ def start_marimo(
                     f"Marimo did not become ready within {_MARIMO_START_TIMEOUT_SECONDS} s. "
                     f"Check logs at {log_file}"
                 )
+            pid_file.write_text(str(proc.pid))
         except BaseException:
             _stop_unready_process(proc)
             raise
-
-        pid_file.write_text(str(proc.pid))
 
         return proc.pid
 
