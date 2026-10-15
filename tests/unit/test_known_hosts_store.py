@@ -74,7 +74,7 @@ class TestRevokedKeys:
 
         with pytest.raises(CloudSSHError, match="revoked"):
             _TOFUHostKeyPolicy(kh, legacy_paths).missing_host_key(MagicMock(), _HOST, revoked)
-        assert not kh.exists() or _pinned(kh, _HOST) == []
+        assert not kh.exists() or _HOST not in kh.read_text()
 
     def test_pinned_but_revoked_key_refused(self, tmp_path: Path) -> None:
         kh = tmp_path / "known_hosts"

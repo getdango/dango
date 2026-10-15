@@ -54,15 +54,20 @@ def _build_rsync_ssh_arg(ssh_key_path: Path, known_hosts_path: Path, port: int =
     """Build the ``-e`` argument: verify the host against the paramiko-pinned known_hosts.
 
     Raises:
-        CloudProvisioningError: If a path contains a double quote (it is embedded quoted).
+        CloudProvisioningError: If a path contains a quote character (it is embedded quoted).
     """
-    for path in (ssh_key_path, known_hosts_path):
-        if '"' in str(path):
-            raise CloudProvisioningError(f"Path must not contain a double quote: {path}")
+    from dango.platform.cloud.ssh import ssh_config_path
+
+    try:
+        key = ssh_config_path(ssh_key_path)
+        known_hosts = ssh_config_path(known_hosts_path)
+    except CloudSSHError as exc:
+        raise CloudProvisioningError(str(exc)) from exc
+    # rsync splits -e on whitespace and strips one level of quotes: the single quotes
+    # keep the option together for rsync, the double quotes keep ssh from splitting.
     return (
-        f'ssh -i "{ssh_key_path}" -p {int(port)} '
-        f'-o StrictHostKeyChecking=yes -o UserKnownHostsFile="{known_hosts_path}" '
-        f"-o BatchMode=yes"
+        f'ssh -i "{key}" -p {int(port)} -o StrictHostKeyChecking=yes '
+        f"-o 'UserKnownHostsFile=\"{known_hosts}\"' -o BatchMode=yes"
     )
 
 

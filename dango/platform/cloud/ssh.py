@@ -27,8 +27,11 @@ the pre-1.0.14 file ``<key dir>/known_hosts`` are honoured read-only.
 from __future__ import annotations
 
 import os
+import sys
+import tempfile
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -73,35 +76,100 @@ def host_key_name(host: str, port: int = 22) -> str:
     return host if port == 22 else f"[{host}]:{port}"
 
 
-def _load_host_keys(pm: Any, path: Path) -> Any:
-    """Load *path* into a paramiko ``HostKeys``, skipping lines paramiko cannot use.
+def ssh_config_path(path: Path) -> str:
+    """Return *path* for use inside a double-quoted ssh option value.
 
-    A corrupt line, a ``@cert-authority``/``@revoked`` marker or an unsupported key
-    type (common in a user's own ``~/.ssh/known_hosts``) is skipped with one warning
-    naming the file and line numbers; every valid entry (plain or hashed) is kept.
-    The file itself is never modified here.
+    ``%`` is doubled because ssh expands ``%`` tokens in ``UserKnownHostsFile``
+    and ``IdentityFile``.
+
+    Raises:
+        CloudSSHError: If the path contains a quote character (it cannot be quoted safely).
     """
-    host_keys = pm.HostKeys()
+    text = str(path)
+    if '"' in text or "'" in text:
+        raise CloudSSHError(f"SSH file path must not contain quote characters: {text}")
+    return text.replace("%", "%%")
+
+
+def _parse_known_hosts_line(pm: Any, line: str, lineno: int) -> Any:
+    """Return a paramiko ``HostKeyEntry`` for *line*, or None if it cannot be used."""
+    try:
+        entry = pm.hostkeys.HostKeyEntry.from_line(line, lineno)
+    except Exception:  # corrupt base64 / key data: skip the line, keep the rest
+        return None
+    return entry if entry is not None and entry.key is not None else None
+
+
+@dataclass
+class _KnownHosts:
+    """Parsed known_hosts file: usable pins plus ``@revoked`` keys (as raw key bytes)."""
+
+    host_keys: Any
+    revoked: set[Any]
+
+
+def _load_host_keys(pm: Any, path: Path, *, warn: bool = True) -> _KnownHosts:
+    """Load *path* tolerantly, skipping lines paramiko cannot use.
+
+    A corrupt line, a ``@cert-authority`` marker or an unsupported key type
+    (common in a user's own ``~/.ssh/known_hosts``) is skipped with one warning
+    naming the file and line numbers; every valid entry (plain or hashed) is
+    kept, and ``@revoked`` keys are collected.  The file is never modified here.
+    """
+    parsed = _KnownHosts(host_keys=pm.HostKeys(), revoked=set())
     if not path.is_file():
-        return host_keys
+        return parsed
     skipped: list[int] = []
     text = path.read_text(encoding="utf-8", errors="replace")
     for lineno, raw in enumerate(text.splitlines(), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        try:
-            entry = pm.hostkeys.HostKeyEntry.from_line(line, lineno)
-        except Exception:  # corrupt base64 / key data: skip the line, keep the rest
-            entry = None
-        if entry is None or entry.key is None:
+        marker, _, rest = line.partition(" ")
+        if marker == "@revoked":
+            entry = _parse_known_hosts_line(pm, rest.strip(), lineno)
+            if entry is None:
+                skipped.append(lineno)
+            else:
+                parsed.revoked.add(entry.key.asbytes())
+            continue
+        entry = None if line.startswith("@") else _parse_known_hosts_line(pm, line, lineno)
+        if entry is None:
             skipped.append(lineno)
             continue
         for name in entry.hostnames:
-            host_keys.add(name, entry.key.get_name(), entry.key)
-    if skipped:
+            parsed.host_keys.add(name, entry.key.get_name(), entry.key)
+    if skipped and warn:
         _logger.warning("known_hosts_lines_skipped", path=str(path), lines=skipped)
-    return host_keys
+    return parsed
+
+
+def _write_atomic(path: Path, data: bytes) -> None:
+    """Replace *path* with *data* atomically (temp file in the same dir, mode 0600)."""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+@contextmanager
+def _store_lock(path: Path) -> Iterator[None]:
+    """Hold an exclusive lock on ``<path>.lock`` (never unlinked: flock locks inodes)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path.with_name(path.name + ".lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        if sys.platform != "win32":
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)  # releases the lock
 
 
 class _TOFUHostKeyPolicy:
@@ -111,8 +179,10 @@ class _TOFUHostKeyPolicy:
     A host with ANY pinned key only accepts that exact key: a different key,
     or a key of a type that is not pinned, raises ``CloudSSHError``.
 
-    Keys are stored in paramiko ``HostKeys`` format at ``known_hosts_path``.
-    The file is created automatically if it does not exist.  *legacy_paths*
+    Keys are stored in OpenSSH known_hosts format at ``known_hosts_path``
+    (created if missing, mode 0600).  New pins are appended under a lock and
+    every other line is kept verbatim.  ``@revoked`` keys in any file are never
+    accepted.  *legacy_paths*
     (files earlier versions pinned into) are read, never written: their pins
     are honoured and copied into ``known_hosts_path`` on use; pins that
     disagree between files are treated as a changed key.
@@ -121,12 +191,25 @@ class _TOFUHostKeyPolicy:
     def __init__(self, known_hosts_path: Path, legacy_paths: Sequence[Path] = ()) -> None:
         self._path = known_hosts_path
         self._legacy_paths = list(legacy_paths)
-        pm = _ensure_paramiko()
-        self._host_keys: Any = _load_host_keys(pm, self._path)
-        self._legacy_keys: list[Any] = [_load_host_keys(pm, p) for p in self._legacy_paths]
+        self._pm = _ensure_paramiko()
+        primary = _load_host_keys(self._pm, self._path)
+        legacy = [_load_host_keys(self._pm, p) for p in self._legacy_paths]
+        self._host_keys: Any = primary.host_keys
+        self._legacy_keys: list[Any] = [parsed.host_keys for parsed in legacy]
+        self._revoked: set[Any] = set(primary.revoked).union(*(p.revoked for p in legacy))
+
+    def _files(self) -> str:
+        return ", ".join(str(p) for p in [self._path, *self._legacy_paths])
+
+    def _refuse_revoked(self, hostname: str, key: Any) -> None:
+        if key.asbytes() in self._revoked:
+            raise CloudSSHError(
+                f"Host key for {hostname!r} is marked @revoked in {self._files()}; "
+                "refusing to connect."
+            )
 
     def _changed(self, hostname: str, detail: str = "") -> CloudSSHError:
-        files = ", ".join(str(p) for p in [self._path, *self._legacy_paths])
+        files = self._files()
         return CloudSSHError(
             f"Host key verification failed for {hostname!r}: the key has "
             f"changed since the last connection{detail}.  If this is expected "
@@ -147,9 +230,31 @@ class _TOFUHostKeyPolicy:
                 merged[key_type] = key
         return merged
 
-    def _save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._host_keys.save(str(self._path))
+    def _save_pins(self, hostname: str, keys: dict[str, Any], *, first_use: bool) -> None:
+        """Append *keys* for *hostname* to the store, leaving every other line verbatim.
+
+        Under the store lock the file is re-read, so pins added concurrently by
+        another process are kept; a concurrent pin that disagrees is refused.
+        """
+        with _store_lock(self._path):
+            current = _load_host_keys(self._pm, self._path, warn=False).host_keys
+            existing = current[hostname] if hostname in current else {}
+            for key_type, key in keys.items():
+                if key_type in existing and existing[key_type] != key:
+                    raise self._changed(hostname)
+            new = {t: k for t, k in keys.items() if t not in existing}
+            if first_use and existing and new:
+                raise self._changed(hostname, " (pinned concurrently with another key type)")
+            if not new:
+                return
+            data = self._path.read_bytes() if self._path.is_file() else b""
+            if data and not data.endswith(b"\n"):
+                data += b"\n"
+            for key_type, key in new.items():
+                data += f"{hostname} {key_type} {key.get_base64()}\n".encode()
+            _write_atomic(self._path, data)
+        for key_type, key in new.items():
+            self._host_keys.add(hostname, key_type, key)
 
     def adopt_existing_pin(self, hostname: str) -> bool:
         """Copy legacy pins for *hostname* into ``known_hosts_path``.
@@ -161,12 +266,12 @@ class _TOFUHostKeyPolicy:
             CloudSSHError: If the files pin different keys for the host.
         """
         pinned = self._pinned(hostname)
+        for key in pinned.values():
+            self._refuse_revoked(hostname, key)
         primary = self._host_keys[hostname] if hostname in self._host_keys else {}
         missing = {t: k for t, k in pinned.items() if t not in primary}
-        for key_type, key in missing.items():
-            self._host_keys.add(hostname, key_type, key)
         if missing:
-            self._save()
+            self._save_pins(hostname, missing, first_use=False)
         return bool(pinned)
 
     def missing_host_key(self, client: Any, hostname: str, key: Any) -> None:
@@ -176,10 +281,10 @@ class _TOFUHostKeyPolicy:
         """
         _ensure_paramiko()
         key_type: str = key.get_name()
+        self._refuse_revoked(hostname, key)
         pinned = self._pinned(hostname)
         if not pinned:
-            self._host_keys.add(hostname, key_type, key)
-            self._save()
+            self._save_pins(hostname, {key_type: key}, first_use=True)
             return
         stored = pinned.get(key_type)
         if stored is None:
