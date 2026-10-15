@@ -9,6 +9,7 @@ Root Python package for Dango — contains all module subpackages (cli, config, 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
 | `__init__.py` | Package metadata: version, author, license | `__version__`, `__author__`, `__license__` |
+| `error_format.py` | `format_structured_error()` (what/why/fix message), re-exported by `dango.exceptions` | `format_structured_error()` |
 | `logging.py` | Structured logging (structlog + stdlib integration) | `configure_logging()`, `get_logger()`, `bind_contextvars`, `clear_contextvars`, `unbind_contextvars` |
 | `telemetry.py` | Opt-in anonymous install + weekly heartbeat telemetry (machine-level UUID in `~/.dango/`); also owns dbt/dlt provider state read/write for the unified `dango telemetry` control + `/settings/telemetry` web page (1.0.8-U) | `is_ci()`, `is_telemetry_enabled()`, `has_recorded_consent()`, `set_telemetry_enabled()`, `ping()`, `heartbeat()`, `heartbeat_job()`, `get_dbt_telemetry_state()`, `set_dbt_telemetry_state()`, `get_dlt_telemetry_state()`, `set_dlt_telemetry_state()`, `PROVIDERS` |
 

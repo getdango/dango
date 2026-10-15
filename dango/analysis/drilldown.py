@@ -103,7 +103,9 @@ def _query_dimension_breakdown(
     sql += f" GROUP BY {dimension} ORDER BY ABS({metric.value_expression}) DESC LIMIT {MAX_GROUPS}"
 
     try:
-        conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
+        from dango.utils.query_connection import open_locked_query_connection
+
+        conn = open_locked_query_connection(duckdb_path)
         try:
             rows = conn.execute(sql).fetchall()
         finally:
