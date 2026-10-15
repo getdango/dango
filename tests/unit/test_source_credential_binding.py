@@ -5,6 +5,7 @@ Agent-created sources must not adopt an existing credential variable; credential
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -33,9 +34,10 @@ SECRET_TYPES: dict[str, tuple[dict[str, Any], str]] = {
     "inbox": ({"host": "imap.example.com"}, "imap.example.com"),
     "strapi": ({"domain": "cms.example.com", "endpoints": ["articles"]}, "cms.example.com"),
 }
-# Types an agent may create through MCP (rest_api is CLI-only; matomo, jira, strapi are hidden).
-MCP_SECRET_TYPES = ["freshdesk", "inbox", "workable"]
-AGENT_REFUSED_TYPES = ["dlt_native", "filesystem", "jira", "matomo", "rest_api", "strapi"]
+# Types an agent may create through MCP (rest_api and inbox are CLI-only; matomo, jira and
+# strapi are hidden from the wizard).
+MCP_SECRET_TYPES = ["freshdesk", "workable"]
+AGENT_REFUSED_TYPES = ["dlt_native", "filesystem", "inbox", "jira", "matomo", "rest_api", "strapi"]
 
 
 @pytest.fixture
@@ -190,3 +192,54 @@ def test_zendesk_has_no_env_secret_to_bind(project: Path) -> None:
     r = mcp_sources.create_source("zendesk", "foo", {"subdomain": "acme"})
     assert r.get("status") == "created", r
     assert not [c for c in r["credentials_required"] if c["kind"] == "env_var"]
+
+
+@pytest.mark.unit
+def test_mcp_update_refuses_inbox_source(project: Path) -> None:
+    params = SECRET_TYPES["inbox"][0]
+    apply_source(project, prepare_source(project, "inbox", "mail", params))
+    r = mcp_sources.update_source("mail", {"folder": "Archive"})
+    assert "dango source edit" in r.get("error", ""), r
+
+
+@pytest.mark.unit
+def test_cli_path_still_creates_inbox_source(project: Path) -> None:
+    prepared = prepare_source(project, "inbox", "mail", SECRET_TYPES["inbox"][0])
+    apply_source(project, prepared)
+    assert load_config(project).sources.get_source("mail") is not None
+
+
+# Agent-managed params whose name looks host-like but that do not choose a credential's host.
+_NOT_HOST_PARAMS = {("google_sheets", "spreadsheet_url_or_id")}  # OAuth; Google API host fixed
+_HOST_LIKE = re.compile(r"url|host|domain|server|endpoint_|bucket", re.IGNORECASE)
+
+
+@pytest.mark.unit
+def test_agent_creatable_host_params_are_vendor_pinned() -> None:
+    """Every agent-creatable type with a host-like param sends credentials to a vendor domain.
+
+    A type whose host is free-form must be refused by require_agent_setup_supported, otherwise
+    an agent could point it (and any credential dlt resolves for it) at a host it chose.
+    """
+    from dango.ingestion.sources.registry import SOURCE_REGISTRY
+    from dango.ingestion.sources.setup_hosts import HOST_BEARING_PARAMS, destination_host
+    from dango.ingestion.sources.setup_schema import _managed_by, require_agent_setup_supported
+
+    checked = []
+    for source_type, meta in SOURCE_REGISTRY.items():
+        try:
+            require_agent_setup_supported(source_type)
+        except SourceSetupError:
+            continue
+        for param in meta.get("required_params", []) + meta.get("optional_params", []):
+            name = param["name"]
+            if _managed_by(param, meta, source_type) != "agent" or not _HOST_LIKE.search(name):
+                continue
+            if (source_type, name) in _NOT_HOST_PARAMS:
+                continue
+            assert HOST_BEARING_PARAMS.get(source_type) == name, (source_type, name)
+            # Pinned: whatever single label is given, the host stays under the vendor domain.
+            host = destination_host(source_type, {name: "acme"}) or ""
+            assert host.startswith("acme.") and host.count(".") >= 2, (source_type, host)
+            checked.append(source_type)
+    assert checked, "expected at least one agent-creatable host-bearing type"

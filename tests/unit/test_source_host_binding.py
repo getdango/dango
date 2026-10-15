@@ -202,14 +202,13 @@ def test_update_refuses_hostile_host_value(project: Path, source_type: str) -> N
         update_source(project, "src", {param: hostile})
 
 
-# rest_api is not editable through update_source at all (existing behaviour).
+# rest_api and inbox are not editable through update_source at all (agent-unsupported types).
 _NON_HOST_UPDATES: dict[str, dict[str, Any]] = {
     "zendesk": {"start_date": "2024-01-01"},
     "matomo": {"site_id": 2},
     "freshdesk": {"per_page": 50},
     "jira": {"page_size": 25},
     "workable": {"load_details": True},
-    "inbox": {"folder": "Archive"},
     "strapi": {"endpoints": ["pages"]},
     "filesystem": {"file_glob": "*.json"},
 }
@@ -266,3 +265,11 @@ def test_cli_wizard_warns_on_plain_http_base_url(project: Path) -> None:
     assert not any(
         "unencrypted" in m for m in _rest_api_wizard_prompt(project, "https://api.example.com")
     )
+
+
+@pytest.mark.unit
+def test_update_refuses_any_change_to_inbox_source(project: Path) -> None:
+    _create(project, "inbox")
+    with pytest.raises(SourceSetupError) as exc:
+        update_source(project, "src", {"folder": "Archive"})
+    assert any("dango source edit" in e for e in exc.value.errors), exc.value.errors
