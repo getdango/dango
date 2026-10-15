@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import dlt
 import pytest
+from dlt.pipeline.exceptions import PipelineStepFailed
 
 from dango.config.models import DataSource, DltNativeConfig, SourceType
 from dango.ingestion.dlt_runner import DltPipelineRunner
@@ -133,7 +134,7 @@ def test_failed_load_keeps_package_for_recovery(env: Path, run: Any) -> None:
     db = env / "data" / "warehouse.duckdb"
     db.parent.mkdir(parents=True, exist_ok=True)
     db.write_bytes(b"not a duckdb file" * 100)  # destination cannot be opened
-    with pytest.raises(Exception):  # noqa: B017 - any load failure surfaces
+    with pytest.raises(PipelineStepFailed):
         run(env)
     assert contains_canary(env), "failed package must keep its job files for recovery"
 
