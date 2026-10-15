@@ -15,7 +15,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dango.utils.dango_db import connect
-from dango.utils.process import is_process_running, kill_process
+from dango.utils.process import (
+    is_process_running,
+    kill_process,
+    read_pid_record,
+    write_pid_record,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,14 +87,18 @@ def _is_marimo_responding(port: int, timeout: float = 1.0, base_path: str = "/")
 def _stop_unready_process(proc: subprocess.Popen[bytes]) -> None:
     """Stop a Marimo that never became ready, with its whole process group.
 
-    Marimo starts with ``start_new_session=True``, so its pid is also the
-    group id: SIGTERM the group, then SIGKILL it after 5 s.
+    Marimo starts with ``start_new_session=True``, so its pid is also its
+    process group id: SIGTERM the group, then SIGKILL it after 5 s.  A
+    process that was already reaped (``returncode`` set) is not signalled,
+    since its pid and group id may since have been reused.
     """
     import signal
 
     def _signal_group(sig: int) -> None:
+        if proc.returncode is not None:
+            return
         try:
-            os.killpg(os.getpgid(proc.pid), sig)
+            os.killpg(proc.pid, sig)
         except ProcessLookupError:
             pass
 
@@ -126,36 +135,42 @@ def _wait_gone(pid: int, timeout: float) -> bool:
     return True
 
 
-def _stop_marimo_process(pid: int) -> bool:
-    """Stop a running Marimo by pid; return True once it is confirmed gone.
+def _stop_marimo_process(pid: int, start_time: float | None) -> str:
+    """Stop the Marimo recorded as *pid*; return ``stopped``, ``survived`` or ``foreign``.
 
     Marimo is started with ``start_new_session=True``, so it leads its own
-    process group (pgid == pid): SIGTERM the group, then SIGKILL it.  A pid
-    that is not its own group leader is not a Marimo we started (e.g. a
-    reused pid), so its group is never signalled; the plain process-tree
-    kill is used instead.
+    process group (pgid == pid): SIGTERM the group, then SIGKILL it.  The
+    group is signalled only when the pid file recorded the process start
+    time (the caller has verified it still matches), the pid leads its own
+    group, and that group is not ours.  Otherwise the plain process-tree
+    kill is used.  A pid we may not signal (EPERM) belongs to someone else:
+    ``foreign``.
     """
     import signal
 
-    try:
-        is_leader = os.getpgid(pid) == pid
-    except ProcessLookupError:
-        return True
-    if not is_leader:
-        kill_process(pid, timeout=int(_STOP_TERM_TIMEOUT_SECONDS))
-        return _wait_gone(pid, _STOP_KILL_TIMEOUT_SECONDS)
+    import psutil
 
-    for sig, timeout in (
-        (signal.SIGTERM, _STOP_TERM_TIMEOUT_SECONDS),
-        (signal.SIGKILL, _STOP_KILL_TIMEOUT_SECONDS),
-    ):
-        try:
+    try:
+        pgid = os.getpgid(pid)
+        group_ok = start_time is not None and pgid == pid and pgid != os.getpgrp()
+        if not group_ok:
+            kill_process(
+                pid, timeout=int(_STOP_TERM_TIMEOUT_SECONDS), expected_start_time=start_time
+            )
+            return "stopped" if _wait_gone(pid, _STOP_KILL_TIMEOUT_SECONDS) else "survived"
+
+        for sig, timeout in (
+            (signal.SIGTERM, _STOP_TERM_TIMEOUT_SECONDS),
+            (signal.SIGKILL, _STOP_KILL_TIMEOUT_SECONDS),
+        ):
             os.killpg(pid, sig)
-        except ProcessLookupError:
-            return True
-        if _wait_gone(pid, timeout):
-            return True
-    return False
+            if _wait_gone(pid, timeout):
+                return "stopped"
+        return "survived"
+    except ProcessLookupError:
+        return "stopped"
+    except (PermissionError, psutil.AccessDenied):
+        return "foreign"
 
 
 def start_marimo(
@@ -181,16 +196,14 @@ def start_marimo(
 
     pid_file = get_marimo_pid_file_path(project_root)
     if pid_file.exists():
-        try:
-            existing_pid = int(pid_file.read_text().strip())
-            if is_process_running(existing_pid):
-                raise RuntimeError(
-                    f"Marimo is already running (PID {existing_pid}).\nStop it with 'dango stop'"
-                )
-            else:
-                pid_file.unlink()
-        except (ValueError, OSError):
-            pid_file.unlink()
+        existing = read_pid_record(pid_file)
+        if existing is not None and is_process_running(
+            existing.pid, expected_start_time=existing.start_time
+        ):
+            raise RuntimeError(
+                f"Marimo is already running (PID {existing.pid}).\nStop it with 'dango stop'"
+            )
+        pid_file.unlink(missing_ok=True)
 
     if port is None:
         from dango.config.loader import ConfigLoader
@@ -268,7 +281,7 @@ def start_marimo(
                     f"Marimo did not become ready within {_MARIMO_START_TIMEOUT_SECONDS} s. "
                     f"Check logs at {log_file}"
                 )
-            pid_file.write_text(str(proc.pid))
+            write_pid_record(pid_file, proc.pid)
         except BaseException:
             _stop_unready_process(proc)
             raise
@@ -301,21 +314,34 @@ def stop_marimo(project_root: Path) -> bool:
         logger.debug("No Marimo PID file found")
         return False
 
-    try:
-        pid = int(pid_file.read_text().strip())
-    except (ValueError, OSError):
+    record = read_pid_record(pid_file)
+    if record is None:
         logger.warning("Invalid Marimo PID file")
-        pid_file.unlink()
+        pid_file.unlink(missing_ok=True)
         return False
+    pid = record.pid
 
-    if not is_process_running(pid):
+    if not is_process_running(pid, expected_start_time=record.start_time):
         logger.debug("Marimo PID %d is not running (stale PID file)", pid)
-        pid_file.unlink()
+        pid_file.unlink(missing_ok=True)
         return False
 
     logger.debug("Stopping Marimo (PID %d)", pid)
 
-    if not _stop_marimo_process(pid):
+    try:
+        outcome = _stop_marimo_process(pid, record.start_time)
+    except Exception:
+        logger.warning("Failed to stop Marimo process %d", pid, exc_info=True)
+        return False
+    if outcome == "foreign":
+        logger.warning(
+            "PID %d in %s is not a Marimo process this user can stop; removing the stale file",
+            pid,
+            pid_file,
+        )
+        pid_file.unlink(missing_ok=True)
+        return False
+    if outcome != "stopped":
         logger.warning(
             "Failed to stop Marimo process %d; keeping %s so it stays tracked", pid, pid_file
         )
@@ -351,10 +377,12 @@ def get_marimo_status(project_root: Path) -> dict[str, bool | int | Path | None]
 
     if pid_file.exists():
         try:
-            pid = int(pid_file.read_text().strip())
-            if is_process_running(pid):
+            record = read_pid_record(pid_file)
+            if record is not None and is_process_running(
+                record.pid, expected_start_time=record.start_time
+            ):
                 status["running"] = True
-                status["pid"] = pid
+                status["pid"] = record.pid
 
                 from dango.config.loader import ConfigLoader
 
