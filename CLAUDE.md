@@ -295,7 +295,8 @@ dango/                          # Python package source
 │   ├── env_file.py             # .env file parsing and serialization
 │   ├── dango_db.py             # SQLite context manager for .dango/dango.db + schema init
 │   ├── post_sync.py            # Post-sync hook dispatcher (~815 lines)
-│   └── git_info.py             # Git repository info + deployment guardrails
+│   ├── git_info.py             # Git repository info + deployment guardrails
+│   └── query_connection.py     # Locked read-only DuckDB connection for user/agent SQL
 │
 ├── migrations/                 # Level 0 — Database migration framework
 │   ├── __init__.py             # Public API: apply_all_pending(), get_all_status()

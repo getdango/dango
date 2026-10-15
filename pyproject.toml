@@ -59,6 +59,7 @@ dependencies = [
     "psutil>=5.9.0",
     "structlog>=24.1.0",
     "tomlkit>=0.13.0",            # TOML read/write with style preservation (source_wizard, dlt_runner)
+    "sqlglot>=30.17",             # SQL validation for /api/query and MCP query (fails closed without it)
 
     # Data governance and notebooks
     "pandas>=2.0.0",
