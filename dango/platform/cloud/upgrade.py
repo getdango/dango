@@ -25,6 +25,8 @@ _PROJECT_DIR = "/srv/dango/project"
 _CADDYFILE = "/etc/caddy/Caddyfile"
 _CADDYFILE_CANDIDATE = "/etc/caddy/Caddyfile.dango-new"
 _WS_STATUS = "Caddyfile WebSocket route"
+# First release with the forward_auth target /api/notebooks/ws-auth.
+_WS_AUTH_MIN_RELEASE = (1, 0, 14)
 _WS_MANUAL_STEP = (
     "add `forward_auth` to the `/notebooks/marimo/ws` handle, see the 1.0.14 release notes"
 )
@@ -116,7 +118,21 @@ def _ws_handles_authenticated(content: str) -> bool:
     return found
 
 
-def _migrate_caddyfile_ws_route(ssh: SSHManager, warnings: list[str]) -> str:
+def _has_ws_auth_endpoint(installed_version: str | None) -> bool:
+    """True when *installed_version* serves ``/api/notebooks/ws-auth`` (1.0.14+)."""
+    from packaging.version import InvalidVersion, Version
+
+    if not installed_version:
+        return False
+    try:
+        return Version(installed_version).release >= _WS_AUTH_MIN_RELEASE
+    except InvalidVersion:
+        return False
+
+
+def _migrate_caddyfile_ws_route(
+    ssh: SSHManager, warnings: list[str], installed_version: str | None
+) -> str:
     """Put ``forward_auth`` in front of the Marimo WebSocket route in place.
 
     Only the exact handle written by 1.0.13 and earlier is replaced; every
@@ -132,17 +148,29 @@ def _migrate_caddyfile_ws_route(ssh: SSHManager, warnings: list[str]) -> str:
         warnings.append(f"{_CADDYFILE} not updated ({reason}). Manually {_WS_MANUAL_STEP}.")
         return f"{_WS_STATUS} skipped: {reason}"
 
+    # Only rewrite when the version now installed on the server serves the
+    # forward_auth target; otherwise every notebook WebSocket would be refused.
+    if not _has_ws_auth_endpoint(installed_version):
+        warnings.append(
+            f"{_CADDYFILE} not updated: the installed Dango version "
+            f"({installed_version or 'unknown'}) has no /api/notebooks/ws-auth endpoint "
+            "(added in 1.0.14). Re-run `dango remote upgrade` once 1.0.14 or later is installed."
+        )
+        return f"{_WS_STATUS} skipped: installed version {installed_version or 'unknown'}"
+
     read = ssh.exec_command(f"cat {_CADDYFILE}", timeout=30)
     if not read.success:
         return _skip("could not read the file")
     original = read.stdout
 
     matches = list(LEGACY_MARIMO_WS_RE.finditer(original))
+    if not matches and "handle /notebooks/marimo/ws" not in original:
+        return f"{_WS_STATUS}: no migration needed (no direct WebSocket route)"
     if not matches and _ws_handles_authenticated(original):
         return f"{_WS_STATUS} already migrated"
     if len(matches) != 1:
         return _skip(
-            "the expected WebSocket handle was not found"
+            "the WebSocket handle does not match the expected 1.0.13 form"
             if not matches
             else "the WebSocket handle appears more than once"
         )
@@ -330,7 +358,7 @@ def upgrade_dango(
 
         # 8b. Authenticate the Marimo WebSocket route on existing servers
         try:
-            caddyfile_ws_migration = _migrate_caddyfile_ws_route(ssh, warnings)
+            caddyfile_ws_migration = _migrate_caddyfile_ws_route(ssh, warnings, new_version)
         except Exception as exc:
             warnings.append(
                 f"{_CADDYFILE} not updated ({type(exc).__name__}). Manually {_WS_MANUAL_STEP}."
