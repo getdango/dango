@@ -27,7 +27,9 @@ router = APIRouter(tags=["dbt"])
 
 
 @router.get("/api/dbt/models")
-async def list_dbt_models() -> dict[str, list]:
+async def list_dbt_models(
+    user: User = Depends(require_permission("dbt.view")),
+) -> dict[str, list]:
     """List all dbt models.
 
     Returns:
