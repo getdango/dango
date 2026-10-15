@@ -16,7 +16,8 @@ Fail-closed rules: an unreadable ``auth.yml`` counts as "auth enabled"
 whenever ``auth.db`` exists or the process runs on a cloud server, and that
 error result is never cached.  ``scope["state"]["auth_disabled"]`` is True
 only when the toggle was read successfully as disabled on a local (non-cloud)
-process for a same-origin request; ``require_permission()`` relies on it.
+process for a local same-origin request (loopback peer, local Host);
+``require_permission()`` relies on it.
 
 WebSocket scopes are authenticated here too (same credentials as HTTP, no
 CSRF check), after a same-origin check on the ``Origin`` header.
@@ -34,8 +35,9 @@ from dango.auth import sessions
 from dango.auth.admin import get_auth_db_path, is_auth_enabled
 from dango.auth.models import User
 from dango.config.helpers import is_running_on_cloud
+from dango.exceptions import AuthDatabaseUnavailableError
 from dango.logging import get_logger
-from dango.web.middleware.origin import is_same_origin
+from dango.web.middleware.origin import is_local_request, is_same_origin
 
 logger = get_logger(__name__)
 
@@ -116,6 +118,9 @@ class AuthMiddleware:
         self._toggle_read_failed: bool = False
         # Log a toggle read failure once per failure streak
         self._toggle_error_logged: bool = False
+        # Registered local nginx domains for this project (TTL cache)
+        self._local_domains_cache: frozenset[str] | None = None
+        self._local_domains_time: float = 0.0
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """ASGI entry point."""
@@ -298,13 +303,26 @@ class AuthMiddleware:
 
     def _is_explicitly_disabled(self, scope: Scope) -> bool:
         """True only if the toggle was read successfully as off on a local process
-        and the request is same-origin (local CORS allows any origin).
+        and the request is a local same-origin one (see ``is_local_request``).
 
         Call after ``_is_auth_enabled()`` returned False.
         """
         if self._toggle_read_failed or is_running_on_cloud():
             return False
-        return is_same_origin(scope.get("headers", []))
+        return is_local_request(scope, self._local_domains())
+
+    def _local_domains(self) -> frozenset[str]:
+        """Local nginx domains registered for this project, cached for the toggle TTL."""
+        now = time.monotonic()
+        cached = self._local_domains_cache
+        if cached is not None and now - self._local_domains_time < _AUTH_TOGGLE_CACHE_TTL:
+            return cached
+        from dango.platform.local.routing import get_registered_domains
+
+        domains = get_registered_domains(self.project_root)
+        self._local_domains_cache = domains
+        self._local_domains_time = now
+        return domains
 
     def _is_public_route(self, path: str) -> bool:
         """Check if a path is a public route that bypasses auth."""
@@ -398,7 +416,7 @@ def _make_503_json() -> Any:
 
     body = json.dumps(
         {
-            "error_code": "DANGO-S009",
+            "error_code": AuthDatabaseUnavailableError._default_error_code,
             "message": "Authentication database unavailable",
         }
     )

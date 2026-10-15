@@ -264,7 +264,7 @@ Session bridging syncs Dango auth state to Metabase so users get single sign-on.
 **External packages:** `pwdlib[bcrypt]`, `pyotp`, `httpx`, `requests`, `pydantic`, `rich`
 
 **Used by:**
-- `web/middleware/auth.py` (448 lines) — session/API key validation on every HTTP request and WebSocket handshake
+- `web/middleware/auth.py` (466 lines) — session/API key validation on every HTTP request and WebSocket handshake
 - `web/routes/auth.py` (~852 lines) — login, password change, OAuth, invite accept. Defines `_bridge_metabase_session()` helper (shared with auth_2fa.py).
 - `web/routes/auth_2fa.py` (~340 lines) — TOTP setup/verify/disable. Imports `_bridge_metabase_session` from auth.py.
 - `web/routes/users.py` (527 lines) — user CRUD, invite creation, reinvite

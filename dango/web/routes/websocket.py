@@ -14,6 +14,7 @@ router = APIRouter(tags=["websocket"])
 
 _MAX_WS_MESSAGE_SIZE = 4096  # 4 KB
 MAX_WS_CONNECTIONS = 100
+MAX_WS_CONNECTIONS_PER_IDENTITY = 20
 
 
 class ConnectionManager:
@@ -21,16 +22,63 @@ class ConnectionManager:
 
     def __init__(self) -> None:
         self.active_connections: list[WebSocket] = []
+        # Slots reserved by try_reserve() whose accept() has not finished yet
+        self._pending: int = 0
+        # Reserved + active connection count per identity
+        self._per_identity: dict[str, int] = {}
+        self._identity_of: dict[WebSocket, str] = {}
 
-    async def connect(self, websocket: WebSocket) -> None:
-        """Accept new WebSocket connection."""
-        await websocket.accept()
+    def try_reserve(self, identity: str) -> bool:
+        """Reserve a connection slot for *identity*; False if a cap is reached.
+
+        Synchronous (no ``await``), so concurrent handshakes cannot all pass
+        the check before any of them is counted.
+        """
+        if len(self.active_connections) + self._pending >= MAX_WS_CONNECTIONS:
+            return False
+        if self._per_identity.get(identity, 0) >= MAX_WS_CONNECTIONS_PER_IDENTITY:
+            return False
+        self._pending += 1
+        self._per_identity[identity] = self._per_identity.get(identity, 0) + 1
+        return True
+
+    def _release_identity(self, identity: str) -> None:
+        remaining = self._per_identity.get(identity, 0) - 1
+        if remaining > 0:
+            self._per_identity[identity] = remaining
+        else:
+            self._per_identity.pop(identity, None)
+
+    async def connect(self, websocket: WebSocket, identity: str | None = None) -> None:
+        """Accept new WebSocket connection.
+
+        With *identity*, the slot must have been reserved via ``try_reserve()``;
+        it is released if ``accept()`` fails.
+        """
+        try:
+            await websocket.accept()
+        except BaseException:
+            if identity is not None:
+                self._pending -= 1
+                self._release_identity(identity)
+            raise
         self.active_connections.append(websocket)
+        if identity is not None:
+            self._pending -= 1
+            self._identity_of[websocket] = identity
         logger.info(f"WebSocket connected. Total connections: {len(self.active_connections)}")
+
+    def _forget(self, websocket: WebSocket) -> None:
+        """Drop *websocket* and release its identity slot (idempotent)."""
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+        identity = self._identity_of.pop(websocket, None)
+        if identity is not None:
+            self._release_identity(identity)
 
     def disconnect(self, websocket: WebSocket) -> None:
         """Remove WebSocket connection."""
-        self.active_connections.remove(websocket)
+        self._forget(websocket)
         logger.info(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
 
     async def broadcast(self, message: dict, *, log: bool = True) -> None:
@@ -75,14 +123,24 @@ class ConnectionManager:
 
         # Clean up disconnected clients
         for connection in disconnected:
-            try:
-                self.active_connections.remove(connection)
-            except ValueError:  # noqa: BLE001
-                pass
+            self._forget(connection)
 
 
 # Global WebSocket manager
 ws_manager = ConnectionManager()
+
+
+def _ws_identity(websocket: WebSocket) -> str:
+    """Identity for the per-identity cap: the user id set by AuthMiddleware.
+
+    API keys count as their owner. Without a user (auth disabled), all
+    connections share one local identity.
+    """
+    state = websocket.scope.get("state") or {}
+    user = state.get("user")
+    if user is not None:
+        return f"user:{user.id}"
+    return "local-auth-disabled" if state.get("auth_disabled") else "anonymous"
 
 
 @router.websocket("/ws")
@@ -95,14 +153,16 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     - Data freshness changes
 
     Authentication happens in ``AuthMiddleware``. Connections beyond
-    ``MAX_WS_CONNECTIONS`` are refused with close code 1013 (try again later).
+    ``MAX_WS_CONNECTIONS`` in total or ``MAX_WS_CONNECTIONS_PER_IDENTITY`` per
+    user are refused with close code 1013 (try again later).
     """
-    if len(ws_manager.active_connections) >= MAX_WS_CONNECTIONS:
-        logger.warning("WebSocket connection refused: limit of %d reached", MAX_WS_CONNECTIONS)
+    identity = _ws_identity(websocket)
+    if not ws_manager.try_reserve(identity):
+        logger.warning("WebSocket connection refused: connection limit reached")
         await websocket.close(code=1013)
         return
 
-    await ws_manager.connect(websocket)
+    await ws_manager.connect(websocket, identity)
 
     try:
         # Send welcome message

@@ -12,8 +12,8 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `models.py` | Pydantic request/response DTOs | `TableInfo`, `SourceStatus`, `ServiceHealth`, `SyncRequest`, `SyncResponse`, `LogEntry`, `WatcherStatus`, `LoginRequest`, `AcceptInviteRequest`, `TwoFAVerifyRequest` |
 | `helpers.py` | Shared helpers: DuckDB queries, config loading, service health, logging (868 lines) | `get_project_root()`, `load_sources_config()`, `get_duckdb_path()`, `get_dbt_models()`, `mask_sensitive_config()`, `get_source_freshness()`, `append_log_entry()`, `load_all_logs()`, `check_service_status_async()`, `get_platform_health_data()`, `get_source_status_data()` |
 | `__init__.py` | Public exports | `app` module |
-| `middleware/auth.py` | Session/API key auth + CSRF check on every HTTP request; WebSocket handshakes get an Origin-vs-Host check plus the same credential check (close 1008). Fails closed on an unreadable `auth.yml` (~448 lines) | `AuthMiddleware`, `is_secure_request()`, `COOKIE_NAME` |
-| `middleware/origin.py` | Origin-vs-Host same-origin check shared by the WebSocket path and auth-disabled mode | `is_same_origin()` |
+| `middleware/auth.py` | Session/API key auth + CSRF check on every HTTP request; WebSocket handshakes get an Origin-vs-Host check plus the same credential check (close 1008). Fails closed on an unreadable `auth.yml` (~466 lines) | `AuthMiddleware`, `is_secure_request()`, `COOKIE_NAME` |
+| `middleware/origin.py` | Origin-vs-Host same-origin check (WebSocket path) and the local-request check for auth-disabled mode (loopback TCP peer + local Host + same-origin) | `is_same_origin()`, `is_local_request()` |
 | `middleware/rate_limit.py` | Rate limiting (login 10/min, API 200/min, localhost exempt, ~235 lines) | `RateLimitMiddleware` |
 | `templates/base.html` | Shared Jinja2 layout: head (compiled Tailwind CSS), header, nav bar (9-item flat: Overview/Sources/Models/Scripts/Schedules/Catalog/Query/Dashboards/Notebooks + gear dropdown), responsive hamburger menu, footer, script blocks | Blocks: `title`, `subtitle_attrs`, `header_right`, `nav`, `content`, `footer`, `scripts` |
 | `templates/error.html` | HTML error page (extends `base.html`) — status code, title, message, back/home links | Rendered by `dango_error_handler()` for browser 401/403 requests |
@@ -40,7 +40,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/logs.py` | `/api/logs`, `/api/sources/{name}/logs` | — |
 | `routes/dbt.py` | `/api/dbt/models`, `/api/dbt/models/{name}/run` + dbt docs proxy (`/manifest.json`, `/catalog.json`, `/dbt-docs/*`) | `run_dbt_model_task()` |
 | `routes/upload.py` | CSV upload/list/delete + background `run_dbt_after_delete()` | `run_dbt_after_delete()` |
-| `routes/websocket.py` | `ConnectionManager`, `ws_manager` singleton, `/ws` endpoint (auth in middleware; capped at `MAX_WS_CONNECTIONS`, close 1013) | `ConnectionManager`, `ws_manager` |
+| `routes/websocket.py` | `ConnectionManager`, `ws_manager` singleton, `/ws` endpoint (auth in middleware; slot reserved before `accept()`, capped at `MAX_WS_CONNECTIONS` total and `MAX_WS_CONNECTIONS_PER_IDENTITY` per user, close 1013) | `ConnectionManager`, `ws_manager` |
 | `routes/ui.py` | `/`, `/sources`, `/models`, `/health`, `/logs`, `/api`, `/api/docs`, `/api/redoc`, `/login`, `/account`, `/admin/users`, `/invite/{token}` | `templates`, `_render_template()` |
 | `routes/metabase_proxy.py` | All Metabase proxy routes + SSO session state | `proxy_to_metabase()`, `get_metabase_session()` |
 | `routes/secrets.py` | Secrets and OAuth credential management (admin-only, .env + .dlt/secrets.toml CRUD) | `router` |
@@ -85,7 +85,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
               helpers.py models.py dango.auth/
 ```
 
-**Middleware layer:** Every request passes through `middleware/auth.py` (session/API key validation, CSRF check) and `middleware/rate_limit.py` before reaching route handlers. The middleware sets `request.state.user`, `request.state.auth_method` and `request.state.auth_disabled` (True only when `auth.yml` was read successfully as disabled on a non-cloud process and the request is same-origin) for downstream use.
+**Middleware layer:** Every request passes through `middleware/auth.py` (session/API key validation, CSRF check) and `middleware/rate_limit.py` before reaching route handlers. The middleware sets `request.state.user`, `request.state.auth_method` and `request.state.auth_disabled` (True only when `auth.yml` was read successfully as disabled on a non-cloud process and the request is local: loopback peer, local Host, same-origin) for downstream use.
 
 **Frontend approach (ADR-007):** Alpine.js for new page interactivity + Jinja2 base templates for shared layout. Existing pages use vanilla JS. See `docs/decisions/ADR-007-frontend-approach.md`.
 
