@@ -309,7 +309,7 @@ def sync_project_files(
     Detects changes in dbt models/macros for selective rebuilds.
 
     Args:
-        ssh: Connected SSHManager (as root).
+        ssh: Connected SSHManager; rsync connects as the same user.
         local_project_root: Path to the local Dango project root.
         remote_host: Hostname or IP for rsync transport.  Required unless
             *dry_run* is ``True`` and no dbt directories exist locally.
@@ -391,7 +391,7 @@ def sync_project_files(
         if remote_host is None:
             raise CloudProvisioningError("remote_host is required for rsync-based directory sync")
         target = target or rsync_target(ssh, remote_host)
-        remote_dest = f"root@{remote_host}:{REMOTE_PROJECT_DIR}/{dbt_dir}"
+        remote_dest = f"{target.username}@{remote_host}:{REMOTE_PROJECT_DIR}/{dbt_dir}"
         # Ensure remote directory exists before rsync
         if not dry_run:
             mkdir_result = ssh.exec_command(f"mkdir -p {REMOTE_PROJECT_DIR}/{dbt_dir}")
@@ -423,7 +423,7 @@ def sync_project_files(
         if remote_host is None:
             raise CloudProvisioningError("remote_host is required for rsync-based directory sync")
         target = target or rsync_target(ssh, remote_host)
-        remote_dest = f"root@{remote_host}:{REMOTE_PROJECT_DIR}/{extra_dir}"
+        remote_dest = f"{target.username}@{remote_host}:{REMOTE_PROJECT_DIR}/{extra_dir}"
         if not dry_run:
             mkdir_result = ssh.exec_command(f"mkdir -p {REMOTE_PROJECT_DIR}/{extra_dir}")
             if mkdir_result.exit_code != 0:

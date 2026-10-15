@@ -42,6 +42,7 @@ def _make_ssh_mock(*, first_deploy: bool = False) -> MagicMock:
     ssh.legacy_known_hosts_paths = []
     ssh.host = "10.0.0.1"
     ssh.port = 22
+    ssh.username = "root"
 
     def _exec_side_effect(cmd: str, **kwargs: object) -> CommandResult:
         # First deploy detection

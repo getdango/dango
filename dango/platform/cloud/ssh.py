@@ -34,6 +34,9 @@ from pathlib import Path
 from typing import Any
 
 from dango.exceptions import CloudError, CloudSSHError
+from dango.logging import get_logger
+
+_logger = get_logger(__name__)
 
 # paramiko is lazy-imported via _ensure_paramiko().
 # Module-level cache so the import only happens once.
@@ -70,6 +73,37 @@ def host_key_name(host: str, port: int = 22) -> str:
     return host if port == 22 else f"[{host}]:{port}"
 
 
+def _load_host_keys(pm: Any, path: Path) -> Any:
+    """Load *path* into a paramiko ``HostKeys``, skipping lines paramiko cannot use.
+
+    A corrupt line, a ``@cert-authority``/``@revoked`` marker or an unsupported key
+    type (common in a user's own ``~/.ssh/known_hosts``) is skipped with one warning
+    naming the file and line numbers; every valid entry (plain or hashed) is kept.
+    The file itself is never modified here.
+    """
+    host_keys = pm.HostKeys()
+    if not path.is_file():
+        return host_keys
+    skipped: list[int] = []
+    text = path.read_text(encoding="utf-8", errors="replace")
+    for lineno, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            entry = pm.hostkeys.HostKeyEntry.from_line(line, lineno)
+        except Exception:  # corrupt base64 / key data: skip the line, keep the rest
+            entry = None
+        if entry is None or entry.key is None:
+            skipped.append(lineno)
+            continue
+        for name in entry.hostnames:
+            host_keys.add(name, entry.key.get_name(), entry.key)
+    if skipped:
+        _logger.warning("known_hosts_lines_skipped", path=str(path), lines=skipped)
+    return host_keys
+
+
 class _TOFUHostKeyPolicy:
     """Trust-On-First-Use host key policy.
 
@@ -88,14 +122,8 @@ class _TOFUHostKeyPolicy:
         self._path = known_hosts_path
         self._legacy_paths = list(legacy_paths)
         pm = _ensure_paramiko()
-        self._host_keys: Any = pm.HostKeys()
-        if self._path.exists():
-            self._host_keys.load(str(self._path))
-        self._legacy_keys: list[Any] = []
-        for legacy in self._legacy_paths:
-            legacy_keys = pm.HostKeys()
-            legacy_keys.load(str(legacy))
-            self._legacy_keys.append(legacy_keys)
+        self._host_keys: Any = _load_host_keys(pm, self._path)
+        self._legacy_keys: list[Any] = [_load_host_keys(pm, p) for p in self._legacy_paths]
 
     def _changed(self, hostname: str, detail: str = "") -> CloudSSHError:
         files = ", ".join(str(p) for p in [self._path, *self._legacy_paths])
@@ -243,6 +271,7 @@ class SSHManager:
         #: Endpoint of the last successful :meth:`connect` (used by rsync).
         self.host: str | None = None
         self.port: int = 22
+        self.username: str = "root"
 
     @property
     def legacy_known_hosts_paths(self) -> list[Path]:
@@ -439,6 +468,7 @@ class SSHManager:
         self._client = client
         self.host = host
         self.port = port
+        self.username = username
         return self
 
     def disconnect(self) -> None:

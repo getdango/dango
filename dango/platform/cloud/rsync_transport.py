@@ -29,6 +29,7 @@ class RsyncTarget:
     known_hosts_path: Path
     legacy_known_hosts_paths: list[Path]
     port: int
+    username: str = "root"
 
 
 def rsync_target(ssh: SSHManager, remote_host: str) -> RsyncTarget:
@@ -45,6 +46,7 @@ def rsync_target(ssh: SSHManager, remote_host: str) -> RsyncTarget:
         known_hosts_path=ssh.known_hosts_path,
         legacy_known_hosts_paths=list(ssh.legacy_known_hosts_paths),
         port=ssh.port or 22,
+        username=ssh.username or "root",
     )
 
 
