@@ -9,6 +9,7 @@ All functions require an already-connected ``SSHManager`` (as root).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import shlex
@@ -127,9 +128,12 @@ def wal_sidecar_names(db_rel_path: str) -> list[str]:
     return []
 
 
-def _copy_file_cmd(src: str, dest_dir: str, remove_first: list[str] | None = None) -> str:
-    """Shell step copying *src* into *dest_dir* if it exists; a failed copy fails the step."""
-    steps = [f"rm -f {shlex.quote(path)}" for path in remove_first or []]
+def _copy_file_cmd(src: str, dest_dir: str, before: list[str] | None = None) -> str:
+    """Shell step copying *src* into *dest_dir* if it exists; a failed copy fails the step.
+
+    *before* holds shell commands run first, only when *src* exists.
+    """
+    steps = list(before or [])
     steps += [
         f"mkdir -p {shlex.quote(dest_dir)}",
         f"cp {shlex.quote(src)} {shlex.quote(dest_dir)}/",
@@ -641,7 +645,9 @@ def restore_from_archive(
             on_server_retention=999,
         )
         warnings.append(f"Pre-restore safety backup created: {safety.archive_path}")
+        safety_ok = True
     except Exception as exc:
+        safety_ok = False
         warnings.append(f"Pre-restore safety backup skipped (continuing): {exc}")
         _logger.warning("pre_restore_backup_failed", error=str(exc))
     _notify(on_progress, "pre_restore_backup", "done")
@@ -656,6 +662,8 @@ def restore_from_archive(
 
     services_restarted = False
     copies_started = False
+    moved_aside: list[str] = []
+    stamp = time.strftime("%Y%m%d-%H%M%S")
     try:
         try:
             _notify(on_progress, "extract_archive", "running")
@@ -695,10 +703,19 @@ def restore_from_archive(
                     if "/" in fpath
                     else PROJECT_DIR
                 )
-                # Remove the live database's leftover WAL first, or it is replayed
-                # into the restored file on the next open.
-                sidecars = [f"{PROJECT_DIR}/{s}" for s in wal_sidecar_names(fpath)]
-                restore_cmds.append(_copy_file_cmd(src, dest_dir, remove_first=sidecars))
+                # Clear the live database's leftover WAL first, or it is replayed into
+                # the restored file on the next open.  Without a safety backup the WAL
+                # may hold the only copy of recent writes, so it is moved aside instead.
+                before: list[str] = []
+                for side in (f"{PROJECT_DIR}/{s}" for s in wal_sidecar_names(fpath)):
+                    q = shlex.quote(side)
+                    if safety_ok:
+                        before.append(f"rm -f {q}")
+                    else:
+                        kept = shlex.quote(f"{side}.pre-restore-{stamp}")
+                        before.append(f"if [ -e {q} ]; then mv -f {q} {kept}; fi")
+                        moved_aside.append(f"{side}.pre-restore-{stamp}")
+                restore_cmds.append(_copy_file_cmd(src, dest_dir, before=before))
             metabase_source = f"{staging}/{METABASE_CONFIG_FILE}"
             metabase_destination = f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}"
             if ssh.exec_command(f"test -f {shlex.quote(metabase_source)}").success:
@@ -708,6 +725,9 @@ def restore_from_archive(
             for dpath in BACKUP_DIRS:
                 restore_cmds.append(_copy_dir_cmd(f"{staging}/{dpath}", f"{PROJECT_DIR}/{dpath}"))
             _run_checked(ssh, " && ".join(restore_cmds), step="restore_files", timeout=300)
+            for kept_path in moved_aside:
+                if ssh.exec_command(f"test -e {shlex.quote(kept_path)}").success:
+                    warnings.append(f"Live database WAL kept (no safety backup): {kept_path}")
             _notify(on_progress, "restore_files", "done")
 
             _notify(on_progress, "restore_metabase", "running")
@@ -729,7 +749,8 @@ def restore_from_archive(
             if copies_started:
                 # A failed copy leaves a partial, root-owned restore; give it back
                 # to the service user before services restart on it.
-                ssh.exec_command("chown -R dango:dango /srv/dango/project")  # best effort
+                with contextlib.suppress(Exception):  # best effort; keep the original error
+                    ssh.exec_command("chown -R dango:dango /srv/dango/project")
             raise
         finally:
             try:

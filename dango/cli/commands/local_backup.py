@@ -35,6 +35,39 @@ from dango.platform.cloud.backup import (
 _SRV_PREFIX = "/srv/dango/project/"
 
 
+def _checkpoint_database(db_path: Path) -> bool:
+    """Fold a database's WAL into its main file.  Returns False if that is not possible."""
+    import sqlite3
+
+    import duckdb
+
+    try:
+        if db_path.suffix == ".duckdb":
+            duck = duckdb.connect(str(db_path))
+            try:
+                duck.execute("CHECKPOINT")
+            finally:
+                duck.close()
+            return True
+        lite = sqlite3.connect(str(db_path))
+        try:
+            busy = lite.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        finally:
+            lite.close()
+        return busy is not None and busy[0] == 0
+    except (duckdb.Error, sqlite3.Error, OSError):
+        return False
+
+
+def _live_sidecars(project_root: Path, fpath: str) -> list[str]:
+    """Return the relative WAL sidecar paths of *fpath* that exist (non-empty) in the project."""
+    return [
+        s
+        for s in wal_sidecar_names(fpath)
+        if (project_root / s).is_file() and (project_root / s).stat().st_size > 0
+    ]
+
+
 def _create_safety_backup(project_root: Path) -> Path | None:
     """Create a safety backup before restore. Returns path or None on failure."""
     timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -47,7 +80,19 @@ def _create_safety_backup(project_root: Path) -> Path | None:
             for fpath in BACKUP_FILES:
                 src = project_root / fpath
                 if src.exists():
+                    # Committed writes may still live only in the WAL, which the
+                    # restore deletes: fold it in, or keep the WAL in the archive.
+                    sidecars = _live_sidecars(project_root, fpath)
+                    if sidecars and not _checkpoint_database(src):
+                        console.print(
+                            f"[yellow]Warning:[/yellow] Could not checkpoint {fpath}; "
+                            "its WAL files are included in the safety backup."
+                        )
+                    else:
+                        sidecars = []
                     tf.add(str(src), arcname=fpath)
+                    for sidecar in sidecars:
+                        tf.add(str(project_root / sidecar), arcname=sidecar)
             metabase_source = project_root / METABASE_CONFIG_FILE
             if metabase_source.exists():
                 try:
@@ -70,7 +115,17 @@ def _create_safety_backup(project_root: Path) -> Path | None:
         return None
 
 
-def _extract_archive(archive_path: Path, project_root: Path) -> None:
+def _clear_sidecar(sidecar: Path, keep_suffix: str) -> None:
+    """Delete a live WAL sidecar, or rename it with *keep_suffix* when one is given."""
+    if not keep_suffix:
+        sidecar.unlink(missing_ok=True)
+    elif sidecar.exists():
+        kept = sidecar.with_name(sidecar.name + keep_suffix)
+        sidecar.replace(kept)
+        console.print(f"[yellow]Warning:[/yellow] Live database WAL kept as {kept}")
+
+
+def _extract_archive(archive_path: Path, project_root: Path, *, keep_wal_suffix: str = "") -> None:
     """Extract backup archive, mapping server paths to local project paths.
 
     Metabase H2 files (metabase/) are skipped — they are Docker volume paths
@@ -79,7 +134,9 @@ def _extract_archive(archive_path: Path, project_root: Path) -> None:
     """
     resolved_root = project_root.resolve()
     with tarfile.open(archive_path, mode="r:gz") as tf:
-        for member in tf.getmembers():
+        members = tf.getmembers()
+        member_names = {m.name for m in members}
+        for member in members:
             # Skip Metabase H2 files (Docker volume data)
             if member.name.startswith("metabase/"):
                 continue
@@ -113,9 +170,14 @@ def _extract_archive(archive_path: Path, project_root: Path) -> None:
                                 "YAML could not be safely sanitized."
                             )
                             continue
-                    # A leftover live WAL would be replayed into the restored database.
-                    for sidecar in wal_sidecar_names(str(dest)):
-                        Path(sidecar).unlink(missing_ok=True)
+                    # A leftover live WAL would be replayed into the restored database,
+                    # unless the archive carries that WAL itself (a safety backup).
+                    prefix = member.name[: len(member.name) - len(rel_path)]
+                    for side_rel, side in zip(
+                        wal_sidecar_names(rel_path), wal_sidecar_names(str(dest)), strict=True
+                    ):
+                        if prefix + side_rel not in member_names:
+                            _clear_sidecar(Path(side), keep_wal_suffix)
                     dest.write_bytes(content)
 
 
@@ -220,7 +282,9 @@ def backup_restore(ctx: click.Context, file: str, yes: bool) -> None:
     # Extract archive
     console.print(f"Restoring from {archive_path.name}...")
     try:
-        _extract_archive(archive_path, project_root)
+        # Without a safety backup, a live WAL may hold the only copy of recent writes.
+        keep = "" if safety_path else f".pre-restore-{time.strftime('%Y%m%d-%H%M%S')}"
+        _extract_archive(archive_path, project_root, keep_wal_suffix=keep)
     except (OSError, tarfile.TarError) as exc:
         console.print(f"[red]Error:[/red] Restore failed: {exc}")
         if safety_path and safety_path.exists():

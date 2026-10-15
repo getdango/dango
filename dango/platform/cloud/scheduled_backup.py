@@ -8,6 +8,7 @@ remote server (not via SSH from local).  Entry point::
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import json
 import shlex
@@ -596,6 +597,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
     archive_name = name.replace(".tar.gz", "")
     staging = Path(f"/tmp/{archive_name}")
     _stop_services()
+    copies_started = False
     try:
         _run_local(
             f"rm -rf {shlex.quote(str(staging))} && tar -xzf {shlex.quote(str(local_path))} -C /tmp",
@@ -609,14 +611,21 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             wal_sidecar_names,
         )
 
+        copies_started = True
+        stamp = time.strftime("%Y%m%d-%H%M%S")
         for fpath in BACKUP_FILES:
             src = staging / fpath
             if src.exists():
                 dest = PROJECT_DIR / fpath
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 # A leftover live WAL would be replayed into the restored database.
+                # This path takes no safety backup, so keep it aside, not deleted.
                 for sidecar in wal_sidecar_names(fpath):
-                    (PROJECT_DIR / sidecar).unlink(missing_ok=True)
+                    live = PROJECT_DIR / sidecar
+                    if live.exists():
+                        kept = live.with_name(f"{live.name}.pre-restore-{stamp}")
+                        live.replace(kept)
+                        _logger.warning("restore_wal_kept", path=str(kept))
                 _run_local(
                     f"cp {shlex.quote(str(src))} {shlex.quote(str(dest))}", step="restore_files"
                 )
@@ -647,6 +656,13 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                     )
         _run_local("chown -R dango:dango /srv/dango/project", step="fix_ownership")
         subprocess.run(f"rm -rf {shlex.quote(str(staging))}", shell=True, timeout=30)
+    except Exception:
+        if copies_started:
+            # A failed copy leaves a partial, root-owned restore; give it back to
+            # the service user before services restart on it.
+            with contextlib.suppress(Exception):  # best effort; keep the original error
+                subprocess.run("chown -R dango:dango /srv/dango/project", shell=True, timeout=120)
+        raise
     finally:
         _start_services()
 
