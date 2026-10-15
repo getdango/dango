@@ -183,6 +183,7 @@ def test_start_marimo_records_process_identity(tmp_path: Path) -> None:
         ("[1]", None),
         ("-5", None),
         ("12345", (12345, None)),
+        ('{"pid": 12345, "start_time": 1' + "0" * 400 + "}", (12345, None)),
     ],
 )
 def test_read_pid_record_rejects_malformed_values(
