@@ -16,7 +16,10 @@ from dango.ingestion.sources.setup_hosts import (
     validate_host_param,
 )
 
-MCP_UNSUPPORTED_SOURCE_TYPES = frozenset({"rest_api", "dlt_native"})
+# Types agents may not create or update (MCP); the user sets them up with the CLI. inbox is here
+# because its IMAP host is free-form: an agent-chosen host could receive any credential dlt
+# resolves for the source (its own *_env variable or dlt's fallback secret names).
+MCP_UNSUPPORTED_SOURCE_TYPES = frozenset({"rest_api", "dlt_native", "inbox"})
 
 # Source types whose sync can fully replace a table (either always, like CSV/Local Files, or as
 # the common default of dlt's write_disposition — verified 2026-09-27 against

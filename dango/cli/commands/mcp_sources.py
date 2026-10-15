@@ -117,8 +117,8 @@ def get_source_setup_schema(source_type: str) -> dict[str, Any]:
 
     Supply only fields with `managed_by == "agent"` to create_source/update_source. Fields marked
     `user_secret` or `oauth` are handled by the user (env vars, `dango oauth <type>`); never ask
-    for or pass secret values. `rest_api`, `dlt_native` and types with `setup_supported: false`
-    are CLI-only.
+    for or pass secret values. `rest_api`, `dlt_native`, `inbox` and types with
+    `setup_supported: false` are CLI-only.
     """
     try:
         from dango.ingestion.sources.setup_service import SourceSetupError, get_setup_schema
