@@ -166,3 +166,70 @@ def test_start_marimo_records_process_identity(tmp_path: Path) -> None:
     record = read_pid_record(get_marimo_pid_file_path(tmp_path))
     assert record is not None
     assert (record.pid, record.start_time) == (4242, _STARTED)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("record", "expected"),
+    [
+        ('{"pid": 12345, "start_time": "2026-10-15T00:00:00"}', (12345, None)),
+        ('{"pid": 12345, "start_time": [1]}', (12345, None)),
+        ('{"pid": 12345, "start_time": true}', (12345, None)),
+        ('{"pid": 12345, "start_time": 1700000000}', (12345, 1700000000)),
+        ('{"pid": -1, "start_time": 1700000000.0}', None),
+        ('{"pid": 0, "start_time": null}', None),
+        ('{"pid": true, "start_time": null}', None),
+        ('{"pid": "12345", "start_time": null}', None),
+        ("[1]", None),
+        ("-5", None),
+        ("12345", (12345, None)),
+    ],
+)
+def test_read_pid_record_rejects_malformed_values(
+    tmp_path: Path, record: str, expected: tuple[int, float | None] | None
+) -> None:
+    """Only a positive integer pid and a numeric (non-bool) start time are accepted."""
+    from dango.utils.process import read_pid_record
+
+    pid_file = tmp_path / "x.pid"
+    pid_file.write_text(record)
+    got = read_pid_record(pid_file)
+    assert (None if got is None else (got.pid, got.start_time)) == expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "record",
+    [
+        '{"pid": 12345, "start_time": "2026-10-15T00:00:00"}',
+        '{"pid": 12345, "start_time": [1]}',
+        '{"pid": 12345, "start_time": false}',
+        '{"pid": -12345, "start_time": 1700000000.0}',
+    ],
+    ids=["string-start", "list-start", "bool-start", "negative-pid"],
+)
+def test_stop_marimo_malformed_pid_file_never_raises_or_group_signals(
+    tmp_path: Path, record: str
+) -> None:
+    """A hand-edited pid file cannot crash stop_marimo or reach a group signal."""
+    out = _stop_with(tmp_path, record=record)
+
+    assert out["sent"] == []
+    if "-12345" in record:
+        assert out["result"] is False
+        out["kill"].assert_not_called()
+        assert not out["pid_file"].exists()
+
+
+@pytest.mark.unit
+def test_marimo_status_malformed_start_time_never_raises(tmp_path: Path) -> None:
+    """get_marimo_status reads a malformed start time as unknown instead of raising."""
+    from dango.notebooks.manager import get_marimo_pid_file_path, get_marimo_status
+
+    pid_file = get_marimo_pid_file_path(tmp_path)
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text('{"pid": 12345, "start_time": "2026-10-15T00:00:00"}')
+    with patch("dango.utils.process.psutil.pid_exists", return_value=True):
+        status = get_marimo_status(tmp_path)
+    assert status["running"] is True
+    assert status["pid"] == 12345
