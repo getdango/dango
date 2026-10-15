@@ -8,7 +8,8 @@ Security layers (defense-in-depth):
 3. sqlglot whitelist: only ``exp.Select`` allowed (fails closed if sqlglot is missing)
 4. Locked connection (``dango.utils.query_connection``): warehouse attached READ_ONLY,
    external access (files, URLs, extensions, ATTACH) off, configuration locked
-5. Timeout: 30 s via ``asyncio.wait_for``; memory limit ``api.query_memory_limit`` (1GB)
+5. Timeout: 30 s via ``asyncio.wait_for``; memory limit ``api.query_memory_limit`` (1GB),
+   no spill to disk, so a query over the limit fails with DANGO-Q007
 6. Row limit: 10 000 rows max
 7. Audit logging: every query execution logged
 """
@@ -255,8 +256,9 @@ async def execute_query(
             content={
                 "error_code": "DANGO-Q007",
                 "message": (
-                    f"Query used more memory than the {memory_limit} limit; add filters "
-                    "or aggregate first, or raise api.query_memory_limit in project.yml"
+                    f"Query used more memory than the {memory_limit} limit (queries do not "
+                    "spill to disk); add filters or aggregate first, or raise "
+                    "api.query_memory_limit in project.yml"
                 ),
             },
         )

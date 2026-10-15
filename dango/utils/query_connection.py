@@ -28,6 +28,10 @@ def open_locked_query_connection(
         conn.execute(f"ATTACH '{literal}' AS \"{alias}\" (READ_ONLY)")
         conn.execute(f'USE "{alias}"')
         conn.execute(f"SET memory_limit='{memory_limit}'")
+        # No spill directory: DuckDB adds temp_directory (default <cwd>/.tmp) to
+        # allowed_directories when external access is turned off, which would
+        # leave that directory readable and writable from user SQL.
+        conn.execute("SET temp_directory=''")
         conn.execute("SET enable_external_access=false")
         conn.execute("SET lock_configuration=true")
     except Exception:
