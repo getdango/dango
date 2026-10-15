@@ -246,6 +246,7 @@ def _prune_loaded_packages(pipeline: Any) -> None:
     row data). Never touches ``load/new`` or ``load/normalized``. Best effort: a
     failure is logged and never fails the sync.
     """
+    import re
     import shutil
 
     raw_working_dir = getattr(pipeline, "working_dir", None)
@@ -265,6 +266,23 @@ def _prune_loaded_packages(pipeline: Any) -> None:
             "dlt_loaded_cleanup_failed: pipeline=%s error=%s",
             getattr(pipeline, "pipeline_name", "?"),
             exc,
+        )
+    # Older versions backed up the whole pipeline dir (load packages included) to a
+    # sibling "<name>_backup_<timestamp>" dir. State-only backups have no load/ dir.
+    try:
+        legacy_pattern = re.compile(rf"^{re.escape(working_dir.name)}_backup_\d{{8}}_\d{{6}}$")
+        removed = 0
+        for sibling in working_dir.parent.iterdir():
+            if legacy_pattern.match(sibling.name) and (sibling / "load").is_dir():
+                shutil.rmtree(sibling)
+                removed += 1
+        if removed:
+            _logging.getLogger(__name__).info(
+                "dlt_legacy_backups_removed: pipeline=%s count=%d", working_dir.name, removed
+            )
+    except OSError as exc:
+        _logging.getLogger(__name__).warning(
+            "dlt_legacy_backup_cleanup_failed: pipeline=%s error=%s", working_dir.name, exc
         )
     try:
         os.chmod(working_dir, 0o700)
