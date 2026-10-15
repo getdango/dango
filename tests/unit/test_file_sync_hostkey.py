@@ -104,17 +104,24 @@ class TestRsyncSshArg:
 
     def test_rsync_ssh_arg_exact_string_quotes_and_escapes(self) -> None:
         """Single quotes survive rsync's -e splitter; double quotes keep ssh from splitting;
-        ``%`` is doubled so ssh does not expand it as a token."""
+        ``%`` is doubled in UserKnownHostsFile (ssh expands tokens there) but not in -i
+        (ssh does not expand the command-line identity path)."""
         arg = _build_rsync_ssh_arg(
             Path("/Users/John Smith/%d/key"),
             known_hosts_path=Path("/Users/John Smith/.dango %h/known_hosts"),
             port=2222,
         )
         assert arg == (
-            'ssh -i "/Users/John Smith/%%d/key" -p 2222 -o StrictHostKeyChecking=yes '
+            'ssh -i "/Users/John Smith/%d/key" -p 2222 -o StrictHostKeyChecking=yes '
             "-o 'UserKnownHostsFile=\"/Users/John Smith/.dango %%h/known_hosts\"' "
             "-o BatchMode=yes"
         )
+
+    @pytest.mark.parametrize("bad", ["/tmp/${HOME}/known_hosts", "/tmp/$HOME/kh", "/tmp/a$b"])
+    def test_rsync_ssh_arg_rejects_dollar_in_known_hosts_path(self, bad: str) -> None:
+        """ssh expands ${VAR} in UserKnownHostsFile and it cannot be escaped."""
+        with pytest.raises(CloudProvisioningError, match=r"\$"):
+            _build_rsync_ssh_arg(Path("/tmp/key"), known_hosts_path=Path(bad), port=22)
 
     @pytest.mark.parametrize("bad", ['/tmp/a"b/known_hosts', '/tmp/x"', "/tmp/it's/kh"])
     def test_rsync_ssh_arg_rejects_double_quote_in_paths(self, bad: str) -> None:
@@ -287,6 +294,7 @@ def _invoke_remote_ssh(
     monkeypatch: pytest.MonkeyPatch,
     home_name: str = "home",
     expect_ok: bool = True,
+    key_rel: str = ".dango/cloud_key",
 ) -> tuple[list[str], Path]:
     from dango.cli.commands.remote import remote
 
@@ -295,10 +303,10 @@ def _invoke_remote_ssh(
     monkeypatch.setenv("HOME", str(home))
     cfg = MagicMock()
     cfg.droplet_ip = "1.2.3.4"
-    cfg.ssh_key_path = ".dango/cloud_key"
+    cfg.ssh_key_path = key_rel
     loader = MagicMock()
     loader.load_cloud_config.return_value = cfg
-    key_path = tmp_path / ".dango" / "cloud_key"
+    key_path = tmp_path / key_rel
     key_path.parent.mkdir(parents=True, exist_ok=True)
     key_path.touch()
 
@@ -337,6 +345,18 @@ class TestRemoteSshKnownHosts:
         assert f'UserKnownHostsFile="{kh}"' in argv
         assert "StrictHostKeyChecking=accept-new" in argv
         assert not any(a.startswith("UserKnownHostsFile=") and a.count('"') != 2 for a in argv)
+
+    def test_remote_ssh_identity_path_with_percent_passed_unescaped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ssh does not expand % in the command-line -i path."""
+        argv, key_path = _invoke_remote_ssh(tmp_path, monkeypatch, key_rel=".dango %d/cloud_key")
+        assert argv[argv.index("-i") + 1] == str(key_path)
+
+    def test_remote_ssh_refuses_known_hosts_path_with_dollar(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _invoke_remote_ssh(tmp_path, monkeypatch, home_name="home${USER}", expect_ok=False)
 
     def test_remote_ssh_refuses_known_hosts_path_with_quote(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
