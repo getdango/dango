@@ -29,6 +29,9 @@ _IDLE_TIMEOUT = _IDLE_TIMEOUT_LOCAL  # backward compat for smoke test
 # Upper bound for Marimo to answer its readiness probe after spawn.
 _MARIMO_START_TIMEOUT_SECONDS = 60
 _CLOUD_BASE_PATH = "/notebooks/marimo"
+# stop_marimo(): wait after SIGTERM, then after SIGKILL, for the process to go.
+_STOP_TERM_TIMEOUT_SECONDS = 10.0
+_STOP_KILL_TIMEOUT_SECONDS = 5.0
 
 
 def _get_idle_timeout(project_root: Path) -> int:  # noqa: ARG001
@@ -77,16 +80,82 @@ def _is_marimo_responding(port: int, timeout: float = 1.0, base_path: str = "/")
 
 
 def _stop_unready_process(proc: subprocess.Popen[bytes]) -> None:
-    """Terminate a Marimo process that never became ready (kill after 5 s)."""
+    """Stop a Marimo that never became ready, with its whole process group.
+
+    Marimo starts with ``start_new_session=True``, so its pid is also the
+    group id: SIGTERM the group, then SIGKILL it after 5 s.
+    """
+    import signal
+
+    def _signal_group(sig: int) -> None:
+        try:
+            os.killpg(os.getpgid(proc.pid), sig)
+        except ProcessLookupError:
+            pass
+
     try:
-        proc.terminate()
+        _signal_group(signal.SIGTERM)
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            _signal_group(signal.SIGKILL)
             proc.wait(timeout=5)
     except Exception:
         logger.warning("Could not stop unready Marimo process %s", proc.pid, exc_info=True)
+
+
+def _process_gone(pid: int) -> bool:
+    """True when *pid* no longer runs (absent, or a zombie awaiting reaping)."""
+    import psutil
+
+    try:
+        return bool(psutil.Process(pid).status() == psutil.STATUS_ZOMBIE)
+    except psutil.NoSuchProcess:
+        return True
+    except psutil.Error:
+        return False
+
+
+def _wait_gone(pid: int, timeout: float) -> bool:
+    """Poll until *pid* is gone or *timeout* seconds pass."""
+    deadline = time.monotonic() + timeout
+    while not _process_gone(pid):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
+    return True
+
+
+def _stop_marimo_process(pid: int) -> bool:
+    """Stop a running Marimo by pid; return True once it is confirmed gone.
+
+    Marimo is started with ``start_new_session=True``, so it leads its own
+    process group (pgid == pid): SIGTERM the group, then SIGKILL it.  A pid
+    that is not its own group leader is not a Marimo we started (e.g. a
+    reused pid), so its group is never signalled; the plain process-tree
+    kill is used instead.
+    """
+    import signal
+
+    try:
+        is_leader = os.getpgid(pid) == pid
+    except ProcessLookupError:
+        return True
+    if not is_leader:
+        kill_process(pid, timeout=int(_STOP_TERM_TIMEOUT_SECONDS))
+        return _wait_gone(pid, _STOP_KILL_TIMEOUT_SECONDS)
+
+    for sig, timeout in (
+        (signal.SIGTERM, _STOP_TERM_TIMEOUT_SECONDS),
+        (signal.SIGKILL, _STOP_KILL_TIMEOUT_SECONDS),
+    ):
+        try:
+            os.killpg(pid, sig)
+        except ProcessLookupError:
+            return True
+        if _wait_gone(pid, timeout):
+            return True
+    return False
 
 
 def start_marimo(
@@ -184,19 +253,24 @@ def start_marimo(
         # Wait for Marimo to start responding (poll until ready, dead, or
         # the deadline).  A Marimo that never answers is stopped instead of
         # being polled forever from a shared worker thread.
+        # Any exception (timeout, early exit, probe error, interrupt) stops
+        # the spawned process group so nothing is left running without a pid file.
         deadline = time.monotonic() + _MARIMO_START_TIMEOUT_SECONDS
-        while time.monotonic() < deadline:
-            time.sleep(1)
-            if proc.poll() is not None:
-                raise RuntimeError(f"Marimo failed to start. Check logs at {log_file}")
-            if _is_marimo_responding(port, timeout=1.0, base_path=base_path):
-                break
-        else:
+        try:
+            while time.monotonic() < deadline:
+                time.sleep(1)
+                if proc.poll() is not None:
+                    raise RuntimeError(f"Marimo failed to start. Check logs at {log_file}")
+                if _is_marimo_responding(port, timeout=1.0, base_path=base_path):
+                    break
+            else:
+                raise RuntimeError(
+                    f"Marimo did not become ready within {_MARIMO_START_TIMEOUT_SECONDS} s. "
+                    f"Check logs at {log_file}"
+                )
+        except BaseException:
             _stop_unready_process(proc)
-            raise RuntimeError(
-                f"Marimo did not become ready within {_MARIMO_START_TIMEOUT_SECONDS} s. "
-                f"Check logs at {log_file}"
-            )
+            raise
 
         pid_file.write_text(str(proc.pid))
 
@@ -218,7 +292,9 @@ def stop_marimo(project_root: Path) -> bool:
         project_root: Project root directory.
 
     Returns:
-        ``True`` if Marimo was stopped, ``False`` if it wasn't running.
+        ``True`` if Marimo was stopped, ``False`` if it wasn't running or
+        could not be stopped (the pid file is then kept, so the running
+        process stays tracked).
     """
     pid_file = get_marimo_pid_file_path(project_root)
 
@@ -240,19 +316,18 @@ def stop_marimo(project_root: Path) -> bool:
 
     logger.debug("Stopping Marimo (PID %d)", pid)
 
-    success = kill_process(pid, timeout=10)
+    if not _stop_marimo_process(pid):
+        logger.warning(
+            "Failed to stop Marimo process %d; keeping %s so it stays tracked", pid, pid_file
+        )
+        return False
 
     try:
         pid_file.unlink()
-    except OSError:  # noqa: BLE001
+    except OSError:
         pass
-
-    if success:
-        logger.debug("Marimo stopped")
-        return True
-    else:
-        logger.warning("Failed to stop Marimo process %d", pid)
-        return False
+    logger.debug("Marimo stopped")
+    return True
 
 
 def get_marimo_status(project_root: Path) -> dict[str, bool | int | Path | None]:
