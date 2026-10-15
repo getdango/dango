@@ -82,11 +82,19 @@ class AuthProject:
         return raw_key
 
 
+LOOPBACK_PEER = ("127.0.0.1", 50000)
+
+
 def build_client(
     project_root: Path,
     *routers: APIRouter,
+    peer: tuple[str, int] = LOOPBACK_PEER,
 ) -> TestClient:
-    """Build a FastAPI app with the real AuthMiddleware in front of *routers*."""
+    """Build a FastAPI app with the real AuthMiddleware in front of *routers*.
+
+    Defaults model a direct local connection: TCP peer 127.0.0.1 and
+    ``Host: localhost:8800`` (HTTP; WebSocket tests set Host explicitly).
+    """
     app = FastAPI()
     app.state.project_root = project_root
     app.add_middleware(AuthMiddleware, project_root=project_root, idle_timeout_minutes=60)
@@ -103,7 +111,9 @@ def build_client(
                 break
         return JSONResponse(status_code=status_code, content={"error_code": exc.error_code})
 
-    return TestClient(app, raise_server_exceptions=False)
+    return TestClient(
+        app, base_url="http://localhost:8800", raise_server_exceptions=False, client=peer
+    )
 
 
 def find_auth_middleware(client: TestClient) -> AuthMiddleware:

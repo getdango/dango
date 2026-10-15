@@ -115,3 +115,36 @@ class TestMissingAuthDb:
         resp = client.get("/api/config")
 
         assert resp.status_code == 200
+
+
+@pytest.mark.unit
+class TestErrorCodeCatalog:
+    def test_auth_db_unavailable_code_is_registered(
+        self, project: AuthProject, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dango import exceptions
+
+        monkeypatch.setenv("DANGO_CLOUD_MODE", "true")
+        project.write_toggle("enabled: true\n")
+        client = build_client(project.root)
+
+        code = client.get("/api/probe").json()["error_code"]
+
+        registered = {
+            getattr(obj, "_default_error_code", None)
+            for name in exceptions.__all__
+            if isinstance(obj := getattr(exceptions, name), type)
+        }
+        assert code == "DANGO-S009"
+        assert {"DANGO-S008", "DANGO-S009"} <= registered
+
+    def test_error_codes_are_unique(self) -> None:
+        from dango import exceptions
+
+        codes = [
+            obj.__dict__["_default_error_code"]
+            for name in exceptions.__all__
+            if isinstance(obj := getattr(exceptions, name), type)
+            and "_default_error_code" in obj.__dict__
+        ]
+        assert len(codes) == len(set(codes))
