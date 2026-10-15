@@ -35,6 +35,8 @@ _STUBBED_PREFIXES = (
 )
 
 _CP_SHIM = """#!/bin/sh
+for last; do :; done
+if [ -n "$CP_LOG" ]; then printf '%s\\t%s\\n' "${RUNUSER_AS:-root}" "$last" >> "$CP_LOG"; fi
 if [ -n "$FAIL_CP_MATCH" ]; then
   for arg in "$@"; do
     case "$arg" in
@@ -45,19 +47,58 @@ fi
 exec /bin/cp "$@"
 """
 
+#: ``runuser -u USER -- CMD...``: runs CMD as the current user, exporting RUNUSER_AS=USER.
+_RUNUSER_SHIM = """#!/bin/sh
+[ "$1" = "-u" ] && [ "$3" = "--" ] || { echo "runuser shim: unexpected usage: $*" >&2; exit 2; }
+RUNUSER_AS="$2"; export RUNUSER_AS
+shift 3
+exec "$@"
+"""
+
+#: There is no ``dango`` user locally; ownership changes are no-ops.
+_CHOWN_SHIM = """#!/bin/sh
+exit 0
+"""
+
+
+def shim_env(shim_dir: Path, *, fail_cp_match: str | None = None) -> dict[str, str]:
+    """Install the cp/runuser/chown shims in *shim_dir*; return an env that uses them.
+
+    Every ``cp`` appends ``<user>\\t<destination>`` to ``shim_dir/cp.log`` (user is
+    ``root`` unless run through ``runuser``); read it with :func:`cp_log`.
+    """
+    shim_dir.mkdir(parents=True, exist_ok=True)
+    for name, body in (("cp", _CP_SHIM), ("runuser", _RUNUSER_SHIM), ("chown", _CHOWN_SHIM)):
+        shim = shim_dir / name
+        shim.write_text(body)
+        shim.chmod(0o755)
+    env = dict(os.environ)
+    env.pop("RUNUSER_AS", None)
+    env["PATH"] = f"{shim_dir}{os.pathsep}{env.get('PATH', '')}"
+    env["CP_LOG"] = str(shim_dir / "cp.log")
+    if fail_cp_match:
+        env["FAIL_CP_MATCH"] = fail_cp_match
+    return env
+
+
+def cp_log(shim_dir: Path) -> list[tuple[str, str]]:
+    """Return (user, destination) for every ``cp`` run with :func:`shim_env`'s environment."""
+    log = shim_dir / "cp.log"
+    if not log.exists():
+        return []
+    entries = []
+    for line in log.read_text().splitlines():
+        user, _, dest = line.partition("\t")
+        entries.append((user, dest))
+    return entries
+
 
 class ShellSSH:
     """Minimal ``SSHManager`` replacement that executes commands in a local shell."""
 
     def __init__(self, shim_dir: Path, *, fail_cp_match: str | None = None) -> None:
-        shim_dir.mkdir(parents=True, exist_ok=True)
-        shim = shim_dir / "cp"
-        shim.write_text(_CP_SHIM)
-        shim.chmod(0o755)
-        self._env = dict(os.environ)
-        self._env["PATH"] = f"{shim_dir}{os.pathsep}{self._env.get('PATH', '')}"
-        if fail_cp_match:
-            self._env["FAIL_CP_MATCH"] = fail_cp_match
+        self.shim_dir = shim_dir
+        self._env = shim_env(shim_dir, fail_cp_match=fail_cp_match)
         self.commands: list[str] = []
 
     def exec_command(self, command: str, timeout: int = 60, **_kwargs: object) -> CommandResult:
@@ -166,3 +207,67 @@ def sqlite_values(path: Path) -> list[str]:
         return sorted(row[0] for row in conn.execute("SELECT n FROM u").fetchall())
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Spaces (on-server) restore harness
+# ---------------------------------------------------------------------------
+
+
+def run_spaces_restore(
+    tmp_path: Path,
+    project: Path,
+    top: str,
+    *,
+    metabase_vol: Path | None = None,
+    fail_cp_match: str | None = None,
+) -> tuple[Path, list[str]]:
+    """Run ``restore_from_spaces`` against *project* with ``tmp_path/top`` as the extracted staging dir.
+
+    Shell steps run for real under :func:`shim_env` (download, extraction and the final
+    ``chown`` are skipped).  Returns the shim dir (for :func:`cp_log`) and the event list
+    (shell commands passed to ``subprocess.run`` and ``"start"`` for the service restart).
+    """
+    from unittest.mock import patch
+
+    sb = "dango.platform.cloud.scheduled_backup"
+    from dango.platform.cloud import scheduled_backup
+
+    shim_dir = tmp_path / "shim"
+    env = shim_env(shim_dir, fail_cp_match=fail_cp_match)
+    events: list[str] = []
+    real_path = Path
+    real_run = subprocess.run
+
+    def fake_path(value: object = ".") -> Path:
+        text = str(value)
+        if text.startswith("/tmp/"):
+            return tmp_path / text[len("/tmp/") :]
+        return real_path(str(value))
+
+    def run_local(command: str, **_kw: object) -> str:
+        from dango.exceptions import CloudProvisioningError
+
+        if "tar -xzf" in command or command.startswith("chown"):
+            return ""
+        proc = real_run(command, shell=True, capture_output=True, text=True, env=env)
+        if proc.returncode != 0:
+            raise CloudProvisioningError(f"Step failed (exit {proc.returncode}): {proc.stderr}")
+        return proc.stdout
+
+    with (
+        patch(f"{sb}.PROJECT_DIR", project),
+        patch(f"{sb}.BACKUP_DIR", tmp_path / "backups"),
+        patch(f"{sb}.download_from_spaces"),
+        patch(f"{sb}.Path", fake_path),
+        patch(f"{sb}._stop_services"),
+        patch(f"{sb}._start_services", side_effect=lambda: events.append("start")),
+        patch(f"{sb}._run_local", side_effect=run_local),
+        patch(
+            f"{sb}._get_metabase_volume_path",
+            return_value=str(metabase_vol) if metabase_vol else None,
+        ),
+        patch(f"{sb}.subprocess.run", side_effect=lambda cmd, **_k: events.append(str(cmd))),
+    ):
+        scheduled_backup.restore_from_spaces({}, f"backups/{top}.tar.gz")
+    return shim_dir, events

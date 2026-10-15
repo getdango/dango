@@ -20,6 +20,7 @@ from tests.factories.backup_shell import (
     make_duckdb_with_leftover_wal,
     make_sqlite,
     make_sqlite_with_leftover_wal,
+    shim_env,
     sqlite_values,
 )
 
@@ -128,7 +129,9 @@ def test_restore_from_spaces_removes_wal(tmp_path: Path) -> None:
     def run_local(command: str, **_kw: Any) -> str:
         if "tar -xzf" in command or command.startswith("chown"):
             return ""
-        proc = _REAL_RUN(command, shell=True, capture_output=True, text=True)
+        proc = _REAL_RUN(
+            command, shell=True, capture_output=True, text=True, env=shim_env(tmp_path / "shim")
+        )
         assert proc.returncode == 0, proc.stderr
         return proc.stdout
 
@@ -180,7 +183,9 @@ def test_restore_from_spaces_fixes_ownership_after_failed_copy(tmp_path: Path) -
             raise CloudProvisioningError("Step 'restore_files' failed (exit 1): disk full")
         if "tar -xzf" in command or command.startswith("chown"):
             return ""
-        proc = _REAL_RUN(command, shell=True, capture_output=True, text=True)
+        proc = _REAL_RUN(
+            command, shell=True, capture_output=True, text=True, env=shim_env(tmp_path / "shim")
+        )
         assert proc.returncode == 0, proc.stderr
         return proc.stdout
 
