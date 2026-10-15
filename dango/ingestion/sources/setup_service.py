@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from dango.ingestion.sources.registry import AuthType, get_source_metadata
+from dango.ingestion.sources.setup_hosts import destination_host
 from dango.ingestion.sources.setup_schema import (
     MCP_UNSUPPORTED_SOURCE_TYPES,
     REPLACE_MODE_SOURCE_TYPES,
@@ -429,6 +430,7 @@ def apply_source(
                 CredentialRequirement(
                     kind="secrets_toml",
                     detail="Fill in the credential values in .dlt/secrets.toml before syncing",
+                    sends_to=destination_host(st, prepared.params),
                 )
             )
 
@@ -445,7 +447,11 @@ def create_source(
     description: str | None = None,
     empty_sync_policy: str | None = None,
 ) -> SourceSetupResult:
-    """Validate and create a source end to end (the MCP entry point)."""
+    """Validate and create a source end to end, with the agent rules.
+
+    Applies the agent gate, refuses an existing credential variable and requires https. The
+    MCP tool currently calls prepare_source/apply_source itself with the same flags.
+    """
     require_agent_setup_supported(source_type)
     return apply_source(
         project_root,
@@ -456,6 +462,8 @@ def create_source(
             params,
             description=description,
             empty_sync_policy=empty_sync_policy,
+            reject_existing_credentials=True,
+            require_https=True,
         ),
     )
 

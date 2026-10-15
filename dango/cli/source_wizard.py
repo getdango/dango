@@ -1085,16 +1085,17 @@ def {module_name}_resource(api_key: str):
                 message="Base URL (e.g., https://api.example.com)",
             )
         ]
-        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
-        if not answers:
-            return None
-        if answers["base_url"].strip().lower() == "back":
-            return "← Back"
-        base_url = answers["base_url"].strip()
-        host_problem = validate_host_param("rest_api", base_url)
-        if host_problem:
+        while True:  # re-ask until the base URL is usable
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+            if answers["base_url"].strip().lower() == "back":
+                return "← Back"
+            base_url = answers["base_url"].strip()
+            host_problem = validate_host_param("rest_api", base_url, human_entry=True)
+            if not host_problem:
+                break
             console.print(f"[red]❌ {escape(host_problem)}[/red]")
-            return None
         if warning := insecure_host_warning("rest_api", base_url):
             console.print(f"[yellow]⚠️  {escape(warning)}[/yellow]")
 

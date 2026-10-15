@@ -221,6 +221,7 @@ def create_source(
                 description=description,
                 empty_sync_policy=empty_sync_policy,
                 reject_existing_credentials=True,
+                # Defence in depth: the URL-type sources are agent-gated today.
                 require_https=True,
             )
             extra: list[str] = []

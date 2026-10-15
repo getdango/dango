@@ -37,11 +37,19 @@ _FS_SCHEMES = frozenset(
     {"file", "s3", "gs", "gcs", "gdrive", "az", "abfs", "abfss", "adl", "azure", "hf", "sftp"}
 )
 _LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+# Human-entered hostnames may also use '_' (e.g. Docker service names such as my_api).
+_LENIENT_LABEL_RE = re.compile(r"^[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?$")
 
 
-def _is_hostname(value: str) -> bool:
-    """True for a dotted DNS hostname (labels only; no scheme, port, path or userinfo)."""
-    return 0 < len(value) <= 253 and all(_LABEL_RE.fullmatch(p) for p in value.split("."))
+def _is_hostname(value: str, *, lenient: bool = False) -> bool:
+    """True for a dotted DNS hostname (labels only; no scheme, port, path or userinfo).
+
+    lenient: also allow '_' in labels and one trailing dot (a fully qualified name).
+    """
+    label = _LENIENT_LABEL_RE if lenient else _LABEL_RE
+    if lenient and value.endswith("."):
+        value = value[:-1]
+    return 0 < len(value) <= 253 and all(label.fullmatch(p) for p in value.split("."))
 
 
 def _is_ip(value: str) -> bool:
@@ -61,12 +69,12 @@ def _port_ok(parts: SplitResult) -> bool:
     return True
 
 
-def _url_error(param: str, value: str, require_https: bool) -> str | None:
+def _url_error(param: str, value: str, require_https: bool, lenient: bool) -> str | None:
     shape = (
         f"'{param}' must be a URL like https://api.example.com/v1 "
-        "(no user:password@, no '#' fragment, no '?' query)"
+        f"(no user:password@, no '#' fragment{'' if lenient else ', no ? query'})"
     )
-    if "#" in value or "?" in value or any(ch.isspace() for ch in value):
+    if "#" in value or (not lenient and "?" in value) or any(ch.isspace() for ch in value):
         return shape
     parts = urlsplit(value)
     if not _port_ok(parts):
@@ -74,7 +82,7 @@ def _url_error(param: str, value: str, require_https: bool) -> str | None:
     host = parts.hostname
     if parts.scheme not in ("http", "https") or not host or "@" in parts.netloc:
         return shape
-    if not (_is_hostname(host) or _is_ip(host)):
+    if not (_is_hostname(host, lenient=lenient) or _is_ip(host)):
         return shape
     if require_https and parts.scheme == "http" and host not in LOOPBACK_HOSTS:
         return f"'{param}' must use https:// (http:// is only allowed for localhost)"
@@ -97,11 +105,15 @@ def _bucket_url_error(param: str, value: str) -> str | None:
     return None
 
 
-def validate_host_param(source_type: str, value: Any, *, require_https: bool = False) -> str | None:
+def validate_host_param(
+    source_type: str, value: Any, *, require_https: bool = False, human_entry: bool = False
+) -> str | None:
     """Return an error string, or None if *value* is acceptable for *source_type*'s host param.
 
     require_https: reject plain http:// for non-loopback hosts (the agent path); otherwise
     such a value is accepted and :func:`insecure_host_warning` reports it.
+    human_entry: a person typed a URL in the CLI wizard: also accept '_' in the hostname, a
+    '?' query and one trailing dot. Never used for agent input.
     """
     param = HOST_BEARING_PARAMS.get(source_type)
     if param is None:
@@ -123,7 +135,7 @@ def validate_host_param(source_type: str, value: Any, *, require_https: bool = F
             "(no https://, port, path, user@ part, '#' or '?')"
         )
     if source_type in _URL_TYPES:
-        return _url_error(param, value, require_https)
+        return _url_error(param, value, require_https, human_entry)
     return _bucket_url_error(param, value)
 
 
