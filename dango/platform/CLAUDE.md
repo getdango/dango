@@ -81,6 +81,7 @@ platform/
 | `common/metabase_credential_migration.py` | Legacy Metabase credential state machine | `prepare_metabase_credential_migration`, `migration_pending`, `complete_metabase_credential_migration` |
 | `common/metabase_admin_repair.py` | Automatic data-preserving recovery of a lost Metabase admin credential (offline `reset-password` CLI, never deletes the volume) | `repair_admin_credential`, `describe_repair_outcome` |
 | `local/network.py` | Shared nginx routing (local dev) | `NetworkConfig`, `NginxManager`, `HostsManager` |
+| `local/routing.py` | Read-only `routing.json` access (same file as `NetworkConfig.routing_file`); used by auth-disabled mode | `routing_file_path()`, `get_registered_domains()` |
 | `local/watcher.py` | File change detection | `DebouncedFileHandler`, `FileWatcher`, `MultiTargetWatcher`, `SyncTrigger` |
 | `local/watcher_lifecycle.py` | Watcher subprocess lifecycle | `start_file_watcher`, `stop_file_watcher`, `get_watcher_status`, `get_watcher_pid_file_path` |
 | `local/watcher_runner.py` | Background watcher process | `main` |
