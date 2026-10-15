@@ -197,9 +197,11 @@ def create_source(
             SourceSetupError,
             apply_source,
             prepare_source,
+            require_agent_setup_supported,
         )
 
         try:
+            require_agent_setup_supported(source_type)
             params = dict(config or {})
             if file_path:
                 upload_dir = f"data/uploads/{source_name}"
@@ -218,6 +220,8 @@ def create_source(
                 params,
                 description=description,
                 empty_sync_policy=empty_sync_policy,
+                reject_existing_credentials=True,
+                require_https=True,
             )
             extra: list[str] = []
             if file_path:
