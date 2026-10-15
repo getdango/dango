@@ -55,6 +55,7 @@ def _ssh_mock(
     ssh.key_path = known_hosts.parent / "id_ed25519"
     ssh.known_hosts_path = known_hosts
     ssh.legacy_known_hosts_paths = legacy or []
+    ssh.username = "root"
     ssh.host = host
     ssh.port = port
     ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=0)
@@ -173,13 +174,32 @@ class TestSSHManagerRecordsEndpoint:
         manager = SSHManager(key_path=tmp_path / "k", known_hosts_path=tmp_path / "kh")
         assert manager.host is None
         assert manager.port == 22
+        assert manager.username == "root"
         with (
             patch.object(SSHManager, "_load_key", return_value=MagicMock()),
             patch.object(SSHManager, "_connect_raw", return_value=MagicMock()),
         ):
-            manager.connect(_HOST, port=2222)
+            manager.connect(_HOST, username="deploy", port=2222)
         assert manager.host == _HOST
         assert manager.port == 2222
+        assert manager.username == "deploy"
+
+    @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
+    def test_rsync_uses_connected_username(
+        self, mock_run: MagicMock, _which: MagicMock, tmp_path: Path
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        kh = tmp_path / "known_hosts"
+        _pin(kh, _HOST)
+        ssh = _ssh_mock(kh)
+        ssh.username = "deploy"
+
+        sync_project_files(ssh, _project(tmp_path), remote_host=_HOST)
+
+        dests = [c[0][0][-1] for c in mock_run.call_args_list if c[0][0][0] == "rsync"]
+        assert dests
+        assert all(d.startswith(f"deploy@{_HOST}:") for d in dests)
 
 
 @pytest.mark.unit
