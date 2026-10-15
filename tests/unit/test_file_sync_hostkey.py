@@ -102,7 +102,21 @@ class TestRsyncSshArg:
         assert "-p 2222" in arg
         assert f'-i "{tmp_path / "key"}"' in arg
 
-    @pytest.mark.parametrize("bad", ['/tmp/a"b/known_hosts', '/tmp/x"'])
+    def test_rsync_ssh_arg_exact_string_quotes_and_escapes(self) -> None:
+        """Single quotes survive rsync's -e splitter; double quotes keep ssh from splitting;
+        ``%`` is doubled so ssh does not expand it as a token."""
+        arg = _build_rsync_ssh_arg(
+            Path("/Users/John Smith/%d/key"),
+            known_hosts_path=Path("/Users/John Smith/.dango %h/known_hosts"),
+            port=2222,
+        )
+        assert arg == (
+            'ssh -i "/Users/John Smith/%%d/key" -p 2222 -o StrictHostKeyChecking=yes '
+            "-o 'UserKnownHostsFile=\"/Users/John Smith/.dango %%h/known_hosts\"' "
+            "-o BatchMode=yes"
+        )
+
+    @pytest.mark.parametrize("bad", ['/tmp/a"b/known_hosts', '/tmp/x"', "/tmp/it's/kh"])
     def test_rsync_ssh_arg_rejects_double_quote_in_paths(self, bad: str) -> None:
         with pytest.raises(CloudProvisioningError):
             _build_rsync_ssh_arg(Path("/tmp/key"), known_hosts_path=Path(bad), port=22)
@@ -268,10 +282,15 @@ class TestLegacyKnownHostsForRsync:
         assert same.legacy_known_hosts_paths == []
 
 
-def _invoke_remote_ssh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[list[str], Path]:
+def _invoke_remote_ssh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    home_name: str = "home",
+    expect_ok: bool = True,
+) -> tuple[list[str], Path]:
     from dango.cli.commands.remote import remote
 
-    home = tmp_path / "home"
+    home = tmp_path / home_name
     home.mkdir(exist_ok=True)
     monkeypatch.setenv("HOME", str(home))
     cfg = MagicMock()
@@ -290,6 +309,10 @@ def _invoke_remote_ssh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple
     ):
         result = CliRunner().invoke(remote, ["ssh"], obj={"project_root": tmp_path})
 
+    if not expect_ok:
+        assert result.exit_code != 0
+        mock_execvp.assert_not_called()
+        return [], key_path
     assert result.exit_code == 0, result.output
     return mock_execvp.call_args[0][1], key_path
 
@@ -302,8 +325,23 @@ class TestRemoteSshKnownHosts:
         argv, key_path = _invoke_remote_ssh(tmp_path, monkeypatch)
         expected = SSHManager(key_path=key_path).known_hosts_path
         assert expected == tmp_path / "home" / ".dango" / "known_hosts"
-        assert f"UserKnownHostsFile={expected}" in argv
+        assert f'UserKnownHostsFile="{expected}"' in argv
         assert "StrictHostKeyChecking=accept-new" in argv
+
+    def test_remote_ssh_path_with_space_and_percent_is_one_quoted_value(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ssh splits UserKnownHostsFile on whitespace and expands % tokens."""
+        argv, key_path = _invoke_remote_ssh(tmp_path, monkeypatch, home_name="John Smith %h")
+        kh = str(tmp_path / "John Smith %h" / ".dango" / "known_hosts").replace("%", "%%")
+        assert f'UserKnownHostsFile="{kh}"' in argv
+        assert "StrictHostKeyChecking=accept-new" in argv
+        assert not any(a.startswith("UserKnownHostsFile=") and a.count('"') != 2 for a in argv)
+
+    def test_remote_ssh_refuses_known_hosts_path_with_quote(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _invoke_remote_ssh(tmp_path, monkeypatch, home_name='bad"home', expect_ok=False)
 
     def test_remote_ssh_carries_over_legacy_pin(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -312,6 +350,6 @@ class TestRemoteSshKnownHosts:
         key = _pin(legacy, "1.2.3.4")
         argv, _ = _invoke_remote_ssh(tmp_path, monkeypatch)
         primary = tmp_path / "home" / ".dango" / "known_hosts"
-        assert f"UserKnownHostsFile={primary}" in argv
+        assert f'UserKnownHostsFile="{primary}"' in argv
         # accept-new must not re-TOFU a host already pinned in the legacy file
         assert _pinned_keys(primary, "1.2.3.4") == [key.asbytes()]

@@ -110,7 +110,10 @@ def sshd_pair(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
 
         # Pin the real server's ED25519 key for EVERY address: the impostors answer on an
         # address whose pinned key they do not hold, as a man-in-the-middle would.
-        known_hosts = work / "known_hosts"
+        # A space and a % in the path: ssh splits the option value on whitespace and
+        # expands % tokens unless the value is quoted and escaped.
+        known_hosts = work / "known hosts %d" / "known_hosts"
+        known_hosts.parent.mkdir()
         hk = paramiko.HostKeys()
         for port in ports.values():
             hk.add(f"[127.0.0.1]:{port}", real_key.get_name(), real_key)
