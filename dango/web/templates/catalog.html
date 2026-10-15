@@ -294,7 +294,7 @@
                     </div>
                 </div>
                 <div class="flex gap-2">
-                    <template x-if="selectedModel.type === 'source'">
+                    <template x-if="selectedModel.type === 'source' && window.DANGO_USER_ROLE !== 'viewer'">
                         <button @click="refreshProfile()" :disabled="profilingLoading"
                                 class="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium transition-colors disabled:opacity-50">
                             <span x-show="!profilingLoading">Refresh Profile</span>
@@ -931,6 +931,8 @@ function catalogPage() {
                 if (res.ok) {
                     // Reload model detail to get fresh profiling
                     await this.openModel(tblName);
+                } else if (res.status === 403) {
+                    this.error = 'Refreshing a profile requires the Editor role.';
                 } else {
                     const data = await res.json().catch(() => null);
                     this.error = data?.detail || 'Failed to refresh profile.';
