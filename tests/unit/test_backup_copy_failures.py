@@ -51,7 +51,7 @@ def _build_archive(tmp_path: Path, files: dict[str, bytes | None]) -> str:
 
 
 @contextmanager
-def _restore_env(tmp_path: Path, project: Path) -> Iterator[MagicMock]:
+def _restore_env(tmp_path: Path, project: Path, *, safety_ok: bool = True) -> Iterator[MagicMock]:
     """Point restore_from_archive at tmp dirs; stub only server-only steps. Yields start_services."""
     (tmp_path / "staging-root").mkdir(exist_ok=True)
     (tmp_path / "mb-volume").mkdir(exist_ok=True)
@@ -59,7 +59,11 @@ def _restore_env(tmp_path: Path, project: Path) -> Iterator[MagicMock]:
     with (
         patch(f"{_B}.PROJECT_DIR", str(project)),
         patch(f"{_B}.RESTORE_STAGING_ROOT", str(tmp_path / "staging-root")),
-        patch(f"{_B}.create_backup", return_value=MagicMock(archive_path="safety.tar.gz")),
+        patch(
+            f"{_B}.create_backup",
+            return_value=MagicMock(archive_path="safety.tar.gz"),
+            side_effect=None if safety_ok else RuntimeError("disk full"),
+        ),
         patch(f"{_B}.stop_services"),
         patch(f"{_B}.start_services") as start,
         patch(f"{_B}.verify_health", return_value=True),
@@ -173,6 +177,62 @@ def test_restore_layout_check_requires_real_content(tmp_path: Path) -> None:
 
     assert not any(c.startswith("chown") for c in ssh.commands)
     assert not any("cp " in c for c in ssh.commands)
+
+
+@pytest.mark.unit
+def test_restore_h2_cp_failure_raises(tmp_path: Path) -> None:
+    from dango.platform.cloud.backup import restore_from_archive
+
+    project = tmp_path / "project"
+    archive = _full_archive(tmp_path)
+    ssh = ShellSSH(tmp_path / "shim", fail_cp_match="metabase.db.mv.db")
+
+    with _restore_env(tmp_path, project) as start, pytest.raises(CloudProvisioningError) as exc:
+        restore_from_archive(ssh, archive)
+
+    assert "restore_metabase" in str(exc.value)
+    start.assert_called_once()
+
+
+@pytest.mark.unit
+def test_restore_moves_wal_aside_when_safety_backup_failed(tmp_path: Path) -> None:
+    """Without a safety backup, live sidecars are kept (renamed), not deleted."""
+    from dango.platform.cloud.backup import restore_from_archive
+
+    project = tmp_path / "project"
+    duck_wal = make_duckdb_with_leftover_wal(project / "data" / "warehouse.duckdb")
+    auth_wal, auth_shm = make_sqlite_with_leftover_wal(project / ".dango" / "auth.db")
+    wal_bytes = duck_wal.read_bytes()
+    archive = _full_archive(tmp_path)
+    ssh = ShellSSH(tmp_path / "shim")
+
+    with _restore_env(tmp_path, project, safety_ok=False):
+        result = restore_from_archive(ssh, archive)
+
+    assert not duck_wal.exists() and not auth_wal.exists() and not auth_shm.exists()
+    kept = sorted((project / "data").glob("warehouse.duckdb.wal.pre-restore-*"))
+    assert len(kept) == 1 and kept[0].read_bytes() == wal_bytes
+    assert len(list((project / ".dango").glob("auth.db-wal.pre-restore-*"))) == 1
+    assert len(list((project / ".dango").glob("auth.db-shm.pre-restore-*"))) == 1
+    assert any(str(kept[0]) in w for w in result.warnings), result.warnings
+    tables, values = duckdb_state(project / "data" / "warehouse.duckdb")
+    assert tables == {"t"} and values == ["archive"]
+
+
+@pytest.mark.unit
+def test_restore_deletes_wal_when_safety_backup_succeeded(tmp_path: Path) -> None:
+    from dango.platform.cloud.backup import restore_from_archive
+
+    project = tmp_path / "project"
+    make_duckdb_with_leftover_wal(project / "data" / "warehouse.duckdb")
+    archive = _full_archive(tmp_path)
+    ssh = ShellSSH(tmp_path / "shim")
+
+    with _restore_env(tmp_path, project):
+        result = restore_from_archive(ssh, archive)
+
+    assert not list((project / "data").glob("warehouse.duckdb.wal*"))
+    assert not [w for w in result.warnings if "pre-restore-" in w and ".wal" in w]
 
 
 # ---------------------------------------------------------------------------
