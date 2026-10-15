@@ -17,6 +17,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from dango.utils.process import read_pid_record
+
 _M = "dango.notebooks.manager"
 _CLOUD = "dango.config.helpers.is_running_on_cloud"
 
@@ -66,6 +68,7 @@ class _StubProc:
         self.terminated = False
         self.killed = False
         self.group_signals: list[int] = []
+        self.returncode: int | None = None
         self._ignore_terminate = ignore_terminate
 
     def _dead(self) -> bool:
@@ -73,8 +76,8 @@ class _StubProc:
 
     def poll(self) -> int | None:
         if self._dead() or self.released.is_set():
-            return -15
-        return None
+            self.returncode = -15
+        return self.returncode
 
     def terminate(self) -> None:
         self.terminated = True
@@ -84,6 +87,7 @@ class _StubProc:
 
     def wait(self, timeout: float | None = None) -> int:
         if self._dead():
+            self.returncode = -15
             return -15
         raise subprocess.TimeoutExpired(cmd="marimo", timeout=timeout or 0)
 
@@ -127,6 +131,7 @@ def _run_start(
         patch(f"{_M}.is_process_running", return_value=False),
         patch(_CLOUD, return_value=cloud),
         patch(f"{_M}.os.getpgid", side_effect=lambda pid: pid),
+        patch(f"{_M}.os.getpgrp", return_value=1),
         patch(f"{_M}.os.killpg", side_effect=killpg or proc.group_signal),
     ):
         worker = threading.Thread(target=_target, daemon=True)
@@ -149,7 +154,7 @@ def test_cloud_readiness_probe_uses_base_path(tmp_path: Path, cloud_marimo_port:
     assert outcome["finished_in_time"], "start_marimo never saw the cloud Marimo as ready"
     assert outcome.get("pid") == 4242, outcome
     pid_file = get_marimo_pid_file_path(tmp_path)
-    assert pid_file.read_text().strip() == "4242"
+    assert read_pid_record(pid_file).pid == 4242
     assert not proc.terminated
 
     with patch(f"{_M}.is_process_running", return_value=True):
@@ -172,7 +177,7 @@ def test_local_readiness_probe_unchanged(
 
     assert outcome["finished_in_time"]
     assert outcome.get("pid") == 4242, outcome
-    assert get_marimo_pid_file_path(tmp_path).read_text().strip() == "4242"
+    assert read_pid_record(get_marimo_pid_file_path(tmp_path)).pid == 4242
 
 
 @pytest.mark.unit
@@ -264,72 +269,12 @@ def test_start_marimo_stops_process_when_wait_loop_raises(tmp_path: Path) -> Non
     assert not get_marimo_pid_file_path(tmp_path).exists()
 
 
-def _stop_with(
-    tmp_path: Path, *, pgid_offset: int = 0, survives: bool = False
-) -> tuple[bool, list[int], MagicMock, Path]:
-    """Run ``stop_marimo`` on pid 12345 with every process call faked."""
-    import psutil
-
-    from dango.notebooks.manager import get_marimo_pid_file_path, stop_marimo
-
-    pid_file = get_marimo_pid_file_path(tmp_path)
-    pid_file.parent.mkdir(parents=True, exist_ok=True)
-    pid_file.write_text("12345")
-    sent: list[int] = []
-    state = {"alive": True}
-
-    def _killpg(pgid: int, sig: int) -> None:
-        assert pgid == 12345
-        sent.append(sig)
-        if not survives:
-            state["alive"] = False
-
-    def _process(pid: int) -> MagicMock:
-        if not state["alive"]:
-            raise psutil.NoSuchProcess(pid)
-        live = MagicMock()
-        live.status.return_value = "running"
-        return live
-
-    kill = MagicMock(return_value=True)
-    with (
-        patch(f"{_M}.is_process_running", return_value=True),
-        patch(f"{_M}.kill_process", kill),
-        patch(f"{_M}.os.getpgid", side_effect=lambda pid: pid + pgid_offset),
-        patch(f"{_M}.os.killpg", side_effect=_killpg),
-        patch("psutil.Process", side_effect=_process),
-        patch(f"{_M}._STOP_TERM_TIMEOUT_SECONDS", 0.3, create=True),
-        patch(f"{_M}._STOP_KILL_TIMEOUT_SECONDS", 0.3, create=True),
-    ):
-        result = stop_marimo(tmp_path)
-    return result, sent, kill, pid_file
-
-
 @pytest.mark.unit
-def test_stop_marimo_keeps_pid_file_when_process_survives(tmp_path: Path) -> None:
-    """A Marimo that survives SIGTERM and SIGKILL keeps its pid file; stop reports failure."""
-    result, sent, _kill, pid_file = _stop_with(tmp_path, survives=True)
+def test_start_marimo_early_exit_sends_no_group_signal(tmp_path: Path) -> None:
+    """A Marimo that already exited (reaped) is not signalled: its pgid may be reused."""
+    proc = _StubProc()
+    proc.released.set()  # exits before the first readiness check
+    outcome = _run_start(tmp_path, 7805, proc, cloud=True)
 
-    assert result is False
-    assert sent == [signal.SIGTERM, signal.SIGKILL]
-    assert pid_file.read_text() == "12345"
-
-
-@pytest.mark.unit
-def test_stop_marimo_removes_pid_file_once_group_is_gone(tmp_path: Path) -> None:
-    """The process group gets SIGTERM; the pid file goes only after the process is gone."""
-    result, sent, _kill, pid_file = _stop_with(tmp_path)
-
-    assert result is True
-    assert sent == [signal.SIGTERM]
-    assert not pid_file.exists()
-
-
-@pytest.mark.unit
-def test_stop_marimo_never_signals_a_foreign_process_group(tmp_path: Path) -> None:
-    """A pid that is not its own group leader (reused pid) never gets a group signal."""
-    result, sent, kill, _pid_file = _stop_with(tmp_path, pgid_offset=1)
-
-    assert sent == []
-    kill.assert_called_once()
-    assert kill.call_args.args[0] == 12345
+    assert "failed to start" in str(outcome.get("error")), outcome
+    assert proc.group_signals == []

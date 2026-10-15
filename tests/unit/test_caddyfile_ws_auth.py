@@ -377,3 +377,26 @@ def test_upgrade_migration_runs_for_installed_ws_auth(installed: str) -> None:
 
     assert server.caddyfile_writes == [_V1013_HTTP.replace(_OLD_BLOCK_7805, _new_block(7805))]
     assert result.caddyfile_ws_migration == "Caddyfile WebSocket route migrated"
+
+
+@pytest.mark.unit
+def test_upgrade_at_target_version_still_migrates_legacy_block() -> None:
+    """Re-running upgrade at the installed version (>= 1.0.14) migrates a leftover old block."""
+    server = _FakeServer(_V1013_HTTP)
+    server.versions = ["1.0.14", "1.0.14"]
+    result = _upgrade(server, "1.0.14")
+
+    assert server.caddyfile_writes == [_V1013_HTTP.replace(_OLD_BLOCK_7805, _new_block(7805))]
+    assert result.caddyfile_ws_migration == "Caddyfile WebSocket route migrated"
+    assert any("Already at target version" in w for w in result.warnings)
+    assert _CADDY_TMP not in server.files
+
+
+@pytest.mark.unit
+def test_upgrade_unreadable_version_warning_gives_manual_step() -> None:
+    """When the installed version cannot be read, the warning names the manual step."""
+    server = _FakeServer(_V1013_DOMAIN, installed=None)
+    result = _upgrade(server)
+
+    warning = next(w for w in result.warnings if _CADDYFILE in w)
+    assert "forward_auth" in warning

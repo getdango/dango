@@ -50,7 +50,10 @@ class TestStartMarimo:
         assert pid == 12345
         pid_file = tmp_path / ".dango" / "marimo.pid"
         assert pid_file.exists()
-        assert pid_file.read_text() == "12345"
+        from dango.utils.process import read_pid_record
+
+        record = read_pid_record(pid_file)
+        assert record is not None and record.pid == 12345
 
     @patch("dango.notebooks.manager.is_process_running", return_value=True)
     def test_start_raises_if_already_running(self, mock_running, tmp_path):
