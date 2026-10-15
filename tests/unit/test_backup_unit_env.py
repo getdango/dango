@@ -262,6 +262,23 @@ class TestGeneratedTransferScripts:
             spaces_key="migration/b.tar.gz",
         )
 
+    def test_script_does_not_import_dango(self) -> None:
+        """The old server may still run an older Dango: the script carries its own reader."""
+        import ast
+
+        tree = ast.parse(self._upload_script())
+        imported = {
+            alias.name.split(".")[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        } | {
+            (node.module or "").split(".")[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+        }
+        assert "dango" not in imported, imported
+
     def test_script_reads_keys_from_env_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -24,6 +24,7 @@ from typing import Any
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
 from dango.platform.docker import get_compose_project_name
+from dango.utils.env_file import parse_env_file
 
 _logger = get_logger(__name__)
 
@@ -172,32 +173,42 @@ def _get_metabase_volume_path() -> str | None:
     return None
 
 
-def read_env_values(path: Path | str, names: tuple[str, ...]) -> dict[str, str]:
+def read_env_values(
+    path: Path | str, names: tuple[str, ...], max_bytes: int = ENV_FILE_MAX_BYTES
+) -> dict[str, str]:
     """Return only *names* from the ``.env`` file at *path*, read as data.
 
-    The file is written by the ``dango`` user and read here by root, so it is
-    never exported into the process environment, a symlink is refused, only a
-    regular file of at most :data:`ENV_FILE_MAX_BYTES` is read, and the open
-    never blocks (a FIFO is refused). Any refusal returns ``{}``.
-    """
-    from dango.utils.env_file import parse_env_file
+    The file is written by the ``dango`` user and read by root, so it is never
+    exported into the process environment, a symlink is refused, only a
+    regular file of at most *max_bytes* is read, and the open never blocks (a
+    FIFO is refused). Any refusal returns ``{}``.
 
+    Standard library only, apart from :func:`parse_env_file`: ``migrate`` embeds
+    the source of both functions in a script that may run on a server with an
+    older Dango version.
+    """
     flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
     try:
         fd = os.open(path, flags)
     except OSError:
         return {}
+    chunks: list[bytes] = []
+    size = 0
     try:
         info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_size > ENV_FILE_MAX_BYTES:
-            _logger.warning("env_file_refused", path=str(path))
+        if not stat.S_ISREG(info.st_mode) or info.st_size > max_bytes:
             return {}
-        data = os.read(fd, ENV_FILE_MAX_BYTES + 1)
+        while size <= max_bytes:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
     finally:
         os.close(fd)
-    if len(data) > ENV_FILE_MAX_BYTES:
+    if size > max_bytes:
         return {}
-    values = parse_env_file(data.decode("utf-8", errors="replace"))
+    values = parse_env_file(b"".join(chunks).decode("utf-8", errors="replace"))
     return {name: values[name] for name in names if values.get(name)}
 
 

@@ -32,7 +32,6 @@ if TYPE_CHECKING:
 
 _PROJECT_DIR = "/srv/dango/project"
 _ENV_FILE = f"{_PROJECT_DIR}/.env"
-# Root runs the transfer scripts: isolated interpreter, script in a fresh private directory.
 _ROOT_PYTHON = "/srv/dango/venv/bin/python -I"
 _SECRETS_FILES = [
     f"{_PROJECT_DIR}/.env",
@@ -64,32 +63,40 @@ def _notify(callback: Callable[[str, str], None] | None, step: str, status: str)
 def _spaces_client_preamble(
     region: str, endpoint: str, access_key_env: str, secret_key_env: str
 ) -> str:
-    """Script lines that build a Spaces client with keys read from ``.env`` as data.
+    """Script lines building a Spaces client with keys read from ``.env`` as data.
 
-    The keys are never taken from a shell that sourced ``.env``: root would
-    execute that file.
+    Never ``source .env`` in a root shell (that executes it). The reader is embedded,
+    not imported, so the script also runs on a server with an older Dango version.
     """
+    import inspect
+
+    from dango.platform.cloud.scheduled_backup import ENV_FILE_MAX_BYTES, read_env_values
+    from dango.utils.env_file import parse_env_file
+
     names = (access_key_env, secret_key_env)
     return (
-        "import os, sys\n"
+        "from __future__ import annotations\n"
+        "import os, stat, sys\n"
+        "from pathlib import Path\n"
         "import boto3\n"
-        "from dango.platform.cloud.scheduled_backup import read_env_values\n"
-        f"keys = read_env_values({_ENV_FILE!r}, {names!r})\n"
-        f"missing = [n for n in {names!r} if n not in keys]\n"
-        "if missing:\n"
-        f"    sys.exit('Spaces keys missing from {_ENV_FILE}: ' + ', '.join(missing))\n"
-        f"s3 = boto3.client('s3', region_name={region!r},\n"
-        f"    endpoint_url={endpoint!r},\n"
-        f"    aws_access_key_id=keys[{access_key_env!r}],\n"
-        f"    aws_secret_access_key=keys[{secret_key_env!r}])\n"
+        f"ENV_FILE_MAX_BYTES = {ENV_FILE_MAX_BYTES}\n"
+        + inspect.getsource(parse_env_file)
+        + inspect.getsource(read_env_values)
+        + f"keys = read_env_values({_ENV_FILE!r}, {names!r})\n"
+        + f"missing = [n for n in {names!r} if n not in keys]\n"
+        + "if missing:\n"
+        + f"    sys.exit('Spaces keys missing from {_ENV_FILE}: ' + ', '.join(missing))\n"
+        + f"s3 = boto3.client('s3', region_name={region!r},\n"
+        + f"    endpoint_url={endpoint!r},\n"
+        + f"    aws_access_key_id=keys[{access_key_env!r}],\n"
+        + f"    aws_secret_access_key=keys[{secret_key_env!r}])\n"
     )
 
 
 def _run_transfer_script(ssh: SSHManager, script: str) -> Any:
-    """Run *script* as root from a fresh private directory, then remove it.
+    """Run *script* as root (``-I``) from a fresh 0700 directory, then remove it.
 
-    ``mkdir`` without ``-p`` fails if the random path already exists, so no
-    other user can pre-create the directory or the script in it.
+    ``mkdir`` without ``-p`` fails on an existing path, so nobody can pre-create it.
     """
     script_dir = f"/tmp/dango-migrate-{uuid.uuid4().hex}"
     script_path = f"{script_dir}/transfer.py"
@@ -151,8 +158,7 @@ def _upload_backup_to_spaces(
 ) -> str:
     """Upload a backup archive to Spaces from the remote server via SSH.
 
-    Writes a Python script to the server and executes it.  Uses ``repr()``
-    for all interpolated values to prevent injection.
+    Runs a generated script (``repr()`` for every interpolated value).
 
     Returns:
         The Spaces object key for the uploaded archive.
@@ -190,8 +196,7 @@ def _download_backup_from_spaces(
 ) -> str:
     """Download a backup archive from Spaces to the remote server via SSH.
 
-    Writes a Python script to the server and executes it.  Uses ``repr()``
-    for all interpolated values to prevent injection.
+    Runs a generated script (``repr()`` for every interpolated value).
 
     Returns:
         The local path of the downloaded archive on the server.
