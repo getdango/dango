@@ -223,6 +223,13 @@ def _enable_load_package_cleanup() -> None:
     os.environ.setdefault("LOAD__DELETE_COMPLETED_JOBS", "true")
 
 
+def _dlt_pipelines_dir() -> Path:
+    """Directory dlt keeps pipeline working dirs in (honours ``DLT_DATA_DIR``)."""
+    from dlt.common.pipeline import get_dlt_pipelines_dir
+
+    return Path(get_dlt_pipelines_dir())
+
+
 def _package_sort_key(package_dir: Path) -> tuple[float, str]:
     """Order load package directories oldest to newest (load ids are unix timestamps)."""
     try:
@@ -3321,7 +3328,8 @@ Need help? Visit: https://github.com/getdango/dango/issues
         """
         Backup dlt pipeline state before running.
 
-        dlt stores state in ~/.dlt/pipelines/{pipeline_name}/
+        dlt stores state in <DLT_DATA_DIR or ~/.dlt>/pipelines/{pipeline_name}/. Only
+        state.json and schemas/ are copied (no extracted/loaded row data), mode 0700.
 
         Args:
             pipeline_name: Name of the dlt pipeline
@@ -3329,13 +3337,9 @@ Need help? Visit: https://github.com/getdango/dango/issues
         Returns:
             Path to backup directory if backup was created, None otherwise
         """
-        import os
         import shutil
 
-        # Determine dlt state location
-        # dlt uses ~/.dlt by default
-        dlt_home = Path(os.path.expanduser("~/.dlt"))
-        pipeline_state_dir = dlt_home / "pipelines" / pipeline_name
+        pipeline_state_dir = _dlt_pipelines_dir() / pipeline_name
 
         if not pipeline_state_dir.exists():
             # No state to backup (first run)
@@ -3345,11 +3349,25 @@ Need help? Visit: https://github.com/getdango/dango/issues
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_dir = pipeline_state_dir.parent / f"{pipeline_name}_backup_{timestamp}"
 
+        # Only pipeline state and schemas are needed to restore. load/ and normalize/
+        # hold the row data of extracted/loaded packages and must not be duplicated.
         try:
-            shutil.copytree(pipeline_state_dir, backup_dir)
+            backup_dir.mkdir(mode=0o700)
+        except OSError as e:  # e.g. a backup from the same second already exists
+            console.print(f"  [dim]⚠️  Could not backup state: {e}[/dim]")
+            return None
+        try:
+            os.chmod(backup_dir, 0o700)
+            for name in ("state.json", "schemas"):
+                src = pipeline_state_dir / name
+                if src.is_dir():
+                    shutil.copytree(src, backup_dir / name)
+                elif src.is_file():
+                    shutil.copy2(src, backup_dir / name)
             console.print(f"  [dim]💾 State backed up to {backup_dir.name}[/dim]")
             return backup_dir
         except Exception as e:
+            shutil.rmtree(backup_dir, ignore_errors=True)
             console.print(f"  [dim]⚠️  Could not backup state: {e}[/dim]")
             return None
 
@@ -3369,8 +3387,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
         """
         import shutil
 
-        dlt_home = Path(os.path.expanduser("~/.dlt"))
-        pipeline_state_dir = dlt_home / "pipelines" / pipeline_name
+        pipeline_state_dir = _dlt_pipelines_dir() / pipeline_name
 
         if not pipeline_state_dir.exists():
             return
@@ -3405,12 +3422,20 @@ Need help? Visit: https://github.com/getdango/dango/issues
         pipeline_state_dir = backup_dir.parent / pipeline_name
 
         try:
-            # Remove current (corrupted) state
-            if pipeline_state_dir.exists():
-                shutil.rmtree(pipeline_state_dir)
-
-            # Restore from backup
-            shutil.copytree(backup_dir, pipeline_state_dir)
+            # Replace only what the backup holds (state.json, schemas/). load/ and
+            # normalize/ are left alone: a failed load's package must stay for dlt to
+            # retry, and the backup never contains row data.
+            pipeline_state_dir.mkdir(parents=True, exist_ok=True)
+            for entry in backup_dir.iterdir():
+                target = pipeline_state_dir / entry.name
+                if target.is_dir():
+                    shutil.rmtree(target)
+                elif target.exists():
+                    target.unlink()
+                if entry.is_dir():
+                    shutil.copytree(entry, target)
+                else:
+                    shutil.copy2(entry, target)
             console.print("  [green]✓ State restored from backup[/green]")
 
             # Clean up backup
