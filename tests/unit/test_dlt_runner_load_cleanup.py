@@ -283,3 +283,35 @@ def test_clear_local_pipeline_cache_honours_dlt_data_dir(
     runner = _runner_after_sync_with_packages(env, monkeypatch)
     runner._clear_local_pipeline_cache("c1e_native")
     assert not (pipelines_dir(env) / "c1e_native").exists()
+
+
+@pytest.mark.unit
+def test_legacy_full_copy_backups_removed_after_success(env: Path) -> None:
+    run_native(env)
+    root = pipelines_dir(env)
+    legacy = root / "c1e_native_backup_20200101_000000"
+    job_dir = legacy / "load" / "loaded" / "1000.1" / "completed_jobs"
+    job_dir.mkdir(parents=True)
+    (job_dir / "x.insert_values.gz").write_bytes(gzip.compress(CANARY.encode()))
+    (legacy / "state.json").write_text("{}")
+    current_format = root / "c1e_native_backup_20200102_000000"
+    current_format.mkdir()
+    (current_format / "state.json").write_text("{}")
+    other_pipeline = root / "other_backup_20200101_000000"
+    (other_pipeline / "load").mkdir(parents=True)
+    run_native(env)
+    assert not legacy.exists()
+    assert current_format.exists(), "state-only backups are not row-data copies"
+    assert other_pipeline.exists(), "other pipelines' dirs are never touched"
+    assert contains_canary(env) == []
+
+
+@pytest.mark.unit
+def test_legacy_backup_kept_when_load_fails(env: Path) -> None:
+    run_native(env)
+    legacy = pipelines_dir(env) / "c1e_native_backup_20200101_000000"
+    (legacy / "load").mkdir(parents=True)
+    (env / "data" / "warehouse.duckdb").write_bytes(b"not a duckdb file" * 100)
+    with pytest.raises(PipelineStepFailed):
+        run_native(env)
+    assert legacy.exists()
