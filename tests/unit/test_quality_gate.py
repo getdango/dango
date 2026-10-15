@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -58,6 +59,12 @@ class TestApiVersionEndpoints:
         app = FastAPI()
         app.state.project_root = tmp_path
         app.state.scheduler = None
+
+        @app.middleware("http")
+        async def _auth_disabled(request: Any, call_next: Any) -> Any:
+            request.state.auth_disabled = True
+            return await call_next(request)
+
         app.include_router(router)
 
         with (
