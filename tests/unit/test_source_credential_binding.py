@@ -14,8 +14,8 @@ from dango.cli.commands import mcp_sources
 from dango.config.helpers import load_config, save_config
 from dango.ingestion.sources.registry import get_source_metadata
 from dango.ingestion.sources.setup_lifecycle import credential_requirements
-from dango.ingestion.sources.setup_schema import compute_env_var_name
-from dango.ingestion.sources.setup_service import apply_source, prepare_source
+from dango.ingestion.sources.setup_schema import SourceSetupError, compute_env_var_name
+from dango.ingestion.sources.setup_service import apply_source, create_source, prepare_source
 
 # source type -> (agent params, expected destination host)
 SECRET_TYPES: dict[str, tuple[dict[str, Any], str]] = {
@@ -33,6 +33,9 @@ SECRET_TYPES: dict[str, tuple[dict[str, Any], str]] = {
     "inbox": ({"host": "imap.example.com"}, "imap.example.com"),
     "strapi": ({"domain": "cms.example.com", "endpoints": ["articles"]}, "cms.example.com"),
 }
+# Types an agent may create through MCP (rest_api is CLI-only; matomo, jira, strapi are hidden).
+MCP_SECRET_TYPES = ["freshdesk", "inbox", "workable"]
+AGENT_REFUSED_TYPES = ["dlt_native", "filesystem", "jira", "matomo", "rest_api", "strapi"]
 
 
 @pytest.fixture
@@ -56,7 +59,7 @@ def _secret_env_names(source_type: str, source_name: str) -> list[str]:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("source_type", sorted(SECRET_TYPES))
+@pytest.mark.parametrize("source_type", MCP_SECRET_TYPES)
 def test_mcp_create_refuses_existing_dotenv_credential(project: Path, source_type: str) -> None:
     names = _secret_env_names(source_type, "foo")
     assert names
@@ -68,20 +71,62 @@ def test_mcp_create_refuses_existing_dotenv_credential(project: Path, source_typ
 
     assert "error" in r, r
     assert names[0] in r["error"]
+    assert "dango source add" in r["error"]
     assert env.read_bytes() == before
     assert load_config(project).sources.get_source("foo") is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("source_type", sorted(SECRET_TYPES))
+def test_agent_prepare_refuses_existing_credential_for_every_type(
+    project: Path, source_type: str
+) -> None:
+    names = _secret_env_names(source_type, "foo")
+    (project / ".env").write_text(f"{names[-1]}=value-belonging-to-something-else\n")
+    with pytest.raises(SourceSetupError) as exc:
+        prepare_source(
+            project,
+            source_type,
+            "foo",
+            SECRET_TYPES[source_type][0],
+            reject_existing_credentials=True,
+        )
+    assert any(names[-1] in e for e in exc.value.errors), exc.value.errors
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("source_type", AGENT_REFUSED_TYPES)
+def test_mcp_create_refuses_cli_only_and_hidden_types(project: Path, source_type: str) -> None:
+    r = mcp_sources.create_source(source_type, "foo", {})
+    assert "error" in r, r
+    assert "dango source" in r["error"]
+    assert load_config(project).sources.get_source("foo") is None
+    with pytest.raises(SourceSetupError) as exc:
+        create_source(project, source_type, "foo", {})
+    assert exc.value.errors == r["errors"]
+
+
+@pytest.mark.unit
+def test_mcp_create_refuses_rest_api_even_with_absolute_endpoint(project: Path) -> None:
+    params = {
+        "base_url": "https://api.example.com",
+        "endpoints": [{"path": "https://elsewhere.example/x", "name": "x"}],
+    }
+    r = mcp_sources.create_source("rest_api", "foo", params)
+    assert "dango source add" in r.get("error", ""), r
 
 
 @pytest.mark.unit
 def test_mcp_create_refuses_existing_process_env_credential(
     project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    name = _secret_env_names("rest_api", "foo")[0]
+    name = _secret_env_names("freshdesk", "foo")[0]
     monkeypatch.setenv(name, "value-belonging-to-something-else")
 
-    r = mcp_sources.create_source("rest_api", "foo", SECRET_TYPES["rest_api"][0])
+    r = mcp_sources.create_source("freshdesk", "foo", SECRET_TYPES["freshdesk"][0])
 
     assert "error" in r, r
+    assert name in r["error"]
     assert not (project / ".env").exists()
     assert load_config(project).sources.get_source("foo") is None
 
@@ -106,7 +151,7 @@ def test_non_agent_prepare_source_keeps_adopting_existing_credential(project: Pa
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("source_type", sorted(SECRET_TYPES))
+@pytest.mark.parametrize("source_type", MCP_SECRET_TYPES)
 def test_mcp_create_credentials_required_include_sends_to(project: Path, source_type: str) -> None:
     params, host = SECRET_TYPES[source_type]
     r = mcp_sources.create_source(source_type, "foo", params)
@@ -114,6 +159,18 @@ def test_mcp_create_credentials_required_include_sends_to(project: Path, source_
     env_reqs = [c for c in r["credentials_required"] if c["kind"] == "env_var"]
     assert env_reqs
     assert all(c.get("sends_to") == host for c in env_reqs), env_reqs
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("source_type", sorted(SECRET_TYPES))
+def test_prepare_source_credentials_required_include_sends_to(
+    project: Path, source_type: str
+) -> None:
+    params, host = SECRET_TYPES[source_type]
+    prepared = prepare_source(project, source_type, "foo", params)
+    reqs = [r for r in prepared.credentials_required if r.kind == "env_var"]
+    assert reqs
+    assert all(r.sends_to == host for r in reqs), reqs
 
 
 @pytest.mark.unit

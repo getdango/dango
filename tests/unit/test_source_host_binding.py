@@ -12,7 +12,7 @@ import pytest
 
 from dango.config.helpers import load_config, save_config
 from dango.ingestion.sources.setup_lifecycle import update_source
-from dango.ingestion.sources.setup_schema import SourceSetupError
+from dango.ingestion.sources.setup_schema import SourceSetupError, normalize_params
 from dango.ingestion.sources.setup_service import apply_source, prepare_source
 
 # source type -> (host param, a valid value, other required params)
@@ -29,10 +29,12 @@ HOST_TYPES: dict[str, tuple[str, str, dict[str, Any]]] = {
     "workable": ("subdomain", "acme", {}),
     "inbox": ("host", "imap.example.com", {}),
     "strapi": ("domain", "cms.example.com", {"endpoints": ["articles"]}),
+    "filesystem": ("bucket_url", "s3://bucket/data/", {}),
 }
 LABEL_TYPES = ["zendesk", "freshdesk", "jira", "workable"]
 HOSTNAME_TYPES = ["inbox", "strapi"]
 URL_TYPES = ["rest_api", "matomo"]
+FS_TYPES = ["filesystem"]
 
 # Leading/trailing whitespace is stripped by the existing string coercion before any check,
 # so whitespace cases use embedded whitespace.
@@ -49,7 +51,6 @@ BAD_HOSTNAMES = [
     ("a" * 64) + ".example.com",
 ]
 BAD_URLS = [
-    "http://evil.example",
     "https://u:p@h.example.com",
     "https://h.example.com/#f",
     "https://h.example.com/?q",
@@ -58,6 +59,15 @@ BAD_URLS = [
     "evil.example",
     "ftp://h.example.com",
     "https://",
+    "https://h.example.com:99999",
+]
+BAD_BUCKETS = [
+    "sftp://user@evil.example/data",
+    "sftp://evil.example#/data",
+    "s3://bucket/data?x",
+    "ftp://h.example.com/data",
+    "http://h.example.com/data",
+    "sftp://bad..host/data",
 ]
 
 
@@ -84,18 +94,51 @@ def _cases(types: list[str], values: list[str]) -> list[tuple[str, str]]:
     return [(t, v) for t in types for v in values]
 
 
+_AGENT = {"reject_existing_credentials": True, "require_https": True}
+
+
 @pytest.mark.unit
+@pytest.mark.parametrize("agent", [False, True], ids=["cli", "agent"])
 @pytest.mark.parametrize(
     ("source_type", "value"),
     _cases(LABEL_TYPES, BAD_LABELS)
     + _cases(HOSTNAME_TYPES, BAD_HOSTNAMES)
-    + _cases(URL_TYPES, BAD_URLS),
+    + _cases(URL_TYPES, BAD_URLS)
+    + _cases(FS_TYPES, BAD_BUCKETS),
 )
-def test_create_rejects_bad_host_value(project: Path, source_type: str, value: str) -> None:
+def test_create_rejects_bad_host_value(
+    project: Path, source_type: str, value: str, agent: bool
+) -> None:
     param = HOST_TYPES[source_type][0]
+    kwargs = _AGENT if agent else {}
     with pytest.raises(SourceSetupError) as exc:
-        prepare_source(project, source_type, "src", _params(source_type, value))
+        prepare_source(project, source_type, "src", _params(source_type, value), **kwargs)
     assert any(param in e for e in exc.value.errors), exc.value.errors
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("source_type", URL_TYPES)
+def test_plain_http_is_agent_rejected_and_cli_warned(project: Path, source_type: str) -> None:
+    from dango.ingestion.sources.setup_hosts import insecure_host_warning
+
+    param = HOST_TYPES[source_type][0]
+    value = "http://api.example.com"
+    with pytest.raises(SourceSetupError) as exc:
+        prepare_source(project, source_type, "src", _params(source_type, value), **_AGENT)
+    assert any("https://" in e for e in exc.value.errors), exc.value.errors
+
+    prepared = prepare_source(project, source_type, "src", _params(source_type, value))
+    assert prepared.params[param] == value
+    assert "unencrypted" in (insecure_host_warning(source_type, value) or "")
+    assert insecure_host_warning(source_type, "http://127.0.0.1:8000") is None
+    assert insecure_host_warning(source_type, "https://api.example.com") is None
+
+
+@pytest.mark.unit
+def test_label_error_says_what_to_enter() -> None:
+    with pytest.raises(SourceSetupError) as exc:
+        normalize_params("freshdesk", "src", {"domain": "acme.freshdesk.com"})
+    assert "e.g. acme, not acme.freshdesk.com" in exc.value.errors[0]
 
 
 @pytest.mark.unit
@@ -118,14 +161,20 @@ def test_create_accepts_valid_host_unchanged(project: Path, source_type: str) ->
         ("strapi", "a.b"),
         ("inbox", "imap.gmail.com"),
         ("freshdesk", "acme-support"),
+        ("filesystem", "data/exports/"),
+        ("filesystem", "gs://bucket/x/"),
+        ("filesystem", "sftp://files.example.com:2222/data"),
     ],
 )
 def test_create_accepts_loopback_http_and_other_valid_forms(
     project: Path, source_type: str, value: str
 ) -> None:
     param = HOST_TYPES[source_type][0]
-    prepared = prepare_source(project, source_type, "src", _params(source_type, value))
-    assert prepared.params[param] == value
+    for kwargs in ({}, _AGENT):
+        prepared = prepare_source(
+            project, source_type, "src", _params(source_type, value), **kwargs
+        )
+        assert prepared.params[param] == value
 
 
 @pytest.mark.unit
@@ -133,7 +182,9 @@ def test_create_accepts_loopback_http_and_other_valid_forms(
 def test_update_refuses_changing_host_param(project: Path, source_type: str) -> None:
     param, host, _ = HOST_TYPES[source_type]
     _create(project, source_type)
-    new = "other" if source_type in LABEL_TYPES else host.replace("example", "example2")
+    new = {"filesystem": "sftp://evil.example/data"}.get(
+        source_type, "other" if source_type in LABEL_TYPES else host.replace("example", "example2")
+    )
     with pytest.raises(SourceSetupError) as exc:
         update_source(project, "src", {param: new})
     assert any("dango source edit" in e for e in exc.value.errors), exc.value.errors
@@ -160,6 +211,7 @@ _NON_HOST_UPDATES: dict[str, dict[str, Any]] = {
     "workable": {"load_details": True},
     "inbox": {"folder": "Archive"},
     "strapi": {"endpoints": ["pages"]},
+    "filesystem": {"file_glob": "*.json"},
 }
 
 
@@ -184,3 +236,33 @@ def test_update_non_host_param_is_allowed(project: Path, source_type: str) -> No
     assert block[param] == host
     for key, value in change.items():
         assert block[key] == value
+
+
+def _rest_api_wizard_prompt(root: Path, base_url: str) -> list[str]:
+    """Run the rest_api collector up to its second prompt; return the printed messages."""
+    from unittest.mock import patch
+
+    from dango.cli.source_wizard import SourceWizard
+
+    answers = iter([{"base_url": base_url}, None])
+    with (
+        patch("dango.cli.source_wizard.inquirer.prompt", side_effect=lambda *a, **k: next(answers)),
+        patch("dango.cli.source_wizard.console") as console,
+    ):
+        assert SourceWizard(root)._collect_rest_api_params("src") is None
+    return [str(c.args[0]) for c in console.print.call_args_list if c.args]
+
+
+@pytest.mark.unit
+def test_cli_wizard_rejects_bad_rest_api_base_url(project: Path) -> None:
+    printed = _rest_api_wizard_prompt(project, "https://evil.example#")
+    assert any("base_url" in m and "fragment" in m for m in printed), printed
+
+
+@pytest.mark.unit
+def test_cli_wizard_warns_on_plain_http_base_url(project: Path) -> None:
+    printed = _rest_api_wizard_prompt(project, "http://api.example.com")
+    assert any("unencrypted" in m for m in printed), printed
+    assert not any(
+        "unencrypted" in m for m in _rest_api_wizard_prompt(project, "https://api.example.com")
+    )
