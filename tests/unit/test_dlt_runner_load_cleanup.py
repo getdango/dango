@@ -214,3 +214,72 @@ def test_staging_pipeline_leaves_no_row_copies(env: Path) -> None:
     assert result["status"] == "success"
     assert contains_canary(env) == []
     assert dlt  # real dlt in use
+
+
+# --- state backup (full refresh) must not copy row data -----------------------------
+
+
+def _runner_after_sync_with_packages(
+    env: Path, monkeypatch: pytest.MonkeyPatch
+) -> DltPipelineRunner:
+    """Run one sync that keeps its load packages on disk (operator override)."""
+    monkeypatch.setenv("LOAD__DELETE_COMPLETED_JOBS", "false")
+    run_native(env)
+    assert contains_canary(env), "precondition: packages with row data are on disk"
+    return DltPipelineRunner(env)
+
+
+@pytest.mark.unit
+def test_state_backup_honours_dlt_data_dir(env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _runner_after_sync_with_packages(env, monkeypatch)
+    backup = runner._backup_dlt_state("c1e_native")
+    assert backup is not None, "backup must be found under DLT_DATA_DIR, not ~/.dlt"
+    assert backup.parent == pipelines_dir(env)
+
+
+@pytest.mark.unit
+def test_state_backup_contains_no_row_data(env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _runner_after_sync_with_packages(env, monkeypatch)
+    backup = runner._backup_dlt_state("c1e_native")
+    assert backup is not None
+    files = [p for p in backup.rglob("*") if p.is_file()]
+    assert any(p.name == "state.json" for p in files)
+    for path in files:
+        raw = path.read_bytes()
+        raw = gzip.decompress(raw) if path.suffix == ".gz" else raw
+        assert CANARY.encode() not in raw, path
+    assert not (backup / "load").exists()
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only (platform guard)")
+def test_state_backup_dir_mode_0700(env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _runner_after_sync_with_packages(env, monkeypatch)
+    backup = runner._backup_dlt_state("c1e_native")
+    assert backup is not None
+    assert backup.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.unit
+def test_restore_from_state_backup_keeps_pipeline_usable(
+    env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = _runner_after_sync_with_packages(env, monkeypatch)
+    pipe = pipelines_dir(env) / "c1e_native"
+    state_before = (pipe / "state.json").read_text()
+    backup = runner._backup_dlt_state("c1e_native")
+    assert backup is not None
+    (pipe / "state.json").write_text("{corrupted")
+    runner._restore_dlt_state(backup)
+    assert (pipe / "state.json").read_text() == state_before
+    assert not backup.exists()
+    assert run_native(env)["status"] == "success"
+
+
+@pytest.mark.unit
+def test_clear_local_pipeline_cache_honours_dlt_data_dir(
+    env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = _runner_after_sync_with_packages(env, monkeypatch)
+    runner._clear_local_pipeline_cache("c1e_native")
+    assert not (pipelines_dir(env) / "c1e_native").exists()
