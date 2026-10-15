@@ -117,6 +117,7 @@ SystemMaxUse=500M
 
 LOGROTATE_CONF = """\
 /srv/dango/project/.dango/logs/activity.log {
+    su dango dango
     size 10M
     rotate 3
     compress
@@ -152,6 +153,11 @@ Unattended-Upgrade::Remove-Unused-Dependencies "true";
 # Scheduled backup (TASK-103)
 # ---------------------------------------------------------------------------
 
+# Runs as root: the project ``.env`` is never loaded as environment (the backup
+# reads only the Spaces keys from it, as data), ``-I`` keeps the working
+# directory and ``PYTHON*`` variables out of the interpreter, and the working
+# directory is outside the dango-writable project tree.
+
 SYSTEMD_BACKUP_SERVICE = """\
 [Unit]
 Description=Dango Scheduled Backup
@@ -161,9 +167,9 @@ Requires=docker.service
 [Service]
 Type=oneshot
 User=root
-WorkingDirectory=/srv/dango/project
-EnvironmentFile=-/srv/dango/project/.env
-ExecStart=/srv/dango/venv/bin/python -m dango.platform.cloud.scheduled_backup
+WorkingDirectory=/srv/dango
+UMask=0077
+ExecStart=/srv/dango/venv/bin/python -I -m dango.platform.cloud.scheduled_backup
 TimeoutStartSec=900
 
 [Install]

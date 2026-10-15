@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import fcntl
 import json
+import os
 import shlex
+import stat
 import subprocess
 import sys
 import time
@@ -32,6 +34,9 @@ LOCK_FILE = Path("/srv/dango/backups/.backup.lock")
 MARKER_FILE = Path("/srv/dango/backups/.dango-backup-initialized")
 VENV_PYTHON = "/srv/dango/venv/bin/python"
 SPACES_PREFIX = "backups/"
+SPACES_KEY_NAMES = ("SPACES_ACCESS_KEY", "SPACES_SECRET_KEY")
+#: Upper bound for a project ``.env`` read by the root backup process.
+ENV_FILE_MAX_BYTES = 1024 * 1024
 DAILY_RETENTION = 7
 WEEKLY_RETENTION = 4
 
@@ -167,11 +172,46 @@ def _get_metabase_volume_path() -> str | None:
     return None
 
 
+def read_env_values(path: Path | str, names: tuple[str, ...]) -> dict[str, str]:
+    """Return only *names* from the ``.env`` file at *path*, read as data.
+
+    The file is written by the ``dango`` user and read here by root, so it is
+    never exported into the process environment, a symlink is refused, only a
+    regular file of at most :data:`ENV_FILE_MAX_BYTES` is read, and the open
+    never blocks (a FIFO is refused). Any refusal returns ``{}``.
+    """
+    from dango.utils.env_file import parse_env_file
+
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        return {}
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > ENV_FILE_MAX_BYTES:
+            _logger.warning("env_file_refused", path=str(path))
+            return {}
+        data = os.read(fd, ENV_FILE_MAX_BYTES + 1)
+    finally:
+        os.close(fd)
+    if len(data) > ENV_FILE_MAX_BYTES:
+        return {}
+    values = parse_env_file(data.decode("utf-8", errors="replace"))
+    return {name: values[name] for name in names if values.get(name)}
+
+
 def _make_spaces_client(spaces_config: dict[str, Any]) -> Any:
-    """Create a SpacesClient from config dict."""
+    """Create a SpacesClient from config dict, with keys read from the project ``.env``."""
     from dango.platform.cloud.spaces import SpacesClient
 
-    return SpacesClient(bucket=spaces_config["bucket"], region=spaces_config["region"])
+    keys = read_env_values(PROJECT_DIR / ".env", SPACES_KEY_NAMES)
+    return SpacesClient(
+        bucket=spaces_config["bucket"],
+        region=spaces_config["region"],
+        access_key=keys.get(SPACES_KEY_NAMES[0]),
+        secret_key=keys.get(SPACES_KEY_NAMES[1]),
+    )
 
 
 def _create_local_archive(
