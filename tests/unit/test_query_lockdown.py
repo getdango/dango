@@ -230,6 +230,55 @@ def test_locked_connection_raises_ioexception_under_writer_lock(env: dict[str, P
         holder.wait()
 
 
+def test_locked_connection_has_no_allowed_directories(env: dict[str, Path]) -> None:
+    """No directory stays readable: DuckDB would otherwise allow the spill temp_directory."""
+    conn = _open(env["db"])
+    try:
+        rows = dict(
+            conn.execute(
+                "select name, value from duckdb_settings() "
+                "where name in ('allowed_directories', 'allowed_paths')"
+            ).fetchall()
+        )
+        assert rows["allowed_directories"] == "[]"
+        # DuckDB itself allow-lists only the attached warehouse file (and its WAL).
+        paths = [x.strip() for x in rows["allowed_paths"].strip("[]").split(",")]
+        assert all(x.startswith(str(env["db"])) for x in paths), paths
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "select content from read_text('.tmp/f.txt')",
+        "select * from read_csv('.tmp/f.txt', header=false)",
+        "select file from glob('.tmp/*')",
+        "COPY (select 1) TO '{cwd}/.tmp/w.csv'",
+        "ATTACH '{cwd}/.tmp/n.duckdb' AS n",
+        "FROM 'data.csv'",
+    ],
+    ids=["read_text", "read_csv", "glob", "copy", "attach", "replacement_scan"],
+)
+def test_locked_connection_blocks_cwd_temp_directory(
+    env: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sql: str
+) -> None:
+    """The default spill directory (<cwd>/.tmp) and bare file names in cwd are not readable."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".tmp").mkdir()
+    (tmp_path / ".tmp" / "f.txt").write_text(CANARY + "\n")
+    (tmp_path / "data.csv").write_text("a\n" + CANARY + "\n")
+    conn = _open(env["db"])
+    try:
+        with pytest.raises(duckdb.PermissionException) as exc_info:
+            conn.execute(sql.format(cwd=tmp_path)).fetchall()
+        assert CANARY not in str(exc_info.value)
+    finally:
+        conn.close()
+    assert not (tmp_path / ".tmp" / "w.csv").exists()
+    assert not (tmp_path / ".tmp" / "n.duckdb").exists()
+
+
 # ---------------------------------------------------------------------------
 # Entry points: web /api/query and MCP query
 # ---------------------------------------------------------------------------
