@@ -105,7 +105,7 @@ ACCEPT = [
     "select * from staging.stg_x",
     "select * from warehouse.raw_orders.orders",
     "select * from {{ ref('stg_a__b') }}",
-    '{{ ref("stg_a__b") }}',
+    'select * from {{ ref("stg_a__b") }}',
     "select * from {{ ref('pkg', 'stg_a__b') }}",
     "select * from {{ source('raw', 't') }} s join {{ ref('x') }} r using (id)",
     "select * from {{- ref('x') -}}",
@@ -188,7 +188,7 @@ def test_generated_staging_models_pass(tmp_path: Path) -> None:
         staging_columns=[
             {"name": "id", "type": "BIGINT"},
             {"name": "Created At", "type": "TIMESTAMP"},
-            {"name": "select", "type": "VARCHAR"},
+            {"name": "order-total", "type": "VARCHAR"},
         ],
     )
     assert _guard(sql) == []
@@ -238,10 +238,23 @@ def test_update_model_rejects_file_read(proj: Path) -> None:
     assert _tree(proj) == before
 
 
-def test_create_model_rejects_env_var(proj: Path) -> None:
+ENV_VAR_SQL = [
+    "select '{{ env_var('API_KEY') }}' as v",
+    'select \'{{ env_var("API_KEY", "fallback") }}\' as v',
+    "-- {{ env_var('API_KEY') }}\nselect 1 as v",
+    "select 1 as v {{- env_var('API_KEY') -}}",
+]
+
+
+@pytest.mark.parametrize("sql", ENV_VAR_SQL)
+def test_create_and_update_model_reject_env_var(proj: Path, sql: str) -> None:
     before = _tree(proj)
-    with pytest.raises(ModelServiceError):
-        create_model(proj, "env_probe", "marts", sql="select '{{ env_var('API_KEY') }}' as v")
+    with pytest.raises(ModelServiceError) as ei:
+        create_model(proj, "env_probe", "marts", sql=sql)
+    assert any("env_var" in e for e in ei.value.errors)
+    with pytest.raises(ModelServiceError) as ei:
+        update_model(proj, "stg_orders__orders", sql=sql)
+    assert any("env_var" in e for e in ei.value.errors)
     assert _tree(proj) == before
 
 
