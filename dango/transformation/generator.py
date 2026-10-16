@@ -5,6 +5,7 @@ Automatically generates dbt staging models from configured data sources.
 
 import re
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,23 @@ import duckdb
 import jinja2
 
 from dango.config.models import DataSource
+from dango.utils.dbt_escaping import (
+    comment_text,
+    jinja_string_literal,
+    neutralize_jinja,
+    yaml_scalar,
+)
+
+# Used only if DuckDB's own keyword list cannot be read; DuckDB 1.5 reserved words.
+_FALLBACK_KEYWORDS = frozenset(
+    "all analyse analyze and any array as asc asymmetric both case cast check collate column "
+    "constraint create default deferrable desc describe distinct do else end except false fetch "
+    "for foreign from grant group having in initially intersect into lateral leading limit not "
+    "null offset on only or order pivot pivot_longer pivot_wider placing primary qualify "
+    "references returning select show some summarize symmetric table then to trailing true "
+    "union unique unpivot using variadic when where window with user left right join natural "
+    "inner outer full cross".split()
+)
 
 
 def _has_not_null_test(tests: list) -> bool:
@@ -24,11 +42,42 @@ def _has_not_null_test(tests: list) -> bool:
     return False
 
 
+@lru_cache(maxsize=1)
+def _quoted_keywords() -> frozenset[str]:
+    """Lower-case DuckDB keywords that are not safe as bare column names.
+
+    Everything except the ``unreserved`` category is quoted (``reserved``,
+    ``type_function`` and ``column_name`` words fail or change meaning unquoted
+    in a select list). Read from the installed DuckDB so it tracks the version.
+    """
+    try:
+        conn = duckdb.connect(":memory:")
+        try:
+            rows = conn.execute(
+                "SELECT keyword_name FROM duckdb_keywords() WHERE keyword_category <> 'unreserved'"
+            ).fetchall()
+        finally:
+            conn.close()
+        words = frozenset(str(row[0]).lower() for row in rows)
+        return words or _FALLBACK_KEYWORDS
+    except Exception:
+        return _FALLBACK_KEYWORDS
+
+
 def _quote_column_name(name: str) -> str:
-    """Double-quote a column name if it contains special characters."""
-    if name and all(c.isalnum() or c == "_" for c in name):
+    """Double-quote a column name unless it is a plain, non-keyword identifier.
+
+    Names with special characters, names starting with a digit and DuckDB
+    keywords are quoted; embedded double quotes are doubled.
+    """
+    if (
+        name
+        and all(c.isalnum() or c == "_" for c in name)
+        and not name[0].isdigit()
+        and name.lower() not in _quoted_keywords()
+    ):
         return name
-    return f'"{name}"'
+    return '"' + name.replace('"', '""') + '"'
 
 
 def _strip_generated_timestamp(content: str) -> str:
@@ -82,6 +131,10 @@ class DbtModelGenerator:
             trim_blocks=True,
             lstrip_blocks=True,
         )
+        # Filters that keep data-derived strings from being rendered as Jinja by dbt.
+        self.jinja_env.filters["ysc"] = yaml_scalar
+        self.jinja_env.filters["cmt"] = comment_text
+        self.jinja_env.filters["jsl"] = jinja_string_literal
 
     def is_auto_generated(self, model_path: Path) -> bool:
         """
@@ -371,7 +424,7 @@ class DbtModelGenerator:
             prepared_columns.append(
                 {
                     "name": col["name"],
-                    "quoted_name": _quote_column_name(col["name"]),
+                    "quoted_name": neutralize_jinja(_quote_column_name(col["name"])),
                 }
             )
 

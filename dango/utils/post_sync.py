@@ -17,6 +17,7 @@ from typing import Any
 
 from dango.logging import get_logger
 from dango.utils.dango_db import connect
+from dango.utils.dbt_escaping import neutralize_jinja
 from dango.validation import validate_identifier
 
 logger = get_logger(__name__)
@@ -497,7 +498,7 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
                         "AND stat_type = 'null_pct' AND stat_value = '0.0'",
                         (source, table_name),
                     ).fetchall()
-                zero_null_cols = {row[0] for row in rows}
+                zero_null_cols = {neutralize_jinja(row[0]) for row in rows}
                 if not zero_null_cols:
                     continue
 

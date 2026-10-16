@@ -9,7 +9,7 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
 | `__init__.py` | dbt CLI execution functions | `run_dbt_models`, `run_dbt_snapshots`, `generate_dbt_docs`, `_get_dbt_executable`, `_dbt_telemetry_env` |
-| `generator.py` | Auto-generates dbt staging models from data sources | `DbtModelGenerator`, `generate_staging_models` |
+| `generator.py` | Auto-generates dbt staging models from data sources. Quotes DuckDB keywords/digit-leading column names; data-derived text goes through `dango/utils/dbt_escaping.py` filters so dbt never renders it as Jinja | `DbtModelGenerator`, `generate_staging_models`, `_quote_column_name` |
 | `model_service.py` | Non-interactive create/update/remove of dbt models (naming, lineage validation, SQL rendering, `dbt parse` gate with rollback, `DbtLock`-guarded table drop); used by the model wizard, `dango model remove`, and MCP model tools | `create_model`, `update_model`, `remove_model`, `validate_model_sql`, `render_model_sql`, `extract_refs`, `find_model`, `list_models`, `parse_project`, `ModelServiceError` |
 | `model_common.py` | Shared types (`ModelServiceError`, `ModelChangeResult`), naming normalisation and recursive model lookup | `normalize_model_name`, `find_model`, `list_models` |
 | `model_sql.py` | `ref()`/`source()` extraction, lineage validation, SQL file rendering | `extract_refs`, `validate_model_sql`, `render_model_sql` |

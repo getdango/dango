@@ -41,7 +41,7 @@ def _source() -> DataSource:
 class TestReservedWordQuoting:
     """K-21: reserved words and digit-leading names are quoted; quotes are escaped."""
 
-    @pytest.mark.parametrize("name", ["order", "select", "GROUP", "from", "user", "2fa", 'a"b'])
+    @pytest.mark.parametrize("name", ["order", "select", "GROUP", "from", "left", "2fa", 'a"b'])
     def test_unsafe_names_are_quoted(self, name: str) -> None:
         quoted = _quote_column_name(name)
         assert quoted.startswith('"') and quoted.endswith('"')
@@ -56,16 +56,18 @@ class TestReservedWordQuoting:
         db = tmp_path / "w.duckdb"
         conn = duckdb.connect(str(db))
         conn.execute("CREATE SCHEMA raw_payments")
-        cols_ddl = ", ".join('"' + c.replace('"', '""') + '" INTEGER' for c in columns)
+        cols_ddl = ", ".join('"' + c.replace('"', '""') + '" VARCHAR' for c in columns)
         conn.execute(f"CREATE TABLE raw_payments.t ({cols_ddl})")
-        conn.execute("INSERT INTO raw_payments.t VALUES (1, 2, 3, 4, 5, 6, 7)")
+        conn.execute(
+            "INSERT INTO raw_payments.t VALUES ('2020-01-01', 'b', 'c', 'd', 'e', 'f', 'g')"
+        )
 
         gen = DbtModelGenerator(tmp_path)
         sql = gen.generate_staging_model(
             _source(),
             "t",
             schema_name="raw_payments",
-            staging_columns=[{"name": c, "type": "INTEGER"} for c in columns],
+            staging_columns=[{"name": c, "type": "VARCHAR"} for c in columns],
             date_cast_columns=["order"],
         )
         # Resolve the dbt-only constructs so DuckDB can run the SELECT directly.
@@ -130,7 +132,10 @@ class TestJinjaNeutralisedInGeneratedText:
             schema_name="raw_payments",
             staging_columns=[{"name": "{{ env_var('CANARY') }}", "type": "VARCHAR"}],
         )
-        assert "{{ env_var" not in sql
+        # The only live Jinja left is dbt's own config()/source() calls.
+        body = re.sub(r"\{\{\s*(config|source)\(.*?\)\s*\}\}", "", sql, flags=re.S)
+        assert "{{ env_var" not in body.replace("{{ '{' }}", "")
+        assert "{{ env_var" not in sql.split("WITH source")[0].replace("{{ '{' }}", "")
 
     def test_newline_in_name_cannot_escape_sql_comment(self, tmp_path: Path) -> None:
         gen = DbtModelGenerator(tmp_path)
@@ -239,3 +244,69 @@ class TestSchemaSyncNeutralises:
         schema2, changes = mgr._merge_schema("m", cols, schema, "marts")
         assert changes["added_columns"] == []
         assert changes["removed_columns"] == []
+
+
+@pytest.mark.unit
+class TestEscapingHelpers:
+    """Helper output renders back to the original text under Jinja."""
+
+    @pytest.mark.parametrize("value", HOSTILE_NAMES + ["plain", "it's", 'say "hi"'])
+    def test_neutralised_text_renders_back_to_original(self, value: str) -> None:
+        import jinja2
+
+        from dango.utils.dbt_escaping import neutralize_jinja, yaml_scalar
+
+        env = jinja2.Environment()
+        assert env.from_string(neutralize_jinja(value)).render() == value
+        loaded = yaml.safe_load("k: " + yaml_scalar(value))["k"]
+        assert env.from_string(loaded).render() == value
+
+    @pytest.mark.parametrize("word", ["yes", "No", "null", "true", "on", "7up", "a b", "x: y"])
+    def test_yaml_scalar_keeps_strings_as_strings(self, word: str) -> None:
+        from dango.utils.dbt_escaping import yaml_scalar
+
+        assert yaml.safe_load("k: " + yaml_scalar(word))["k"] == word
+
+    @pytest.mark.parametrize("name", ["it's", 'say "hi"', "{{ x }}"])
+    def test_source_literal_is_valid_jinja(self, name: str) -> None:
+        import jinja2
+
+        from dango.utils.dbt_escaping import jinja_string_literal
+
+        env = jinja2.Environment()
+        assert env.from_string("{{ " + jinja_string_literal(name) + " }}").render() == name
+
+
+@pytest.mark.unit
+class TestPostSyncEnrichmentWithDelimiters:
+    """_enrich_staging_tests matches neutralised column names written by the generator."""
+
+    def test_not_null_added_to_neutralised_column(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from dango.utils.dbt_escaping import neutralize_jinja
+        from dango.utils.post_sync import _enrich_staging_tests
+
+        hostile = "{{ env_var('CANARY') }}"
+        staging_dir = tmp_path / "dbt" / "models" / "staging"
+        staging_dir.mkdir(parents=True)
+        (staging_dir / "stg_shop.yml").write_text(
+            yaml.dump(
+                {
+                    "models": [
+                        {
+                            "name": "stg_shop__orders",
+                            "columns": [{"name": neutralize_jinja(hostile)}],
+                        }
+                    ]
+                }
+            )
+        )
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = [(hostile,)]
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        with patch("dango.utils.post_sync.connect", return_value=mock_conn):
+            _enrich_staging_tests(tmp_path, ["shop"])
+        data = yaml.safe_load((staging_dir / "stg_shop.yml").read_text())
+        assert data["models"][0]["columns"][0]["tests"] == ["not_null"]
