@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from dango.exceptions import CloudProvisioningError
 from dango.platform.cloud.ssh import CommandResult
 
 
@@ -139,3 +140,188 @@ class TestBackupEnableVersionGate:
         ssh, _output = _enable("1.0.14")
         probes = [c.args[0] for c in ssh.exec_command.call_args_list if "import dango" in c.args[0]]
         assert probes and all("/srv/dango/venv/bin/python -I " in p for p in probes), probes
+
+
+# ---------------------------------------------------------------------------
+# Root never creates set-id files, never uses a predictable staging path, never
+# writes the archive through a planted link
+# ---------------------------------------------------------------------------
+
+_SPECIAL_BITS = stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX
+_FROZEN = "20991231-235959"
+
+
+def _all_member_modes(archive: Path) -> dict[str, int]:
+    with tarfile.open(archive) as tar:
+        return {m.name: m.mode for m in tar.getmembers() if not m.issym()}
+
+
+@pytest.mark.unit
+class TestNoSpecialBits:
+    def test_staged_copies_drop_setuid_setgid_and_sticky(self, tmp_path: Path) -> None:
+        from dango.platform.cloud.scheduled_backup import _copy_keeping_modes
+
+        src = tmp_path / "src"
+        (src / "sub").mkdir(parents=True)
+        tool = src / "sub" / "tool"
+        tool.write_text("#!/bin/sh\n")
+        tool.chmod(0o4755)
+        (src / "sub").chmod(0o2755)
+        (src / "shared").mkdir()
+        (src / "shared").chmod(0o1777)
+        single = tmp_path / "single"
+        single.write_text("x")
+        single.chmod(0o4755)
+
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        _copy_keeping_modes(src, dest, step="t")
+        _copy_keeping_modes(single, tmp_path / "single-copy", step="t")
+
+        assert stat.S_IMODE((dest / "sub" / "tool").stat().st_mode) == 0o755
+        assert stat.S_IMODE((tmp_path / "single-copy").stat().st_mode) == 0o755
+        for path in (dest / "sub", dest / "shared", dest / "sub" / "tool"):
+            assert not path.stat().st_mode & _SPECIAL_BITS, (path, oct(path.stat().st_mode))
+
+    def test_archive_members_carry_no_special_bits(self, fake_server: Path) -> None:
+        tool = fake_server / "project" / "custom_sources" / "run.sh"
+        tool.chmod(0o4755)
+        archive = _make_archive(0o022)
+        for name, mode in _all_member_modes(archive).items():
+            assert not mode & _SPECIAL_BITS, (name, oct(mode))
+        assert _member_modes(archive)["custom_sources/run.sh"] == 0o755
+
+
+@pytest.fixture
+def frozen_name(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """Freeze the backup timestamp so the predictable names are known in advance."""
+    import shutil
+
+    import dango.platform.cloud.scheduled_backup as sb
+
+    monkeypatch.setattr(sb.time, "strftime", lambda fmt, *a: _FROZEN)
+    name = f"backup-{_FROZEN}"
+    yield name
+    planted = Path("/tmp") / name
+    if planted.is_symlink() or planted.is_file():
+        planted.unlink()
+    elif planted.exists():
+        shutil.rmtree(planted)
+
+
+@pytest.mark.unit
+class TestPrivateStaging:
+    def test_staging_is_fresh_and_private(
+        self, fake_server: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import dango.platform.cloud.scheduled_backup as sb
+
+        seen: list[Path] = []
+        real_copy = sb._copy_keeping_modes
+
+        def _spy(src: Path, dest: Path, *, step: str) -> None:
+            seen.append(dest)
+            real_copy(src, dest, step=step)
+
+        monkeypatch.setattr(sb, "_copy_keeping_modes", _spy)
+        _make_archive(0o022)
+        assert seen
+        for dest in seen:
+            assert "/backup-" not in str(dest), dest
+            assert "/dango-backup." in str(dest), dest
+
+    def test_staging_root_is_mode_0700(
+        self, fake_server: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import tempfile
+
+        import dango.platform.cloud.scheduled_backup as sb
+
+        made: list[str] = []
+        real_mkdtemp = tempfile.mkdtemp
+
+        def _spy(
+            suffix: str | None = None, prefix: str | None = None, dir: str | None = None
+        ) -> str:
+            path = real_mkdtemp(suffix=suffix, prefix=prefix, dir=dir)
+            made.append(path)
+            return path
+
+        monkeypatch.setattr(tempfile, "mkdtemp", _spy)
+        modes: list[int] = []
+        real_copy = sb._copy_keeping_modes
+
+        def _copy(src: Path, dest: Path, *, step: str) -> None:
+            modes.extend(stat.S_IMODE(Path(p).stat().st_mode) for p in made)
+            real_copy(src, dest, step=step)
+
+        monkeypatch.setattr(sb, "_copy_keeping_modes", _copy)
+        _make_archive(0o022)
+        assert made and modes and set(modes) == {0o700}, (made, [oct(m) for m in modes])
+
+    def test_preplanted_predictable_staging_dir_is_never_used(
+        self, fake_server: Path, frozen_name: str
+    ) -> None:
+        planted = Path("/tmp") / frozen_name
+        planted.mkdir()
+        _make_archive(0o022)
+        assert list(planted.iterdir()) == []
+
+    def test_preplanted_predictable_staging_symlink_is_never_followed(
+        self, fake_server: Path, frozen_name: str
+    ) -> None:
+        target = fake_server / "attacker"
+        target.mkdir()
+        (Path("/tmp") / frozen_name).symlink_to(target)
+        _make_archive(0o022)
+        assert list(target.iterdir()) == []
+
+
+@pytest.mark.unit
+class TestArchivePathNotFollowed:
+    def test_symlink_at_archive_path_fails_without_writing_through(
+        self, fake_server: Path, frozen_name: str
+    ) -> None:
+        import dango.platform.cloud.scheduled_backup as sb
+
+        victim = fake_server / "victim"
+        victim.write_text("original")
+        sb.BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        (sb.BACKUP_DIR / f"{frozen_name}.tar.gz").symlink_to(victim)
+        with pytest.raises((OSError, CloudProvisioningError)):
+            _make_archive(0o022)
+        assert victim.read_text() == "original"
+
+    def test_existing_file_at_archive_path_is_not_reused(
+        self, fake_server: Path, frozen_name: str
+    ) -> None:
+        import dango.platform.cloud.scheduled_backup as sb
+
+        sb.BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        existing = sb.BACKUP_DIR / f"{frozen_name}.tar.gz"
+        existing.write_text("planted")
+        existing.chmod(0o666)
+        with pytest.raises((OSError, CloudProvisioningError)):
+            _make_archive(0o022)
+        assert existing.read_text() == "planted"
+
+
+@pytest.mark.unit
+class TestRestoreExtraction:
+    def test_restore_extracts_without_preserving_permissions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import dango.platform.cloud.scheduled_backup as sb
+
+        commands: list[str] = []
+        monkeypatch.setattr(sb, "BACKUP_DIR", tmp_path / "backups")
+        monkeypatch.setattr(sb, "PROJECT_DIR", tmp_path / "project")
+        monkeypatch.setattr(sb, "download_from_spaces", lambda *a, **k: None)
+        monkeypatch.setattr(sb, "_stop_services", lambda: None)
+        monkeypatch.setattr(sb, "_start_services", lambda: None)
+        monkeypatch.setattr(sb, "_get_metabase_volume_path", lambda: None)
+        monkeypatch.setattr(sb, "_run_local", lambda c, **k: commands.append(c) or "")
+        with patch("subprocess.run"):
+            sb.restore_from_spaces({}, "backups/backup-x.tar.gz")
+        (extract,) = [c for c in commands if "tar -x" in c]
+        assert "--no-same-permissions" in extract, extract
