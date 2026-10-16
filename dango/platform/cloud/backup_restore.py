@@ -11,7 +11,15 @@ must clear for a database.
 
 from __future__ import annotations
 
+import contextlib
+import os
 import shlex
+import stat
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from dango.platform.cloud.ssh import SSHManager
 
 
 def wal_sidecar_names(db_rel_path: str) -> list[str]:
@@ -91,3 +99,93 @@ def restore_volume_file_cmd(src: str, volume: str, name: str) -> str:
         f" if [ -L {q_vol} ] || [ -L {q_dest} ]; then echo {refusal} >&2; false;"
         f" else cp {shlex.quote(src)} {q_dest}; fi; fi"
     )
+
+
+#: GNU/BSD tar options for root extraction: archive owners and modes are not applied,
+#: so nothing extracted is writable by another user.
+SAFE_EXTRACT_OPTIONS = "--strip-components=1 --no-same-owner --no-same-permissions"
+UNSAFE_ARCHIVE_MESSAGE = (
+    "Archive contains links or special files, which a restore never writes: {names}. "
+    "Nothing was restored."
+)
+
+
+def find_unsafe_cmd(staging: str) -> str:
+    """Shell step that fails, listing them, if *staging* holds anything but plain files and dirs.
+
+    Symlinks, devices, FIFOs and hard-linked files are all reported.
+    """
+    return (
+        f"! find {shlex.quote(staging)} \\( ! -type f ! -type d \\) -print -o"
+        " -type f -links +1 -print | head -n 20 | grep ."
+    )
+
+
+def unsafe_tree_entries(root: Path) -> list[str]:
+    """Return entries below *root* that are not plain files or directories (never followed)."""
+    unsafe: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        for name in [*dirnames, *filenames]:
+            path = Path(dirpath) / name
+            info = path.lstat()
+            if stat.S_ISDIR(info.st_mode):
+                continue
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink > 1:
+                unsafe.append(str(path.relative_to(root)))
+    return unsafe
+
+
+def unsafe_tar_members(archive: Path) -> list[str]:
+    """Return members of *archive* that are not plain files or directories."""
+    import tarfile
+
+    with tarfile.open(archive, mode="r:*") as tf:
+        return [m.name for m in tf.getmembers() if not (m.isfile() or m.isdir())]
+
+
+def extract_checked_archive(
+    ssh: SSHManager, archive_path: str, staging: str, content: list[str]
+) -> None:
+    """Extract *archive_path* into *staging* over SSH (as root) and check what came out.
+
+    Root later reads staged files, so links and special files are refused outright.
+    The archive must also hold ``manifest.json`` and at least one of *content*
+    (paths relative to the archive's top-level directory).  On any failure the
+    staging directory is removed and ``CloudProvisioningError`` is raised.
+    """
+    from dango.exceptions import CloudProvisioningError
+
+    q_staging = shlex.quote(staging)
+    try:
+        result = ssh.exec_command(
+            f"mkdir -p {q_staging} && tar -xzf {shlex.quote(archive_path)} -C {q_staging}"
+            f" {SAFE_EXTRACT_OPTIONS}",
+            timeout=300,
+        )
+        if not result.success:
+            raise CloudProvisioningError(
+                f"Backup step 'extract_archive' failed (exit {result.exit_code}): "
+                f"{result.stderr.strip() or result.stdout.strip()}"
+            )
+        found = ssh.exec_command(find_unsafe_cmd(staging), timeout=120)
+        if not found.success:
+            unsafe = found.stdout.split() or ["(could not be checked)"]
+            names = ", ".join(path.replace(f"{staging}/", "", 1) for path in unsafe)
+            raise CloudProvisioningError(UNSAFE_ARCHIVE_MESSAGE.format(names=names))
+
+        # Hand-made archives without a single top-level directory extract to
+        # nothing recognisable; fail before any copy rather than report success.
+        layout_check = (
+            f"test -e {shlex.quote(staging + '/manifest.json')} && ( "
+            + " || ".join(f"test -e {shlex.quote(f'{staging}/{rel}')}" for rel in content)
+            + " )"
+        )
+        if not ssh.exec_command(layout_check).success:
+            raise CloudProvisioningError(
+                "Archive does not look like a Dango backup (unexpected layout): "
+                "nothing was restored"
+            )
+    except Exception:
+        with contextlib.suppress(Exception):  # cleanup: best effort, keep the original error
+            ssh.exec_command(f"rm -rf {q_staging}")
+        raise

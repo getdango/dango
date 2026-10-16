@@ -399,8 +399,8 @@ class TestRollback:
         with pytest.raises(CloudProvisioningError, match="not found"):
             rollback(ssh, backup_path="/srv/dango/backups/deploy/nonexistent.tar.gz")
 
-    def test_services_restarted_on_failure(self):
-        """Services are restarted even when extraction fails."""
+    def test_services_untouched_when_extraction_fails(self):
+        """A failed extraction stops nothing: the archive is checked before services stop."""
         from dango.platform.cloud.backup import rollback
 
         ssh = make_ssh_mock_configurable(
@@ -419,9 +419,8 @@ class TestRollback:
         with pytest.raises(CloudProvisioningError):
             rollback(ssh)
 
-        # Verify services were restarted
         cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
-        assert any("systemctl start dango-web" in cmd for cmd in cmds)
+        assert not any("systemctl" in cmd for cmd in cmds)
 
 
 @pytest.mark.unit

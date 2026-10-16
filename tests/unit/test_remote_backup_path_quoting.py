@@ -152,6 +152,8 @@ def test_rollback_quotes_backup_path(path: str) -> None:
         "-C",
         staging,
         "--strip-components=1",
+        "--no-same-owner",
+        "--no-same-permissions",
     ]
     assert f"rm -rf {shlex.quote(staging)}" in ssh.commands
     test_cmd = ssh.commands[0]
@@ -329,7 +331,8 @@ def test_failed_extraction_still_removes_only_generated_staging() -> None:
     ):
         backup.restore_from_archive(_as_ssh(ssh), "/srv/dango/backups/deploy/b.tar.gz")
 
-    start.assert_called_once()
+    # The archive is extracted and checked before services are touched.
+    start.assert_not_called()
     removals = [shlex.split(c) for c in ssh.commands if "rm " in c]
     assert len(removals) == 1
     assert removals[0][:2] == ["rm", "-rf"]

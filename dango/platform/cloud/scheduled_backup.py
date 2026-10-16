@@ -12,8 +12,10 @@ import contextlib
 import fcntl
 import json
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -598,41 +600,72 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     download_from_spaces(spaces_config, key, local_path)
 
-    archive_name = name.replace(".tar.gz", "")
-    staging = Path(f"/tmp/{archive_name}")
+    from dango.platform.cloud.backup import (
+        BACKUP_DIRS,
+        BACKUP_FILES,
+        METABASE_CONFIG_FILE,
+        _write_sanitized_metabase_yaml,
+    )
+    from dango.platform.cloud.backup_restore import (
+        AS_SERVICE_USER,
+        SAFE_EXTRACT_OPTIONS,
+        SANITIZED_METABASE_NAME,
+        SERVICE_USER,
+        UNSAFE_ARCHIVE_MESSAGE,
+        hand_staging_to_service_user_cmd,
+        restore_dir_cmd,
+        restore_file_cmd,
+        unsafe_tar_members,
+        unsafe_tree_entries,
+        wal_sidecar_names,
+    )
+
+    # Refuse links and special files before touching anything (root reads staged files).
+    unsafe = unsafe_tar_members(local_path)
+    if unsafe:
+        raise CloudProvisioningError(UNSAFE_ARCHIVE_MESSAGE.format(names=", ".join(unsafe)))
+    # Fresh private staging (mkdtemp, 0700), never a predictable /tmp name.
+    staging = Path(tempfile.mkdtemp(prefix="dango-restore-staging-"))
+    private_dir: Path | None = None
+    try:
+        _run_local(
+            f"tar -xzf {shlex.quote(str(local_path))} -C {shlex.quote(str(staging))}"
+            f" {SAFE_EXTRACT_OPTIONS}",
+            step="extract",
+        )
+        # Re-check what was extracted (the archive file could change after the check).
+        unsafe = unsafe_tree_entries(staging)
+        if unsafe:
+            raise CloudProvisioningError(UNSAFE_ARCHIVE_MESSAGE.format(names=", ".join(unsafe)))
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
     _stop_services()
     copies_started = False
     try:
-        _run_local(
-            f"rm -rf {shlex.quote(str(staging))} && tar -xzf {shlex.quote(str(local_path))} -C /tmp",
-            step="extract",
-        )
-        from dango.platform.cloud.backup import (
-            BACKUP_DIRS,
-            BACKUP_FILES,
-            METABASE_CONFIG_FILE,
-            _write_sanitized_metabase_yaml,
-        )
-        from dango.platform.cloud.backup_restore import (
-            AS_SERVICE_USER,
-            SANITIZED_METABASE_NAME,
-            hand_staging_to_service_user_cmd,
-            restore_dir_cmd,
-            restore_file_cmd,
-            wal_sidecar_names,
-        )
-
-        # Sanitize Metabase metadata as root while staging is still root-owned,
-        # into staging (never into the project tree).
+        # Sanitize Metabase metadata as root into a fresh private directory
+        # (never into staging or the project tree), then let the service user read it.
         metabase_source = staging / METABASE_CONFIG_FILE
+        sanitized: Path | None = None
         if metabase_source.exists():
+            private_dir = Path(tempfile.mkdtemp(prefix="dango-restore-meta-"))
             try:
-                _write_sanitized_metabase_yaml(metabase_source, staging / SANITIZED_METABASE_NAME)
+                _write_sanitized_metabase_yaml(
+                    metabase_source, private_dir / SANITIZED_METABASE_NAME
+                )
+                sanitized = private_dir / SANITIZED_METABASE_NAME
+                _run_local(
+                    f"chown {SERVICE_USER}:{SERVICE_USER} {shlex.quote(str(sanitized))}",
+                    step="restore_files",
+                )
+                private_dir.chmod(0o711)
             except ValueError:
                 _logger.warning("metabase_restore_metadata_omitted")
 
         # Project files are written as the service user, which owns the project tree.
         copies_started = True
+        staging.chmod(0o755)
         _run_local(hand_staging_to_service_user_cmd(str(staging)), step="restore_files")
         stamp = time.strftime("%Y%m%d-%H%M%S")
         for fpath in BACKUP_FILES:
@@ -653,12 +686,11 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                     restore_file_cmd(str(src), str(PROJECT_DIR / fpath), before=before),
                     step="restore_files",
                 )
-        _run_local(
-            restore_file_cmd(
-                str(staging / SANITIZED_METABASE_NAME), str(PROJECT_DIR / METABASE_CONFIG_FILE)
-            ),
-            step="restore_files",
-        )
+        if sanitized is not None:
+            _run_local(
+                restore_file_cmd(str(sanitized), str(PROJECT_DIR / METABASE_CONFIG_FILE)),
+                step="restore_files",
+            )
         for dpath in BACKUP_DIRS:
             _run_local(
                 restore_dir_cmd(str(staging / dpath), str(PROJECT_DIR / dpath)),
@@ -681,7 +713,6 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                         step="restore_metabase",
                     )
         _run_local("chown -R dango:dango /srv/dango/project", step="fix_ownership")
-        subprocess.run(f"rm -rf {shlex.quote(str(staging))}", shell=True, timeout=30)
     except Exception:
         if copies_started:
             # A failed copy leaves a partial, root-owned restore; give it back to
@@ -690,6 +721,9 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                 subprocess.run("chown -R dango:dango /srv/dango/project", shell=True, timeout=120)
         raise
     finally:
+        for leftover in (staging, private_dir):
+            if leftover is not None:
+                shutil.rmtree(leftover, ignore_errors=True)
         _start_services()
 
 

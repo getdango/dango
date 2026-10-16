@@ -7,6 +7,7 @@ volume path must each reach the shell as exactly one argument.
 
 from __future__ import annotations
 
+import re
 import shlex
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from dango.platform.cloud import scheduled_backup as sb
+from tests.factories.backup_shell import run_spaces_restore
 
 _MODULE = "dango.platform.cloud.scheduled_backup"
 _HOSTILE = [
@@ -92,44 +94,22 @@ class TestScheduledBackupVolumePathQuoting:
         vol = tmp_path / "it's a vol"
         vol.mkdir()
         (vol / "metabase.db.mv.db").write_text("h2")
-        staging = tmp_path / "staging"
-        staging.mkdir()
-        (staging / "metabase").mkdir()
-        (staging / "metabase" / "metabase.db.mv.db").write_text("h2")
-        recorded: list[str] = []
+        content = tmp_path / "backup-staging"
+        (content / "metabase").mkdir(parents=True)
+        (content / "metabase" / "metabase.db.mv.db").write_text("h2-archive")
+        (content / "manifest.json").write_text("{}")
 
-        def fake_run_local(command: str, **_kw: Any) -> str:
-            recorded.append(command)
-            return ""
+        _shim, events = run_spaces_restore(
+            tmp_path, tmp_path / "project", content.name, metabase_vol=vol
+        )
 
-        real_path = Path
-
-        def fake_path(value: Any = ".") -> Path:
-            text = str(value)
-            if text.startswith("/tmp/"):
-                return tmp_path / text[len("/tmp/") :]
-            return real_path(value)
-
-        with (
-            patch(f"{_MODULE}.BACKUP_DIR", tmp_path / "backups"),
-            patch(f"{_MODULE}.download_from_spaces"),
-            patch(f"{_MODULE}.Path", fake_path),
-            patch(f"{_MODULE}._stop_services"),
-            patch(f"{_MODULE}._start_services"),
-            patch(f"{_MODULE}._run_local", side_effect=fake_run_local),
-            patch(f"{_MODULE}._get_metabase_volume_path", return_value=str(vol)),
-            patch("subprocess.run"),
-        ):
-            sb.restore_from_spaces({}, "backups/staging.tar.gz")
-
-        cps = [c for c in recorded if "metabase.db.mv.db" in c]
+        cps = [e[len("run: ") :] for e in events if e.startswith("run: cp ") and "mv.db" in e]
         assert len(cps) == 1
         tokens = shlex.split(cps[0])
-        assert tokens == [
-            "cp",
-            str(staging / "metabase" / "metabase.db.mv.db"),
-            str(vol) + "/",
-        ]
+        assert tokens[0] == "cp"
+        assert tokens[1].endswith("/metabase/metabase.db.mv.db")
+        assert tokens[2] == str(vol) + "/"
+        assert (vol / "metabase.db.mv.db").read_text() == "h2-archive"
 
     def test_backup_side_copy_survives_quote_in_volume_path(self, tmp_path: Path) -> None:
         vol = tmp_path / "it's a vol"
@@ -233,56 +213,21 @@ class TestScheduledBackupRestoreQuoting:
 
         project = tmp_path / "project"
         project.mkdir()
-        staging = tmp_path / "it's"
-        staging.mkdir()
+        content = tmp_path / "it's"
         first = BACKUP_FILES[0]
-        (staging / first).parent.mkdir(parents=True, exist_ok=True)
-        (staging / first).write_text("x")
-        recorded: list[str] = []
-        real_path = Path
+        (content / first).parent.mkdir(parents=True, exist_ok=True)
+        (content / first).write_text("x")
 
-        def fake_path(value: Any = ".") -> Path:
-            text = str(value)
-            if text.startswith("/tmp/"):
-                return tmp_path / text[len("/tmp/") :]
-            return real_path(value)
+        _shim, events = run_spaces_restore(tmp_path, project, content.name)
 
-        def fake_run_local(command: str, **_kw: Any) -> str:
-            recorded.append(command)
-            return ""
-
-        with (
-            patch(f"{_MODULE}.PROJECT_DIR", project),
-            patch(f"{_MODULE}.BACKUP_DIR", tmp_path / "backups"),
-            patch(f"{_MODULE}.download_from_spaces"),
-            patch(f"{_MODULE}.Path", fake_path),
-            patch(f"{_MODULE}._stop_services"),
-            patch(f"{_MODULE}._start_services"),
-            patch(f"{_MODULE}._run_local", side_effect=fake_run_local),
-            patch(f"{_MODULE}._get_metabase_volume_path", return_value=None),
-            patch("subprocess.run") as mock_run,
-        ):
-            sb.restore_from_spaces({}, "backups/it's.tar.gz")
-
-        extract = shlex.split(recorded[0])
-        assert extract == [
-            "rm",
-            "-rf",
-            str(staging),
-            "&&",
-            "tar",
-            "-xzf",
-            str(tmp_path / "backups" / "it's.tar.gz"),
-            "-C",
-            "/tmp",
-        ]
+        runs = [shlex.split(e[len("run: ") :]) for e in events if e.startswith("run: ")]
+        extract = next(t for t in runs if "tar" in t)
+        assert extract[:3] == ["tar", "-xzf", str(tmp_path / "backups" / "it's.tar.gz")]
+        assert extract[3] == "-C"
+        assert re.fullmatch(r".*/dango-restore-staging-[^/]+", extract[4])
         # Project files are copied as the service user; every path stays one token.
-        split = [shlex.split(c) for c in recorded]
-        copies = [t for t in split if "cp" in t and str(staging / first) in t]
+        copies = [t for t in runs if "cp" in t and str(project / first) + ";" in t]
         assert copies
-        tokens = copies[0]
-        cp_at = tokens.index("cp")
-        assert tokens[cp_at - 4 : cp_at] == ["runuser", "-u", "dango", "--"]
-        assert tokens[cp_at + 1] == str(staging / first)
-        assert tokens[cp_at + 2] == f"{project / first};"  # `cp SRC DEST; fi`
-        assert shlex.split(mock_run.call_args.args[0]) == ["rm", "-rf", str(staging)]
+        cp_at = copies[0].index("cp")
+        assert copies[0][cp_at - 4 : cp_at] == ["runuser", "-u", "dango", "--"]
+        assert (project / first).read_text() == "x"

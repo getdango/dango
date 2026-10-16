@@ -27,6 +27,7 @@ from dango.platform.cloud.backup import (
     _sanitized_metabase_yaml_text,
     wal_sidecar_names,
 )
+from dango.platform.cloud.backup_restore import unsafe_tar_members
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -148,7 +149,12 @@ def _extract_archive(
     resolved_root = project_root.resolve()
     skipped: list[str] = []
     with tarfile.open(archive_path, mode="r:gz") as tf:
-        members = [m for m in tf.getmembers() if not m.name.startswith("metabase/")]
+        # Skip Metabase H2 files (Docker volume data), whatever the archive's top-level dir.
+        members = [
+            m
+            for m in tf.getmembers()
+            if _member_rel_path(m.name).rstrip("/").split("/", 1)[0] != "metabase"
+        ]
         # Where each member lands; a WAL carried by the archive (safety backup) is kept.
         carried = {(project_root / _member_rel_path(m.name)).resolve() for m in members}
         for member in members:
@@ -258,6 +264,19 @@ def backup_restore(ctx: click.Context, file: str, yes: bool) -> None:
     # Validate .tar.gz extension
     if not archive_path.name.endswith(".tar.gz"):
         console.print("[red]Error:[/red] Backup file must be a .tar.gz archive.")
+        raise click.Abort()
+
+    # Links and special files are never restored: refuse before changing anything.
+    try:
+        unsafe = unsafe_tar_members(archive_path)
+    except (OSError, tarfile.TarError) as exc:
+        console.print(f"[red]Error:[/red] Cannot read backup archive: {exc}")
+        raise click.Abort() from exc
+    if unsafe:
+        console.print(
+            "[red]Error:[/red] Archive contains links or special files, which a restore "
+            f"never writes: {', '.join(unsafe)}. Nothing was restored."
+        )
         raise click.Abort()
 
     if not yes:
