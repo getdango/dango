@@ -134,7 +134,6 @@ def _wizard_base_url(root: Path, *entries: str) -> tuple[list[str], int]:
     "base_url",
     [
         "http://my_api:8000",
-        "https://api.example.com/v1?api-version=2",
         "https://api.example.com.",
         "https://internal_service.example.com/v2",
     ],
@@ -158,4 +157,17 @@ def test_agent_path_rules_unchanged_for_lenient_inputs(base_url: str) -> None:
 def test_cli_wizard_reprompts_after_bad_base_url(project: Path) -> None:
     printed, calls = _wizard_base_url(project, "https://evil.example#", "https://api.example.com")
     assert any("❌" in m and "base_url" in m for m in printed), printed
+    assert calls == 3  # bad entry, re-entry, then the auth-type prompt
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "bad", ["https://api.example.com/v1?api-version=2", "https://api.example.com/v1#frag"]
+)
+def test_cli_wizard_refuses_query_or_fragment_and_reprompts(project: Path, bad: str) -> None:
+    """A query in base_url breaks every request at sync (the endpoint path is appended after it)."""
+    printed, calls = _wizard_base_url(project, bad, "https://api.example.com/v1")
+    errors = [m for m in printed if "❌" in m]
+    assert errors, printed
+    assert "Put query parameters in the endpoint's params, not the base URL" in errors[0]
     assert calls == 3  # bad entry, re-entry, then the auth-type prompt
