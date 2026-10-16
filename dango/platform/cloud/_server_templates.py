@@ -168,13 +168,68 @@ Requires=docker.service
 Type=oneshot
 User=root
 WorkingDirectory=/srv/dango
-UMask=0077
 ExecStart=/srv/dango/venv/bin/python -I -m dango.platform.cloud.scheduled_backup
 TimeoutStartSec=900
 
 [Install]
 WantedBy=multi-user.target
 """
+
+# Unit for servers still running Dango <= 1.0.13, whose scheduled backup reads the
+# Spaces keys from its environment. Written only to such servers, with a warning.
+SYSTEMD_BACKUP_SERVICE_LEGACY = """\
+[Unit]
+Description=Dango Scheduled Backup
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/srv/dango/project
+EnvironmentFile=-/srv/dango/project/.env
+ExecStart=/srv/dango/venv/bin/python -m dango.platform.cloud.scheduled_backup
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+#: First release whose scheduled backup reads the Spaces keys from ``.env`` itself.
+BACKUP_UNIT_MIN_RELEASE = (1, 0, 14)
+
+#: Prints the Dango version installed on the server (run as root over SSH).
+SERVER_DANGO_VERSION_COMMAND = (
+    '/srv/dango/venv/bin/python -I -c "import dango; print(dango.__version__)"'
+)
+
+
+def backup_service_unit(installed_version: str | None) -> tuple[str, str | None]:
+    """Return ``(unit, warning)`` for the scheduled backup on a server.
+
+    Servers older than :data:`BACKUP_UNIT_MIN_RELEASE` get the legacy unit (their
+    code needs the keys in its environment) plus a warning to upgrade. An
+    unreadable version gets the current unit and a warning.
+    """
+    from packaging.version import InvalidVersion, Version
+
+    hint = "Run `dango remote upgrade`, then `dango remote backup enable` again."
+    try:
+        release = Version(installed_version or "").release
+    except InvalidVersion:
+        return (
+            SYSTEMD_BACKUP_SERVICE,
+            "Could not read the Dango version on the server; if it is older than "
+            f"1.0.14, scheduled uploads to Spaces will fail. {hint}",
+        )
+    if release < BACKUP_UNIT_MIN_RELEASE:
+        return (
+            SYSTEMD_BACKUP_SERVICE_LEGACY,
+            f"The server runs Dango {installed_version}; it gets the previous backup unit, "
+            f"which loads the project .env into a root service. {hint}",
+        )
+    return SYSTEMD_BACKUP_SERVICE, None
+
 
 SYSTEMD_BACKUP_TIMER = """\
 [Unit]

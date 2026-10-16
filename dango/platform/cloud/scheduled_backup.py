@@ -225,6 +225,33 @@ def _make_spaces_client(spaces_config: dict[str, Any]) -> Any:
     )
 
 
+def _copy_keeping_modes(src: Path, dest: Path, *, step: str) -> None:
+    """Copy *src* (file, or directory contents) to *dest* keeping modes, not owners.
+
+    Archive members must keep their source modes whatever the process umask is:
+    a restore onto a fresh server recreates files with them, and Metabase reads
+    ``data/`` as another user. Symlinks inside directories are copied as links.
+    """
+    import shutil
+
+    try:
+        if src.is_dir():
+            shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dest)
+    except (OSError, shutil.Error) as exc:
+        raise CloudProvisioningError(f"Step '{step}' failed: {exc}") from exc
+
+
+def _create_private_file(path: Path, content: bytes = b"") -> None:
+    """Create or truncate *path* as mode 0600 before any content is written."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        os.fchmod(handle.fileno(), 0o600)
+        handle.write(content)
+
+
 def _create_local_archive(
     backup_type: str, *, include_secrets: bool = False
 ) -> tuple[Path, dict[str, Any], list[str]]:
@@ -261,7 +288,7 @@ def _create_local_archive(
             if src.exists():
                 dest = staging / fpath
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                _run_local(f"cp '{src}' '{dest}'", step="copy_files")
+                _copy_keeping_modes(src, dest, step="copy_files")
         metabase_source = PROJECT_DIR / METABASE_CONFIG_FILE
         if metabase_source.exists():
             try:
@@ -276,7 +303,7 @@ def _create_local_archive(
             if src.exists():
                 dest = staging / dpath
                 dest.mkdir(parents=True, exist_ok=True)
-                _run_local(f"cp -r '{src}/.' '{dest}/'", step="copy_dirs")
+                _copy_keeping_modes(src, dest, step="copy_dirs")
 
         if metabase_vol:
             mb_staging = staging / "metabase"
@@ -284,10 +311,7 @@ def _create_local_archive(
             for h2 in ["metabase.db.mv.db", "metabase.db.trace.db"]:
                 src = Path(metabase_vol) / h2
                 if src.exists():
-                    _run_local(
-                        f"cp {shlex.quote(str(src))} {shlex.quote(str(mb_staging) + '/')}",
-                        step="copy_metabase",
-                    )
+                    _copy_keeping_modes(src, mb_staging / h2, step="copy_metabase")
         else:
             warnings.append("Metabase Docker volume not found — H2 backup skipped")
 
@@ -315,12 +339,15 @@ def _create_local_archive(
         }
         manifest_json = json.dumps(manifest, indent=2)
         (staging / "manifest.json").write_text(manifest_json)
+        # The archive and manifest are private (the archive may hold secrets); the
+        # members inside keep their source modes for restore.
+        _create_private_file(archive_path)
         _run_local(
             f"tar -czf '{archive_path}' -C /tmp '{archive_name}'",
             step="create_archive",
             timeout=600,
         )
-        manifest_path.write_text(manifest_json)
+        _create_private_file(manifest_path, manifest_json.encode())
     finally:
         subprocess.run(f"rm -rf '{staging}'", shell=True, timeout=30)
         _start_services()
