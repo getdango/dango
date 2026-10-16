@@ -12,10 +12,9 @@ for selective dbt rebuilds.
 
 rsync SSH transport
 -------------------
-rsync uses system SSH, not paramiko.  Since the host was already verified
-via paramiko TOFU, rsync bypasses host key checking::
-
-    rsync -avz --delete -e "ssh -i <key> -o StrictHostKeyChecking=no ..." ...
+rsync uses system SSH, not paramiko.  It verifies the server against the
+host key paramiko pinned for the same connection (``StrictHostKeyChecking=yes``
+on SSHManager's known_hosts file and port); see ``rsync_transport``.
 
 File sync scope
 ---------------
@@ -33,7 +32,6 @@ from __future__ import annotations
 
 import hashlib
 import shutil
-import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +39,14 @@ from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.rsync_transport import (
+    RsyncTarget,
+    _rsync_directory,
+    rsync_target,
+)
+from dango.platform.cloud.rsync_transport import (
+    _build_rsync_ssh_arg as _build_rsync_ssh_arg,
+)
 from dango.platform.cloud.server_auth import apply_cloud_auth_timeouts_bytes
 from dango.platform.cloud.server_ports import PortChange, normalize_server_ports_bytes
 
@@ -201,50 +207,6 @@ def _detect_dbt_changes(
     return added, changed, removed
 
 
-def _build_rsync_ssh_arg(ssh_key_path: Path) -> str:
-    """Build the ``-e`` argument for rsync to use the correct SSH key."""
-    return f'ssh -i "{ssh_key_path}" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
-
-
-def _rsync_directory(
-    local_dir: Path,
-    remote_user_host_dir: str,
-    ssh_key_path: Path,
-    *,
-    delete: bool = True,
-    dry_run: bool = False,
-) -> str:
-    """Sync *local_dir* to *remote_user_host_dir* via rsync.
-
-    Returns:
-        rsync stdout output.
-
-    Raises:
-        CloudProvisioningError: If rsync exits with a non-zero code.
-    """
-    cmd: list[str] = [
-        "rsync",
-        "-avz",
-        "-e",
-        _build_rsync_ssh_arg(ssh_key_path),
-    ]
-    if delete:
-        cmd.append("--delete")
-    if dry_run:
-        cmd.append("--dry-run")
-
-    # Trailing slash on source ensures contents are synced, not the dir itself
-    cmd.append(f"{local_dir}/")
-    cmd.append(remote_user_host_dir)
-
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)  # noqa: S603
-    if result.returncode != 0:
-        raise CloudProvisioningError(
-            f"rsync failed (exit {result.returncode}): {result.stderr.strip()}"
-        )
-    return result.stdout
-
-
 def _upload_file_if_exists(
     ssh: SSHManager,
     local_path: Path,
@@ -347,7 +309,7 @@ def sync_project_files(
     Detects changes in dbt models/macros for selective rebuilds.
 
     Args:
-        ssh: Connected SSHManager (as root).
+        ssh: Connected SSHManager; rsync connects as the same user.
         local_project_root: Path to the local Dango project root.
         remote_host: Hostname or IP for rsync transport.  Required unless
             *dry_run* is ``True`` and no dbt directories exist locally.
@@ -421,13 +383,15 @@ def sync_project_files(
     # --- Step 3: Sync dbt directories via rsync ---
     _notify(on_progress, "sync_dbt", "running")
     ssh_key_path = ssh.key_path
+    target: RsyncTarget | None = None  # resolved on first rsync use
     for dbt_dir in SYNC_DBT_DIRS:
         local_dir = local_project_root / dbt_dir
         if not local_dir.is_dir():
             continue
         if remote_host is None:
             raise CloudProvisioningError("remote_host is required for rsync-based directory sync")
-        remote_dest = f"root@{remote_host}:{REMOTE_PROJECT_DIR}/{dbt_dir}"
+        target = target or rsync_target(ssh, remote_host)
+        remote_dest = f"{target.username}@{remote_host}:{REMOTE_PROJECT_DIR}/{dbt_dir}"
         # Ensure remote directory exists before rsync
         if not dry_run:
             mkdir_result = ssh.exec_command(f"mkdir -p {REMOTE_PROJECT_DIR}/{dbt_dir}")
@@ -437,7 +401,16 @@ def sync_project_files(
                     path=f"{REMOTE_PROJECT_DIR}/{dbt_dir}",
                     stderr=mkdir_result.stderr,
                 )
-        _rsync_directory(local_dir, remote_dest, ssh_key_path, delete=True, dry_run=dry_run)
+        _rsync_directory(
+            local_dir,
+            remote_dest,
+            ssh_key_path,
+            known_hosts_path=target.known_hosts_path,
+            legacy_known_hosts_paths=target.legacy_known_hosts_paths,
+            port=target.port,
+            delete=True,
+            dry_run=dry_run,
+        )
         synced_files.append(f"{dbt_dir}/")
     _notify(on_progress, "sync_dbt", "done")
 
@@ -449,7 +422,8 @@ def sync_project_files(
             continue
         if remote_host is None:
             raise CloudProvisioningError("remote_host is required for rsync-based directory sync")
-        remote_dest = f"root@{remote_host}:{REMOTE_PROJECT_DIR}/{extra_dir}"
+        target = target or rsync_target(ssh, remote_host)
+        remote_dest = f"{target.username}@{remote_host}:{REMOTE_PROJECT_DIR}/{extra_dir}"
         if not dry_run:
             mkdir_result = ssh.exec_command(f"mkdir -p {REMOTE_PROJECT_DIR}/{extra_dir}")
             if mkdir_result.exit_code != 0:
@@ -458,7 +432,16 @@ def sync_project_files(
                     path=f"{REMOTE_PROJECT_DIR}/{extra_dir}",
                     stderr=mkdir_result.stderr,
                 )
-        _rsync_directory(local_dir, remote_dest, ssh_key_path, delete=True, dry_run=dry_run)
+        _rsync_directory(
+            local_dir,
+            remote_dest,
+            ssh_key_path,
+            known_hosts_path=target.known_hosts_path,
+            legacy_known_hosts_paths=target.legacy_known_hosts_paths,
+            port=target.port,
+            delete=True,
+            dry_run=dry_run,
+        )
         synced_files.append(f"{extra_dir}/")
     _notify(on_progress, "sync_extra", "done")
 
