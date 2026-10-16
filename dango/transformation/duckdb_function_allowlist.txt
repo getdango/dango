@@ -1,6 +1,8 @@
 # DuckDB 1.5.4 built-in scalar/aggregate/window/macro functions
 # (duckdb_functions(), internal only) minus file/URL/settings/env/variable access.
 # Regenerate: python scripts/generate_duckdb_function_allowlist.py
+# Regenerate whenever the DuckDB pin changes (pyproject allows <1.6); functions
+# missing from this list (e.g. added in a newer DuckDB) fail closed.
 # Used by dango/transformation/model_sql_guard.py for agent-written model SQL.
 !__postfix
 !~~
@@ -244,7 +246,6 @@ generate_subscripts
 geomean
 geometric_mean
 get_bit
-get_block_size
 get_current_time
 get_current_timestamp
 get_type
@@ -438,7 +439,6 @@ json_merge_patch
 json_object
 json_pretty
 json_quote
-json_serialize_plan
 json_structure
 json_transform
 json_transform_strict
@@ -609,7 +609,6 @@ pg_conversion_is_visible
 pg_function_is_visible
 pg_get_constraintdef
 pg_get_expr
-pg_get_viewdef
 pg_has_role
 pg_is_other_temp_schema
 pg_my_temp_schema

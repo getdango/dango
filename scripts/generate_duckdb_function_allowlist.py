@@ -35,6 +35,8 @@ def main() -> int:
         f"# DuckDB {duckdb.__version__} built-in scalar/aggregate/window/macro functions",
         "# (duckdb_functions(), internal only) minus file/URL/settings/env/variable access.",
         "# Regenerate: python scripts/generate_duckdb_function_allowlist.py",
+        "# Regenerate whenever the DuckDB pin changes (pyproject allows <1.6); functions",
+        "# missing from this list (e.g. added in a newer DuckDB) fail closed.",
         "# Used by dango/transformation/model_sql_guard.py for agent-written model SQL.",
     ]
     OUT.write_text("\n".join(header + allowed) + "\n", encoding="utf-8")

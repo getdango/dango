@@ -12,11 +12,19 @@ ALLOWLIST_FILE = "duckdb_function_allowlist.txt"
 _EXTEND = "write the model by hand or ask to extend the allow-list"
 
 DENIED_FUNCS = frozenset(
-    "getenv current_setting getvariable json_execute_serialized_sql json_deserialize_sql "
-    "json_serialize_sql query query_table sniff_csv glob which_secret write_log pg_sleep "
-    "sleep_ms nextval currval setseed".split()
+    "getenv current_setting getvariable query query_table sniff_csv glob which_secret "
+    "write_log pg_sleep sleep_ms nextval currval setseed get_block_size pg_get_viewdef".split()
 )
-DENIED_PREFIXES = ("read_", "parquet_", "pragma_", "duckdb_")
+# json_serialize*/json_deserialize*/json_execute* parse, plan or run SQL given as a string
+DENIED_PREFIXES = (
+    "read_",
+    "parquet_",
+    "pragma_",
+    "duckdb_",
+    "json_serialize",
+    "json_deserialize",
+    "json_execute",
+)
 DENIED_SUFFIXES = ("_scan", "_attach")
 
 # Function-call syntax DuckDB resolves in its parser/binder, so it is not listed in
