@@ -134,6 +134,7 @@ exclude = ["tests", "tests.*"]
 [tool.setuptools.package-data]
 dango = [
     "templates/**/*",
+    "transformation/duckdb_function_allowlist.txt",
     "ingestion/dlt_sources/**/*",
     "web/templates/**/*",
     "web/static/**/*",

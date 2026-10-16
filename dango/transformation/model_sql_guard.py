@@ -7,6 +7,14 @@ import ast
 import re
 from typing import Any
 
+from dango.transformation.model_sql_functions import (
+    function_error,
+    is_denied_function,
+    load_function_allowlist,
+)
+
+__all__ = ["FILE_EXTENSIONS", "check_model_sql", "is_denied_function", "load_function_allowlist"]
+
 _NEXT_STEP = (
     "Use ref()/source() on a warehouse table; load files with `dango source add` "
     "(local_files) instead."
@@ -41,13 +49,6 @@ FILE_EXTENSIONS = frozenset(
     "csv tsv tab txt json jsonl ndjson parquet pq gz zst db duckdb sqlite sqlite3 "
     "xlsx xls shp geojson gpkg arrow avro orc".split()
 )
-_DENIED_FUNCS = frozenset(
-    "getenv current_setting getvariable json_execute_serialized_sql json_deserialize_sql "
-    "query query_table sniff_csv glob duckdb_settings duckdb_secrets which_secret "
-    "duckdb_extensions".split()
-)
-_DENIED_PREFIXES = ("read_", "parquet_", "pragma_")
-_DENIED_SUFFIXES = ("_scan", "_attach")
 _PLACEHOLDER = "__dango_ref_"
 
 
@@ -129,14 +130,6 @@ def _func_name(node: object) -> str:
     return type(node).__name__.lower()
 
 
-def _denied(name: str) -> bool:
-    return (
-        name in _DENIED_FUNCS
-        or name.startswith(_DENIED_PREFIXES)
-        or name.endswith(_DENIED_SUFFIXES)
-    )
-
-
 def _check_table(table: Any) -> str | None:
     """Row-source allow-list for one exp.Table; returns an error or None."""
     from sqlglot import exp
@@ -190,8 +183,8 @@ def check_model_sql(sql: str) -> list[str]:
             node.this, (exp.Subquery, exp.Select, exp.Unnest, exp.Explode)
         ):
             err = f"{_func_name(node.this)}() is not allowed as a row source in agent-created models. {_NEXT_STEP}"
-        elif isinstance(node, exp.Func) and _denied(_func_name(node)):
-            err = f"{_func_name(node)}() is not allowed in agent-created models. {_NEXT_STEP}"
+        elif isinstance(node, exp.Func):
+            err = function_error(node, _NEXT_STEP)
         if err and err not in errors:
             errors.append(err)
     return errors
