@@ -8,7 +8,8 @@ progress via WebSocket for the dashboard banner.  State is persisted to
 
 Authentication: The ``/start`` endpoint accepts a one-time deploy token
 (generated during ``dango deploy``) via ``Authorization: Bearer <token>``.
-Other endpoints require a valid session or API key (handled by auth middleware).
+``/status`` requires ``health.view``; ``/skip-source`` and ``/cancel`` require
+``platform.manage`` (admin).
 """
 
 from __future__ import annotations
@@ -23,8 +24,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
+from dango.auth.audit import AuditEvent, log_auth_event
+from dango.auth.models import User
+from dango.auth.permissions import require_permission
 from dango.logging import get_logger
 from dango.web.helpers import get_project_root
 from dango.web.routes.websocket import ws_manager
@@ -396,7 +400,9 @@ async def start_initial_sync(request: Request, background_tasks: BackgroundTasks
 
 
 @router.get("/status")
-async def get_sync_status(request: Request) -> dict[str, Any]:
+async def get_sync_status(
+    user: User = Depends(require_permission("health.view")),
+) -> dict[str, Any]:
     """Return current initial sync state."""
     # Lazy load state from disk on first call
     if _sync_state.phase == SyncPhase.IDLE and _sync_state.total_sources == 0:
@@ -405,34 +411,40 @@ async def get_sync_status(request: Request) -> dict[str, Any]:
 
 
 @router.post("/skip-source")
-async def skip_current_source(request: Request) -> dict[str, str]:
+async def skip_current_source(
+    request: Request,
+    user: User = Depends(require_permission("platform.manage")),
+) -> dict[str, str]:
     """Skip the currently syncing source."""
-    user = getattr(request.state, "user", None) if hasattr(request, "state") else None
-    if user is not None and getattr(user, "role", None) is not None:
-        from dango.auth.models import Role
-
-        if user.role != Role.ADMIN:
-            raise HTTPException(status_code=403, detail="Admin access required")
-
     if _sync_state.phase != SyncPhase.SYNCING:
         raise HTTPException(status_code=409, detail="No sync in progress")
 
     _sync_state.skip_current_requested = True
+    log_auth_event(
+        AuditEvent.INITIAL_SYNC_SKIPPED,
+        user_id=user.id,
+        email=user.email,
+        ip=request.client.host if request.client else None,
+        details={"source": _sync_state.current_source_name},
+    )
     return {"status": "ok", "message": f"Skipping {_sync_state.current_source_name}"}
 
 
 @router.post("/cancel")
-async def cancel_sync(request: Request) -> dict[str, str]:
+async def cancel_sync(
+    request: Request,
+    user: User = Depends(require_permission("platform.manage")),
+) -> dict[str, str]:
     """Cancel the entire initial sync."""
-    user = getattr(request.state, "user", None) if hasattr(request, "state") else None
-    if user is not None and getattr(user, "role", None) is not None:
-        from dango.auth.models import Role
-
-        if user.role != Role.ADMIN:
-            raise HTTPException(status_code=403, detail="Admin access required")
-
     if _sync_state.phase not in (SyncPhase.SYNCING, SyncPhase.DBT_DOCS, SyncPhase.METABASE):
         raise HTTPException(status_code=409, detail="No sync in progress")
 
     _sync_state.cancel_requested = True
+    log_auth_event(
+        AuditEvent.INITIAL_SYNC_CANCELLED,
+        user_id=user.id,
+        email=user.email,
+        ip=request.client.host if request.client else None,
+        details={"phase": _sync_state.phase.value},
+    )
     return {"status": "ok", "message": "Cancellation requested"}
