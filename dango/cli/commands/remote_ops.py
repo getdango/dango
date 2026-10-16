@@ -131,6 +131,8 @@ def remote_upgrade(
             console.print("  Migrations: applied")
         if result.docker_rebuilt:
             console.print("  Docker: rebuilt")
+        if result.caddyfile_ws_migration:
+            console.print(f"  {result.caddyfile_ws_migration}")
 
         for warning in result.warnings:
             console.print(f"  [yellow]Warning:[/yellow] {warning}")

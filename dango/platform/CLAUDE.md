@@ -55,6 +55,7 @@ platform/
 │   ├── domain.py        # DNS check, set_domain(), remove_domain() (TASK-027)
 │   ├── backup.py        # SSH-based backup + rollback (TASK-035)
 │   ├── file_sync.py     # Project file sync: SFTP + rsync (TASK-028)
+│   ├── rsync_transport.py # rsync over ssh verifying the paramiko-pinned host key (1.0.14)
 │   ├── deployer.py      # Push deployment workflow + deploy lock (TASK-030)
 │   ├── deploy_journal.py # Append-only JSONL deployment history (P8-004)
 │   ├── scheduled_backup.py  # Server-side scheduled backup (TASK-103)
@@ -103,6 +104,7 @@ platform/
 | `cloud/domain.py` | DNS check, domain set/remove for HTTPS via Caddy | `check_dns`, `set_domain`, `remove_domain` |
 | `cloud/backup.py` | SSH-based backup and rollback | `create_backup`, `rollback`, `list_local_backups`, `rotate_local_backups`, `BackupManifest`, `BackupResult`, `RestoreResult`, `BACKUP_FILES`, `BACKUP_DIRS`, `SECRET_FILES`, `get_remote_compose_project_name()` |
 | `cloud/file_sync.py` | Project file sync (SFTP + rsync) with change detection | `sync_project_files`, `SyncResult` |
+| `cloud/rsync_transport.py` | rsync with `StrictHostKeyChecking=yes` against SSHManager's known_hosts + port; refuses unpinned hosts | `rsync_target`, `_rsync_directory` |
 | `cloud/deployer.py` | Push deployment workflow with deploy lock | `push_deploy`, `DeployLock`, `DeployResult` |
 | `cloud/deploy_journal.py` | Append-only JSONL deployment history | `DeploymentRecord`, `write_local_journal`, `write_remote_journal`, `read_local_journal`, `read_remote_journal`, `get_latest_deployment` |
 | `cloud/scheduled_backup.py` | Server-side scheduled backup to Spaces | `run_scheduled_backup`, `list_spaces_backups`, `restore_from_spaces`, `enable_scheduled_backup`, `disable_scheduled_backup` |
