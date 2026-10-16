@@ -15,6 +15,7 @@ migration.
 from __future__ import annotations
 
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
 
 _PROJECT_DIR = "/srv/dango/project"
+_ENV_FILE = f"{_PROJECT_DIR}/.env"
+_ROOT_PYTHON = "/srv/dango/venv/bin/python -I"
 _SECRETS_FILES = [
     f"{_PROJECT_DIR}/.env",
     f"{_PROJECT_DIR}/.dlt/secrets.toml",
@@ -57,6 +60,58 @@ def _notify(callback: Callable[[str, str], None] | None, step: str, status: str)
         callback(step, status)
 
 
+def _spaces_client_preamble(
+    region: str, endpoint: str, access_key_env: str, secret_key_env: str
+) -> str:
+    """Script lines building a Spaces client with keys read from ``.env`` as data.
+
+    Never ``source .env`` in a root shell (that executes it). The reader is embedded,
+    not imported, so the script also runs on a server with an older Dango version.
+    """
+    import inspect
+
+    from dango.platform.cloud.scheduled_backup import ENV_FILE_MAX_BYTES, read_env_values
+    from dango.utils.env_file import parse_env_file
+
+    names = (access_key_env, secret_key_env)
+    return (
+        "from __future__ import annotations\n"
+        "import os, stat, sys\n"
+        "from pathlib import Path\n"
+        "import boto3\n"
+        f"ENV_FILE_MAX_BYTES = {ENV_FILE_MAX_BYTES}\n"
+        + inspect.getsource(parse_env_file)
+        + inspect.getsource(read_env_values)
+        + f"keys = read_env_values({_ENV_FILE!r}, {names!r})\n"
+        + f"missing = [n for n in {names!r} if n not in keys]\n"
+        + "if missing:\n"
+        + f"    sys.exit('Spaces keys missing from {_ENV_FILE}: ' + ', '.join(missing))\n"
+        + f"s3 = boto3.client('s3', region_name={region!r},\n"
+        + f"    endpoint_url={endpoint!r},\n"
+        + f"    aws_access_key_id=keys[{access_key_env!r}],\n"
+        + f"    aws_secret_access_key=keys[{secret_key_env!r}])\n"
+    )
+
+
+def _run_transfer_script(ssh: SSHManager, script: str) -> Any:
+    """Run *script* as root (``-I``) from a fresh 0700 directory, then remove it.
+
+    ``mkdir`` without ``-p`` fails on an existing path, so nobody can pre-create it.
+    """
+    script_dir = f"/tmp/dango-migrate-{uuid.uuid4().hex}"
+    script_path = f"{script_dir}/transfer.py"
+    created = ssh.exec_command(f"mkdir -m 0700 {script_dir}")
+    if not created.success:
+        raise CloudProvisioningError(
+            f"Could not create a private script directory on the server: {created.stderr.strip()}"
+        )
+    try:
+        ssh.write_remote_file(script_path, script, mode=0o600)
+        return ssh.exec_command(f"{_ROOT_PYTHON} {script_path}", timeout=600)
+    finally:
+        ssh.exec_command(f"rm -rf {script_dir}")  # cleanup: silent OK
+
+
 def _build_spaces_upload_script(
     archive_path: str,
     region: str,
@@ -71,12 +126,8 @@ def _build_spaces_upload_script(
     Extracted for testability — validates via ``ast.parse()`` in unit tests.
     """
     return (
-        "import boto3, os\n"
-        f"s3 = boto3.client('s3', region_name={region!r},\n"
-        f"    endpoint_url={endpoint!r},\n"
-        f"    aws_access_key_id=os.environ[{access_key_env!r}],\n"
-        f"    aws_secret_access_key=os.environ[{secret_key_env!r}])\n"
-        f"s3.upload_file({archive_path!r}, {bucket!r}, {spaces_key!r})\n"
+        _spaces_client_preamble(region, endpoint, access_key_env, secret_key_env)
+        + f"s3.upload_file({archive_path!r}, {bucket!r}, {spaces_key!r})\n"
     )
 
 
@@ -94,13 +145,9 @@ def _build_spaces_download_script(
     Extracted for testability — validates via ``ast.parse()`` in unit tests.
     """
     return (
-        "import boto3, os\n"
-        "os.makedirs('/srv/dango/backups/deploy', exist_ok=True)\n"
-        f"s3 = boto3.client('s3', region_name={region!r},\n"
-        f"    endpoint_url={endpoint!r},\n"
-        f"    aws_access_key_id=os.environ[{access_key_env!r}],\n"
-        f"    aws_secret_access_key=os.environ[{secret_key_env!r}])\n"
-        f"s3.download_file({bucket!r}, {spaces_key!r}, {local_path!r})\n"
+        _spaces_client_preamble(region, endpoint, access_key_env, secret_key_env)
+        + "os.makedirs('/srv/dango/backups/deploy', exist_ok=True)\n"
+        + f"s3.download_file({bucket!r}, {spaces_key!r}, {local_path!r})\n"
     )
 
 
@@ -111,8 +158,7 @@ def _upload_backup_to_spaces(
 ) -> str:
     """Upload a backup archive to Spaces from the remote server via SSH.
 
-    Writes a Python script to the server and executes it.  Uses ``repr()``
-    for all interpolated values to prevent injection.
+    Runs a generated script (``repr()`` for every interpolated value).
 
     Returns:
         The Spaces object key for the uploaded archive.
@@ -133,15 +179,7 @@ def _upload_backup_to_spaces(
         spaces_key=spaces_key,
     )
 
-    script_path = "/tmp/_dango_upload.py"
-    ssh.write_remote_file(script_path, script, mode=0o600)
-    try:
-        result = ssh.exec_command(
-            f"source {_PROJECT_DIR}/.env 2>/dev/null && /srv/dango/venv/bin/python {script_path}",
-            timeout=600,
-        )
-    finally:
-        ssh.exec_command(f"rm -f {script_path}")  # cleanup: silent OK
+    result = _run_transfer_script(ssh, script)
 
     if not result.success:
         raise CloudProvisioningError(
@@ -158,8 +196,7 @@ def _download_backup_from_spaces(
 ) -> str:
     """Download a backup archive from Spaces to the remote server via SSH.
 
-    Writes a Python script to the server and executes it.  Uses ``repr()``
-    for all interpolated values to prevent injection.
+    Runs a generated script (``repr()`` for every interpolated value).
 
     Returns:
         The local path of the downloaded archive on the server.
@@ -180,15 +217,7 @@ def _download_backup_from_spaces(
         local_path=local_path,
     )
 
-    script_path = "/tmp/_dango_download.py"
-    ssh.write_remote_file(script_path, script, mode=0o600)
-    try:
-        result = ssh.exec_command(
-            f"source {_PROJECT_DIR}/.env 2>/dev/null && /srv/dango/venv/bin/python {script_path}",
-            timeout=600,
-        )
-    finally:
-        ssh.exec_command(f"rm -f {script_path}")  # cleanup: silent OK
+    result = _run_transfer_script(ssh, script)
 
     if not result.success:
         raise CloudProvisioningError(

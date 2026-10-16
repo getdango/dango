@@ -243,8 +243,9 @@ def backup_enable(ctx: click.Context) -> None:
       dango remote backup enable
     """
     from dango.platform.cloud._server_templates import (
-        SYSTEMD_BACKUP_SERVICE,
+        SERVER_DANGO_VERSION_COMMAND,
         SYSTEMD_BACKUP_TIMER,
+        backup_service_unit,
     )
 
     cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
@@ -261,10 +262,18 @@ def backup_enable(ctx: click.Context) -> None:
             )
             raise SystemExit(1)
 
+        # The unit depends on the server's Dango version (how it reads the Spaces keys)
+        version = ssh.exec_command(SERVER_DANGO_VERSION_COMMAND, timeout=30)
+        unit, unit_warning = backup_service_unit(
+            version.stdout.strip() if version.success else None
+        )
+        if unit_warning:
+            console.print(f"[yellow]Warning:[/yellow] {unit_warning}")
+
         # Write systemd unit files
         ssh.write_remote_file(
             "/etc/systemd/system/dango-backup.service",
-            SYSTEMD_BACKUP_SERVICE,
+            unit,
             mode=0o644,
         )
         ssh.write_remote_file(

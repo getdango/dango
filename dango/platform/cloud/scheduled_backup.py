@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import fcntl
 import json
+import os
 import shlex
+import stat
 import subprocess
 import sys
 import time
@@ -22,6 +24,7 @@ from typing import Any
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
 from dango.platform.docker import get_compose_project_name
+from dango.utils.env_file import parse_env_file
 
 _logger = get_logger(__name__)
 
@@ -32,6 +35,9 @@ LOCK_FILE = Path("/srv/dango/backups/.backup.lock")
 MARKER_FILE = Path("/srv/dango/backups/.dango-backup-initialized")
 VENV_PYTHON = "/srv/dango/venv/bin/python"
 SPACES_PREFIX = "backups/"
+SPACES_KEY_NAMES = ("SPACES_ACCESS_KEY", "SPACES_SECRET_KEY")
+#: Upper bound for a project ``.env`` read by the root backup process.
+ENV_FILE_MAX_BYTES = 1024 * 1024
 DAILY_RETENTION = 7
 WEEKLY_RETENTION = 4
 
@@ -167,11 +173,83 @@ def _get_metabase_volume_path() -> str | None:
     return None
 
 
+def read_env_values(
+    path: Path | str, names: tuple[str, ...], max_bytes: int = ENV_FILE_MAX_BYTES
+) -> dict[str, str]:
+    """Return only *names* from the ``.env`` file at *path*, read as data.
+
+    The file is written by the ``dango`` user and read by root, so it is never
+    exported into the process environment, a symlink is refused, only a
+    regular file of at most *max_bytes* is read, and the open never blocks (a
+    FIFO is refused). Any refusal returns ``{}``.
+
+    Standard library only, apart from :func:`parse_env_file`: ``migrate`` embeds
+    the source of both functions in a script that may run on a server with an
+    older Dango version.
+    """
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        return {}
+    chunks: list[bytes] = []
+    size = 0
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > max_bytes:
+            return {}
+        while size <= max_bytes:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+    finally:
+        os.close(fd)
+    if size > max_bytes:
+        return {}
+    values = parse_env_file(b"".join(chunks).decode("utf-8", errors="replace"))
+    return {name: values[name] for name in names if values.get(name)}
+
+
 def _make_spaces_client(spaces_config: dict[str, Any]) -> Any:
-    """Create a SpacesClient from config dict."""
+    """Create a SpacesClient from config dict, with keys read from the project ``.env``."""
     from dango.platform.cloud.spaces import SpacesClient
 
-    return SpacesClient(bucket=spaces_config["bucket"], region=spaces_config["region"])
+    keys = read_env_values(PROJECT_DIR / ".env", SPACES_KEY_NAMES)
+    return SpacesClient(
+        bucket=spaces_config["bucket"],
+        region=spaces_config["region"],
+        access_key=keys.get(SPACES_KEY_NAMES[0]),
+        secret_key=keys.get(SPACES_KEY_NAMES[1]),
+    )
+
+
+def _copy_keeping_modes(src: Path, dest: Path, *, step: str) -> None:
+    """Copy *src* (file, or directory contents) to *dest* keeping modes, not owners.
+
+    Archive members must keep their source modes whatever the process umask is:
+    a restore onto a fresh server recreates files with them, and Metabase reads
+    ``data/`` as another user. Symlinks inside directories are copied as links.
+    """
+    import shutil
+
+    try:
+        if src.is_dir():
+            shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dest)
+    except (OSError, shutil.Error) as exc:
+        raise CloudProvisioningError(f"Step '{step}' failed: {exc}") from exc
+
+
+def _create_private_file(path: Path, content: bytes = b"") -> None:
+    """Create or truncate *path* as mode 0600 before any content is written."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        os.fchmod(handle.fileno(), 0o600)
+        handle.write(content)
 
 
 def _create_local_archive(
@@ -210,7 +288,7 @@ def _create_local_archive(
             if src.exists():
                 dest = staging / fpath
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                _run_local(f"cp '{src}' '{dest}'", step="copy_files")
+                _copy_keeping_modes(src, dest, step="copy_files")
         metabase_source = PROJECT_DIR / METABASE_CONFIG_FILE
         if metabase_source.exists():
             try:
@@ -225,7 +303,7 @@ def _create_local_archive(
             if src.exists():
                 dest = staging / dpath
                 dest.mkdir(parents=True, exist_ok=True)
-                _run_local(f"cp -r '{src}/.' '{dest}/'", step="copy_dirs")
+                _copy_keeping_modes(src, dest, step="copy_dirs")
 
         if metabase_vol:
             mb_staging = staging / "metabase"
@@ -233,10 +311,7 @@ def _create_local_archive(
             for h2 in ["metabase.db.mv.db", "metabase.db.trace.db"]:
                 src = Path(metabase_vol) / h2
                 if src.exists():
-                    _run_local(
-                        f"cp {shlex.quote(str(src))} {shlex.quote(str(mb_staging) + '/')}",
-                        step="copy_metabase",
-                    )
+                    _copy_keeping_modes(src, mb_staging / h2, step="copy_metabase")
         else:
             warnings.append("Metabase Docker volume not found — H2 backup skipped")
 
@@ -264,12 +339,15 @@ def _create_local_archive(
         }
         manifest_json = json.dumps(manifest, indent=2)
         (staging / "manifest.json").write_text(manifest_json)
+        # The archive and manifest are private (the archive may hold secrets); the
+        # members inside keep their source modes for restore.
+        _create_private_file(archive_path)
         _run_local(
             f"tar -czf '{archive_path}' -C /tmp '{archive_name}'",
             step="create_archive",
             timeout=600,
         )
-        manifest_path.write_text(manifest_json)
+        _create_private_file(manifest_path, manifest_json.encode())
     finally:
         subprocess.run(f"rm -rf '{staging}'", shell=True, timeout=30)
         _start_services()

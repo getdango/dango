@@ -125,7 +125,7 @@ class TestUploadBackupToSpaces:
         assert key == "migration/backup-test.tar.gz"
         # Script written to file, then executed + cleaned up
         ssh.write_remote_file.assert_called_once()
-        assert ssh.exec_command.call_count == 2  # exec + rm cleanup
+        assert ssh.exec_command.call_count == 3  # private mkdir + exec + rm cleanup
 
     def test_raises_on_failure(self) -> None:
         from dango.platform.cloud.migrate import _upload_backup_to_spaces
