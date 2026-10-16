@@ -6,8 +6,10 @@ Log retrieval endpoints.
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from dango.auth.models import User
+from dango.auth.permissions import require_permission
 from dango.validation import validate_limit, validate_source_name
 from dango.web.helpers import get_project_root, load_all_logs
 from dango.web.models import LogEntry
@@ -18,7 +20,11 @@ router = APIRouter(tags=["logs"])
 
 
 @router.get("/api/sources/{source_name}/logs", response_model=list[LogEntry])
-async def get_source_logs(source_name: str, limit: int = 100) -> list[LogEntry]:
+async def get_source_logs(
+    source_name: str,
+    limit: int = 100,
+    user: User = Depends(require_permission("logs.view")),
+) -> list[LogEntry]:
     """Get sync logs for a specific source.
 
     Args:
@@ -64,7 +70,11 @@ async def get_source_logs(source_name: str, limit: int = 100) -> list[LogEntry]:
 
 
 @router.get("/api/logs")
-async def get_all_logs(limit: int = 1000, category: str | None = None) -> list[dict[str, object]]:
+async def get_all_logs(
+    limit: int = 1000,
+    category: str | None = None,
+    user: User = Depends(require_permission("logs.view")),
+) -> list[dict[str, object]]:
     """Get all activity logs.
 
     Args:
