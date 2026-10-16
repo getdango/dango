@@ -641,9 +641,9 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
-    _stop_services()
     copies_started = False
     try:
+        _stop_services()
         # Sanitize Metabase metadata as root into a fresh private directory
         # (never into staging or the project tree), then let the service user read it.
         metabase_source = staging / METABASE_CONFIG_FILE

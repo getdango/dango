@@ -113,11 +113,13 @@ UNSAFE_ARCHIVE_MESSAGE = (
 def find_unsafe_cmd(staging: str) -> str:
     """Shell step that fails, listing them, if *staging* holds anything but plain files and dirs.
 
-    Symlinks, devices, FIFOs and hard-linked files are all reported.
+    Symlinks, devices, FIFOs and hard-linked files are all reported.  Fails closed: if
+    ``find`` itself fails, the step fails too (exit 3).
     """
     return (
-        f"! find {shlex.quote(staging)} \\( ! -type f ! -type d \\) -print -o"
-        " -type f -links +1 -print | head -n 20 | grep ."
+        f"out=$(find {shlex.quote(staging)} \\( ! -type f ! -type d \\) -print -o"
+        " -type f -links +1 -print) || exit 3;"
+        ' [ -z "$out" ] || { printf \'%s\\n\' "$out" | head -n 20; exit 1; }'
     )
 
 
@@ -168,9 +170,13 @@ def extract_checked_archive(
                 f"{result.stderr.strip() or result.stdout.strip()}"
             )
         found = ssh.exec_command(find_unsafe_cmd(staging), timeout=120)
+        if not found.success and not found.stdout.strip():
+            raise CloudProvisioningError(
+                "Archive could not be checked for links or special files "
+                f"({found.stderr.strip() or f'exit {found.exit_code}'}). Nothing was restored."
+            )
         if not found.success:
-            unsafe = found.stdout.split() or ["(could not be checked)"]
-            names = ", ".join(path.replace(f"{staging}/", "", 1) for path in unsafe)
+            names = ", ".join(p.replace(f"{staging}/", "", 1) for p in found.stdout.split())
             raise CloudProvisioningError(UNSAFE_ARCHIVE_MESSAGE.format(names=names))
 
         # Hand-made archives without a single top-level directory extract to
