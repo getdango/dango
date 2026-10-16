@@ -55,20 +55,34 @@ shift 3
 exec "$@"
 """
 
+#: ``find`` that fails without output when FAIL_FIND is set (an unreadable staging tree).
+_FIND_SHIM = """#!/bin/sh
+if [ -n "$FAIL_FIND" ]; then echo "find: Permission denied" >&2; exit 1; fi
+exec /usr/bin/find "$@"
+"""
+
 #: There is no ``dango`` user locally; ownership changes are no-ops.
 _CHOWN_SHIM = """#!/bin/sh
 exit 0
 """
 
 
-def shim_env(shim_dir: Path, *, fail_cp_match: str | None = None) -> dict[str, str]:
+def shim_env(
+    shim_dir: Path, *, fail_cp_match: str | None = None, fail_find: bool = False
+) -> dict[str, str]:
     """Install the cp/runuser/chown shims in *shim_dir*; return an env that uses them.
 
     Every ``cp`` appends ``<user>\\t<destination>`` to ``shim_dir/cp.log`` (user is
     ``root`` unless run through ``runuser``); read it with :func:`cp_log`.
     """
     shim_dir.mkdir(parents=True, exist_ok=True)
-    for name, body in (("cp", _CP_SHIM), ("runuser", _RUNUSER_SHIM), ("chown", _CHOWN_SHIM)):
+    shims = (
+        ("cp", _CP_SHIM),
+        ("runuser", _RUNUSER_SHIM),
+        ("chown", _CHOWN_SHIM),
+        ("find", _FIND_SHIM),
+    )
+    for name, body in shims:
         shim = shim_dir / name
         shim.write_text(body)
         shim.chmod(0o755)
@@ -78,6 +92,8 @@ def shim_env(shim_dir: Path, *, fail_cp_match: str | None = None) -> dict[str, s
     env["CP_LOG"] = str(shim_dir / "cp.log")
     if fail_cp_match:
         env["FAIL_CP_MATCH"] = fail_cp_match
+    if fail_find:
+        env["FAIL_FIND"] = "1"
     return env
 
 
@@ -96,9 +112,11 @@ def cp_log(shim_dir: Path) -> list[tuple[str, str]]:
 class ShellSSH:
     """Minimal ``SSHManager`` replacement that executes commands in a local shell."""
 
-    def __init__(self, shim_dir: Path, *, fail_cp_match: str | None = None) -> None:
+    def __init__(
+        self, shim_dir: Path, *, fail_cp_match: str | None = None, fail_find: bool = False
+    ) -> None:
         self.shim_dir = shim_dir
-        self._env = shim_env(shim_dir, fail_cp_match=fail_cp_match)
+        self._env = shim_env(shim_dir, fail_cp_match=fail_cp_match, fail_find=fail_find)
         self.commands: list[str] = []
 
     def exec_command(self, command: str, timeout: int = 60, **_kwargs: object) -> CommandResult:
@@ -222,6 +240,7 @@ def run_spaces_restore(
     metabase_vol: Path | None = None,
     fail_cp_match: str | None = None,
     events: list[str] | None = None,
+    stop_error: Exception | None = None,
 ) -> tuple[Path, list[str]]:
     """Run ``restore_from_spaces`` for an archive built from ``tmp_path/top``.
 
@@ -270,7 +289,7 @@ def run_spaces_restore(
         patch(f"{sb}.PROJECT_DIR", project),
         patch(f"{sb}.BACKUP_DIR", tmp_path / "backups"),
         patch(f"{sb}.download_from_spaces", side_effect=download),
-        patch(f"{sb}._stop_services", side_effect=lambda: events.append("stop")),
+        patch(f"{sb}._stop_services", side_effect=lambda: _stop(events, stop_error)),
         patch(f"{sb}._start_services", side_effect=lambda: events.append("start")),
         patch(f"{sb}._run_local", side_effect=run_local),
         patch(
@@ -281,3 +300,9 @@ def run_spaces_restore(
     ):
         scheduled_backup.restore_from_spaces({}, f"backups/{top}.tar.gz")
     return shim_dir, events
+
+
+def _stop(events: list[str], error: Exception | None) -> None:
+    events.append("stop")
+    if error is not None:
+        raise error

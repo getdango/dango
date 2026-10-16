@@ -239,3 +239,57 @@ def _no_stray_tmp_staging() -> Any:
     """Remove any /tmp staging left by a failing assertion (pre-fix code extracts there)."""
     yield
     shutil.rmtree(Path("/tmp") / _TOP, ignore_errors=True)
+
+
+@pytest.mark.unit
+def test_server_restore_refused_when_archive_check_cannot_run(tmp_path: Path) -> None:
+    """If `find` itself fails on the staging tree, the restore fails closed."""
+    from dango.platform.cloud.backup import restore_from_archive
+
+    _content(tmp_path / "content")
+    archive = _tar(tmp_path / "content", tmp_path / f"{_TOP}.tar.gz")
+    project = tmp_path / "project"
+    project.mkdir()
+    (tmp_path / "staging-root").mkdir()
+    ssh = ShellSSH(tmp_path / "shim", fail_find=True)
+
+    with (
+        patch(f"{_B}.PROJECT_DIR", str(project)),
+        patch(f"{_B}.RESTORE_STAGING_ROOT", str(tmp_path / "staging-root")),
+        patch(f"{_B}.create_backup") as safety,
+        patch(f"{_B}.stop_services") as stop,
+        patch(f"{_B}.start_services"),
+        patch(f"{_B}.verify_health", return_value=True),
+        patch(f"{_B}._get_metabase_volume_path", return_value=None),
+        pytest.raises(CloudProvisioningError, match="link"),
+    ):
+        restore_from_archive(ssh, str(archive))
+
+    safety.assert_not_called()
+    stop.assert_not_called()
+    assert cp_log(ssh.shim_dir) == []
+
+
+@pytest.mark.unit
+def test_spaces_restore_removes_staging_when_service_stop_fails(tmp_path: Path) -> None:
+    import tempfile
+
+    _content(tmp_path / _TOP)
+    project = tmp_path / "project"
+    project.mkdir()
+    made: list[str] = []
+    real_mkdtemp = tempfile.mkdtemp
+
+    def recording_mkdtemp(*args: Any, **kwargs: Any) -> str:
+        path = real_mkdtemp(*args, **kwargs)
+        made.append(path)
+        return path
+
+    with (
+        patch("dango.platform.cloud.scheduled_backup.tempfile.mkdtemp", recording_mkdtemp),
+        pytest.raises(RuntimeError, match="systemctl"),
+    ):
+        run_spaces_restore(tmp_path, project, _TOP, stop_error=RuntimeError("systemctl hung"))
+
+    assert made, "no staging directory was created"
+    assert [p for p in made if Path(p).exists()] == [], "staging left behind"
