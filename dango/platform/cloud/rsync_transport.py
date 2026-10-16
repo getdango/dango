@@ -54,12 +54,13 @@ def _build_rsync_ssh_arg(ssh_key_path: Path, known_hosts_path: Path, port: int =
     """Build the ``-e`` argument: verify the host against the paramiko-pinned known_hosts.
 
     Raises:
-        CloudProvisioningError: If a path contains a quote character (it is embedded quoted).
+        CloudProvisioningError: If a path contains a quote character, or the known_hosts
+            path contains ``$`` (ssh would expand it).
     """
-    from dango.platform.cloud.ssh import ssh_config_path
+    from dango.platform.cloud.ssh import ssh_argv_path, ssh_config_path
 
     try:
-        key = ssh_config_path(ssh_key_path)
+        key = ssh_argv_path(ssh_key_path)
         known_hosts = ssh_config_path(known_hosts_path)
     except CloudSSHError as exc:
         raise CloudProvisioningError(str(exc)) from exc

@@ -73,7 +73,8 @@ def sshd_pair(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
         pytest.skip("rsync is required")
 
     work = tmp_path_factory.mktemp("rsync-hostkey")
-    client_key = work / "id_ed25519"
+    client_key = work / "client key" / "id_ed25519"  # space in the -i path
+    client_key.parent.mkdir()
     subprocess.run(
         ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(client_key)],
         check=True,
@@ -95,7 +96,7 @@ def sshd_pair(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
                 "-p",
                 f"127.0.0.1:{port}:22",
                 "-e",
-                f"AUTHORIZED_KEY={(work / 'id_ed25519.pub').read_text().strip()}",
+                f"AUTHORIZED_KEY={(client_key.parent / 'id_ed25519.pub').read_text().strip()}",
                 "-e",
                 f"KEYTYPE={keytype}",
                 _IMAGE,

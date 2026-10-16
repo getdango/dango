@@ -76,18 +76,44 @@ def host_key_name(host: str, port: int = 22) -> str:
     return host if port == 22 else f"[{host}]:{port}"
 
 
-def ssh_config_path(path: Path) -> str:
-    """Return *path* for use inside a double-quoted ssh option value.
+def ssh_argv_path(path: Path) -> str:
+    """Return *path* for ssh's ``-i`` argument.
 
-    ``%`` is doubled because ssh expands ``%`` tokens in ``UserKnownHostsFile``
-    and ``IdentityFile``.
+    OpenSSH checks the ``-i`` path literally but then %-expands it before
+    loading, so no spelling of a path containing ``%`` works (neither ``%`` nor
+    ``%%``): such paths are refused with a clear error instead of failing
+    authentication obscurely.
 
     Raises:
-        CloudSSHError: If the path contains a quote character (it cannot be quoted safely).
+        CloudSSHError: If the path contains a quote character (rsync's ``-e``
+            embeds it quoted) or ``%``.
     """
     text = str(path)
     if '"' in text or "'" in text:
         raise CloudSSHError(f"SSH file path must not contain quote characters: {text}")
+    if "%" in text:
+        raise CloudSSHError(
+            f"SSH key path must not contain '%' (ssh cannot load such a key file): {text}"
+        )
+    return text
+
+
+def ssh_config_path(path: Path) -> str:
+    """Return *path* for use inside a double-quoted ssh option value (``UserKnownHostsFile``).
+
+    ``%`` is doubled because ssh expands ``%`` tokens there.  ``$`` is refused
+    because ssh also expands ``${VAR}`` there and it cannot be escaped.
+
+    Raises:
+        CloudSSHError: If the path contains a quote character or ``$``.
+    """
+    text = str(path)
+    if '"' in text or "'" in text:
+        raise CloudSSHError(f"SSH file path must not contain quote characters: {text}")
+    if "$" in text:
+        raise CloudSSHError(
+            f"SSH known_hosts path must not contain '$' (ssh expands ${{...}} in it): {text}"
+        )
     return text.replace("%", "%%")
 
 
@@ -125,9 +151,10 @@ def _load_host_keys(pm: Any, path: Path, *, warn: bool = True) -> _KnownHosts:
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        marker, _, rest = line.partition(" ")
-        if marker == "@revoked":
-            entry = _parse_known_hosts_line(pm, rest.strip(), lineno)
+        fields = line.split(None, 1)  # markers are separated by any whitespace (OpenSSH)
+        if fields[0] == "@revoked":
+            rest = fields[1] if len(fields) > 1 else ""
+            entry = _parse_known_hosts_line(pm, rest, lineno)
             if entry is None:
                 skipped.append(lineno)
             else:

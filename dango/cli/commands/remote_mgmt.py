@@ -413,14 +413,15 @@ def remote_ssh(ctx: click.Context) -> None:
     cloud_cfg, project_root = _load_cloud_config_with_ip(ctx)
 
     from dango.exceptions import CloudSSHError
-    from dango.platform.cloud.ssh import ensure_host_pinned, ssh_config_path
+    from dango.platform.cloud.ssh import ensure_host_pinned, ssh_argv_path, ssh_config_path
 
     manager = _make_ssh_manager(cloud_cfg, project_root)
     key_path = manager.key_path
     known_hosts = manager.known_hosts_path
     try:
-        # One argv element each; ssh would split an unquoted value and expand % tokens.
-        identity_arg = ssh_config_path(key_path)
+        # One argv element each.  ssh splits an unquoted UserKnownHostsFile value and
+        # expands % and ${VAR} in it; a -i path containing % cannot be used at all.
+        identity_arg = ssh_argv_path(key_path)
         known_hosts_arg = f'UserKnownHostsFile="{ssh_config_path(known_hosts)}"'
     except CloudSSHError as exc:
         console.print(f"[red]Error:[/red] {exc}")

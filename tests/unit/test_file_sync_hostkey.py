@@ -104,18 +104,22 @@ class TestRsyncSshArg:
 
     def test_rsync_ssh_arg_exact_string_quotes_and_escapes(self) -> None:
         """Single quotes survive rsync's -e splitter; double quotes keep ssh from splitting;
-        ``%`` is doubled in UserKnownHostsFile (ssh expands tokens there) but not in -i
-        (ssh does not expand the command-line identity path)."""
+        ``%`` is doubled in UserKnownHostsFile (ssh expands tokens there)."""
         arg = _build_rsync_ssh_arg(
-            Path("/Users/John Smith/%d/key"),
+            Path("/Users/John Smith/.dango/key"),
             known_hosts_path=Path("/Users/John Smith/.dango %h/known_hosts"),
             port=2222,
         )
         assert arg == (
-            'ssh -i "/Users/John Smith/%d/key" -p 2222 -o StrictHostKeyChecking=yes '
+            'ssh -i "/Users/John Smith/.dango/key" -p 2222 -o StrictHostKeyChecking=yes '
             "-o 'UserKnownHostsFile=\"/Users/John Smith/.dango %%h/known_hosts\"' "
             "-o BatchMode=yes"
         )
+
+    def test_rsync_ssh_arg_refuses_percent_in_key_path(self) -> None:
+        """OpenSSH cannot load a -i path containing % in any spelling (% or %%)."""
+        with pytest.raises(CloudProvisioningError, match="%"):
+            _build_rsync_ssh_arg(Path("/Users/x/%d/key"), known_hosts_path=Path("/kh"), port=22)
 
     @pytest.mark.parametrize("bad", ["/tmp/${HOME}/known_hosts", "/tmp/$HOME/kh", "/tmp/a$b"])
     def test_rsync_ssh_arg_rejects_dollar_in_known_hosts_path(self, bad: str) -> None:
@@ -346,12 +350,11 @@ class TestRemoteSshKnownHosts:
         assert "StrictHostKeyChecking=accept-new" in argv
         assert not any(a.startswith("UserKnownHostsFile=") and a.count('"') != 2 for a in argv)
 
-    def test_remote_ssh_identity_path_with_percent_passed_unescaped(
+    def test_remote_ssh_refuses_identity_path_with_percent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """ssh does not expand % in the command-line -i path."""
-        argv, key_path = _invoke_remote_ssh(tmp_path, monkeypatch, key_rel=".dango %d/cloud_key")
-        assert argv[argv.index("-i") + 1] == str(key_path)
+        """OpenSSH cannot load a -i path containing % in any spelling (% or %%)."""
+        _invoke_remote_ssh(tmp_path, monkeypatch, key_rel=".dango %d/cloud_key", expect_ok=False)
 
     def test_remote_ssh_refuses_known_hosts_path_with_dollar(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
