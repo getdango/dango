@@ -154,7 +154,7 @@ class TestScheduledBackupVolumePathQuoting:
             patch(f"{_MODULE}._get_metabase_volume_path", return_value=str(vol)),
             patch(f"{_MODULE}._run_local", side_effect=fake_run_local),
             patch(f"{_MODULE}._copy_keeping_modes", side_effect=fake_copy),
-            patch(f"{_MODULE}._create_private_file"),
+            patch(f"{_MODULE}._write_archive"),
             patch("subprocess.run"),
         ):
             sb._create_local_archive("t", include_secrets=False)
@@ -276,6 +276,7 @@ class TestScheduledBackupRestoreQuoting:
             str(staging),
             "&&",
             "tar",
+            "--no-same-permissions",
             "-xzf",
             str(tmp_path / "backups" / "it's.tar.gz"),
             "-C",

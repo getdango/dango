@@ -323,5 +323,5 @@ class TestRestoreExtraction:
         monkeypatch.setattr(sb, "_run_local", lambda c, **k: commands.append(c) or "")
         with patch("subprocess.run"):
             sb.restore_from_spaces({}, "backups/backup-x.tar.gz")
-        (extract,) = [c for c in commands if "tar -x" in c]
+        (extract,) = [c for c in commands if "-xzf" in c]
         assert "--no-same-permissions" in extract, extract
