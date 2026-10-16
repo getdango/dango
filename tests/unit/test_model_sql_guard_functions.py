@@ -133,3 +133,39 @@ def test_allowlist_file_header_and_order() -> None:
     assert any("DuckDB 1.5" in ln for ln in header)
     assert any("generate_duckdb_function_allowlist.py" in ln for ln in header)
     assert names == sorted(set(names))
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "select json_serialize_plan('select * from read_csv(''/etc/hosts'')') as p",
+        "select json_serialize_sql('select 1') as p",
+        f"select get_block_size('warehouse') from {REF}",
+        "select pg_get_viewdef(1) as v",
+    ],
+)
+def test_sql_string_and_catalog_functions_refused(sql: str) -> None:
+    assert _guard(sql)
+
+
+def test_allowlist_has_no_denied_prefix_or_suffix() -> None:
+    from dango.transformation.model_sql_functions import DENIED_PREFIXES, DENIED_SUFFIXES
+    from dango.transformation.model_sql_guard import load_function_allowlist
+
+    allow = load_function_allowlist()
+    assert "json_serialize" in DENIED_PREFIXES and "json_execute" in DENIED_PREFIXES
+    assert not [n for n in allow if n.startswith(DENIED_PREFIXES) or n.endswith(DENIED_SUFFIXES)]
+    assert "get_block_size" not in allow and "pg_get_viewdef" not in allow
+    assert "pg_get_constraintdef" in allow and "format_type" in allow
+
+
+def test_allowlist_header_says_regenerate_on_pin_change() -> None:
+    from importlib import resources
+
+    text = (
+        resources.files("dango.transformation")
+        .joinpath("duckdb_function_allowlist.txt")
+        .read_text(encoding="utf-8")
+    )
+    header = " ".join(ln for ln in text.splitlines() if ln.startswith("#"))
+    assert "pin changes" in header and "fail closed" in header
