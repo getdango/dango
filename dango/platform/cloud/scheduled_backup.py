@@ -12,9 +12,11 @@ import fcntl
 import json
 import os
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -225,31 +227,71 @@ def _make_spaces_client(spaces_config: dict[str, Any]) -> Any:
     )
 
 
+def _copy_file_without_special_bits(src: str, dest: str) -> str:
+    """Copy file contents, then apply the source permission bits minus setuid/setgid/sticky."""
+    shutil.copyfile(src, dest)
+    os.chmod(dest, stat.S_IMODE(os.stat(src).st_mode) & 0o777)
+    return dest
+
+
 def _copy_keeping_modes(src: Path, dest: Path, *, step: str) -> None:
-    """Copy *src* (file, or directory contents) to *dest* keeping modes, not owners.
+    """Copy *src* (file, or directory contents) to *dest* keeping rwx modes, not owners.
 
-    Archive members must keep their source modes whatever the process umask is:
-    a restore onto a fresh server recreates files with them, and Metabase reads
-    ``data/`` as another user. Symlinks inside directories are copied as links.
+    Members keep their source permission bits whatever the umask (a restore onto
+    a fresh server recreates files with them; Metabase reads ``data/`` as another
+    user), but never setuid/setgid/sticky: root makes these copies. Symlinks
+    inside directories are copied as links.
     """
-    import shutil
-
     try:
-        if src.is_dir():
-            shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True)
-        else:
-            shutil.copy2(src, dest)
+        if not src.is_dir():
+            _copy_file_without_special_bits(str(src), str(dest))
+            return
+        shutil.copytree(
+            src,
+            dest,
+            symlinks=True,
+            dirs_exist_ok=True,
+            copy_function=_copy_file_without_special_bits,
+        )
+        # copytree copies directory modes with copystat; drop special bits there too.
+        for root, dirs, _files in os.walk(dest):
+            for name in [".", *dirs]:
+                path = os.path.join(root, name)
+                if not os.path.islink(path):
+                    os.chmod(path, stat.S_IMODE(os.lstat(path).st_mode) & 0o777)
     except (OSError, shutil.Error) as exc:
         raise CloudProvisioningError(f"Step '{step}' failed: {exc}") from exc
 
 
-def _create_private_file(path: Path, content: bytes = b"") -> None:
-    """Create or truncate *path* as mode 0600 before any content is written."""
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
-    fd = os.open(path, flags, 0o600)
-    with os.fdopen(fd, "wb") as handle:
-        os.fchmod(handle.fileno(), 0o600)
-        handle.write(content)
+def _open_new_private_file(path: Path) -> int:
+    """Create *path* as a new 0600 file and return its fd.
+
+    ``O_EXCL`` refuses an existing file and ``O_NOFOLLOW`` a planted link, so root
+    never writes through anything another user prepared at a predictable name.
+    """
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    os.fchmod(fd, 0o600)
+    return fd
+
+
+def _write_archive(staging: Path, archive_name: str, archive_path: Path) -> None:
+    """Write *staging* as ``<archive_name>/…`` into a new private archive at *archive_path*.
+
+    The archive is written through the fd from :func:`_open_new_private_file`;
+    nothing reopens the path by name.
+    """
+    import tarfile
+
+    fd = _open_new_private_file(archive_path)
+    try:
+        with (
+            os.fdopen(fd, "wb") as handle,
+            tarfile.open(fileobj=handle, mode="w:gz", compresslevel=6) as tar,
+        ):
+            tar.add(str(staging), arcname=archive_name)
+    except Exception:
+        archive_path.unlink(missing_ok=True)
+        raise
 
 
 def _create_local_archive(
@@ -258,17 +300,18 @@ def _create_local_archive(
     """Create a tar.gz backup archive. Stops/restarts services via try/finally."""
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     archive_name = f"backup-{timestamp}"
-    staging = Path(f"/tmp/{archive_name}")
     archive_path = BACKUP_DIR / f"{archive_name}.tar.gz"
     manifest_path = BACKUP_DIR / f"{archive_name}.json"
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     warnings: list[str] = []
 
+    staging: Path | None = None
     _stop_services()
     try:
         warnings.extend(_checkpoint_databases())
         metabase_vol = _get_metabase_volume_path()
-        staging.mkdir(parents=True, exist_ok=True)
+        # Fresh root-only (0700) directory with an unpredictable name.
+        staging = Path(tempfile.mkdtemp(prefix="dango-backup."))
 
         from dango.platform.cloud.backup import (
             BACKUP_DIRS,
@@ -341,15 +384,12 @@ def _create_local_archive(
         (staging / "manifest.json").write_text(manifest_json)
         # The archive and manifest are private (the archive may hold secrets); the
         # members inside keep their source modes for restore.
-        _create_private_file(archive_path)
-        _run_local(
-            f"tar -czf '{archive_path}' -C /tmp '{archive_name}'",
-            step="create_archive",
-            timeout=600,
-        )
-        _create_private_file(manifest_path, manifest_json.encode())
+        _write_archive(staging, archive_name, archive_path)
+        with os.fdopen(_open_new_private_file(manifest_path), "w") as manifest_file:
+            manifest_file.write(manifest_json)
     finally:
-        subprocess.run(f"rm -rf '{staging}'", shell=True, timeout=30)
+        if staging is not None:
+            shutil.rmtree(staging, ignore_errors=True)
         _start_services()
 
     return archive_path, manifest, warnings
@@ -676,7 +716,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
     _stop_services()
     try:
         _run_local(
-            f"rm -rf {shlex.quote(str(staging))} && tar -xzf {shlex.quote(str(local_path))} -C /tmp",
+            f"rm -rf {shlex.quote(str(staging))} && tar --no-same-permissions -xzf {shlex.quote(str(local_path))} -C /tmp",
             step="extract",
         )
         from dango.platform.cloud.backup import (
