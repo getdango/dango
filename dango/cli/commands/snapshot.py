@@ -8,6 +8,7 @@ from __future__ import annotations
 import click
 
 from dango.cli import console
+from dango.utils.dbt_escaping import comment_text, jinja_string_literal
 
 
 def _render_snapshot(
@@ -21,6 +22,7 @@ def _render_snapshot(
     updated_at: str,
 ) -> str:
     """Render ``snapshot.sql.j2`` for the given snapshot settings."""
+    import re
     from pathlib import Path
 
     import jinja2
@@ -30,9 +32,11 @@ def _render_snapshot(
         loader=jinja2.FileSystemLoader(str(templates_dir)),
         keep_trailing_newline=True,
     )
+    env.filters["cmt"] = comment_text
+    env.filters["jsl"] = jinja_string_literal
     return env.get_template("snapshot.sql.j2").render(
         generated_at=generated_at,
-        snapshot_name=snapshot_name,
+        snapshot_name=re.sub(r"[^0-9A-Za-z_]", "_", snapshot_name),
         source_name=source_name,
         table_name=table_name,
         strategy=strategy,
@@ -228,7 +232,8 @@ def snapshot_add(ctx: click.Context) -> None:
         updated_at = answers["updated_at"].strip()
 
     # 6. Generate snapshot SQL file
-    snapshot_name = f"snap_{selected_source}_{selected_table}"
+    # Table names are data-derived: keep the snapshot name a plain identifier (file name + tag).
+    snapshot_name = re.sub(r"[^0-9A-Za-z_]", "_", f"snap_{selected_source}_{selected_table}")
     # Sanitize: only allow alphanumeric and underscores
     snapshot_name = re.sub(r"[^a-zA-Z0-9_]", "_", snapshot_name)
 

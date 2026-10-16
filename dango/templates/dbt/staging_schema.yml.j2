@@ -26,6 +26,9 @@ models:
     columns:
 {% for column in model.columns %}
       - name: {{ column.name | ysc }}
+{% if column.name | nq %}
+        quote: true
+{% endif %}
 {% if column.tests %}
         tests:
 {% for test in column.tests %}

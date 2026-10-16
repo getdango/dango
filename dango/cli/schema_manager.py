@@ -10,7 +10,7 @@ import duckdb
 import yaml
 from rich.console import Console
 
-from dango.utils.dbt_escaping import neutralize_jinja
+from dango.utils.dbt_escaping import needs_identifier_quoting, neutralize_jinja
 
 console = Console()
 
@@ -221,6 +221,8 @@ class SchemaManager:
             entry = dict(existing_columns.get(col_name, {}))
             entry["name"] = col_name
             entry["description"] = description
+            if needs_identifier_quoting(col["name"]):
+                entry["quote"] = True
             new_columns.append(entry)
 
         # Detect removed columns
