@@ -10,6 +10,37 @@ import click
 from dango.cli import console
 
 
+def _render_snapshot(
+    *,
+    generated_at: str,
+    snapshot_name: str,
+    source_name: str,
+    table_name: str,
+    strategy: str,
+    unique_key: str,
+    updated_at: str,
+) -> str:
+    """Render ``snapshot.sql.j2`` for the given snapshot settings."""
+    from pathlib import Path
+
+    import jinja2
+
+    templates_dir = Path(__file__).parent.parent.parent / "templates" / "dbt"
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(templates_dir)),
+        keep_trailing_newline=True,
+    )
+    return env.get_template("snapshot.sql.j2").render(
+        generated_at=generated_at,
+        snapshot_name=snapshot_name,
+        source_name=source_name,
+        table_name=table_name,
+        strategy=strategy,
+        unique_key=unique_key,
+        updated_at=updated_at,
+    )
+
+
 @click.group(invoke_without_command=True)
 @click.pass_context
 def snapshot(ctx: click.Context) -> None:
@@ -38,7 +69,6 @@ def snapshot_add(ctx: click.Context) -> None:
     """
     import re
     from datetime import datetime
-    from pathlib import Path
 
     import duckdb
     import inquirer
@@ -220,16 +250,7 @@ def snapshot_add(ctx: click.Context) -> None:
             console.print("[dim]Cancelled.[/dim]")
             return
 
-    # Render template
-    import jinja2
-
-    templates_dir = Path(__file__).parent.parent.parent / "templates" / "dbt"
-    env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(str(templates_dir)),
-        keep_trailing_newline=True,
-    )
-    template = env.get_template("snapshot.sql.j2")
-    rendered = template.render(
+    rendered = _render_snapshot(
         generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
         snapshot_name=snapshot_name,
         source_name=selected_source,
