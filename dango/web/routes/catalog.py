@@ -165,14 +165,14 @@ async def get_table_columns(
 async def refresh_table_profile(
     source: str,
     table: str,
-    user: User = Depends(require_permission("governance.view")),  # noqa: ARG001
+    user: User = Depends(require_permission("dbt.run")),  # noqa: ARG001
 ) -> dict[str, Any]:
     """Compute fresh profiling stats for a table and return them.
 
     Args:
         source: Source name (URL path parameter).
         table: Table name (URL path parameter).
-        user: Authenticated user with ``governance.view`` permission.
+        user: Authenticated user with ``dbt.run`` permission.
 
     Returns:
         Column schema with freshly computed profiling statistics.
