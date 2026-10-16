@@ -543,7 +543,7 @@ class TestKnownHosts:
             policy.missing_host_key(client_mock, "10.0.0.1", key_mock)
 
         host_keys_mock.add.assert_called_once_with("10.0.0.1", "ssh-ed25519", key_mock)
-        host_keys_mock.save.assert_called_once()
+        assert known_hosts.read_text().startswith("10.0.0.1 ssh-ed25519 ")
 
     def test_matching_key_accepted(self, tmp_path: Path):
         """Known host with matching key is accepted silently."""
@@ -571,6 +571,7 @@ class TestKnownHosts:
             incoming_key.__eq__ = stored_key.__eq__ = lambda self, other: self is other
             # Make them the same object.
             incoming_key = stored_key
+            incoming_key.get_name.return_value = "ssh-ed25519"
 
             client_mock = MagicMock()
             # Should not raise.

@@ -478,10 +478,7 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
 
     key_path = _resolve_key_path(cloud_cfg, project_root)
     if key_path.exists():
-        ssh = SSHManager(
-            key_path=key_path,
-            known_hosts_path=key_path.parent / "known_hosts",
-        )
+        ssh = SSHManager(key_path=key_path)
         try:
             ssh.connect(cloud_cfg.droplet_ip)
 
@@ -724,10 +721,7 @@ def _offer_backup_download(cloud_cfg: Any, project_root: Path) -> None:
     if not key_path.exists():
         return
 
-    ssh = SSHManager(
-        key_path=key_path,
-        known_hosts_path=key_path.parent / "known_hosts",
-    )
+    ssh = SSHManager(key_path=key_path)
 
     server_latest: str | None = None
 

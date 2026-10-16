@@ -205,6 +205,40 @@ class TestRemoteUpgradeCommand:
 
         assert "Upgrade complete" in result.output
 
+    def test_shows_caddyfile_ws_migration_status(self, tmp_path: Path) -> None:
+        """The Caddyfile WebSocket route migration status is printed."""
+        from dango.platform.cloud.upgrade import UpgradeResult
+
+        upgrade_result = UpgradeResult(
+            old_version="1.0.13",
+            new_version="1.0.14",
+            backup_path=None,
+            migrations_run=True,
+            docker_rebuilt=True,
+            health_check_passed=True,
+            duration_seconds=45.0,
+            caddyfile_ws_migration="Caddyfile WebSocket route migrated",
+        )
+
+        with (
+            patch(_PATCH_REQUIRE_CTX, return_value=tmp_path),
+            patch(_PATCH_LOADER, return_value=_make_loader(_make_cloud_config())),
+            patch(_PATCH_SSH_CLS, return_value=_make_ssh_mock()),
+            patch(
+                "dango.platform.cloud.server_status._get_dango_version",
+                return_value="1.0.13",
+            ),
+            patch(
+                "dango.platform.cloud.upgrade.upgrade_dango",
+                return_value=upgrade_result,
+            ),
+        ):
+            result = _run(
+                ["upgrade", "--version", "1.0.14", "--yes"], tmp_path, catch_exceptions=True
+            )
+
+        assert "Caddyfile WebSocket route migrated" in _strip_ansi(result.output)
+
 
 # ---------------------------------------------------------------------------
 # dango remote resize
