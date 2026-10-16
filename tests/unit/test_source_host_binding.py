@@ -255,7 +255,7 @@ def _rest_api_wizard_prompt(root: Path, base_url: str) -> list[str]:
 @pytest.mark.unit
 def test_cli_wizard_rejects_bad_rest_api_base_url(project: Path) -> None:
     printed = _rest_api_wizard_prompt(project, "https://evil.example#")
-    assert any("base_url" in m and "fragment" in m for m in printed), printed
+    assert any("base_url" in m and "'#'" in m for m in printed), printed
 
 
 @pytest.mark.unit

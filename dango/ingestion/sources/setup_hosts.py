@@ -72,9 +72,15 @@ def _port_ok(parts: SplitResult) -> bool:
 def _url_error(param: str, value: str, require_https: bool, lenient: bool) -> str | None:
     shape = (
         f"'{param}' must be a URL like https://api.example.com/v1 "
-        f"(no user:password@, no '#' fragment{'' if lenient else ', no ? query'})"
+        "(no user:password@, no '#' fragment, no '?' query)"
     )
-    if "#" in value or (not lenient and "?" in value) or any(ch.isspace() for ch in value):
+    if lenient and ("?" in value or "#" in value):
+        # The endpoint path is appended after the base URL, so a query here breaks every request.
+        return (
+            f"'{param}' must not contain '?' or '#'. "
+            "Put query parameters in the endpoint's params, not the base URL"
+        )
+    if "#" in value or "?" in value or any(ch.isspace() for ch in value):
         return shape
     parts = urlsplit(value)
     if not _port_ok(parts):
@@ -112,8 +118,8 @@ def validate_host_param(
 
     require_https: reject plain http:// for non-loopback hosts (the agent path); otherwise
     such a value is accepted and :func:`insecure_host_warning` reports it.
-    human_entry: a person typed a URL in the CLI wizard: also accept '_' in the hostname, a
-    '?' query and one trailing dot. Never used for agent input.
+    human_entry: a person typed a URL in the CLI wizard: also accept '_' in the hostname and
+    one trailing dot. Never used for agent input.
     """
     param = HOST_BEARING_PARAMS.get(source_type)
     if param is None:
