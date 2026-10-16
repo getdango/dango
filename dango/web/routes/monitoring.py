@@ -305,7 +305,7 @@ async def get_monitoring(
 @router.post("/api/monitoring/run")
 async def run_monitoring(
     source: str | None = Query(None, description="Filter by source name"),
-    user: User = Depends(require_permission("governance.view")),
+    user: User = Depends(require_permission("dbt.run")),
 ) -> MonitoringResponse:
     """Execute a fresh analysis run (state-mutating).
 
