@@ -22,7 +22,8 @@ class SymlinkAwareSSH:
     Records every place where root would follow one of the symlinks:
     - an SFTP write (``write_remote_file``) to a symlinked path;
     - ``chown`` on a symlinked path without ``-h`` (or ``chown -R`` without an explicit ``-P``);
-    - a shell redirection (``>`` / ``>>``) onto, or ``cat`` of, a symlinked path in a root command.
+    - a shell redirection (``>`` / ``>>``) onto, or ``cat`` of, a symlinked path in a root command;
+    - ``mkdir -p`` at or under a symlinked path in a root command.
     Commands that switch to the dango user first are not root operations.
     """
 
@@ -31,6 +32,12 @@ class SymlinkAwareSSH:
         self.followed: list[str] = []
         self.commands: list[str] = []
         self.sftp_writes: list[str] = []
+
+    def connect(self, host: str, username: str = "root") -> None:
+        """Pretend to connect."""
+
+    def disconnect(self) -> None:
+        """Pretend to disconnect."""
 
     def write_remote_file(self, path: str, content, mode: int = 0o644, timeout=None) -> None:
         self.sftp_writes.append(path)
@@ -62,6 +69,10 @@ class SymlinkAwareSSH:
             for w in words[1:]:
                 if not safe and any(w == link or link.startswith(w + "/") for link in self.links):
                     self.followed.append(f"chown {w}")
+        if words and words[0] == "mkdir":
+            for w in words[1:]:
+                if any(w == link or w.startswith(link + "/") for link in self.links):
+                    self.followed.append(f"mkdir {w}")
         if words and words[0] == "cat":
             for w in words[1:]:
                 if w in self.links:
@@ -138,38 +149,45 @@ class TestRootDoesNotFollowProjectSymlinks:
 
     def test_recursive_project_chown_states_no_follow(self, project_root):
         """Both deploy paths chown the whole project tree with an explicit -P."""
-        from dango.cli.commands.deploy_provision import run_byos_setup
-        from dango.cli.commands.deploy_wizard import BYOSConfig
-
-        ssh = SymlinkAwareSSH(_links("dbt"))
-        ssh.connect = MagicMock()
-        ssh.disconnect = MagicMock()
-        cfg = BYOSConfig(
-            server_ip="198.51.100.10",
-            ssh_user="root",
-            ssh_key_path=str(project_root / "key"),
-            domain=None,
-            admin_email="admin@example.com",
-            admin_password="Str0ng-and-l0ng-passw0rd!",
-            skip_oauth=True,
-        )
-        with (
-            patch("dango.platform.cloud.ssh.SSHManager", return_value=ssh),
-            patch(
-                "dango.platform.cloud.server_setup.setup_server",
-                return_value=MagicMock(warnings=[]),
-            ),
-            patch(
-                "dango.platform.cloud.server_setup.resolve_install_source", return_value="getdango"
-            ),
-            patch("dango.platform.cloud.file_sync.sync_project_files"),
-            patch("dango.platform.cloud.backup.get_remote_compose_project_name", return_value="p"),
-            patch("dango.cli.commands.deploy_provision._health_check", return_value=True),
-            patch("dango.cli.commands.deploy_provision._wait_for_metabase", return_value=True),
-            patch("dango.cli.commands.deploy_provision.time.sleep"),
-        ):
-            run_byos_setup(project_root, cfg, non_interactive=True)
+        ssh = _run_byos(project_root, _links("dbt/profiles.yml"))
         recursive = [c for c in ssh.commands if c.startswith("chown -R") or " chown -R" in c]
         assert recursive, "expected a recursive chown of the project"
         assert all(re.search(r"chown -R\S*P|chown -R -P", c) for c in recursive), recursive
         assert ssh.followed == []
+
+    def test_dbt_target_created_as_dango(self, project_root):
+        ssh = _run_byos(project_root, _links("dbt"))
+        assert any("mkdir" in c and "dbt/target" in c for c in ssh.commands)
+        assert ssh.followed == []
+
+
+def _run_byos(project_root: Path, links: dict[str, str]) -> SymlinkAwareSSH:
+    """Run the whole BYOS setup against a symlink-aware fake root session."""
+    from dango.cli.commands.deploy_provision import run_byos_setup
+    from dango.cli.commands.deploy_wizard import BYOSConfig
+
+    ssh = SymlinkAwareSSH(links)
+    cfg = BYOSConfig(
+        server_ip="198.51.100.10",
+        ssh_user="root",
+        ssh_key_path=str(project_root / "key"),
+        domain=None,
+        admin_email="admin@example.com",
+        admin_password="Str0ng-and-l0ng-passw0rd!",
+        skip_oauth=True,
+    )
+    with (
+        patch("dango.platform.cloud.ssh.SSHManager", return_value=ssh),
+        patch(
+            "dango.platform.cloud.server_setup.setup_server",
+            return_value=MagicMock(warnings=[]),
+        ),
+        patch("dango.platform.cloud.server_setup.resolve_install_source", return_value="getdango"),
+        patch("dango.platform.cloud.file_sync.sync_project_files"),
+        patch("dango.platform.cloud.backup.get_remote_compose_project_name", return_value="p"),
+        patch("dango.cli.commands.deploy_provision._health_check", return_value=True),
+        patch("dango.cli.commands.deploy_provision._wait_for_metabase", return_value=True),
+        patch("dango.cli.commands.deploy_provision.time.sleep"),
+    ):
+        run_byos_setup(project_root, cfg, non_interactive=True)
+    return ssh

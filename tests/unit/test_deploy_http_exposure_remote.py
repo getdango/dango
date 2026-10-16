@@ -276,7 +276,7 @@ class TestDomainSetReopensWebPorts:
 # ---------------------------------------------------------------------------
 
 
-def _status(tmp_path: Path, domain: str | None) -> str:
+def _status(tmp_path: Path, domain: str | None, provider: str = "digitalocean") -> str:
     from dango.cli.commands.remote import remote
     from dango.platform.cloud.server_status import ServerStatus
 
@@ -288,7 +288,7 @@ def _status(tmp_path: Path, domain: str | None) -> str:
     cfg.region = "nyc1"
     cfg.size = "s-2vcpu-4gb"
     cfg.domain = domain
-    cfg.provider = "digitalocean"
+    cfg.provider = provider
     loader = MagicMock()
     loader.load_cloud_config.return_value = cfg
     with (
@@ -315,3 +315,11 @@ class TestStatusHttpOnly:
 
     def test_status_with_domain_has_no_http_line(self, tmp_path):
         assert "HTTP only" not in _status(tmp_path, "app.example.com")
+
+    def test_status_http_only_hints_firewall_list_for_digitalocean(self, tmp_path):
+        assert "dango remote firewall list" in _status(tmp_path, None)
+
+    def test_status_http_only_hints_ufw_for_byos(self, tmp_path):
+        out = _status(tmp_path, None, provider="byos")
+        assert "HTTP only (unencrypted)" in out
+        assert "ufw" in out

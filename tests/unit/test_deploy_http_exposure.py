@@ -117,6 +117,95 @@ class TestNonInteractiveFlags:
         run_prov.assert_not_called()
 
 
+@pytest.mark.unit
+class TestFlagCombinations:
+    def test_allow_ip_with_domain_rejected(self, project_root):
+        result, run_prov = _invoke_deploy(
+            project_root,
+            [*_DO_ARGS, "--domain", "app.example.com", "--allow-ip", "203.0.113.7"],
+        )
+        assert result.exit_code == 2, result.output
+        assert "Let's Encrypt" in result.output
+        run_prov.assert_not_called()
+
+    def _invoke_interactive(self, project_root: Path, args: list[str], choice: str):
+        from dango.cli.commands.deploy import deploy
+
+        run_wizard = MagicMock(return_value=MagicMock(domain=None))
+        run_byos_wizard = MagicMock(return_value=MagicMock(domain=None))
+        with (
+            patch("dango.cli.utils.find_project_root", return_value=project_root),
+            patch("dango.cli.commands.deploy_wizard.run_wizard", run_wizard),
+            patch("dango.cli.commands.deploy_wizard.run_byos_wizard", run_byos_wizard),
+            patch(
+                "dango.cli.commands.deploy_provision.run_provisioning",
+                return_value=_provision_result(),
+            ),
+            patch(
+                "dango.cli.commands.deploy_provision.run_byos_setup",
+                return_value=_provision_result(),
+            ),
+            patch("webbrowser.open"),
+        ):
+            result = CliRunner().invoke(
+                deploy, args, obj={"project_root": project_root}, input=f"{choice}\n"
+            )
+        return result, run_wizard, run_byos_wizard
+
+    def test_interactive_allow_ip_preanswers_wizard(self, project_root):
+        result, run_wizard, _byos = self._invoke_interactive(
+            project_root, ["--allow-ip", "203.0.113.7"], "1"
+        )
+        assert result.exit_code == 0, result.output
+        kwargs = run_wizard.call_args.kwargs
+        assert kwargs["allowed_ips"] == ["203.0.113.7/32"]
+        assert kwargs["accept_http_exposure"] is False
+
+    def test_interactive_accept_preanswers_byos_wizard(self, project_root):
+        result, _wizard, run_byos_wizard = self._invoke_interactive(
+            project_root, ["--accept-http-exposure"], "2"
+        )
+        assert result.exit_code == 0, result.output
+        assert run_byos_wizard.call_args.kwargs["accept_http_exposure"] is True
+
+    def test_interactive_byos_allow_ip_is_usage_error(self, project_root):
+        result, _wizard, run_byos_wizard = self._invoke_interactive(
+            project_root, ["--allow-ip", "203.0.113.7"], "2"
+        )
+        assert result.exit_code == 2, result.output
+        assert "DigitalOcean firewall" in result.output
+        run_byos_wizard.assert_not_called()
+
+    def test_exposure_step_preanswered_does_not_prompt(self, capsys):
+        from dango.cli.commands.deploy_wizard import _step_web_exposure
+
+        with patch("dango.cli.commands.deploy_wizard.click.prompt") as prompt:
+            assert _step_web_exposure(allowed_ips=["203.0.113.7/32"]) == (
+                ["203.0.113.7/32"],
+                False,
+            )
+            assert _step_web_exposure(accepted=True) == ([], True)
+        prompt.assert_not_called()
+        assert "203.0.113.7/32" in capsys.readouterr().out
+
+    def test_byos_wizard_preanswered_accept_does_not_prompt(self, project_root):
+        from dango.cli.commands import deploy_wizard as dw
+
+        with (
+            patch.object(dw, "_step_byos_server", return_value=("198.51.100.10", "root", "k")),
+            patch.object(dw, "_validate_ssh_connectivity"),
+            patch.object(dw, "_step_admin", return_value=("admin@example.com", _PASSWORD)),
+            patch.object(dw, "_step_sources", return_value=[]),
+            patch.object(dw, "_step_secrets", return_value=True),
+            patch.object(dw, "_step_oauth", return_value=True),
+            patch.object(dw, "_safe_confirm", return_value=True),
+            patch.object(dw.click, "prompt") as prompt,
+        ):
+            cfg = dw.run_byos_wizard(project_root, accept_http_exposure=True)
+        prompt.assert_not_called()
+        assert cfg.http_exposure_acknowledged is True
+
+
 # ---------------------------------------------------------------------------
 # Interactive wizard
 # ---------------------------------------------------------------------------
