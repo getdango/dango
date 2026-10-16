@@ -82,7 +82,8 @@ class TestBackupUnit:
         assert exec_start.split()[:2] == ["/srv/dango/venv/bin/python", "-I"], exec_start
         (workdir,) = directives["WorkingDirectory"]
         assert not workdir.startswith(_PROJECT), workdir
-        assert directives.get("UMask") == ["0077"]
+        # No UMask: it would make archive members (and restored files) unreadable to Metabase.
+        assert "UMask" not in directives, directives["UMask"]
 
     def test_logrotate_rotates_project_logs_as_dango(self) -> None:
         """logrotate runs as root; in a dango-owned directory it must drop to dango."""
