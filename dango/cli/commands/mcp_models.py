@@ -62,6 +62,9 @@ def create_model(
     errors come back as `errors` (a list) and nothing is written. Then run
     `run_transform(select=<model_name>)` to build it.
 
+    Model SQL is validated (no file/URL access, no COPY/ATTACH/INSTALL/LOAD, restricted Jinja).
+    Mutation tools can change what runs against the warehouse: do not auto-approve them.
+
     Returns dict with: status, model_name, layer, path, files_changed, refs, sources, warnings,
     parse_ok, git_warning (if any), or error/errors.
     """
@@ -103,6 +106,9 @@ def update_model(
     other schema.yml content is kept. Existing models that call `source()` outside staging are
     rejected with a lineage error until fixed. Runs `dbt parse` before and after and rolls back
     on a failure it caused.
+
+    Model SQL is validated (no file/URL access, no COPY/ATTACH/INSTALL/LOAD, restricted Jinja).
+    Mutation tools can change what runs against the warehouse: do not auto-approve them.
 
     Args:
         model_name: Existing model name.

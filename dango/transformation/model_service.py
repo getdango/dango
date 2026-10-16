@@ -201,7 +201,7 @@ def create_model(
     missing = _check_upstream_exists(project_root, upstream)
     if missing:
         raise ModelServiceError(missing)
-    validate_column_entries(columns)
+    validate_column_entries(columns, description)
 
     rendered = render_model_sql(
         model_name,
@@ -278,7 +278,7 @@ def update_model(
             rendered = "\n".join(kept).rstrip() + "\n"
         warnings += validate_model_sql(project_root, model_name, layer, rendered)
         refs, sources = extract_refs(rendered)
-    validate_column_entries(columns)
+    validate_column_entries(columns, description)
 
     result = ModelChangeResult(
         model_name=model_name,
