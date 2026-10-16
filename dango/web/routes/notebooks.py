@@ -14,6 +14,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
 
 import dango
 import dango.notebooks.templates
@@ -43,6 +44,12 @@ logger = get_logger(__name__)
 
 _VALID_TEMPLATES = frozenset({"blank", "explore", "quality"})
 _DEFAULT_MARIMO_PORT = 7805
+
+
+class NotebookWsAuthResponse(BaseModel):
+    """Body of a successful ``GET /api/notebooks/ws-auth`` check."""
+
+    ok: bool
 
 
 def _validate_name(name: str) -> str | JSONResponse:
@@ -75,8 +82,10 @@ async def _start_marimo_background(project_root: Path, user_email: str) -> None:
         return
     try:
         await asyncio.to_thread(start_marimo, project_root, snapshot_path=snapshot_path)
-    except RuntimeError:
-        pass  # already running (race condition)
+    except RuntimeError as exc:
+        if not str(exc).startswith("Marimo is already running"):
+            logger.warning("Marimo startup failed", exc_info=True)
+        # else: already running (race condition)
     except Exception:
         logger.warning("Marimo startup failed", exc_info=True)
 
@@ -434,10 +443,19 @@ async def lock_notebook(
     return JSONResponse(content={"locked": True, "marimo_url": marimo_url, "ready": True})
 
 
+@router.get("/api/notebooks/ws-auth", response_model=NotebookWsAuthResponse)
+async def notebook_ws_auth(
+    user: User = Depends(require_permission("notebooks.execute")),
+) -> NotebookWsAuthResponse:
+    """Target of Caddy ``forward_auth`` for the Marimo WebSocket; 200 only for permitted sessions."""
+    return NotebookWsAuthResponse(ok=True)
+
+
 @router.get("/api/notebooks/status")
 async def notebook_status(
     request: Request,
     file: str | None = None,
+    user: User = Depends(require_permission("notebooks.view")),
 ) -> JSONResponse:
     """Poll notebook server readiness. Used by frontend after non-blocking open."""
     project_root = get_project_root()
@@ -621,9 +639,10 @@ async def copy_notebook(
 # ---------------------------------------------------------------------------
 # Notebook proxy routes — BUG-241: Cloud mode proxies Marimo through FastAPI
 # WebSocket proxy for Marimo is handled by Caddy directly (not FastAPI).
-# Caddy routes /notebooks/marimo/ws to Marimo's port, bypassing dango-web.
+# Caddy routes /notebooks/marimo/ws to Marimo's port, guarded by
+# ``forward_auth`` to /api/notebooks/ws-auth (notebooks.execute) on dango-web.
 # This avoids FastAPI/Starlette WebSocket routing issues while keeping
-# HTTP requests auth-protected through dango-web.
+# both HTTP and WebSocket requests auth-protected through dango-web.
 # ---------------------------------------------------------------------------
 
 
