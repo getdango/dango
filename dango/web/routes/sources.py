@@ -7,8 +7,10 @@ import asyncio
 import logging
 import re
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from dango.auth.models import User
+from dango.auth.permissions import require_permission
 from dango.validation import validate_source_name
 from dango.web.helpers import (
     build_staleness_thresholds,
@@ -94,7 +96,9 @@ def _build_schedule_map() -> dict[str, str]:
 
 
 @router.get("/api/sources", response_model=list[SourceStatus])
-async def get_sources() -> list[SourceStatus]:
+async def get_sources(
+    user: User = Depends(require_permission("source.view")),
+) -> list[SourceStatus]:
     """List all configured data sources with status.
 
     Returns:
@@ -142,7 +146,10 @@ async def get_sources() -> list[SourceStatus]:
 
 
 @router.get("/api/sources/{source_name}/details")
-async def get_source_details(source_name: str) -> dict[str, object]:
+async def get_source_details(
+    source_name: str,
+    user: User = Depends(require_permission("source.view")),
+) -> dict[str, object]:
     """Get detailed information about a specific source.
 
     Args:

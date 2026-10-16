@@ -10,8 +10,16 @@ from datetime import date, timedelta
 from typing import Any
 
 from dango.ingestion.sources.registry import AuthType, get_source_metadata
+from dango.ingestion.sources.setup_hosts import (
+    HOST_BEARING_PARAMS,
+    destination_host,
+    validate_host_param,
+)
 
-MCP_UNSUPPORTED_SOURCE_TYPES = frozenset({"rest_api", "dlt_native"})
+# Types agents may not create or update (MCP); the user sets them up with the CLI. inbox is here
+# because its IMAP host is free-form: an agent-chosen host could receive any credential dlt
+# resolves for the source (its own *_env variable or dlt's fallback secret names).
+MCP_UNSUPPORTED_SOURCE_TYPES = frozenset({"rest_api", "dlt_native", "inbox"})
 
 # Source types whose sync can fully replace a table (either always, like CSV/Local Files, or as
 # the common default of dlt's write_disposition — verified 2026-09-27 against
@@ -66,6 +74,7 @@ class CredentialRequirement:
     detail: str  # human instruction, e.g. "Set STRIPE_TEST_API_KEY in .env"
     name: str | None = None  # env var name for kind="env_var"
     command: str | None = None  # e.g. "dango oauth google_sheets" for kind="oauth"
+    sends_to: str | None = None  # host this credential is sent to, when the type has one
 
 
 @dataclass
@@ -166,6 +175,33 @@ def _require_metadata(source_type: str) -> dict[str, Any]:
     metadata = get_source_metadata(source_type)
     if metadata is None:
         raise SourceSetupError([f"Unknown source type '{source_type}'"])
+    return metadata
+
+
+def credential_collision_errors(names: list[str]) -> list[str]:
+    """Errors for derived credential variables that are already set (agent create path)."""
+    return [
+        f"Environment variable {name} is already set and may belong to something else; an "
+        "agent cannot create a source that reuses it. Choose a different source name, or ask "
+        "the user to run 'dango source add' to create this source themselves"
+        for name in names
+    ]
+
+
+def require_agent_setup_supported(source_type: str) -> dict[str, Any]:
+    """Metadata for a type an agent may create; raises for CLI-only or hidden types."""
+    metadata = _require_metadata(source_type)
+    if source_type in MCP_UNSUPPORTED_SOURCE_TYPES:
+        raise SourceSetupError(
+            [f"'{source_type}' sources must be set up by the user with 'dango source add'"]
+        )
+    if not metadata.get("wizard_enabled", False):
+        raise SourceSetupError(
+            [
+                f"'{source_type}' sources cannot be set up by an agent; the user can add one "
+                "to sources.yml with 'dango source edit'"
+            ]
+        )
     return metadata
 
 
@@ -309,9 +345,19 @@ def _coerce(param: dict[str, Any], value: Any) -> Any:
 
 
 def normalize_params(
-    source_type: str, source_name: str, params: dict[str, Any]
+    source_type: str,
+    source_name: str,
+    params: dict[str, Any],
+    *,
+    require_https: bool = False,
+    check_hosts: bool = True,
 ) -> tuple[dict[str, Any], list[CredentialRequirement]]:
-    """Validate/coerce params against the registry. Pure (no I/O); raises with ALL errors."""
+    """Validate/coerce params against the registry. Pure (no I/O); raises with ALL errors.
+
+    check_hosts: validate the shape of the type's host-bearing param (setup_hosts); False only
+    for update_source, which never accepts a changed host value. require_https: reject plain
+    http:// for non-loopback hosts (agent path).
+    """
     metadata = _require_metadata(source_type)
     required = metadata.get("required_params", [])
     optional = metadata.get("optional_params", [])
@@ -371,6 +417,11 @@ def normalize_params(
             if name in required_names:
                 errors.append(f"Missing required parameter '{name}'")
             continue
+        if check_hosts and name == HOST_BEARING_PARAMS.get(source_type):
+            host_error = validate_host_param(source_type, value, require_https=require_https)
+            if host_error:
+                errors.append(host_error)
+                continue
         out[name] = value
 
     if resources_ok and params.get("resources") is not None:
@@ -389,4 +440,7 @@ def normalize_params(
 
     if errors:
         raise SourceSetupError(errors)
+    host = destination_host(source_type, out)
+    for req in reqs:
+        req.sends_to = host
     return out, reqs

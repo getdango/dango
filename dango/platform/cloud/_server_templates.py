@@ -9,6 +9,8 @@ Extracted from server_setup.py to keep that module under 500 lines.
 
 from __future__ import annotations
 
+import re
+
 # ---------------------------------------------------------------------------
 # Security headers shared by HTTP and HTTPS Caddyfile configurations
 # ---------------------------------------------------------------------------
@@ -24,6 +26,36 @@ _COMMON_HEADERS = """\
 _HSTS_HEADER = '\t\tStrict-Transport-Security "max-age=63072000; includeSubDomains"'
 
 
+# The unauthenticated Marimo WebSocket handle written by build_caddyfile()
+# up to 1.0.13.  ``remote upgrade`` replaces exactly this text in place.
+LEGACY_MARIMO_WS_RE = re.compile(
+    r"\thandle /notebooks/marimo/ws \{\n\t\treverse_proxy localhost:(\d+)\n\t\}"
+)
+
+
+def marimo_ws_block(marimo_port: int) -> str:
+    """Return the Caddy ``handle`` block for the Marimo WebSocket.
+
+    Marimo runs with ``--no-token``, so Caddy asks dango-web
+    (``/api/notebooks/ws-auth``, ``notebooks.execute``) before proxying.
+    The WebSocket upgrade headers are stripped from the auth sub-request
+    only: a plain HTTP route answers 403 to a request carrying them.
+    """
+    return (
+        "\thandle /notebooks/marimo/ws {\n"
+        "\t\tforward_auth localhost:8800 {\n"
+        "\t\t\turi /api/notebooks/ws-auth\n"
+        "\t\t\theader_up -Connection\n"
+        "\t\t\theader_up -Upgrade\n"
+        "\t\t\theader_up -Sec-WebSocket-Key\n"
+        "\t\t\theader_up -Sec-WebSocket-Version\n"
+        "\t\t\theader_up -Sec-WebSocket-Extensions\n"
+        "\t\t}\n"
+        f"\t\treverse_proxy localhost:{marimo_port}\n"
+        "\t}"
+    )
+
+
 def build_caddyfile(domain: str | None = None, marimo_port: int = 7805) -> str:
     """Build a Caddyfile for Caddy reverse proxy.
 
@@ -35,9 +67,9 @@ def build_caddyfile(domain: str | None = None, marimo_port: int = 7805) -> str:
     Returns:
         Complete Caddyfile content as a string.
     """
-    # Marimo WebSocket proxy — Caddy handles WS natively.
-    # HTTP requests still go through dango-web (auth-protected).
-    marimo_ws = f"\thandle /notebooks/marimo/ws {{\n\t\treverse_proxy localhost:{marimo_port}\n\t}}"
+    # Marimo WebSocket proxy — Caddy handles WS natively, after a dango-web
+    # permission check (forward_auth).  HTTP requests go through dango-web.
+    marimo_ws = marimo_ws_block(marimo_port)
 
     if domain:
         # HTTPS mode — Caddy auto-obtains Let's Encrypt certs

@@ -56,7 +56,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/monitoring.py` | Monitor results API (`/api/monitoring`, `/api/monitoring/run`, `/api/monitoring/history`), dbt test results. Page route removed in R12-M2 (test/freshness moved to catalog). Backward-compat `/api/insights*` redirects removed in M2 cloud fix. | `router` |
 | `routes/ai.py` | Agent/AI interface: /api/catalog/summary, /api/tools (~496 lines) | `router` |
 | `routes/query.py` | Ad-hoc SQL query execution against DuckDB on the locked connection from `utils/query_connection.py` (no file/URL/extension access, configuration locked; 30s timeout, 10k row limit, `api.query_memory_limit` default 1GB, ~305 lines) | `router` |
-| `routes/initial_sync.py` | Initial data sync after first deploy (deploy token auth) | `router` |
+| `routes/initial_sync.py` | Initial data sync after first deploy (`/start`: deploy token or admin session; `/status` needs `health.view`; `/skip-source`, `/cancel` need `platform.manage`) | `router` |
 | `templates/schedules.html` | Schedule management page (extends `base.html`) — table, modals, WebSocket | Alpine.js `schedulesPage()` component |
 | `templates/notebooks.html` | Notebook management page (extends `base.html`) — table, create/delete modals, locking | Alpine.js `notebooksPage()` component |
 | `templates/scripts.html` | Script management page (extends `base.html`) — table, run/cancel buttons, log links, WebSocket | Alpine.js `scriptsPage()` component |

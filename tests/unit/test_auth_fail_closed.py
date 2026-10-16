@@ -50,9 +50,9 @@ class TestCorruptToggle:
     def test_corrupt_auth_yml_local_without_auth_db_stays_open(self, project: AuthProject) -> None:
         """Auth was never configured locally: a broken toggle file does not lock the user out."""
         project.write_toggle(INVALID_YAML)
-        client = build_client(project.root, config_router)
+        client = build_client(project.root)
 
-        resp = client.get("/api/config")
+        resp = client.get("/api/probe")
 
         assert resp.status_code == 200
 
@@ -110,9 +110,9 @@ class TestMissingAuthDb:
 
     def test_missing_auth_db_local_unchanged(self, project: AuthProject) -> None:
         project.write_toggle("enabled: true\n")
-        client = build_client(project.root, config_router)
+        client = build_client(project.root)
 
-        resp = client.get("/api/config")
+        resp = client.get("/api/probe")
 
         assert resp.status_code == 200
 
