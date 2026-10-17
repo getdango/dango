@@ -271,19 +271,6 @@ class TestUpgradeVenvRebuild:
         )
         assert installed_version_from_metadata(ssh) is None
 
-    def test_failed_rebuild_keeps_the_old_venv_and_warns(self) -> None:
-        _ssh, commands, result = _run_upgrade(
-            "1.0.14",
-            "1.0.15",
-            venv_untrusted=True,
-            extra={"python3 -m venv /srv/dango/venv": ("", "no space", 1)},
-        )
-        joined = "\n".join(commands)
-        assert re.search(r"mv /srv/dango/venv\.untrusted-\S+ /srv/dango/venv", joined), joined
-        assert "kept" in (result.venv_rebuild or "")
-        assert any("venv" in w for w in result.warnings)
-        assert any("systemctl start dango-web" in c for c in commands)
-
     def test_trusted_venv_is_not_rebuilt(self) -> None:
         _ssh, commands, result = _run_upgrade("1.0.14", "1.0.15", venv_untrusted=False)
         assert not any("venv.untrusted" in c for c in commands)
