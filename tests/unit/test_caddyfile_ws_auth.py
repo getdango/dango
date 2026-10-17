@@ -144,7 +144,7 @@ def _client(role: Role | None) -> TestClient:
 )
 def test_ws_auth_endpoint_permission_matrix(role: Role | None, expected: int) -> None:
     """forward_auth target answers 200 only to sessions that may execute notebooks."""
-    resp = _client(role).get("/api/notebooks/ws-auth")
+    resp = _client(role).get("/api/notebooks/ws-auth", headers={"Origin": "http://testserver"})
     assert resp.status_code == expected
 
 
