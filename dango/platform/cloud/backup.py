@@ -9,6 +9,7 @@ All functions require an already-connected ``SSHManager`` (as root).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import shlex
@@ -23,6 +24,19 @@ import yaml
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.backup_restore import (
+    AS_SERVICE_USER,
+    SANITIZED_METABASE_NAME,
+    SERVICE_USER,
+    copy_dir_cmd,
+    copy_file_cmd,
+    extract_checked_archive,
+    hand_staging_to_service_user_cmd,
+    restore_dir_cmd,
+    restore_file_cmd,
+    restore_volume_file_cmd,
+    wal_sidecar_names,
+)
 from dango.platform.docker import _legacy_path_hash
 
 _logger = get_logger(__name__)
@@ -370,15 +384,15 @@ def _create_archive(
         if include_secrets:
             file_list.extend(SECRET_FILES)
 
-        # Build copy commands for all files/dirs/metabase
+        # Build copy commands for all files/dirs/metabase.  Sources absent on the
+        # server (e.g. no warehouse yet) are skipped; a failed copy fails the step.
         copy_cmds: list[str] = []
         for fpath in file_list:
             src = f"{PROJECT_DIR}/{fpath}"
             dest_dir = f"{staging}/{'/'.join(fpath.split('/')[:-1])}" if "/" in fpath else staging
-            copy_cmds.append(f"mkdir -p {dest_dir} && cp {src} {dest_dir}/ 2>/dev/null || true")
+            copy_cmds.append(copy_file_cmd(src, dest_dir))
         for dpath in BACKUP_DIRS:
-            src, dest = f"{PROJECT_DIR}/{dpath}", f"{staging}/{dpath}"
-            copy_cmds.append(f"mkdir -p {dest} && cp -r {src}/. {dest}/ 2>/dev/null || true")
+            copy_cmds.append(copy_dir_cmd(f"{PROJECT_DIR}/{dpath}", f"{staging}/{dpath}"))
         metabase_source = f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}"
         metabase_destination = f"{staging}/{METABASE_CONFIG_FILE}"
         if ssh.exec_command(f"test -f {metabase_source}").success:
@@ -386,11 +400,8 @@ def _create_archive(
             if warning and warnings is not None:
                 warnings.append(warning)
         if metabase_vol_path:
-            copy_cmds.append(
-                f"mkdir -p {staging}/metabase"
-                f" && cp {metabase_vol_path}/metabase.db.mv.db {staging}/metabase/ 2>/dev/null || true"
-                f" && cp {metabase_vol_path}/metabase.db.trace.db {staging}/metabase/ 2>/dev/null || true"
-            )
+            for h2 in ("metabase.db.mv.db", "metabase.db.trace.db"):
+                copy_cmds.append(copy_file_cmd(f"{metabase_vol_path}/{h2}", f"{staging}/metabase"))
         _run_checked(ssh, " && ".join(copy_cmds), step="copy_files", timeout=300)
 
         # Get version + file info for manifest
@@ -598,10 +609,29 @@ def restore_from_archive(
         _start_time = time.monotonic()
     warnings: list[str] = []
 
+    if not ssh.exec_command(f"test ! -L {shlex.quote(PROJECT_DIR)}").success:
+        raise CloudProvisioningError(
+            f"{PROJECT_DIR} is a symlink; refusing to restore into it: nothing was restored"
+        )
+
     manifest_path = archive_path.replace(".tar.gz", ".json")
     manifest_result = ssh.exec_command(f"cat {shlex.quote(manifest_path)} 2>/dev/null")
     if manifest_result.success and manifest_result.stdout.strip():
         _notify(on_progress, "read_manifest", "done")
+
+    # Extract and check the archive before anything else, so a refused archive
+    # leaves the server untouched (no safety backup, services still running).
+    # Generated, unique staging dir: independent of the archive's file name
+    # and of the top-level directory name inside the archive.
+    staging = f"{RESTORE_STAGING_ROOT}/dango-restore-staging-{uuid.uuid4().hex}"
+    _notify(on_progress, "extract_archive", "running")
+    extract_checked_archive(
+        ssh,
+        archive_path,
+        staging,
+        [METABASE_CONFIG_FILE, *BACKUP_FILES, *BACKUP_DIRS, "metabase"],
+    )
+    _notify(on_progress, "extract_archive", "done")
 
     # Pre-restore safety backup — covers all three restore paths
     # (rollback(), _backup_restore_from_local(), and migrate.py all flow
@@ -617,7 +647,9 @@ def restore_from_archive(
             on_server_retention=999,
         )
         warnings.append(f"Pre-restore safety backup created: {safety.archive_path}")
+        safety_ok = True
     except Exception as exc:
+        safety_ok = False
         warnings.append(f"Pre-restore safety backup skipped (continuing): {exc}")
         _logger.warning("pre_restore_backup_failed", error=str(exc))
     _notify(on_progress, "pre_restore_backup", "done")
@@ -626,68 +658,77 @@ def restore_from_archive(
     stop_services(ssh)
     _notify(on_progress, "stop_services", "done")
 
-    # Generated, unique staging dir: independent of the archive's file name
-    # and of the top-level directory name inside the archive.
-    staging = f"{RESTORE_STAGING_ROOT}/dango-restore-staging-{uuid.uuid4().hex}"
-
     services_restarted = False
+    copies_started = False
+    private_dir = ""
+    moved_aside: list[str] = []
+    stamp = time.strftime("%Y%m%d-%H%M%S")
     try:
         try:
-            _notify(on_progress, "extract_archive", "running")
-            _run_checked(
-                ssh,
-                f"mkdir -p {shlex.quote(staging)}"
-                f" && tar -xzf {shlex.quote(archive_path)} -C {shlex.quote(staging)} --strip-components=1",
-                step="extract_archive",
-                timeout=300,
-            )
-            _notify(on_progress, "extract_archive", "done")
-
-            # Hand-made archives without a single top-level directory extract to
-            # nothing recognisable; fail before any copy rather than report success.
-            expected = [
-                f"{staging}/{rel}" for rel in ("manifest.json", METABASE_CONFIG_FILE, *BACKUP_FILES)
-            ] + [f"{staging}/{rel}" for rel in (*BACKUP_DIRS, "metabase")]
-            layout_check = " || ".join(f"test -e {shlex.quote(path)}" for path in expected)
-            if not ssh.exec_command(layout_check).success:
-                raise CloudProvisioningError(
-                    "Archive does not look like a Dango backup (unexpected layout): "
-                    "nothing was restored"
-                )
-
             _notify(on_progress, "restore_files", "running")
+            # Sanitize Metabase metadata as root into a fresh private directory
+            # (never into staging or the project tree), then let the service user read it.
+            metabase_source = f"{staging}/{METABASE_CONFIG_FILE}"
+            if ssh.exec_command(f"test -f {shlex.quote(metabase_source)}").success:
+                made = ssh.exec_command("mktemp -d")
+                private_dir = made.stdout.strip() if made.success else ""
+                if not private_dir.startswith("/"):
+                    private_dir = ""
+                    warnings.append("Metabase metadata omitted: no private temporary directory")
+                else:
+                    sanitized = f"{private_dir}/{SANITIZED_METABASE_NAME}"
+                    warning = _sanitize_remote_metabase_yaml(ssh, metabase_source, sanitized)
+                    if warning:
+                        warnings.append(warning)
+                    q_file = shlex.quote(sanitized)
+                    _run_checked(
+                        ssh,
+                        f"if [ -f {q_file} ]; then chown {SERVICE_USER}:{SERVICE_USER} {q_file};"
+                        f" fi && chmod 711 {shlex.quote(private_dir)}",
+                        step="restore_files",
+                    )
+            # Project files are written as the service user, which owns the project tree.
+            copies_started = True
+            _run_checked(ssh, hand_staging_to_service_user_cmd(staging), step="restore_files")
             restore_cmds: list[str] = []
             for fpath in BACKUP_FILES:
                 src = f"{staging}/{fpath}"
-                dest_dir = (
-                    f"{PROJECT_DIR}/{'/'.join(fpath.split('/')[:-1])}"
-                    if "/" in fpath
-                    else PROJECT_DIR
-                )
+                # Clear the live database's leftover WAL first, or it is replayed into
+                # the restored file on the next open.  Without a safety backup the WAL
+                # may hold the only copy of recent writes, so it is moved aside instead.
+                before: list[str] = []
+                for side in (f"{PROJECT_DIR}/{s}" for s in wal_sidecar_names(fpath)):
+                    q = shlex.quote(side)
+                    if safety_ok:
+                        before.append(f"{AS_SERVICE_USER} rm -f {q}")
+                    else:
+                        kept = shlex.quote(f"{side}.pre-restore-{stamp}")
+                        before.append(f"if [ -e {q} ]; then {AS_SERVICE_USER} mv -f {q} {kept}; fi")
+                        moved_aside.append(f"{side}.pre-restore-{stamp}")
+                restore_cmds.append(restore_file_cmd(src, f"{PROJECT_DIR}/{fpath}", before=before))
+            if private_dir:
                 restore_cmds.append(
-                    f"test -f {shlex.quote(src)} && (mkdir -p {dest_dir} && cp {shlex.quote(src)} {dest_dir}/) || true"
+                    restore_file_cmd(
+                        f"{private_dir}/{SANITIZED_METABASE_NAME}",
+                        f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}",
+                    )
                 )
-            metabase_source = f"{staging}/{METABASE_CONFIG_FILE}"
-            metabase_destination = f"{PROJECT_DIR}/{METABASE_CONFIG_FILE}"
-            if ssh.exec_command(f"test -f {shlex.quote(metabase_source)}").success:
-                warning = _sanitize_remote_metabase_yaml(ssh, metabase_source, metabase_destination)
-                if warning:
-                    warnings.append(warning)
             for dpath in BACKUP_DIRS:
-                src, dest = f"{staging}/{dpath}", f"{PROJECT_DIR}/{dpath}"
-                restore_cmds.append(
-                    f"test -d {shlex.quote(src)} && (mkdir -p {dest} && cp -r {shlex.quote(src + '/.')} {dest}/) || true"
-                )
+                restore_cmds.append(restore_dir_cmd(f"{staging}/{dpath}", f"{PROJECT_DIR}/{dpath}"))
             _run_checked(ssh, " && ".join(restore_cmds), step="restore_files", timeout=300)
+            for kept_path in moved_aside:
+                if ssh.exec_command(f"test -e {shlex.quote(kept_path)}").success:
+                    warnings.append(f"Live database WAL kept (no safety backup): {kept_path}")
             _notify(on_progress, "restore_files", "done")
 
             _notify(on_progress, "restore_metabase", "running")
             metabase_vol = _get_metabase_volume_path(ssh)
             if metabase_vol:
-                for h2 in ["metabase.db.mv.db", "metabase.db.trace.db"]:
-                    ssh.exec_command(
-                        f"test -d {shlex.quote(staging + '/metabase')} && cp {shlex.quote(f'{staging}/metabase/{h2}')} {metabase_vol}/ 2>/dev/null || true"
-                    )
+                h2_cmds = [
+                    restore_volume_file_cmd(f"{staging}/metabase/{h2}", metabase_vol, h2)
+                    for h2 in ("metabase.db.mv.db", "metabase.db.trace.db")
+                ]
+                _run_checked(ssh, " && ".join(h2_cmds), step="restore_metabase", timeout=300)
             else:
                 warnings.append("Metabase Docker volume not found — H2 restore skipped")
             _notify(on_progress, "restore_metabase", "done")
@@ -695,9 +736,17 @@ def restore_from_archive(
             _notify(on_progress, "fix_ownership", "running")
             _run_checked(ssh, "chown -R dango:dango /srv/dango/project", step="fix_ownership")
             _notify(on_progress, "fix_ownership", "done")
+        except Exception:
+            if copies_started:
+                # A failed copy leaves a partial, root-owned restore; give it back
+                # to the service user before services restart on it.
+                with contextlib.suppress(Exception):  # best effort; keep the original error
+                    ssh.exec_command("chown -R dango:dango /srv/dango/project")
+            raise
         finally:
+            leftovers = " ".join(shlex.quote(p) for p in (staging, private_dir) if p)
             try:
-                ssh.exec_command(f"rm -rf {shlex.quote(staging)}")  # cleanup: best effort
+                ssh.exec_command(f"rm -rf {leftovers}")  # cleanup: best effort
             except Exception:  # noqa: BLE001
                 pass
     finally:
