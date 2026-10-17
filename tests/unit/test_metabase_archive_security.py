@@ -124,8 +124,12 @@ class TestMetabaseArchiveSanitization:
         ssh = MagicMock()
         ssh.exec_command.return_value = MagicMock(success=True, stdout="", stderr="", exit_code=0)
 
+        def run_checked(_ssh: object, command: str, **_kw: object) -> str:
+            # Backup staging is a private mktemp directory.
+            return "/tmp/dango-backup.Ab3dE6fG\n" if command.startswith("mktemp -d") else ""
+
         with (
-            patch("dango.platform.cloud.backup._run_checked", return_value=""),
+            patch("dango.platform.cloud.backup._run_checked", side_effect=run_checked),
             patch(
                 "dango.platform.cloud.backup._sanitize_remote_metabase_yaml", return_value=None
             ) as sanitize,
@@ -134,7 +138,7 @@ class TestMetabaseArchiveSanitization:
             sanitize.assert_called_once_with(
                 ssh,
                 "/srv/dango/project/.dango/metabase.yml",
-                "/tmp/backup-20260929-010101/.dango/metabase.yml",
+                "/tmp/dango-backup.Ab3dE6fG/backup-20260929-010101/.dango/metabase.yml",
             )
 
         ssh.reset_mock()

@@ -48,6 +48,129 @@ def copy_dir_cmd(src: str, dest: str) -> str:
 
 #: Owner of the project tree on the server; restores write project files as this user.
 SERVICE_USER = "dango"
+#: Owner a symlinked ``data`` directory's target must have for a backup to follow it.
+BACKUP_SOURCE_OWNER = SERVICE_USER
+#: Name patterns left out of backups: database WALs and temporary files/directories.
+BACKUP_EXCLUDES = ("*.wal", "*.tmp", ".tmp")
+#: Backed-up directory that may be a symlink (e.g. to block storage) owned by the service user.
+LINKABLE_DATA_DIR = "data"
+#: Prefix of the lines the backup copy step prints for each entry it skipped.
+SKIPPED_MARKER = "DANGO-BACKUP-SKIPPED "
+
+
+def skipped_warning(rel: str) -> str:
+    """Warning for a backup entry left out because it is a link or not a regular file/directory."""
+    return f"Not backed up: {rel} (a link or special file; backups copy only regular files)"
+
+
+def backup_file_cmd(src: str, dest_dir: str, rel: str) -> str:
+    """Shell step copying regular file *src* into *dest_dir*; links and special files are skipped.
+
+    A skipped entry prints a :data:`SKIPPED_MARKER` line; a failed copy fails the step.
+    """
+    q_src, q_dir = shlex.quote(src), shlex.quote(dest_dir)
+    skipped = shlex.quote(SKIPPED_MARKER + rel)
+    return (
+        f"if [ -L {q_src} ]; then echo {skipped};"
+        f" elif [ -f {q_src} ]; then mkdir -p {q_dir} && cp {q_src} {q_dir}/;"
+        f" elif [ -e {q_src} ]; then echo {skipped}; fi"
+    )
+
+
+def backup_dir_cmd(src: str, dest: str, rel: str) -> str:
+    """Shell step copying directory *src* into *dest* without following any link.
+
+    A top-level symlink is skipped (printing a :data:`SKIPPED_MARKER` line), except
+    :data:`LINKABLE_DATA_DIR`, which is followed only when its resolved target is a directory
+    owned by :data:`BACKUP_SOURCE_OWNER`, and otherwise fails the step.  Links inside are
+    copied as links (``cp -RP``, never read) for :func:`prune_backup_staging_cmd` to remove.
+    """
+    q_src, q_dest = shlex.quote(src), shlex.quote(dest)
+    skipped = shlex.quote(SKIPPED_MARKER + rel)
+    copy = f"mkdir -p {q_dest} && cp -RP {shlex.quote(src + '/.')} {q_dest}/"
+    if rel == LINKABLE_DATA_DIR:
+        owner = shlex.quote(BACKUP_SOURCE_OWNER)
+        refusal = shlex.quote(
+            f"Refusing to back up {rel}: it is a symlink whose target is not a directory "
+            f"owned by {BACKUP_SOURCE_OWNER}"
+        )
+        on_link = (
+            f"if real=$(cd -P {q_src} 2>/dev/null && pwd -P) &&"
+            f' [ -n "$(find "$real" -maxdepth 0 -type d -user {owner} 2>/dev/null)" ];'
+            f' then mkdir -p {q_dest} && cp -RP "$real/." {q_dest}/;'
+            f" else echo {refusal} >&2; false; fi"
+        )
+    else:
+        on_link = f"echo {skipped}"
+    return (
+        f"if [ -L {q_src} ]; then {on_link};"
+        f" elif [ -d {q_src} ]; then {copy};"
+        f" elif [ -e {q_src} ]; then echo {skipped}; fi"
+    )
+
+
+def prune_backup_staging_cmd(staging: str) -> str:
+    """Shell step removing excluded names, links and special files from backup *staging*.
+
+    Each removed link or special file is printed as a :data:`SKIPPED_MARKER` line
+    (path relative to *staging*).
+    """
+    q_staging = shlex.quote(staging)
+    names = " -o ".join(f"-name {shlex.quote(p)}" for p in BACKUP_EXCLUDES)
+    return (
+        f"find {q_staging} -mindepth 1 \\( {names} \\) -prune -exec rm -rf {{}} + &&"
+        f" find {q_staging} -mindepth 1 \\( ! -type f ! -type d \\)"
+        f' -exec sh -c \'for p; do echo "{SKIPPED_MARKER}${{p#$0/}}"; rm -f "$p"; done\''
+        f" {q_staging} {{}} +"
+    )
+
+
+def skipped_from_output(output: str) -> list[str]:
+    """Return the relative paths reported by :data:`SKIPPED_MARKER` lines in *output*."""
+    return [
+        line[len(SKIPPED_MARKER) :].strip()
+        for line in output.splitlines()
+        if line.startswith(SKIPPED_MARKER)
+    ]
+
+
+def owned_data_target(path: Path) -> Path | None:
+    """Resolved target of symlinked *path* if it is a directory owned by :data:`BACKUP_SOURCE_OWNER`."""
+    import pwd
+
+    try:
+        uid = pwd.getpwnam(BACKUP_SOURCE_OWNER).pw_uid
+        real = Path(os.path.realpath(path))
+        info = os.stat(real)
+    except (KeyError, OSError):
+        return None
+    return real if stat.S_ISDIR(info.st_mode) and info.st_uid == uid else None
+
+
+def is_backup_excluded(name: str) -> bool:
+    """True if a file or directory *name* matches :data:`BACKUP_EXCLUDES`."""
+    import fnmatch
+
+    return any(fnmatch.fnmatch(name, pattern) for pattern in BACKUP_EXCLUDES)
+
+
+def auth_config_keeps_auth_on(text: str) -> bool:
+    """True only if ``auth.yml`` *text* explicitly says ``enabled: true``."""
+    import yaml
+
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return False
+    return isinstance(data, dict) and data.get("enabled") is True
+
+
+#: Project-relative path of the authentication switch (never turned off by a server restore).
+AUTH_CONFIG_FILE = ".dango/auth.yml"
+AUTH_CONFIG_SKIPPED_WARNING = (
+    f"{AUTH_CONFIG_FILE} not restored: the backup's copy does not say 'enabled: true', and a "
+    "restore never turns authentication off on a server"
+)
 #: Shell prefix running a command as :data:`SERVICE_USER` (restores run as root).
 AS_SERVICE_USER = f"runuser -u {SERVICE_USER} --"
 #: Staging name of the sanitized Metabase metadata (written by root, outside the project).

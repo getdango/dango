@@ -154,7 +154,36 @@ def _checkpoint_databases() -> list[str]:
             warnings.append(f"Auth DB checkpoint failed: {exc}")
     else:
         warnings.append("Auth database not found — skipped checkpoint")
+    for rel_path in (".dango/dango.db", ".dango/scheduler.db"):
+        if warning := _checkpoint_sqlite(PROJECT_DIR / rel_path):
+            warnings.append(warning)
     return warnings
+
+
+def _checkpoint_sqlite(db_path: Path) -> str | None:
+    """Fold the WAL of the SQLite database at *db_path* into its file; returns a warning on failure.
+
+    Used for the databases other than auth.db; a missing file needs no checkpoint.
+    """
+    if not db_path.is_file() or db_path.is_symlink():
+        return None
+    script = (
+        "import sqlite3, sys; c=sqlite3.connect(sys.argv[1]);"
+        " c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.close()"
+    )
+    command = [sys.executable, "-I", "-c", script, str(db_path)]
+    if os.geteuid() == 0:
+        # As the service user: root opening the database could leave root-owned WAL files.
+        from dango.platform.cloud.backup_restore import SERVICE_USER
+
+        command = ["runuser", "-u", SERVICE_USER, "--", *command]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"{db_path.name} checkpoint failed: {exc}"
+    if result.returncode != 0:
+        return f"{db_path.name} checkpoint failed: {result.stderr.strip()[-200:]}"
+    return None
 
 
 def _get_metabase_volume_path() -> str | None:
@@ -235,22 +264,61 @@ def _copy_file_without_special_bits(src: str, dest: str) -> str:
     return dest
 
 
+def _regular_entries_only(root: Path, skipped: list[str], label: str) -> Any:
+    """``copytree`` ignore callable: leave out links, special files and ``BACKUP_EXCLUDES``.
+
+    Each link or special file left out is recorded in *skipped* as ``label/<relative path>``.
+    """
+    from dango.platform.cloud.backup_restore import is_backup_excluded
+
+    def ignore(directory: str, names: list[str]) -> set[str]:
+        """Return the entries of *directory* that copytree must not copy."""
+        ignored: set[str] = set()
+        rel_dir = os.path.relpath(directory, root)
+        for name in names:
+            if is_backup_excluded(name):
+                ignored.add(name)
+                continue
+            mode = os.lstat(os.path.join(directory, name)).st_mode
+            if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+                ignored.add(name)
+                rel = name if rel_dir == "." else f"{rel_dir}/{name}"
+                skipped.append(f"{label}/{rel}")
+        return ignored
+
+    return ignore
+
+
 def _copy_keeping_modes(src: Path, dest: Path, *, step: str) -> None:
     """Copy *src* (file, or directory contents) to *dest* keeping rwx modes, not owners.
 
     Members keep their source permission bits whatever the umask (a restore onto
     a fresh server recreates files with them; Metabase reads ``data/`` as another
-    user), but never setuid/setgid/sticky: root makes these copies. Symlinks
-    inside directories are copied as links.
+    user), but never setuid/setgid/sticky: root makes these copies.  Directories
+    are copied with :func:`_copy_tree_regular`.
+    """
+    if src.is_dir():
+        _copy_tree_regular(src, dest, step=step, skipped=[], label=src.name)
+        return
+    try:
+        _copy_file_without_special_bits(str(src), str(dest))
+    except OSError as exc:
+        raise CloudProvisioningError(f"Step '{step}' failed: {exc}") from exc
+
+
+def _copy_tree_regular(src: Path, dest: Path, *, step: str, skipped: list[str], label: str) -> None:
+    """Copy directory *src* into *dest*: regular files and directories only, modes kept.
+
+    Links and special files are never followed or read; each is recorded in
+    *skipped* as ``label/<path>``.  ``BACKUP_EXCLUDES`` names are left out.  No
+    copy keeps setuid/setgid/sticky bits.
     """
     try:
-        if not src.is_dir():
-            _copy_file_without_special_bits(str(src), str(dest))
-            return
         shutil.copytree(
             src,
             dest,
             symlinks=True,
+            ignore=_regular_entries_only(src, skipped, label),
             dirs_exist_ok=True,
             copy_function=_copy_file_without_special_bits,
         )
@@ -327,9 +395,20 @@ def _create_local_archive(
         if include_secrets:
             file_list.extend(SECRET_FILES)
 
+        from dango.platform.cloud.backup_restore import (
+            LINKABLE_DATA_DIR,
+            owned_data_target,
+            skipped_warning,
+        )
+
+        # Root copies only regular files and directories; links and special files
+        # in the project are skipped with a warning, never followed or read.
+        skipped: list[str] = []
         for fpath in file_list:
             src = PROJECT_DIR / fpath
-            if src.exists():
+            if src.is_symlink() or (src.exists() and not src.is_file()):
+                skipped.append(fpath)
+            elif src.is_file():
                 dest = staging / fpath
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 _copy_keeping_modes(src, dest, step="copy_files")
@@ -344,10 +423,29 @@ def _create_local_archive(
                 _logger.warning("metabase_backup_metadata_omitted")
         for dpath in BACKUP_DIRS:
             src = PROJECT_DIR / dpath
-            if src.exists():
-                dest = staging / dpath
-                dest.mkdir(parents=True, exist_ok=True)
-                _copy_keeping_modes(src, dest, step="copy_dirs")
+            if src.is_symlink():
+                if dpath != LINKABLE_DATA_DIR:
+                    skipped.append(dpath)
+                    continue
+                # data/ may live on separate storage, but only the service user's own.
+                target = owned_data_target(src)
+                if target is None:
+                    raise CloudProvisioningError(
+                        f"Refusing to back up {dpath}: it is a symlink whose target is not "
+                        "a directory owned by the service user"
+                    )
+                src = target
+            elif not src.exists():
+                continue
+            elif not src.is_dir():
+                skipped.append(dpath)
+                continue
+            dest = staging / dpath
+            dest.mkdir(parents=True, exist_ok=True)
+            _copy_tree_regular(src, dest, step="copy_dirs", skipped=skipped, label=dpath)
+        for rel in skipped:
+            _logger.warning("backup_entry_skipped", path=rel)
+            warnings.append(skipped_warning(rel))
 
         if metabase_vol:
             mb_staging = staging / "metabase"
@@ -719,15 +817,18 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
     from dango.platform.cloud.backup import (
         BACKUP_DIRS,
         BACKUP_FILES,
+        DATABASE_FILES,
         METABASE_CONFIG_FILE,
         _write_sanitized_metabase_yaml,
     )
     from dango.platform.cloud.backup_restore import (
         AS_SERVICE_USER,
+        AUTH_CONFIG_FILE,
         SAFE_EXTRACT_OPTIONS,
         SANITIZED_METABASE_NAME,
         SERVICE_USER,
         UNSAFE_ARCHIVE_MESSAGE,
+        auth_config_keeps_auth_on,
         hand_staging_to_service_user_cmd,
         restore_dir_cmd,
         restore_file_cmd,
@@ -784,22 +885,34 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         staging.chmod(0o755)
         _run_local(hand_staging_to_service_user_cmd(str(staging)), step="restore_files")
         stamp = time.strftime("%Y%m%d-%H%M%S")
+        for db_path in DATABASE_FILES:
+            if not (staging / db_path).exists():
+                continue
+            # A leftover live WAL would be replayed into the restored database.
+            # This path takes no safety backup, so keep it aside, not deleted.
+            for sidecar in wal_sidecar_names(db_path):
+                live = PROJECT_DIR / sidecar
+                if live.exists() or live.is_symlink():
+                    kept = f"{live}.pre-restore-{stamp}"
+                    _run_local(
+                        f"{AS_SERVICE_USER} mv -f {shlex.quote(str(live))} {shlex.quote(kept)}",
+                        step="restore_files",
+                    )
+                    _logger.warning("restore_wal_kept", path=kept)
+        staged_auth = staging / AUTH_CONFIG_FILE
+        skip_auth_config = False
+        if staged_auth.is_file():
+            with open(staged_auth, "rb") as handle:
+                text = handle.read(65536).decode("utf-8", errors="replace")
+            skip_auth_config = not auth_config_keeps_auth_on(text)
+        if skip_auth_config:
+            # A restore never turns authentication off on a server.
+            _logger.warning("restore_auth_config_skipped", path=AUTH_CONFIG_FILE)
         for fpath in BACKUP_FILES:
             src = staging / fpath
-            if src.exists():
-                # A leftover live WAL would be replayed into the restored database.
-                # This path takes no safety backup, so keep it aside, not deleted.
-                before: list[str] = []
-                for sidecar in wal_sidecar_names(fpath):
-                    live = PROJECT_DIR / sidecar
-                    if live.exists() or live.is_symlink():
-                        kept = f"{live}.pre-restore-{stamp}"
-                        before.append(
-                            f"{AS_SERVICE_USER} mv -f {shlex.quote(str(live))} {shlex.quote(kept)}"
-                        )
-                        _logger.warning("restore_wal_kept", path=kept)
+            if src.exists() and not (fpath == AUTH_CONFIG_FILE and skip_auth_config):
                 _run_local(
-                    restore_file_cmd(str(src), str(PROJECT_DIR / fpath), before=before),
+                    restore_file_cmd(str(src), str(PROJECT_DIR / fpath)),
                     step="restore_files",
                 )
         if sanitized is not None:
