@@ -19,6 +19,7 @@ Shared utilities for process management, activity logging, sync history tracking
 | `dbt_status.py` | Persistent dbt model status from run_results.json | `update_model_status()`, `get_model_statuses()` |
 | `data_validation.py` | Schema/data integrity checks against DuckDB | `validate_cursor_field()`, `detect_schema_changes()`, `validate_data_completeness()`, `print_validation_report()` |
 | `env_file.py` | .env file parsing and serialization | `parse_env_file()`, `serialize_env_file()` |
+| `redact.py` | Secret redaction for log text (web `/api/logs`, `/api/sources/{n}/logs`, MCP `get_logs`): exact values from `.env` / `.dlt/secrets.toml` (length >= 6, cached per file mtime) plus URL userinfo, auth headers, token query params, chat webhook URLs | `redact_text()`, `redact_patterns()`, `load_secret_values()`, `SECRET_KEY_RE` |
 | `dango_db.py` (~210 lines) | SQLite context manager for `.dango/dango.db` + schema init | `connect()`, `get_connection()` |
 | `dbt_escaping.py` | Escaping for text generated into dbt SQL/YAML: neutralises Jinja delimiters in data-derived names/descriptions, YAML scalar and SQL comment/string helpers | `neutralize_jinja()`, `yaml_scalar()`, `comment_text()`, `jinja_string_content()` |
 | `post_sync.py` (~804 lines) | Post-sync hook dispatcher + sync notification | `dispatch_post_sync_hooks()`, `_run_profiling()`, `_profile_dbt_models()`, `_enrich_staging_tests()`, `_run_pii_scan()`, `_run_analysis()`, `_run_dbt_snapshots()`, `_materialize_pipeline_health()`, `_ensure_default_metrics()`, `_send_sync_notification()` |
