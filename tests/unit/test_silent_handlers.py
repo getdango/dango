@@ -193,7 +193,7 @@ class TestCredentialMigrationWarnings:
 
         with (
             patch("dango.auth.admin.get_auth_db_path", side_effect=RuntimeError("secret-pw")),
-            patch.object(mig, "_logger", create=True) as log,
+            patch("dango.platform.common.metabase_best_effort._logger") as log,
         ):
             result = mig._linked_admin_session(tmp_path, "http://mb", "a@b.c")
 
@@ -204,12 +204,12 @@ class TestCredentialMigrationWarnings:
         assert "secret-pw" not in str(call)
 
     def test_discard_pending_failure_logs_and_state_unchanged(self, tmp_path: Path) -> None:
-        from dango.platform.common import metabase_credential_migration as mig
+        from dango.platform.common.metabase_best_effort import discard_pending_best_effort
 
         store = MagicMock()
         store.discard_pending.side_effect = OSError("secret-pw")
-        with patch.object(mig, "_logger", create=True) as log:
-            mig._discard_pending_best_effort(store)
+        with patch("dango.platform.common.metabase_best_effort._logger") as log:
+            discard_pending_best_effort(store)
 
         call = log.warning.call_args
         assert call.args[0] == "pending_credential_discard_failed"
