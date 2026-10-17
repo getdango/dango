@@ -9,6 +9,7 @@ import inspect
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from fastapi.dependencies.models import Dependant
@@ -19,6 +20,7 @@ from dango.web.app import app
 from dango.web.routes.health import router as health_router
 from dango.web.routes.secrets import router as secrets_router
 from dango.web.routes.telemetry import router as telemetry_router
+from dango.web.routes.upload import router as upload_router
 from dango.web.routes.users import router as users_router
 from tests.factories.auth_app_factories import AuthProject, build_client
 
@@ -218,3 +220,31 @@ class TestAdminOnlyRoleMatrix:
         resp = client.request(method, path)
 
         assert resp.status_code == 401
+
+
+@pytest.mark.unit
+class TestCsvFilesPermission:
+    _PATH = "/api/sources/events/csv-files"
+
+    @pytest.fixture
+    def project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AuthProject:
+        monkeypatch.delenv("DANGO_CLOUD_MODE", raising=False)
+        p = AuthProject(tmp_path)
+        p.create_db()
+        p.write_toggle("enabled: true\n")
+        return p
+
+    def test_anonymous_gets_401(self, project: AuthProject) -> None:
+        resp = build_client(project.root, upload_router).get(self._PATH)
+
+        assert resp.status_code == 401
+
+    def test_viewer_still_passes_the_permission_check(self, project: AuthProject) -> None:
+        """Pin: Viewer holds source.view, so the route reaches its handler (no sources.yml -> 404)."""
+        user = project.add_user("viewer@example.com", Role.VIEWER)
+        with patch("dango.web.routes.upload.get_project_root", return_value=project.root):
+            resp = build_client(project.root, upload_router).get(
+                self._PATH, headers={"Cookie": project.session_cookie(user)}
+            )
+
+        assert resp.status_code == 404
