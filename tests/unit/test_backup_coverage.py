@@ -5,11 +5,14 @@ Backups cover every user-writable project path (or exclude it on purpose), skip 
 
 from __future__ import annotations
 
+import getpass
 import resource
+import shutil
 import signal
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -19,6 +22,8 @@ from tests.factories.backup_create import (
     run_server_archive,
 )
 from tests.factories.backup_shell import make_duckdb, make_sqlite, make_sqlite_with_leftover_wal
+
+_BR = "dango.platform.cloud.backup_restore"
 
 #: Paths a Dango project can contain, from a real ``dango init --skip-wizard`` tree plus
 #: the paths Dango writes later (web UI, scheduler, syncs, uploads, deploys).  A new
@@ -110,10 +115,16 @@ MUST_BACK_UP = (
 
 
 def _covered(rel: str) -> bool:
-    from dango.platform.cloud.backup import BACKUP_DIRS, BACKUP_FILES, SECRET_FILES
+    from dango.platform.cloud.backup import (
+        BACKUP_DIRS,
+        BACKUP_FILES,
+        METABASE_CONFIG_FILE,
+        SECRET_FILES,
+    )
 
     return (
-        rel in BACKUP_FILES
+        rel == METABASE_CONFIG_FILE
+        or rel in BACKUP_FILES
         or rel in SECRET_FILES
         or any(rel == d or rel.startswith(d + "/") for d in BACKUP_DIRS)
     )
@@ -255,8 +266,6 @@ def test_scheduled_backup_checkpoints_scheduler_db(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 def test_server_backup_checkpoints_every_database(tmp_path: Path) -> None:
-    from unittest.mock import patch
-
     from dango.platform.cloud.backup import create_backup
     from tests.factories.backup_shell import ShellSSH
 
@@ -345,3 +354,57 @@ def test_backup_skips_device_symlinks(creator: str, tmp_path: Path, bounded_writ
     assert any("scripts/zero" in w for w in warnings), warnings
     assert any(".dango/schedules.yml" in w for w in warnings), warnings
     assert "scripts/s.py" in members
+
+
+# ---------------------------------------------------------------------------
+# data/ on separate storage: followed only into a directory the service user owns
+# ---------------------------------------------------------------------------
+
+
+def _root_owned_dir() -> Path:
+    for candidate in ("/var/empty", "/usr/share/zoneinfo", "/etc"):
+        path = Path(candidate)
+        if path.is_dir() and path.stat().st_uid == 0:
+            return path
+    raise AssertionError("no root-owned directory found for the test")
+
+
+def _with_linked_data(tmp_path: Path, target: Path) -> Path:
+    project = _project(tmp_path / "project")
+    real_data = project / "data"
+    if target != real_data:
+        shutil.rmtree(real_data)
+    (project / "data").symlink_to(target, target_is_directory=True)
+    return project
+
+
+@pytest.mark.unit
+def test_data_symlink_to_service_user_storage_is_backed_up(creator: str, tmp_path: Path) -> None:
+    storage = tmp_path / "block-storage"
+    _project(tmp_path / "seed")
+    shutil.copytree(tmp_path / "seed" / "data", storage)
+    secret = tmp_path / "outside-secret"
+    secret.write_text("TOP-SECRET-CONTENT")
+    (storage / "uploads" / "leak.csv").symlink_to(secret)
+    project = _with_linked_data(tmp_path, storage)
+
+    with patch(f"{_BR}.BACKUP_SOURCE_OWNER", getpass.getuser()):
+        archive, members, warnings = _create(creator, tmp_path, project)
+
+    assert "data/warehouse.duckdb" in members
+    assert archive_text(archive, "data/uploads/x.csv") == b"a,b\n1,2\n"
+    assert "data/uploads/leak.csv" not in members
+    assert any("data/uploads/leak.csv" in w for w in warnings), warnings
+
+
+@pytest.mark.unit
+def test_data_symlink_to_foreign_directory_fails_the_backup(creator: str, tmp_path: Path) -> None:
+    from dango.exceptions import CloudProvisioningError
+
+    project = _with_linked_data(tmp_path, _root_owned_dir())
+
+    with (
+        patch(f"{_BR}.BACKUP_SOURCE_OWNER", getpass.getuser()),
+        pytest.raises(CloudProvisioningError, match="data"),
+    ):
+        _create(creator, tmp_path, project)

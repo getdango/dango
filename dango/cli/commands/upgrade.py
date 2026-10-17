@@ -66,6 +66,49 @@ def get_latest_version_cached(project_root: Path) -> str | None:
     return latest
 
 
+#: Pre-upgrade safety copies kept in ``.dango/backups/`` (oldest removed first).
+_SAFETY_COPIES_KEPT = 3
+
+
+def _pre_upgrade_safety_copy(project_root: Path) -> Path:
+    """Copy ``.dango/*.db`` (checkpointed, plus any ``-wal``/``-shm``) and ``.dango/*.yml`` aside.
+
+    Writes ``.dango/backups/pre-upgrade-<UTC timestamp>/`` and keeps the newest
+    :data:`_SAFETY_COPIES_KEPT` copies.  Raises ``OSError`` if the copy cannot be made.
+    """
+    import secrets
+    import sqlite3
+    from datetime import datetime, timezone
+
+    dango_dir = project_root / ".dango"
+    backups = dango_dir / "backups"
+    backups.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    dest = backups / f"pre-upgrade-{stamp}"
+    if dest.exists():
+        dest = backups / f"pre-upgrade-{stamp}-{secrets.token_hex(3)}"
+    dest.mkdir()
+    for db in sorted(dango_dir.glob("*.db")):
+        try:
+            conn = sqlite3.connect(str(db))
+            try:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            pass  # the sidecars below are copied with the database instead
+        for path in (db, db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm")):
+            if path.is_file():
+                shutil.copy2(path, dest / path.name)
+    for yml in sorted(dango_dir.glob("*.yml")):
+        if yml.is_file():
+            shutil.copy2(yml, dest / yml.name)
+    copies = sorted(p for p in backups.glob("pre-upgrade-*") if p.is_dir())
+    for old in copies[:-_SAFETY_COPIES_KEPT]:
+        shutil.rmtree(old, ignore_errors=True)
+    return dest
+
+
 def _validate_version(version_str: str) -> None:
     """Validate version string format (X.Y.Z).
 
@@ -177,6 +220,17 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
             console.print("[yellow]Upgrade cancelled.[/yellow]")
             return
 
+    # Safety copy of the databases and config before anything changes (also with --yes).
+    try:
+        safety = _pre_upgrade_safety_copy(project_root)
+    except OSError as exc:
+        console.print(
+            f"[red]Error:[/red] Could not create the pre-upgrade safety copy of .dango/: {exc}\n"
+            "Upgrade aborted; nothing was changed."
+        )
+        raise click.Abort() from exc
+    console.print(f"Safety copy of .dango databases and config: {safety.relative_to(project_root)}")
+
     # Run pip install
     console.print()
     console.print(f"[bold]Installing getdango=={target_version}...[/bold]")
@@ -221,7 +275,7 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
         console.print(f"[red]Migration error:[/red] {exc}")
         console.print(
             "\n[yellow]The package was upgraded but migrations failed.[/yellow]\n"
-            "If you have a backup, run [bold]dango backup restore <path>[/bold] to roll back.\n"
+            f"The databases and config from before the upgrade are in {safety.relative_to(project_root)}.\n"
             "Otherwise, try running [bold]dango migrate run[/bold] manually."
         )
         raise SystemExit(1) from exc
