@@ -137,8 +137,15 @@ class ProjectInitializer:
         # Install pre-push hook if .git exists (non-critical)
         try:
             self._create_pre_push_hook()
-        except Exception:
-            pass  # Never fail init over a convenience hook
+        except Exception as exc:
+            # Never fail init over a convenience hook, but say it is missing
+            from rich.markup import escape
+
+            hook_path = self.project_dir / ".git" / "hooks" / "pre-push"
+            console.print(
+                "[yellow]Could not install the pre-push secret-scanning hook: "
+                f"{escape(str(exc))}. The hook file would be {escape(str(hook_path))}.[/yellow]"
+            )
 
         # Print success message
         self._print_success_message(warnings=warnings, auth_success=auth_success)
