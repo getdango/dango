@@ -203,3 +203,17 @@ def test_ws_auth_x_forwarded_host_not_trusted(
         "X-Forwarded-Host": "evil.example",
     }
     assert ws_client.get(WS_AUTH, headers=headers).status_code == 403
+
+
+@pytest.mark.parametrize("path", ["/notebooks/marimo/terminal/ws", "/notebooks/marimo/ws"])
+def test_dango_web_does_not_proxy_marimo_websockets(
+    ws_client: TestClient, editor_cookie: dict[str, str], path: str
+) -> None:
+    """Marimo WebSockets are never forwarded by dango-web (cloud: only Caddy's /ws handle)."""
+    from starlette.websockets import WebSocketDisconnect
+
+    with pytest.raises(WebSocketDisconnect):
+        with ws_client.websocket_connect(
+            path, headers={**editor_cookie, "Origin": "http://localhost:8800"}
+        ):
+            pass

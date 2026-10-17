@@ -22,6 +22,7 @@ from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import has_permission, require_permission
 from dango.logging import get_logger
+from dango.notebooks.access_token import marimo_open_url
 from dango.notebooks.locking import (
     acquire_lock,
     copy_locked_notebook,
@@ -437,7 +438,7 @@ async def lock_notebook(
     if is_running_on_cloud():
         marimo_url = f"/notebooks/marimo/?file={name}.py"
     else:
-        marimo_url = f"http://localhost:{port}/?file={name}.py"
+        marimo_url = marimo_open_url(project_root, int(str(port)), f"{name}.py")
 
     start_idle_checker(project_root)
 
@@ -485,9 +486,7 @@ async def notebook_status(
         base = "/notebooks/marimo/"
         marimo_url = f"{base}?file={file}" if file else base
     else:
-        marimo_url = (
-            f"http://localhost:{port}/?file={file}" if file else f"http://localhost:{port}/"
-        )
+        marimo_url = marimo_open_url(project_root, int(str(port)), file)
 
     return JSONResponse(content={"ready": True, "marimo_url": marimo_url})
 

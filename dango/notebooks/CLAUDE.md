@@ -9,7 +9,8 @@ Marimo notebook server lifecycle, DuckDB read-only snapshots, file-level locking
 | File | Lines | Purpose | Key Exports |
 |------|-------|---------|-------------|
 | `__init__.py` | ~45 | Re-exports public symbols | All public API |
-| `manager.py` | ~353 | Marimo process lifecycle (PID file, start/stop/status) + idle auto-shutdown + cloud base-url | `get_marimo_pid_file_path()`, `start_marimo()`, `stop_marimo()`, `get_marimo_status()`, `start_idle_checker()`, `stop_idle_checker()` |
+| `access_token.py` | ~65 | Per-start Marimo token file (`.dango/state/marimo.token`, 0600) and the browser open URL carrying `access_token` | `create_token_file()`, `read_token()`, `remove_token_file()`, `marimo_open_url()` |
+| `manager.py` | ~497 | Marimo process lifecycle (PID file, start/stop/status) + idle auto-shutdown + cloud base-url | `get_marimo_pid_file_path()`, `start_marimo()`, `stop_marimo()`, `get_marimo_status()`, `start_idle_checker()`, `stop_idle_checker()` |
 | `snapshot.py` | ~143 | DuckDB snapshot management | `create_snapshot()`, `list_snapshots()`, `cleanup_snapshots()` |
 | `locking.py` | ~285 | File-level notebook locking via `notebook_locks` table | `acquire_lock()`, `release_lock()`, `refresh_lock()`, `force_release_lock()`, `expire_stale_locks()`, `is_locked()`, `get_lock_info()`, `copy_locked_notebook()` |
 | `proxy.py` | ~186 | HTTP + WebSocket reverse proxy to Marimo | `proxy_to_marimo()`, `proxy_websocket_to_marimo()` |
@@ -31,7 +32,7 @@ CLI (notebook new/open/list, snapshot)
 
 ### Key Design Decisions
 
-- **Marimo runs headless** (`--headless --no-token`) — Dango handles auth via its own middleware.
+- **Marimo runs headless.** Cloud: `--no-token` behind Caddy `forward_auth` / the dango-web proxy (session + same-origin checked). Local: nothing sits in front of Marimo, so it starts with a random per-start `--token-password-file` (never argv; removed on stop) and every Dango-opened URL carries `access_token`. The readiness probe uses Marimo's public `/health`.
 - **Snapshots use `shutil.copy2()`** — simple file copy of `data/warehouse.duckdb`. DuckDB single-writer constraint means notebooks need read-only copies.
 - **Locks are time-limited** (15 minutes) — expired locks are garbage-collected automatically on every lock operation.
 - **Proxy is bidirectional** — HTTP proxy for REST, WebSocket proxy for Marimo's reactive kernel communication.
