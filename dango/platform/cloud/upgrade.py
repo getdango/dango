@@ -12,6 +12,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudError, CloudProvisioningError
@@ -45,6 +46,8 @@ class UpgradeResult:
     duration_seconds: float
     warnings: list[str] = field(default_factory=list)
     caddyfile_ws_migration: str | None = None
+    runtime_ownership: str | None = None
+    venv_rebuild: str | None = None
 
 
 def validate_version_string(version: str) -> None:
@@ -235,6 +238,7 @@ def upgrade_dango(
     skip_backup: bool = False,
     force: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
+    local_project_root: Path | None = None,
 ) -> UpgradeResult:
     """Upgrade Dango on the remote server.
 
@@ -254,6 +258,8 @@ def upgrade_dango(
             If ``None``, upgrades to the latest PyPI version.
         skip_backup: If ``True``, skip the pre-upgrade backup.
         on_progress: Optional ``(step, status)`` callback.
+        local_project_root: Local project; its requirements files are reinstalled
+            if the server venv has to be rebuilt as root.
 
     Returns:
         ``UpgradeResult`` with version change details and health status.
@@ -269,6 +275,13 @@ def upgrade_dango(
 
     start_time = time.monotonic()
     warnings: list[str] = []
+
+    # 0. A venv a non-root user could write is rebuilt before root runs anything from it
+    from dango.platform.cloud.runtime_ownership import rebuild_untrusted_venv, secure_runtime
+
+    _notify(on_progress, "rebuild_venv", "running")
+    venv_rebuild = rebuild_untrusted_venv(ssh, warnings, local_project_root)
+    _notify(on_progress, "rebuild_venv", "done")
 
     # 1. Get current version
     _notify(on_progress, "check_version", "running")
@@ -299,11 +312,14 @@ def upgrade_dango(
     # 3. Already at target?  Still finish the Caddyfile WebSocket migration
     # (idempotent) so a re-run can complete a step an earlier run skipped.
     if old_version == target_version:
-        at_target_warnings = ["Already at target version — no upgrade performed."]
+        at_target_warnings = ["Already at target version — no upgrade performed.", *warnings]
         ws_status = (
             _run_ws_migration(ssh, at_target_warnings, old_version)
             if _has_ws_auth_endpoint(old_version)
             else None
+        )
+        ownership_status, _ = secure_runtime(
+            ssh, at_target_warnings, installed_version=old_version, allow_rebuild=False
         )
         return UpgradeResult(
             old_version=old_version,
@@ -315,6 +331,8 @@ def upgrade_dango(
             duration_seconds=round(time.monotonic() - start_time, 1),
             warnings=at_target_warnings,
             caddyfile_ws_migration=ws_status,
+            runtime_ownership=ownership_status,
+            venv_rebuild=venv_rebuild,
         )
 
     # 3b. Downgrade guard
@@ -385,6 +403,14 @@ def upgrade_dango(
         # 8b. Authenticate the Marimo WebSocket route on existing servers
         caddyfile_ws_migration = _run_ws_migration(ssh, warnings, new_version)
 
+        # 8c. Root-owned runtime (rebuilds a venv a non-root user could write)
+        _notify(on_progress, "runtime_ownership", "running")
+        runtime_ownership, late_rebuild = secure_runtime(
+            ssh, warnings, installed_version=new_version, local_project_root=local_project_root
+        )
+        venv_rebuild = late_rebuild or venv_rebuild
+        _notify(on_progress, "runtime_ownership", "done")
+
         # 9. Docker rebuild
         _notify(on_progress, "docker_rebuild", "running")
         docker_rebuilt = False
@@ -427,4 +453,6 @@ def upgrade_dango(
         duration_seconds=round(time.monotonic() - start_time, 1),
         warnings=warnings,
         caddyfile_ws_migration=caddyfile_ws_migration,
+        runtime_ownership=runtime_ownership,
+        venv_rebuild=venv_rebuild,
     )

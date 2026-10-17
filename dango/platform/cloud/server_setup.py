@@ -2,7 +2,7 @@
 
 SSH-based server setup orchestration for Dango cloud deployments.
 
-Runs 16 idempotent setup steps on a freshly provisioned Ubuntu 22.04
+Runs 17 idempotent setup steps on a freshly provisioned Ubuntu 22.04
 droplet via an already-connected ``SSHManager``.  Each step checks whether
 the target state already exists before acting, making the entire sequence
 safe to re-run.  Config file templates are in ``_server_templates.py``.
@@ -258,7 +258,10 @@ def _setup_directories(
     result: SetupResult,
     on_progress: Callable[[str, str], None] | None,
 ) -> None:
-    """Step 6: Create /srv/dango directory structure."""
+    """Step 6: Create /srv/dango directory structure (project owned by dango).
+
+    ``/srv/dango`` itself, the venv and backups stay root's; step 17 enforces it.
+    """
     step = "directories"
     _notify(on_progress, step, "running")
     _run_checked(
@@ -268,7 +271,7 @@ def _setup_directories(
         " /srv/dango/project/.dlt"
         " /srv/dango/project/dbt"
         " /srv/dango/backups/deploy"
-        " && chown -R dango:dango /srv/dango",
+        " && chown -R dango:dango /srv/dango/project",
         step=step,
     )
     result.steps_completed.append(step)
@@ -483,6 +486,26 @@ def _setup_unattended_upgrades(
     _mark(result, on_progress, step, changed)
 
 
+def _setup_runtime_ownership(
+    ssh: SSHManager,
+    result: SetupResult,
+    on_progress: Callable[[str, str], None] | None,
+) -> None:
+    """Step 17: Root-owned /srv/dango and venv; verification problems become warnings.
+
+    On a re-run over an older server, a venv another user could write is rebuilt
+    first (taking ownership alone would hide that it was writable).
+    """
+    from dango.platform.cloud.runtime_ownership import apply_ownership, rebuild_untrusted_venv
+
+    step = "runtime_ownership"
+    _notify(on_progress, step, "running")
+    rebuild_untrusted_venv(ssh, result.warnings)
+    apply_ownership(ssh, result.warnings)
+    result.steps_completed.append(step)
+    _notify(on_progress, step, "done")
+
+
 def _setup_ufw(
     ssh: SSHManager,
     result: SetupResult,
@@ -679,6 +702,7 @@ _SETUP_STEPS: list[
     _setup_caddyfile,
     _setup_fail2ban,
     _setup_unattended_upgrades,
+    _setup_runtime_ownership,
 ]
 
 

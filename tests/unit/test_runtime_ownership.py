@@ -150,6 +150,25 @@ class TestSetupOwnership:
         assert any("/srv" in w for w in result.warnings), result.warnings
 
 
+@pytest.mark.unit
+class TestSetupRerunOnOlderServer:
+    def test_setup_rebuilds_a_writable_venv_before_taking_ownership(self) -> None:
+        from dango.platform.cloud.server_setup import SetupResult, _setup_runtime_ownership
+
+        ssh, commands = _recording_ssh(
+            {
+                "-print -quit": ("/srv/dango\n", "", 0),
+                "getdango-*.dist-info": ("/v/getdango-1.0.13.dist-info\n", "", 0),
+            }
+        )
+        _setup_runtime_ownership(ssh, SetupResult(), None)
+        rebuilt = next(i for i, c in enumerate(commands) if "python3 -m venv /srv/dango/venv" in c)
+        chowned = next(
+            i for i, c in enumerate(commands) if "chown -R root:root /srv/dango/venv" in c
+        )
+        assert rebuilt < chowned
+
+
 # ---------------------------------------------------------------------------
 # Upgrade: ownership, backup unit, automatic venv rebuild
 # ---------------------------------------------------------------------------
@@ -166,8 +185,10 @@ def _run_upgrade(
 ) -> tuple[MagicMock, list[str], Any]:
     from dango.platform.cloud.upgrade import upgrade_dango
 
+    dist_info = f"/srv/dango/venv/lib/python3.10/site-packages/getdango-{installed}.dist-info"
     results = {
         **(extra or {}),
+        "getdango-*.dist-info": (dist_info + "\n", "", 0),
         "import dango": (installed, "", 0),
         "test -f /etc/systemd/system/dango-backup.service": (
             "",
@@ -227,10 +248,28 @@ class TestUpgradeVenvRebuild:
         joined = "\n".join(commands)
         assert re.search(r"mv /srv/dango/venv /srv/dango/venv\.untrusted-\S+", joined), joined
         assert "python3 -m venv /srv/dango/venv" in joined
-        assert re.search(r"/srv/dango/venv/bin/pip install .*getdango==1\.0\.15", joined)
+        # The venv is rebuilt at the installed version (read from its metadata).
+        assert re.search(r"/srv/dango/venv/bin/pip install .*getdango==1\.0\.14", joined)
         assert '/srv/dango/venv/bin/python -I -c "import dango' in joined
         assert re.search(r"rm -rf /srv/dango/venv\.untrusted-\S+", joined)
         assert "rebuilt" in (result.venv_rebuild or "")
+
+    def test_untrusted_venv_is_not_run_by_root_before_the_rebuild(self) -> None:
+        _ssh, commands, _result = _run_upgrade("1.0.14", "1.0.15", venv_untrusted=True)
+        rebuilt = next(i for i, c in enumerate(commands) if "python3 -m venv /srv/dango/venv" in c)
+        before = commands[:rebuilt]
+        runs_venv = [
+            c for c in before if re.search(r"/srv/dango/venv/bin/(python3?|pip|dango)\b", c)
+        ]
+        assert runs_venv == [], runs_venv
+
+    def test_metadata_version_is_validated(self) -> None:
+        from dango.platform.cloud.runtime_ownership import installed_version_from_metadata
+
+        ssh, _commands = _recording_ssh(
+            {"dist-info": ("/x/getdango-1.0;touch PWNED.dist-info\n", "", 0)}
+        )
+        assert installed_version_from_metadata(ssh) is None
 
     def test_failed_rebuild_keeps_the_old_venv_and_warns(self) -> None:
         _ssh, commands, result = _run_upgrade(

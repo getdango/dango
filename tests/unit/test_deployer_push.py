@@ -484,12 +484,13 @@ class TestDockerRebuild:
 
 @pytest.mark.unit
 class TestRequirementsInstall:
-    """Test requirements.txt is installed when it exists on server."""
+    """requirements.txt is installed (by root, from the pushed local file) when it exists locally."""
 
     @patch("dango.platform.cloud.backup.create_backup")
     @patch("dango.platform.cloud.file_sync.sync_project_files")
     def test_requirements_installed_when_exists_on_server(self, mock_sync, mock_backup, tmp_path):
-        """pip install runs when requirements.txt exists on server, even if not in synced_files."""
+        """pip install runs when requirements.txt exists locally, even if not in synced_files."""
+        (tmp_path / "requirements.txt").write_text("requests\n")
         mock_sync.return_value = _make_sync_result(
             synced_files=["dbt/models/", ".dango/sources.yml"],  # no requirements.txt
         )
@@ -508,12 +509,12 @@ class TestRequirementsInstall:
 
         push_deploy(ssh, tmp_path, "10.0.0.1")
 
-        assert any("pip install -r" in c and "requirements.txt" in c for c in commands)
+        assert any("pip install --no-input -r" in c and "requirements.txt" in c for c in commands)
 
     @patch("dango.platform.cloud.backup.create_backup")
     @patch("dango.platform.cloud.file_sync.sync_project_files")
     def test_requirements_skipped_when_not_on_server(self, mock_sync, mock_backup, tmp_path):
-        """pip install does NOT run when requirements.txt does not exist on server."""
+        """pip install does NOT run when there is no local requirements.txt (server copy ignored)."""
         mock_sync.return_value = _make_sync_result()
         mock_backup.return_value = _make_backup_result()
         ssh = make_ssh_mock()
@@ -530,4 +531,4 @@ class TestRequirementsInstall:
 
         push_deploy(ssh, tmp_path, "10.0.0.1")
 
-        assert not any("pip install -r" in c and "requirements.txt" in c for c in commands)
+        assert not any("pip install" in c and "requirements.txt" in c for c in commands)
