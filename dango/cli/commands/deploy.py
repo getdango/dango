@@ -41,6 +41,17 @@ from dango.cli import console
 @click.option("--server-ip", type=str, default=None, help="Server IP/hostname for --byos.")
 @click.option("--ssh-user", type=str, default="root", help="SSH user for --byos.")
 @click.option("--ssh-key", type=str, default=None, help="SSH key path for --byos.")
+@click.option(
+    "--allow-ip",
+    "allow_ip",
+    multiple=True,
+    help="Without --domain: restrict ports 80/443 to this IPv4 address or CIDR (repeatable).",
+)
+@click.option(
+    "--accept-http-exposure",
+    is_flag=True,
+    help="Without --domain: deploy over plain HTTP with the web ports open to the internet.",
+)
 @click.pass_context
 def deploy(  # noqa: PLR0913
     ctx: click.Context,
@@ -57,6 +68,8 @@ def deploy(  # noqa: PLR0913
     server_ip: str | None,
     ssh_user: str,
     ssh_key: str | None,
+    allow_ip: tuple[str, ...],
+    accept_http_exposure: bool,
 ) -> None:
     """Deploy and manage Dango cloud infrastructure.
 
@@ -66,6 +79,8 @@ def deploy(  # noqa: PLR0913
     Examples:
       dango deploy                              Interactive wizard
       dango deploy --non-interactive            All params via flags/env (DO)
+      dango deploy --non-interactive --allow-ip 203.0.113.7
+                                                No domain: restrict web access
       dango deploy --reconnect --ip X           Reconnect to existing server
       dango deploy --byos --server-ip X         Deploy to your own server
       dango deploy destroy                      Tear down cloud infrastructure
@@ -108,6 +123,8 @@ def deploy(  # noqa: PLR0913
             domain=domain,
             admin_email=admin_email,
             admin_password=admin_password,
+            allow_ip=allow_ip,
+            accept_http_exposure=accept_http_exposure,
         )
         return
 
@@ -121,6 +138,8 @@ def deploy(  # noqa: PLR0913
             admin_email=admin_email,
             admin_password=admin_password,
             skip_backups=skip_backups,
+            allow_ip=allow_ip,
+            accept_http_exposure=accept_http_exposure,
         )
         return
 
@@ -131,11 +150,22 @@ def deploy(  # noqa: PLR0913
 
     choice = click.prompt("  Choice", default="1", show_default=True)
 
+    from dango.cli.commands.deploy_wizard import resolve_exposure_flags
+
+    # Flags given here pre-answer the wizard's web-access question.
+    preset_ips, preset_ack = resolve_exposure_flags(
+        domain=domain,
+        allow_ip=allow_ip,
+        accept_http_exposure=accept_http_exposure,
+        byos=choice == "2",
+        require=False,
+    )
+
     if choice == "2":
         from dango.cli.commands.deploy_provision import run_byos_setup
         from dango.cli.commands.deploy_wizard import run_byos_wizard
 
-        byos_config = run_byos_wizard(project_root)
+        byos_config = run_byos_wizard(project_root, accept_http_exposure=preset_ack)
         try:
             byos_result = run_byos_setup(project_root, byos_config)
         except Exception:
@@ -145,7 +175,9 @@ def deploy(  # noqa: PLR0913
     else:
         from dango.cli.commands.deploy_wizard import run_wizard
 
-        wizard_config = run_wizard(project_root)
+        wizard_config = run_wizard(
+            project_root, allowed_ips=preset_ips, accept_http_exposure=preset_ack
+        )
         _handle_do_deploy_with_config(project_root, wizard_config)
 
 
@@ -203,6 +235,8 @@ def _handle_byos(
     domain: str | None,
     admin_email: str | None,
     admin_password: str | None,
+    allow_ip: tuple[str, ...] = (),
+    accept_http_exposure: bool = False,
 ) -> None:
     """Run BYOS deployment (non-interactive via --byos flag)."""
     from dango.cli.commands.deploy_provision import run_byos_setup
@@ -216,6 +250,8 @@ def _handle_byos(
         domain=domain,
         admin_email=admin_email,
         admin_password=admin_password,
+        allow_ip=allow_ip,
+        accept_http_exposure=accept_http_exposure,
     )
 
     try:
@@ -235,6 +271,8 @@ def _handle_do_deploy(
     admin_email: str | None,
     admin_password: str | None,
     skip_backups: bool,
+    allow_ip: tuple[str, ...] = (),
+    accept_http_exposure: bool = False,
 ) -> None:
     """Run DO deployment (non-interactive mode)."""
     from dango.cli.commands.deploy_wizard import run_non_interactive
@@ -247,6 +285,8 @@ def _handle_do_deploy(
         admin_email=admin_email,
         admin_password=admin_password,
         skip_backups=skip_backups,
+        allow_ip=allow_ip,
+        accept_http_exposure=accept_http_exposure,
     )
     _handle_do_deploy_with_config(project_root, config, non_interactive=True)
 
@@ -272,7 +312,10 @@ def _handle_do_deploy_with_config(
         admin_password=result.admin_password,
         warnings=result.warnings,
         domain=config.domain,
-        backup_enabled=config.enable_backups,
+        backup_enabled=bool(
+            config.enable_backups and config.spaces_access_key and config.spaces_secret_key
+        ),
+        allowed_ips=list(result.allowed_ips),
     )
 
 
@@ -286,6 +329,7 @@ def _print_byos_success(result: Any, config: Any) -> None:
         warnings=result.warnings,
         domain=config.domain,
         backup_enabled=False,
+        byos=True,
     )
 
 
@@ -298,6 +342,8 @@ def _print_deploy_success(
     warnings: list[str],
     domain: str | None = None,
     backup_enabled: bool = False,
+    allowed_ips: list[str] | None = None,
+    byos: bool = False,
 ) -> None:
     """Print deployment success output (shared by DO and BYOS paths)."""
     console.print("\n[bold green]Deployment complete![/bold green]")
@@ -314,11 +360,17 @@ def _print_deploy_success(
             "\n  [bold]Backups:[/bold] Enabled (daily at 02:00 UTC to Spaces). "
             "Run [bold]dango remote backup download[/bold] to save a local copy."
         )
-    else:
+    elif byos:
         console.print(
             "\n  [yellow]Backups:[/yellow] Not configured. Backups are stored on this "
             "server only — if the server is lost, so are your backups. "
             "See https://docs.getdango.dev/deployment/backups for BYOS backup options."
+        )
+    else:
+        console.print(
+            "\n  [yellow]Backups:[/yellow] Not configured. Backups are stored on this "
+            "server only — if the server is lost, so are your backups. "
+            "Add Spaces keys with [bold]dango remote backup enable[/bold]."
         )
     if warnings:
         for w in warnings:
@@ -326,14 +378,30 @@ def _print_deploy_success(
     console.print("\n  Next: Visit the URL above and log in with your admin credentials.")
     console.print("  Sync your data sources from the Sources page.")
     if not domain:
-        console.print(
-            "\n  [yellow]Warning:[/yellow] Running over HTTP (unencrypted)."
-            " Set up a domain for HTTPS: [bold]dango remote domain set <domain>[/bold]"
-        )
+        _print_http_only_block(allowed_ips or [], byos=byos)
 
     import webbrowser
 
     webbrowser.open(url)
+
+
+def _print_http_only_block(allowed_ips: list[str], *, byos: bool) -> None:
+    """State the exposure of a deploy without a domain (plain HTTP)."""
+    if allowed_ips:
+        access = f"restricted to {', '.join(allowed_ips)}"
+    elif byos:
+        access = "OPEN to the internet unless your own firewall restricts ports 80/443"
+    else:
+        access = (
+            "OPEN to the internet "
+            "(restrict it with [bold]dango remote firewall allow-ip <your-ip>[/bold])"
+        )
+    console.print(
+        "\n  [bold red]HTTP only — credentials travel unencrypted.[/bold red]"
+        "\n  Admin password, session cookie and API keys are sent in clear text."
+        f"\n  Web access: {access}"
+        "\n  Next: set up HTTPS with [bold]dango remote domain set <domain>[/bold]"
+    )
 
 
 def _load_deploy_config(ctx: click.Context) -> tuple[Any, Path]:

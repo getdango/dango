@@ -5,6 +5,7 @@ Web-port restriction at provisioning (explicit IPs, detect, health check), `remo
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +13,12 @@ import pytest
 from click.testing import CliRunner
 
 _PASSWORD = "Str0ng-and-l0ng-passw0rd!"
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """Drop terminal colour codes and collapse whitespace (Rich wraps and styles output)."""
+    return " ".join(_ANSI.sub("", text).split())
 
 
 @pytest.fixture()
@@ -126,7 +133,7 @@ class TestProvisioningRestriction:
         )
         restrict.assert_called_once_with(client, "fw-333", ["203.0.113.7/32"])
         assert result.allowed_ips == ["203.0.113.7/32"]
-        out = " ".join(capsys.readouterr().out.split())
+        out = _plain(capsys.readouterr().out)
         assert "203.0.113.7/32" in out
         assert "dango remote firewall allow-ip" in out
 
@@ -139,7 +146,7 @@ class TestProvisioningRestriction:
         )
         restrict.assert_not_called()
         assert result.allowed_ips == []
-        out = " ".join(capsys.readouterr().out.split())
+        out = _plain(capsys.readouterr().out)
         assert "dango remote firewall allow-ip <your-ip>" in out
 
 
@@ -251,7 +258,7 @@ class TestDomainSetReopensWebPorts:
         rules = client.update_firewall.call_args.kwargs["inbound_rules"]
         web = [r for r in rules if r["ports"] in ("80", "443")]
         assert all("0.0.0.0/0" in r["sources"]["addresses"] for r in web)
-        assert "reopened" in result.output
+        assert "reopened" in _plain(result.output)
 
     def test_domain_set_public_firewall_untouched(self):
         result, calls, _client = _domain_set(["0.0.0.0/0", "::/0"])
@@ -266,7 +273,7 @@ class TestDomainSetReopensWebPorts:
         )
         assert result.exit_code == 0, result.output
         assert calls == ["set_domain"]
-        out = " ".join(result.output.split())
+        out = _plain(result.output)
         assert "dango remote firewall allow-all" in out
         assert "certificate" in out
 
@@ -305,7 +312,7 @@ def _status(tmp_path: Path, domain: str | None, provider: str = "digitalocean") 
             remote, ["status"], obj={"project_root": tmp_path}, catch_exceptions=False
         )
     assert result.exit_code == 0, result.output
-    return " ".join(result.output.split())
+    return _plain(result.output)
 
 
 @pytest.mark.unit

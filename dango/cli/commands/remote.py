@@ -595,6 +595,30 @@ def _connect_ssh(cloud_cfg: Any, project_root: Path) -> Any:
     return ssh
 
 
+def _reopen_web_ports_for_certificate(cloud_cfg: Any) -> None:
+    """Open 80/443 to all if the DO firewall restricts them (certificate issuance)."""
+    from dango.exceptions import CloudError
+    from dango.platform.cloud.firewall import allow_all_web, get_firewall_rules
+
+    if cloud_cfg.provider == "byos" or not cloud_cfg.firewall_id:
+        return
+    try:
+        client = _make_client()
+        fw = get_firewall_rules(client, cloud_cfg.firewall_id)
+        web = [r for r in fw.get("inbound_rules", []) if r.get("ports") in ("80", "443")]
+        if web and all("0.0.0.0/0" in r.get("sources", {}).get("addresses", []) for r in web):
+            return
+        allow_all_web(client, cloud_cfg.firewall_id)
+    except CloudError as exc:
+        console.print(
+            f"[yellow]Warning:[/yellow] Could not check the firewall: {exc}\n"
+            "  The certificate may fail to issue until ports 80/443 are open to all. Run "
+            "[bold]dango remote firewall allow-all[/bold]"
+        )
+        return
+    console.print("Web ports 80/443 reopened to all traffic for certificate issuance.")
+
+
 # ---------------------------------------------------------------------------
 # domain set
 # ---------------------------------------------------------------------------
@@ -621,6 +645,9 @@ def domain_set(ctx: click.Context, domain_name: str) -> None:
     if cloud_cfg.droplet_ip is None:
         console.print("[red]Error:[/red] No droplet IP found in cloud.yml.")
         raise SystemExit(1)
+
+    # Before Caddy is switched to HTTPS: Let's Encrypt must reach 80/443.
+    _reopen_web_ports_for_certificate(cloud_cfg)
 
     ssh = _connect_ssh(cloud_cfg, project_root)
     try:

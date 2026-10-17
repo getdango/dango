@@ -5,6 +5,7 @@ Deploys without a domain must be IP-restricted or explicitly acknowledged (CLI, 
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +14,12 @@ import pytest
 from click.testing import CliRunner
 
 _PASSWORD = "Str0ng-and-l0ng-passw0rd!"
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """Drop terminal colour codes and collapse whitespace (Rich wraps and styles output)."""
+    return " ".join(_ANSI.sub("", text).split())
 
 
 @pytest.fixture()
@@ -186,7 +193,7 @@ class TestFlagCombinations:
             )
             assert _step_web_exposure(accepted=True) == ([], True)
         prompt.assert_not_called()
-        assert "203.0.113.7/32" in capsys.readouterr().out
+        assert "203.0.113.7/32" in _plain(capsys.readouterr().out)
 
     def test_byos_wizard_preanswered_accept_does_not_prompt(self, project_root):
         from dango.cli.commands import deploy_wizard as dw
@@ -439,7 +446,7 @@ def _summary(capsys, **kwargs) -> str:
     base.update(kwargs)
     with patch("webbrowser.open"):
         _print_deploy_success(**base)
-    return " ".join(capsys.readouterr().out.split())
+    return _plain(capsys.readouterr().out)
 
 
 @pytest.mark.unit
@@ -484,6 +491,6 @@ class TestDeploySummary:
             patch("webbrowser.open"),
         ):
             _handle_do_deploy_with_config(project_root, cfg)
-        out = " ".join(capsys.readouterr().out.split())
+        out = _plain(capsys.readouterr().out)
         assert "to Spaces" not in out
         assert "dango remote backup enable" in out
