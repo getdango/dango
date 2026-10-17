@@ -43,7 +43,9 @@ def remote_upgrade(
 
     from dango.cli.commands.remote import _load_cloud_config_with_ssh_or_fail
     from dango.cli.utils import require_project_context
+    from dango.platform.cloud.runtime_ownership import at_target_restart_plan
     from dango.platform.cloud.upgrade import (
+        PROGRESS_LABELS,
         UpgradeResult,
         check_versions,
         upgrade_dango,
@@ -78,6 +80,13 @@ def remote_upgrade(
             )
             raise SystemExit(1)
 
+        # At target, only a venv rebuild restarts services: ask first (plain steps need no prompt).
+        if at_target and not yes and (plan := at_target_restart_plan(ssh)):
+            console.print(f"\n{plan}")
+            if not safe_confirm("Rebuild the venv now?", default=True):
+                console.print("[yellow]Cancelled.[/yellow] Nothing was changed.")
+                return
+
         # Confirm
         if not yes and not at_target:
             console.print()
@@ -91,18 +100,7 @@ def remote_upgrade(
 
             def _on_progress(step: str, step_status: str) -> None:
                 if step_status == "running":
-                    labels: dict[str, str] = {
-                        "check_version": "Checking current version...",
-                        "check_pypi": "Checking latest PyPI version...",
-                        "backup": "Creating pre-upgrade backup...",
-                        "stop_services": "Stopping services...",
-                        "pip_install": "Installing new version...",
-                        "migrations": "Running migrations...",
-                        "docker_rebuild": "Rebuilding Docker images...",
-                        "start_services": "Starting services...",
-                        "verify_health": "Verifying health...",
-                    }
-                    status.update(f"[bold blue]{labels.get(step, step)}")
+                    status.update(f"[bold blue]{PROGRESS_LABELS.get(step, step)}")
 
             result: UpgradeResult = upgrade_dango(
                 ssh,

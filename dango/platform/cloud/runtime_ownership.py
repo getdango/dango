@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
 
 if TYPE_CHECKING:
@@ -43,6 +44,10 @@ VENV_TAINT_PROBE = (
     f"{{ find {SRV_DIR} -maxdepth 0 ! -user root -print; "
     f"test ! -d {VENV_DIR} || find {VENV_DIR} {_UNTRUSTED} -print -quit; }} 2>/dev/null"
 )
+
+
+class VenvRebuildError(CloudProvisioningError):
+    """The venv could not be rebuilt as root-owned; the previous one was put back."""
 
 
 @dataclass(frozen=True)
@@ -161,6 +166,19 @@ def venv_is_untrusted(ssh: SSHManager) -> bool:
     """True if ``/srv/dango`` or anything in the venv could be written by a non-root user."""
     result = ssh.exec_command(VENV_TAINT_PROBE, timeout=120)
     return bool(result.stdout.strip())
+
+
+def at_target_restart_plan(ssh: SSHManager) -> str | None:
+    """What an at-target ``remote upgrade`` would restart, or ``None`` if nothing.
+
+    Only a venv rebuild restarts services; ownership and config refreshes do not.
+    """
+    if not venv_is_untrusted(ssh):
+        return None
+    return (
+        "Plan: rebuild the server venv as root-owned at the same version (a non-root "
+        "user can write it). Services stop and restart."
+    )
 
 
 def refresh_root_config(
@@ -288,19 +306,20 @@ def rebuild_venv(
     version: str | None,
     local_project_root: Path | None = None,
 ) -> str:
-    """Replace the venv with a fresh root-owned one at the same path; keep the old on failure.
+    """Replace the venv with a fresh root-owned one at the same path.
 
     The venv is rebuilt at its final path (console-script shebangs embed it): the
     old one is moved aside, a new one created and verified, then the old removed.
     Call with services stopped. Returns a status line.
+
+    Raises:
+        VenvRebuildError: The rebuild failed; the previous venv was put back.
     """
     if not version:
-        warnings.append("venv not rebuilt: the installed Dango version is unknown")
-        return "venv rebuild skipped: unknown version"
+        raise VenvRebuildError("the installed Dango version could not be read from the venv")
     aside = f"{VENV_DIR}.untrusted-{uuid.uuid4().hex[:12]}"
     if not ssh.exec_command(f"mv {VENV_DIR} {aside}").success:
-        warnings.append("venv not rebuilt: could not move the current venv aside")
-        return "venv rebuild skipped: move failed"
+        raise VenvRebuildError("the current venv could not be moved aside")
     pip = f"{VENV_DIR}/bin/pip"
     steps = [
         (f"python3 -m venv {VENV_DIR}", 120),
@@ -318,12 +337,8 @@ def rebuild_venv(
     )
     if not verified:
         restored = ssh.exec_command(f"rm -rf {VENV_DIR} && mv {aside} {VENV_DIR}").success
-        warnings.append(
-            "The venv could be written by a non-root user and rebuilding it failed "
-            f"({failed or 'import check'}); the previous venv was "
-            + ("kept. Re-run `dango remote upgrade`." if restored else f"left at {aside}.")
-        )
-        return "venv rebuild failed: previous venv kept" if restored else "venv rebuild failed"
+        where = "the previous venv was put back" if restored else f"the previous venv is at {aside}"
+        raise VenvRebuildError(f"`{failed or 'import check'}` failed; {where}")
     ssh.exec_command(f"{ROOT_PYTHON} -m spacy download en_core_web_sm -q", timeout=180)
     if local_project_root is not None:
         install_pushed_requirements(ssh, local_project_root, pip, warnings)
@@ -342,27 +357,36 @@ def rebuild_untrusted_venv(
     """Rebuild the venv, with services stopped, if a non-root user could write it.
 
     Run before root executes anything from the venv: the version comes from the
-    venv metadata (data, not code). Services are always started again. Never
-    raises; problems become *warnings*. Returns a status line, or ``None`` if the
-    venv was trusted.
+    venv metadata (data, not code). Services are always started again. Returns a
+    status line, or ``None`` if the venv was trusted.
+
+    Raises:
+        VenvRebuildError: The venv could not be checked or rebuilt (fail closed);
+            the previous venv is back in place and services were started again.
     """
     from dango.platform.cloud.backup import start_services, stop_services
 
     try:
-        if not venv_is_untrusted(ssh):
-            return None
-        stop_services(ssh)
-        try:
-            lock_srv_dango(ssh)
-            version = installed_version_from_metadata(ssh)
-            return rebuild_venv(
-                ssh, warnings, version=version, local_project_root=local_project_root
-            )
-        finally:
-            start_services(ssh)
+        untrusted = venv_is_untrusted(ssh)
     except Exception as exc:
-        warnings.append(f"venv rebuild step failed ({type(exc).__name__}).")
-        return f"venv rebuild skipped: {type(exc).__name__}"
+        raise VenvRebuildError(f"the venv could not be checked ({type(exc).__name__})") from exc
+    if not untrusted:
+        return None
+    stop_services(ssh)
+    try:
+        lock_srv_dango(ssh)
+        return rebuild_venv(
+            ssh,
+            warnings,
+            version=installed_version_from_metadata(ssh),
+            local_project_root=local_project_root,
+        )
+    except VenvRebuildError:
+        raise
+    except Exception as exc:
+        raise VenvRebuildError(f"unexpected {type(exc).__name__}") from exc
+    finally:
+        start_services(ssh)
 
 
 def secure_runtime(
@@ -370,27 +394,17 @@ def secure_runtime(
     warnings: list[str],
     *,
     installed_version: str | None,
-    local_project_root: Path | None = None,
-    allow_rebuild: bool = True,
     extra_steps: Sequence[OwnershipStep] = (),
-) -> tuple[str, str | None]:
-    """Rebuild an untrusted venv (if *allow_rebuild*), apply ownership, refresh root config.
+) -> str:
+    """Apply ownership and refresh root-run config; returns a status line.
 
-    A rebuild replaces the venv, so pass ``allow_rebuild=True`` only with services
-    stopped. Never raises for server-side problems: they become *warnings*.
-    Returns ``(ownership status, venv rebuild status or None)``.
+    Run :func:`rebuild_untrusted_venv` first. Never raises for server-side
+    problems: they become *warnings*.
     """
-    rebuild_status: str | None = None
     try:
-        if allow_rebuild and venv_is_untrusted(ssh):
-            lock_srv_dango(ssh)
-            rebuild_status = rebuild_venv(
-                ssh, warnings, version=installed_version, local_project_root=local_project_root
-            )
         ok = apply_ownership(ssh, warnings, extra_steps)
         refresh_root_config(ssh, warnings, installed_version)
     except Exception as exc:
         warnings.append(f"Runtime ownership step failed ({type(exc).__name__}).")
-        return f"Runtime ownership skipped: {type(exc).__name__}", rebuild_status
-    status = "Runtime ownership applied" if ok else "Runtime ownership incomplete (see warnings)"
-    return status, rebuild_status
+        return f"Runtime ownership skipped: {type(exc).__name__}"
+    return "Runtime ownership applied" if ok else "Runtime ownership incomplete (see warnings)"

@@ -33,6 +33,22 @@ _WS_MANUAL_STEP = (
 )
 
 
+#: Progress messages for the ``on_progress`` steps of :func:`upgrade_dango`.
+PROGRESS_LABELS: dict[str, str] = {
+    "rebuild_venv": "Checking the server venv...",
+    "check_version": "Checking current version...",
+    "check_pypi": "Checking latest PyPI version...",
+    "backup": "Creating pre-upgrade backup...",
+    "stop_services": "Stopping services...",
+    "pip_install": "Installing new version...",
+    "migrations": "Running migrations...",
+    "runtime_ownership": "Securing the server runtime...",
+    "docker_rebuild": "Rebuilding Docker images...",
+    "start_services": "Starting services...",
+    "verify_health": "Verifying health...",
+}
+
+
 @dataclass
 class UpgradeResult:
     """Result returned by :func:`upgrade_dango`."""
@@ -277,10 +293,17 @@ def upgrade_dango(
     warnings: list[str] = []
 
     # 0. A venv a non-root user could write is rebuilt before root runs anything from it
-    from dango.platform.cloud.runtime_ownership import rebuild_untrusted_venv, secure_runtime
+    from dango.platform.cloud import runtime_ownership as ro
 
     _notify(on_progress, "rebuild_venv", "running")
-    venv_rebuild = rebuild_untrusted_venv(ssh, warnings, local_project_root)
+    try:
+        venv_rebuild = ro.rebuild_untrusted_venv(ssh, warnings, local_project_root)
+    except ro.VenvRebuildError as exc:
+        raise CloudError(
+            "The venv could not be rebuilt as root-owned; upgrade aborted, server unchanged "
+            f"({exc}). Retry `dango remote upgrade` or see the server logs.",
+            error_code="DANGO-D023",
+        ) from exc
     _notify(on_progress, "rebuild_venv", "done")
 
     # 1. Get current version
@@ -318,9 +341,7 @@ def upgrade_dango(
             if _has_ws_auth_endpoint(old_version)
             else None
         )
-        ownership_status, _ = secure_runtime(
-            ssh, at_target_warnings, installed_version=old_version, allow_rebuild=False
-        )
+        ownership_status = ro.secure_runtime(ssh, at_target_warnings, installed_version=old_version)
         return UpgradeResult(
             old_version=old_version,
             new_version=old_version,
@@ -403,12 +424,9 @@ def upgrade_dango(
         # 8b. Authenticate the Marimo WebSocket route on existing servers
         caddyfile_ws_migration = _run_ws_migration(ssh, warnings, new_version)
 
-        # 8c. Root-owned runtime (rebuilds a venv a non-root user could write)
+        # 8c. Root-owned runtime (the venv was already rebuilt in step 0 if needed)
         _notify(on_progress, "runtime_ownership", "running")
-        runtime_ownership, late_rebuild = secure_runtime(
-            ssh, warnings, installed_version=new_version, local_project_root=local_project_root
-        )
-        venv_rebuild = late_rebuild or venv_rebuild
+        runtime_ownership = ro.secure_runtime(ssh, warnings, installed_version=new_version)
         _notify(on_progress, "runtime_ownership", "done")
 
         # 9. Docker rebuild

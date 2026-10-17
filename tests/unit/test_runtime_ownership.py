@@ -145,7 +145,7 @@ class TestSetupOwnership:
     def test_setup_reports_a_failed_verification_as_a_warning(self) -> None:
         from dango.platform.cloud.server_setup import setup_server
 
-        ssh, _commands = _recording_ssh({**_FRESH_SERVER, "-perm /022": ("/srv\n", "", 1)})
+        ssh, _commands = _recording_ssh({**_FRESH_SERVER, "bad=$(": ("/srv\n", "", 1)})
         result = setup_server(ssh)
         assert any("/srv" in w for w in result.warnings), result.warnings
 

@@ -496,12 +496,18 @@ def _setup_runtime_ownership(
     On a re-run over an older server, a venv another user could write is rebuilt
     first (taking ownership alone would hide that it was writable).
     """
-    from dango.platform.cloud.runtime_ownership import apply_ownership, rebuild_untrusted_venv
+    from dango.platform.cloud import runtime_ownership as ro
 
     step = "runtime_ownership"
     _notify(on_progress, step, "running")
-    rebuild_untrusted_venv(ssh, result.warnings)
-    apply_ownership(ssh, result.warnings)
+    try:
+        ro.rebuild_untrusted_venv(ssh, result.warnings)
+    except ro.VenvRebuildError as exc:
+        raise CloudProvisioningError(
+            f"Server setup step '{step}' failed: the venv could not be rebuilt as "
+            f"root-owned ({exc}). Setup stopped; re-run it or see the server logs."
+        ) from exc
+    ro.apply_ownership(ssh, result.warnings)
     result.steps_completed.append(step)
     _notify(on_progress, step, "done")
 
