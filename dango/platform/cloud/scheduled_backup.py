@@ -167,16 +167,22 @@ def _checkpoint_sqlite(db_path: Path) -> str | None:
     """
     if not db_path.is_file() or db_path.is_symlink():
         return None
-    try:
-        import sqlite3
+    script = (
+        "import sqlite3, sys; c=sqlite3.connect(sys.argv[1]);"
+        " c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.close()"
+    )
+    command = [sys.executable, "-I", "-c", script, str(db_path)]
+    if os.geteuid() == 0:
+        # As the service user: root opening the database could leave root-owned WAL files.
+        from dango.platform.cloud.backup_restore import SERVICE_USER
 
-        conn = sqlite3.connect(str(db_path))
-        try:
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        finally:
-            conn.close()
-    except Exception as exc:
+        command = ["runuser", "-u", SERVICE_USER, "--", *command]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as exc:
         return f"{db_path.name} checkpoint failed: {exc}"
+    if result.returncode != 0:
+        return f"{db_path.name} checkpoint failed: {result.stderr.strip()[-200:]}"
     return None
 
 

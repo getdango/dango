@@ -108,3 +108,20 @@ def test_upgrade_keeps_newest_three_safety_copies(tmp_path: Path) -> None:
     assert len(names) == 3
     assert "pre-upgrade-20200101T000000Z" not in names
     assert (backups / "pre-restore-keep.tar.gz").exists()
+
+
+@pytest.mark.unit
+def test_upgrade_safety_copy_never_holds_the_metabase_password(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+    (project / ".dango" / "metabase.yml").write_text(
+        "url: http://localhost:3000\nadmin:\n  email: a@example.com\n  password: s3cret-pw\n"
+    )
+
+    result, _sp, _m = _upgrade(project)
+
+    assert result.exit_code == 0, result.output
+    (copy,) = _copies(project)
+    text = (copy / "metabase.yml").read_text()
+    assert "s3cret-pw" not in text and "a@example.com" in text
+    # The copy made by this upgrade is not reported as a possibly legacy artifact.
+    assert "may predate" not in result.output

@@ -100,9 +100,22 @@ def _pre_upgrade_safety_copy(project_root: Path) -> Path:
         for path in (db, db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm")):
             if path.is_file():
                 shutil.copy2(path, dest / path.name)
+    from dango.platform.cloud.backup import METABASE_CONFIG_FILE, _write_sanitized_metabase_yaml
+
     for yml in sorted(dango_dir.glob("*.yml")):
-        if yml.is_file():
-            shutil.copy2(yml, dest / yml.name)
+        if not yml.is_file():
+            continue
+        if yml.name == Path(METABASE_CONFIG_FILE).name:
+            # Copies never hold the Metabase administrator password.
+            try:
+                _write_sanitized_metabase_yaml(yml, dest / yml.name)
+            except ValueError:
+                console.print(
+                    "[yellow]Warning:[/yellow] metabase.yml left out of the safety copy "
+                    "(its YAML could not be safely sanitized)."
+                )
+            continue
+        shutil.copy2(yml, dest / yml.name)
     copies = sorted(p for p in backups.glob("pre-upgrade-*") if p.is_dir())
     for old in copies[:-_SAFETY_COPIES_KEPT]:
         shutil.rmtree(old, ignore_errors=True)
@@ -220,6 +233,11 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
             console.print("[yellow]Upgrade cancelled.[/yellow]")
             return
 
+    # Checked before the safety copy below creates .dango/backups/ itself.
+    from dango.security.legacy_backup_artifacts import legacy_backup_artifact_warning
+
+    legacy_warning = legacy_backup_artifact_warning(project_root)
+
     # Safety copy of the databases and config before anything changes (also with --yes).
     try:
         safety = _pre_upgrade_safety_copy(project_root)
@@ -320,10 +338,8 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
             "rules. Run [bold]dango start[/bold] to retry safely."
         )
 
-    from dango.security.legacy_backup_artifacts import legacy_backup_artifact_warning
-
-    if warning := legacy_backup_artifact_warning(project_root):
-        console.print(f"[yellow]Warning:[/yellow] {warning}")
+    if legacy_warning:
+        console.print(f"[yellow]Warning:[/yellow] {legacy_warning}")
 
     # Success
     console.print()
