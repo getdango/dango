@@ -76,10 +76,8 @@ jobs:
 
   security:
     name: Security (pip-audit)
-    # Known CVE-2026-32274 in black (dev dep) — dbt-core 1.11 now allows pydantic<3 (was the
-    # original blocker), but black>=26.3.1 needs pathspec>=1.0.0 while dbt-core pins
-    # pathspec<0.13,>=0.9 — still blocked. Revisit when dbt-core relaxes its pathspec pin.
-    continue-on-error: true
+    # Blocks merges. Accepted advisories live, with expiry dates, in
+    # .github/pip-audit-ignores.txt (checked by scripts/check_audit_ignores.py).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -90,7 +88,21 @@ jobs:
       - run: pip install --upgrade pip
       - run: pip install -c constraints.txt -e ".[dev]"
       - name: pip-audit
-        run: pip-audit --ignore-vuln CVE-2026-32274 --ignore-vuln PYSEC-2026-2120 --ignore-vuln CVE-2026-71491 --ignore-vuln CVE-2026-59894 --ignore-vuln CVE-2026-59893 --ignore-vuln CVE-2026-54284
+        run: scripts/run_pip_audit.sh
+
+  sast:
+    name: SAST (bandit)
+    # Medium+ severity and confidence. Pre-existing findings are pinned in
+    # .github/bandit-baseline.json; a new finding fails the job.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "bandit[toml]>=1.8.0"
+      - name: bandit
+        run: bandit -r dango -c pyproject.toml -ll -ii -b .github/bandit-baseline.json
 
   egress:
     name: Egress allowlist
