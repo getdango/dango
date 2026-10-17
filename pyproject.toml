@@ -110,6 +110,7 @@ dev = [
     "types-aiofiles>=23.2.0",
     "pre-commit>=3.6.0",
     "pip-audit>=2.7.0",
+    "bandit[toml]>=1.8.0",        # SAST job in CI (.github/bandit-baseline.json holds pre-existing findings)
 ]
 # Note: dlt distributes sources via `dlt init <source>`, not pip extras.
 # dlt's pip extras are for DESTINATIONS (duckdb, bigquery, etc.) and infrastructure.
@@ -139,6 +140,10 @@ dango = [
     "web/templates/**/*",
     "web/static/**/*",
 ]
+
+[tool.bandit]
+# CI: bandit -c pyproject.toml -ll -ii -b .github/bandit-baseline.json  (medium+ severity and confidence)
+exclude_dirs = ["dango/ingestion/dlt_sources", "tests"]
 
 [tool.black]
 line-length = 100
