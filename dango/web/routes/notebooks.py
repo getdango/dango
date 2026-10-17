@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -36,6 +36,7 @@ from dango.notebooks.snapshot import create_snapshot
 from dango.utils.dango_db import connect
 from dango.validation import validate_identifier
 from dango.web.helpers import get_project_root
+from dango.web.middleware.origin import is_same_origin
 from dango.web.routes.ui import _render_template
 from dango.web.routes.websocket import ws_manager
 
@@ -445,9 +446,23 @@ async def lock_notebook(
 
 @router.get("/api/notebooks/ws-auth", response_model=NotebookWsAuthResponse)
 async def notebook_ws_auth(
+    request: Request,
     user: User = Depends(require_permission("notebooks.execute")),
 ) -> NotebookWsAuthResponse:
-    """Target of Caddy ``forward_auth`` for the Marimo WebSocket; 200 only for permitted sessions."""
+    """Target of Caddy ``forward_auth`` for the Marimo WebSocket.
+
+    200 only for permitted sessions whose browser ``Origin`` matches the ``Host``
+    it connected to.  Caddy forwards the original request headers unchanged
+    (https://caddyserver.com/docs/caddyfile/directives/forward_auth), and
+    ``reverse_proxy`` keeps the client's ``Host`` for an HTTP upstream, so
+    ``Host`` is used; ``X-Forwarded-Host`` is not trusted.  A WebSocket upgrade
+    from a browser always carries ``Origin``; a request without one is refused.
+    """
+    if not any(name == b"origin" for name, _ in request.scope["headers"]) or not is_same_origin(
+        request.scope["headers"]
+    ):
+        logger.warning("notebook_ws_cross_origin_refused")
+        raise HTTPException(status_code=403, detail="Cross-origin request refused")
     return NotebookWsAuthResponse(ok=True)
 
 
