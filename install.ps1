@@ -1,5 +1,5 @@
 # Dango Bootstrap Installer for Windows
-# Version: 0.1.0
+# Version: see getdango on PyPI
 # Purpose: Install Dango with per-project virtual environment
 # Platform: Windows 10/11 with PowerShell 5.1+
 
@@ -102,7 +102,7 @@ function Test-PythonVersion {
     # Try multiple Python commands in order of preference
     $pythonCmd = $null
     $pythonVersion = $null
-    $commands = @("python3.12", "python3.11", "python3.10", "python3", "python", "py")
+    $commands = @("python3.13", "python3.12", "python3.11", "python3.10", "python3", "python", "py")
 
     foreach ($cmd in $commands) {
         if (Get-Command $cmd -ErrorAction SilentlyContinue) {
@@ -113,8 +113,8 @@ function Test-PythonVersion {
                     $major = [int]$versionParts[0]
                     $minor = [int]$versionParts[1]
 
-                    # Check if version is 3.10-3.12
-                    if ($major -eq 3 -and $minor -ge 10 -and $minor -le 12) {
+                    # Check if version is 3.10-3.13 (matches requires-python >=3.10,<3.14)
+                    if ($major -eq 3 -and $minor -ge 10 -and $minor -le 13) {
                         $pythonCmd = $cmd
                         $pythonVersion = $version
                         break
@@ -130,15 +130,13 @@ function Test-PythonVersion {
 
     # If no suitable Python found
     if (-not $pythonCmd) {
-        Write-Error-Message "Python 3.10-3.12 not found"
+        Write-Error-Message "Python 3.10-3.13 not found"
         Write-Host ""
-        Write-Host "Dango requires Python 3.10, 3.11, or 3.12 (recommended)"
+        Write-Host "Dango requires Python 3.10-3.13 (3.12 recommended)"
         Write-Host ""
         Write-Host "Install options:"
         Write-Host "  winget install Python.Python.3.12"
         Write-Host "  Or download: https://www.python.org/downloads/"
-        Write-Host ""
-        Write-Host "Note: Python 3.13+ not yet supported due to dependency compatibility"
         Write-Host ""
         exit 1
     }
