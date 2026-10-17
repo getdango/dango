@@ -956,8 +956,9 @@ def _setup_backups(
 ) -> None:
     """Set up automated backups: create bucket, write credentials, enable timer."""
     from dango.platform.cloud._server_templates import (
-        SYSTEMD_BACKUP_SERVICE,
+        SERVER_DANGO_VERSION_COMMAND,
         SYSTEMD_BACKUP_TIMER,
+        backup_service_unit,
     )
     from dango.platform.cloud.spaces import SpacesClient
 
@@ -992,12 +993,15 @@ def _setup_backups(
     existing = read_project_file(ssh, "/srv/dango/project/.env")
     write_project_file(ssh, "/srv/dango/project/.env", existing + env_lines, mode=0o600)
 
-    # Write systemd timer/service files
-    ssh.write_remote_file(
-        "/etc/systemd/system/dango-backup.service",
-        SYSTEMD_BACKUP_SERVICE,
-        mode=0o644,
+    # Write systemd timer/service files; the unit depends on the server's Dango
+    # version (normally the version just installed, so the current unit)
+    version = ssh.exec_command(SERVER_DANGO_VERSION_COMMAND, timeout=30)
+    unit, unit_warning = backup_service_unit(
+        version.stdout.strip() if version.exit_code == 0 else None
     )
+    if unit_warning:
+        console.print(f"  [yellow]Warning:[/yellow] {unit_warning}")
+    ssh.write_remote_file("/etc/systemd/system/dango-backup.service", unit, mode=0o644)
     ssh.write_remote_file(
         "/etc/systemd/system/dango-backup.timer",
         SYSTEMD_BACKUP_TIMER,
