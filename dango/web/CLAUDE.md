@@ -37,7 +37,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/config.py` | `/api/config`, `/api/metabase-config` | — |
 | `routes/sources.py` | `/api/sources`, `/api/sources/{name}/details` | — |
 | `routes/sync.py` | `/api/sources/{name}/sync`, `/api/sync/trigger` (remote), `/api/sync/status/{id}` + subprocess-based `run_sync_task()` (~370 lines) | `run_sync_task()` |
-| `routes/logs.py` | `/api/logs`, `/api/sources/{name}/logs` | — |
+| `routes/logs.py` | `/api/logs`, `/api/sources/{name}/logs` | Responses pass through `utils/redact.py` (known secret values + patterns) |
 | `routes/dbt.py` | `/api/dbt/models`, `/api/dbt/models/{name}/run` + dbt docs proxy (`/manifest.json`, `/catalog.json`, `/dbt-docs/*`) | `run_dbt_model_task()` |
 | `routes/upload.py` | CSV upload/list/delete + background `run_dbt_after_delete()` | `run_dbt_after_delete()` |
 | `routes/websocket.py` | `ConnectionManager`, `ws_manager` singleton, `/ws` endpoint (auth in middleware; slot reserved before `accept()`, capped at `MAX_WS_CONNECTIONS` total and `MAX_WS_CONNECTIONS_PER_IDENTITY` per user, close 1013) | `ConnectionManager`, `ws_manager` |
