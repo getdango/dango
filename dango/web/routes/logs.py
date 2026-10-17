@@ -63,13 +63,14 @@ async def get_source_logs(
             # Get last N lines
             for line in lines[-limit:]:
                 # Parse log line (assuming format: timestamp - level - message)
-                parts = line.strip().split(" - ", 2)
+                # Redact the whole line first so a secret cannot straddle the field split
+                parts = redact_text(line.strip(), secrets).split(" - ", 2)
                 if len(parts) >= 3:
                     logs.append(
                         LogEntry(
-                            timestamp=redact_text(parts[0], secrets),
-                            level=redact_text(parts[1], secrets),
-                            message=redact_text(parts[2], secrets),
+                            timestamp=parts[0],
+                            level=parts[1],
+                            message=parts[2],
                         )
                     )
                 else:
