@@ -646,11 +646,10 @@ def domain_set(ctx: click.Context, domain_name: str) -> None:
         console.print("[red]Error:[/red] No droplet IP found in cloud.yml.")
         raise SystemExit(1)
 
-    # Before Caddy is switched to HTTPS: Let's Encrypt must reach 80/443.
-    _reopen_web_ports_for_certificate(cloud_cfg)
-
     ssh = _connect_ssh(cloud_cfg, project_root)
     try:
+        # Before Caddy is switched to HTTPS: Let's Encrypt must reach 80/443.
+        _reopen_web_ports_for_certificate(cloud_cfg)
         result = set_domain(ssh, project_root, domain_name)
     except Exception as exc:
         console.print(f"[red]Error:[/red] {exc}")

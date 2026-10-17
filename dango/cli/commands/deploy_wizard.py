@@ -217,6 +217,8 @@ def _step_web_exposure(
         except CloudError as exc:
             console.print(f"  [red]Error:[/red] {exc}")
             continue
+        if not cidrs:
+            continue
         return cidrs, False
 
 

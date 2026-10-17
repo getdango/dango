@@ -243,9 +243,9 @@ class TestWizardExposureStep:
         assert acknowledged is True
 
     def test_wizard_invalid_ip_reprompts(self):
-        (allowed, _ack), prompt = self._run_step(["not-an-ip", "203.0.113.0/24"])
+        (allowed, _ack), prompt = self._run_step(["not-an-ip", " , ", "203.0.113.0/24"])
         assert allowed == ["203.0.113.0/24"]
-        assert prompt.call_count == 2
+        assert prompt.call_count == 3
 
     def test_wizard_detect_is_offered_and_stored(self):
         (allowed, _ack), prompt = self._run_step(["detect"])
