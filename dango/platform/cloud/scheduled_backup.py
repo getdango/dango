@@ -8,6 +8,7 @@ remote server (not via SSH from local).  Entry point::
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import json
 import os
@@ -706,62 +707,139 @@ def download_from_spaces(spaces_config: dict[str, Any], key: str, local_path: Pa
 
 def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
     """Download and restore a backup from Spaces. Stops/restarts services."""
+    if PROJECT_DIR.is_symlink():
+        raise CloudProvisioningError(
+            f"{PROJECT_DIR} is a symlink; refusing to restore into it: nothing was restored"
+        )
     name = key.rsplit("/", 1)[-1]
     local_path = BACKUP_DIR / name
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     download_from_spaces(spaces_config, key, local_path)
 
-    archive_name = name.replace(".tar.gz", "")
-    staging = Path(f"/tmp/{archive_name}")
-    _stop_services()
+    from dango.platform.cloud.backup import (
+        BACKUP_DIRS,
+        BACKUP_FILES,
+        METABASE_CONFIG_FILE,
+        _write_sanitized_metabase_yaml,
+    )
+    from dango.platform.cloud.backup_restore import (
+        AS_SERVICE_USER,
+        SAFE_EXTRACT_OPTIONS,
+        SANITIZED_METABASE_NAME,
+        SERVICE_USER,
+        UNSAFE_ARCHIVE_MESSAGE,
+        hand_staging_to_service_user_cmd,
+        restore_dir_cmd,
+        restore_file_cmd,
+        unsafe_tar_members,
+        unsafe_tree_entries,
+        wal_sidecar_names,
+    )
+
+    # Refuse links and special files before touching anything (root reads staged files).
+    unsafe = unsafe_tar_members(local_path)
+    if unsafe:
+        raise CloudProvisioningError(UNSAFE_ARCHIVE_MESSAGE.format(names=", ".join(unsafe)))
+    # Fresh private staging (mkdtemp, 0700), never a predictable /tmp name.
+    staging = Path(tempfile.mkdtemp(prefix="dango-restore-staging-"))
+    private_dir: Path | None = None
     try:
         _run_local(
-            f"rm -rf {shlex.quote(str(staging))} && tar --no-same-permissions -xzf {shlex.quote(str(local_path))} -C /tmp",
+            f"tar -xzf {shlex.quote(str(local_path))} -C {shlex.quote(str(staging))}"
+            f" {SAFE_EXTRACT_OPTIONS}",
             step="extract",
         )
-        from dango.platform.cloud.backup import (
-            BACKUP_DIRS,
-            BACKUP_FILES,
-            METABASE_CONFIG_FILE,
-            _write_sanitized_metabase_yaml,
-        )
+        # Re-check what was extracted (the archive file could change after the check).
+        unsafe = unsafe_tree_entries(staging)
+        if unsafe:
+            raise CloudProvisioningError(UNSAFE_ARCHIVE_MESSAGE.format(names=", ".join(unsafe)))
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
 
+    copies_started = False
+    try:
+        _stop_services()
+        # Sanitize Metabase metadata as root into a fresh private directory
+        # (never into staging or the project tree), then let the service user read it.
+        metabase_source = staging / METABASE_CONFIG_FILE
+        sanitized: Path | None = None
+        if metabase_source.exists():
+            private_dir = Path(tempfile.mkdtemp(prefix="dango-restore-meta-"))
+            try:
+                _write_sanitized_metabase_yaml(
+                    metabase_source, private_dir / SANITIZED_METABASE_NAME
+                )
+                sanitized = private_dir / SANITIZED_METABASE_NAME
+                _run_local(
+                    f"chown {SERVICE_USER}:{SERVICE_USER} {shlex.quote(str(sanitized))}",
+                    step="restore_files",
+                )
+                private_dir.chmod(0o711)
+            except ValueError:
+                _logger.warning("metabase_restore_metadata_omitted")
+
+        # Project files are written as the service user, which owns the project tree.
+        copies_started = True
+        staging.chmod(0o755)
+        _run_local(hand_staging_to_service_user_cmd(str(staging)), step="restore_files")
+        stamp = time.strftime("%Y%m%d-%H%M%S")
         for fpath in BACKUP_FILES:
             src = staging / fpath
             if src.exists():
-                dest = PROJECT_DIR / fpath
-                dest.parent.mkdir(parents=True, exist_ok=True)
+                # A leftover live WAL would be replayed into the restored database.
+                # This path takes no safety backup, so keep it aside, not deleted.
+                before: list[str] = []
+                for sidecar in wal_sidecar_names(fpath):
+                    live = PROJECT_DIR / sidecar
+                    if live.exists() or live.is_symlink():
+                        kept = f"{live}.pre-restore-{stamp}"
+                        before.append(
+                            f"{AS_SERVICE_USER} mv -f {shlex.quote(str(live))} {shlex.quote(kept)}"
+                        )
+                        _logger.warning("restore_wal_kept", path=kept)
                 _run_local(
-                    f"cp {shlex.quote(str(src))} {shlex.quote(str(dest))}", step="restore_files"
+                    restore_file_cmd(str(src), str(PROJECT_DIR / fpath), before=before),
+                    step="restore_files",
                 )
-        metabase_source = staging / METABASE_CONFIG_FILE
-        if metabase_source.exists():
-            try:
-                _write_sanitized_metabase_yaml(metabase_source, PROJECT_DIR / METABASE_CONFIG_FILE)
-            except ValueError:
-                _logger.warning("metabase_restore_metadata_omitted")
+        if sanitized is not None:
+            _run_local(
+                restore_file_cmd(str(sanitized), str(PROJECT_DIR / METABASE_CONFIG_FILE)),
+                step="restore_files",
+            )
         for dpath in BACKUP_DIRS:
-            src = staging / dpath
-            if src.exists():
-                dest = PROJECT_DIR / dpath
-                dest.mkdir(parents=True, exist_ok=True)
-                _run_local(
-                    f"cp -r {shlex.quote(str(src) + '/.')} {shlex.quote(str(dest) + '/')}",
-                    step="restore_dirs",
-                )
+            _run_local(
+                restore_dir_cmd(str(staging / dpath), str(PROJECT_DIR / dpath)),
+                step="restore_dirs",
+            )
 
+        # Root writes only the Metabase volume, and never through a symlink.
         metabase_vol = _get_metabase_volume_path()
         if metabase_vol and (staging / "metabase").exists():
             for h2 in ["metabase.db.mv.db", "metabase.db.trace.db"]:
                 src = staging / "metabase" / h2
                 if src.exists():
+                    vol = Path(metabase_vol)
+                    if vol.is_symlink() or (vol / h2).is_symlink():
+                        raise CloudProvisioningError(
+                            f"Refusing to write through a symlink: {vol / h2}"
+                        )
                     _run_local(
                         f"cp {shlex.quote(str(src))} {shlex.quote(metabase_vol + '/')}",
                         step="restore_metabase",
                     )
         _run_local("chown -R dango:dango /srv/dango/project", step="fix_ownership")
-        subprocess.run(f"rm -rf {shlex.quote(str(staging))}", shell=True, timeout=30)
+    except Exception:
+        if copies_started:
+            # A failed copy leaves a partial, root-owned restore; give it back to
+            # the service user before services restart on it.
+            with contextlib.suppress(Exception):  # best effort; keep the original error
+                subprocess.run("chown -R dango:dango /srv/dango/project", shell=True, timeout=120)
+        raise
     finally:
+        for leftover in (staging, private_dir):
+            if leftover is not None:
+                shutil.rmtree(leftover, ignore_errors=True)
         _start_services()
 
 
