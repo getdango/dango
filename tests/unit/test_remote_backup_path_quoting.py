@@ -22,6 +22,7 @@ from dango.cli.commands.remote_backup import backup_restore
 from dango.exceptions import CloudProvisioningError
 from dango.platform.cloud import backup
 from dango.platform.cloud.ssh import CommandResult, SSHManager
+from tests.factories.backup_shell import shim_env
 
 HOSTILE_NAMES = [
     "My Backup (1).tar.gz",
@@ -151,6 +152,8 @@ def test_rollback_quotes_backup_path(path: str) -> None:
         "-C",
         staging,
         "--strip-components=1",
+        "--no-same-owner",
+        "--no-same-permissions",
     ]
     assert f"rm -rf {shlex.quote(staging)}" in ssh.commands
     test_cmd = ssh.commands[0]
@@ -194,14 +197,21 @@ def test_cleanup_and_stat_quote_listed_names() -> None:
 class ExecutingSSH(FakeSSH):
     """Really runs file-reading/copying commands under sh; records the rest.
 
-    ``rm``, ``chown`` and ``ls`` are recorded but never executed.
+    ``rm``, ``chown`` and ``ls`` are recorded but never executed.  ``runuser`` and
+    nested ``chown`` calls go through the shims of ``tests.factories.backup_shell``.
     """
+
+    def __init__(self, shim_dir: Path) -> None:
+        super().__init__()
+        self.env = shim_env(shim_dir)
 
     def exec_command(self, command: str, timeout: int | None = None, check: bool = False) -> Any:
         self.commands.append(command)
         if command.startswith(("rm ", "chown ", "ls ")):
             return CommandResult(stdout="", stderr="", exit_code=0)
-        proc = subprocess.run(["sh", "-c", command], capture_output=True, text=True, check=False)
+        proc = subprocess.run(
+            ["sh", "-c", command], capture_output=True, text=True, check=False, env=self.env
+        )
         return CommandResult(stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode)
 
 
@@ -223,6 +233,7 @@ def test_restore_extracts_create_archive_layout_whatever_the_file_name(
     (top / "data" / "warehouse.duckdb").write_bytes(b"db")
     (top / "dbt" / "models").mkdir(parents=True)
     (top / "dbt" / "models" / "m.sql").write_text("select 1")
+    (top / "manifest.json").write_text("{}")  # every _create_archive archive has one
     archive = tmp_path / archive_name
     subprocess.run(
         ["tar", "-czf", str(archive), "-C", str(tmp_path / "build"), top.name], check=True
@@ -232,7 +243,7 @@ def test_restore_extracts_create_archive_layout_whatever_the_file_name(
     stage_root.mkdir()
     monkeypatch.setattr(backup, "PROJECT_DIR", str(project))
     monkeypatch.setattr(backup, "RESTORE_STAGING_ROOT", str(stage_root))
-    ssh = ExecutingSSH()
+    ssh = ExecutingSSH(tmp_path / "shim")
 
     _patched_restore_with(ssh, str(archive))
 
@@ -251,17 +262,19 @@ def _build_archive(tmp_path: Path, layout: str) -> Path:
     src = tmp_path / "src"
     (src / "data").mkdir(parents=True)
     (src / "data" / "warehouse.duckdb").write_bytes(b"db")
+    (src / "manifest.json").write_text("{}")
     archive = tmp_path / "x.tar.gz"
     if layout == "dir":
         top = tmp_path / "build" / "backup-20260224-143000"
         top.mkdir(parents=True)
         (top / "data").mkdir()
         (top / "data" / "warehouse.duckdb").write_bytes(b"db")
+        (top / "manifest.json").write_text("{}")
         cmd = ["tar", "-czf", str(archive), "-C", str(top.parent), top.name]
     elif layout == "dot":
         cmd = ["tar", "-czf", str(archive), "-C", str(src), "."]
     else:
-        cmd = ["tar", "-czf", str(archive), "-C", str(src), "data"]
+        cmd = ["tar", "-czf", str(archive), "-C", str(src), "data", "manifest.json"]
     subprocess.run(cmd, check=True)
     return archive
 
@@ -281,7 +294,7 @@ def test_restore_layout_guard(
     stage_root.mkdir()
     monkeypatch.setattr(backup, "PROJECT_DIR", str(project))
     monkeypatch.setattr(backup, "RESTORE_STAGING_ROOT", str(stage_root))
-    ssh = ExecutingSSH()
+    ssh = ExecutingSSH(tmp_path / "shim")
     if ok:
         _patched_restore_with(ssh, str(archive))
         assert (project / "data" / "warehouse.duckdb").read_bytes() == b"db"
@@ -318,7 +331,8 @@ def test_failed_extraction_still_removes_only_generated_staging() -> None:
     ):
         backup.restore_from_archive(_as_ssh(ssh), "/srv/dango/backups/deploy/b.tar.gz")
 
-    start.assert_called_once()
+    # The archive is extracted and checked before services are touched.
+    start.assert_not_called()
     removals = [shlex.split(c) for c in ssh.commands if "rm " in c]
     assert len(removals) == 1
     assert removals[0][:2] == ["rm", "-rf"]
