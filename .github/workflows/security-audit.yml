@@ -1,0 +1,23 @@
+name: Security audit (weekly)
+
+# New advisories can appear between pull requests, so re-run the dependency audit weekly.
+# The PR-time gate is the `Security (pip-audit)` job in ci.yml; both use scripts/run_pip_audit.sh.
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+jobs:
+  pip-audit:
+    name: Weekly pip-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install --upgrade pip
+      - run: pip install -c constraints.txt -e ".[dev]"
+      - name: pip-audit
+        run: scripts/run_pip_audit.sh
