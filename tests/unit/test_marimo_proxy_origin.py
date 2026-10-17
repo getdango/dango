@@ -141,3 +141,65 @@ def test_non_marimo_path_still_needs_csrf_header(
     """The new check is scoped to /notebooks/marimo/; other routes keep the CSRF header rule."""
     resp = client.post("/api/probe", headers={**cookie, "Origin": "http://localhost:8800"})
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Caddy forward_auth target for the Marimo WebSocket (/api/notebooks/ws-auth)
+# ---------------------------------------------------------------------------
+
+WS_AUTH = "/api/notebooks/ws-auth"
+
+
+@pytest.fixture
+def ws_client(project: AuthProject) -> TestClient:
+    from dango.web.routes.notebooks import router
+
+    return build_client(project.root, router)
+
+
+@pytest.fixture
+def editor_cookie(project: AuthProject) -> dict[str, str]:
+    return {"Cookie": project.session_cookie(project.add_user("e@example.com", Role.EDITOR))}
+
+
+@pytest.mark.parametrize(
+    "origin", ["https://evil.example", "http://localhost:9999", "null", "https://d.example"]
+)
+def test_ws_auth_cross_origin_refused(
+    ws_client: TestClient, editor_cookie: dict[str, str], origin: str
+) -> None:
+    resp = ws_client.get(WS_AUTH, headers={**editor_cookie, "Origin": origin, "Host": "x.example"})
+    assert resp.status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("origin", "host"),
+    [
+        ("https://d.example", "d.example"),  # Caddy domain shape
+        ("http://localhost:8800", "localhost:8800"),  # localhost shape
+        ("http://203.0.113.5", "203.0.113.5"),  # :80 mode by IP
+    ],
+)
+def test_ws_auth_same_origin_allowed(
+    ws_client: TestClient, editor_cookie: dict[str, str], origin: str, host: str
+) -> None:
+    resp = ws_client.get(WS_AUTH, headers={**editor_cookie, "Origin": origin, "Host": host})
+    assert resp.status_code == 200
+
+
+def test_ws_auth_missing_origin_refused(
+    ws_client: TestClient, editor_cookie: dict[str, str]
+) -> None:
+    assert ws_client.get(WS_AUTH, headers=editor_cookie).status_code == 403
+
+
+def test_ws_auth_x_forwarded_host_not_trusted(
+    ws_client: TestClient, editor_cookie: dict[str, str]
+) -> None:
+    headers = {
+        **editor_cookie,
+        "Origin": "https://evil.example",
+        "Host": "d.example",
+        "X-Forwarded-Host": "evil.example",
+    }
+    assert ws_client.get(WS_AUTH, headers=headers).status_code == 403
