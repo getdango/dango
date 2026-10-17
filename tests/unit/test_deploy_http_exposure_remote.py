@@ -330,3 +330,63 @@ class TestStatusHttpOnly:
         out = _status(tmp_path, None, provider="byos")
         assert "HTTP only (unencrypted)" in out
         assert "ufw" in out
+
+
+# ---------------------------------------------------------------------------
+# Scheduled-backup unit chosen by the server's Dango version
+# ---------------------------------------------------------------------------
+
+
+def _backup_unit_written(project_root: Path, server_version: str | None) -> tuple[str, str]:
+    from dango.cli.commands.deploy_provision import _ResourceTracker, _setup_backups
+    from dango.cli.commands.deploy_wizard import WizardConfig
+    from dango.platform.cloud._server_templates import SERVER_DANGO_VERSION_COMMAND
+
+    def _exec(command: str, *args, **kwargs):
+        if command == SERVER_DANGO_VERSION_COMMAND:
+            return _cmd_result(
+                f"{server_version}\n" if server_version else "", 0 if server_version else 1
+            )
+        return _cmd_result()
+
+    ssh = MagicMock()
+    ssh.exec_command.side_effect = _exec
+    cfg = WizardConfig(
+        region="nyc3",
+        size_slug="s-2vcpu-4gb",
+        size_tier=None,
+        domain=None,
+        admin_email="admin@example.com",
+        admin_password=_PASSWORD,
+        skip_oauth=True,
+        enable_backups=True,
+        monthly_cost=29,
+        spaces_access_key="AK",
+        spaces_secret_key="SK",
+    )
+    with patch("dango.platform.cloud.spaces.SpacesClient"):
+        _setup_backups(ssh, MagicMock(), project_root, cfg, _ResourceTracker())
+    units = [
+        c.args[1]
+        for c in ssh.write_remote_file.call_args_list
+        if c.args[0] == "/etc/systemd/system/dango-backup.service"
+    ]
+    assert len(units) == 1
+    return units[0], " ".join(str(c) for c in ssh.exec_command.call_args_list)
+
+
+@pytest.mark.unit
+class TestDeployBackupUnitVersionGate:
+    def test_current_server_gets_hardened_unit(self, project_root):
+        from dango.platform.cloud._server_templates import SYSTEMD_BACKUP_SERVICE
+
+        unit, commands = _backup_unit_written(project_root, "1.0.14")
+        assert unit == SYSTEMD_BACKUP_SERVICE
+        assert "import dango" in commands
+
+    def test_older_server_gets_legacy_unit_and_warning(self, project_root, capsys):
+        from dango.platform.cloud._server_templates import SYSTEMD_BACKUP_SERVICE_LEGACY
+
+        unit, _commands = _backup_unit_written(project_root, "1.0.13")
+        assert unit == SYSTEMD_BACKUP_SERVICE_LEGACY
+        assert "dango remote upgrade" in _plain(capsys.readouterr().out)
