@@ -184,3 +184,34 @@ class TestMetabaseBestEffortLogged:
         call = get_logger.return_value.warning.call_args
         assert call.args[0] == "metabase_admin_link_failed"
         assert "secret-pw" not in str(call)
+
+
+@pytest.mark.unit
+class TestCredentialMigrationWarnings:
+    def test_linked_admin_session_failure_logs_type_and_returns_none(self, tmp_path: Path) -> None:
+        from dango.platform.common import metabase_credential_migration as mig
+
+        with (
+            patch("dango.auth.admin.get_auth_db_path", side_effect=RuntimeError("secret-pw")),
+            patch.object(mig, "_logger", create=True) as log,
+        ):
+            result = mig._linked_admin_session(tmp_path, "http://mb", "a@b.c")
+
+        assert result is None
+        call = log.warning.call_args
+        assert call.args[0] == "linked_admin_credential_unavailable"
+        assert call.kwargs == {"error_type": "RuntimeError"}
+        assert "secret-pw" not in str(call)
+
+    def test_discard_pending_failure_logs_and_state_unchanged(self, tmp_path: Path) -> None:
+        from dango.platform.common import metabase_credential_migration as mig
+
+        store = MagicMock()
+        store.discard_pending.side_effect = OSError("secret-pw")
+        with patch.object(mig, "_logger", create=True) as log:
+            mig._discard_pending_best_effort(store)
+
+        call = log.warning.call_args
+        assert call.args[0] == "pending_credential_discard_failed"
+        assert call.kwargs == {"error_type": "OSError"}
+        assert "secret-pw" not in str(call)
