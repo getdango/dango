@@ -138,10 +138,14 @@ class TestScheduledBackupVolumePathQuoting:
         project = tmp_path / "project"
         project.mkdir()
         recorded: list[str] = []
+        copies: list[tuple[Path, Path]] = []
 
         def fake_run_local(command: str, **_kw: Any) -> str:
             recorded.append(command)
             return ""
+
+        def fake_copy(src: Path, dest: Path, *, step: str) -> None:
+            copies.append((src, dest))
 
         with (
             patch(f"{_MODULE}.PROJECT_DIR", project),
@@ -149,16 +153,17 @@ class TestScheduledBackupVolumePathQuoting:
             patch(f"{_MODULE}._checkpoint_databases", return_value=[]),
             patch(f"{_MODULE}._get_metabase_volume_path", return_value=str(vol)),
             patch(f"{_MODULE}._run_local", side_effect=fake_run_local),
+            patch(f"{_MODULE}._copy_keeping_modes", side_effect=fake_copy),
+            patch(f"{_MODULE}._write_archive"),
             patch("subprocess.run"),
         ):
             sb._create_local_archive("t", include_secrets=False)
 
-        cps = [c for c in recorded if "metabase.db.mv.db" in c]
-        assert len(cps) == 1
-        tokens = shlex.split(cps[0])
-        assert tokens[0] == "cp"
-        assert tokens[1] == str(vol / "metabase.db.mv.db")
-        assert tokens[2].endswith("/metabase/")
+        # The H2 copy no longer goes through a shell, so the quote cannot break it.
+        assert not any("metabase.db.mv.db" in c for c in recorded)
+        h2 = [(src, dest) for src, dest in copies if src.name == "metabase.db.mv.db"]
+        assert h2 == [(vol / "metabase.db.mv.db", h2[0][1])]
+        assert h2[0][1].parent.name == "metabase"
 
 
 _EXEC_HOSTILE = [
@@ -271,6 +276,7 @@ class TestScheduledBackupRestoreQuoting:
             str(staging),
             "&&",
             "tar",
+            "--no-same-permissions",
             "-xzf",
             str(tmp_path / "backups" / "it's.tar.gz"),
             "-C",
