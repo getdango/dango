@@ -346,7 +346,7 @@ def update_source_table_docs(
 
     Merge semantics match `update_model`: supplied keys override, columns merge by name,
     everything else (other keys, tables, top-level keys) is preserved. YAML comments are lost.
-    The table must already exist in the file (created by sync).
+    The table must already exist in the file (created by sync). No Jinja; built-in tests only.
 
     Args:
         source_name: Source name.
@@ -358,20 +358,19 @@ def update_source_table_docs(
     """
     project_root = _get_project_root()
     from dango.transformation.model_common import ModelServiceError
-    from dango.transformation.model_docs import _load_yaml, _write_yaml
+    from dango.transformation.model_docs import _load_yaml, _write_yaml, validate_column_entries
 
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", source_name) or ".." in source_name:
         return {"error": f"Invalid source name '{source_name}'"}
     if description is None and not columns:
         return {"error": "Nothing to update: pass description and/or columns"}
-    if any(not isinstance(c, dict) or not c.get("name") for c in columns or []):
-        return {"error": "every column entry must be a mapping with a 'name'"}
     path = project_root / "dbt" / "models" / "staging" / f"sources_{source_name}.yml"
     if not path.exists():
         return {
             "error": f"No docs file for source '{source_name}' (expected {path.name}). Sync it first."
         }
     try:
+        validate_column_entries(columns, description)
         data = _load_yaml(path)
     except ModelServiceError as e:
         return {"error": "; ".join(e.errors), "errors": list(e.errors)}
