@@ -308,20 +308,15 @@ class TestArchivePathNotFollowed:
 
 @pytest.mark.unit
 class TestRestoreExtraction:
-    def test_restore_extracts_without_preserving_permissions(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        import dango.platform.cloud.scheduled_backup as sb
+    def test_restore_extracts_without_preserving_permissions(self, tmp_path: Path) -> None:
+        from tests.factories.backup_shell import run_spaces_restore
 
-        commands: list[str] = []
-        monkeypatch.setattr(sb, "BACKUP_DIR", tmp_path / "backups")
-        monkeypatch.setattr(sb, "PROJECT_DIR", tmp_path / "project")
-        monkeypatch.setattr(sb, "download_from_spaces", lambda *a, **k: None)
-        monkeypatch.setattr(sb, "_stop_services", lambda: None)
-        monkeypatch.setattr(sb, "_start_services", lambda: None)
-        monkeypatch.setattr(sb, "_get_metabase_volume_path", lambda: None)
-        monkeypatch.setattr(sb, "_run_local", lambda c, **k: commands.append(c) or "")
-        with patch("subprocess.run"):
-            sb.restore_from_spaces({}, "backups/backup-x.tar.gz")
-        (extract,) = [c for c in commands if "-xzf" in c]
+        content = tmp_path / "backup-x"
+        (content / ".dango").mkdir(parents=True)
+        (content / ".dango" / "project.yml").write_text("project: {}\n")
+        (tmp_path / "project").mkdir()
+
+        _shim, events = run_spaces_restore(tmp_path, tmp_path / "project", content.name)
+
+        (extract,) = [e for e in events if e.startswith("run: ") and "-xzf" in e]
         assert "--no-same-permissions" in extract, extract

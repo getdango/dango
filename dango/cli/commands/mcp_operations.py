@@ -223,6 +223,11 @@ def run_transform(select: str | None = None, full_refresh: bool = False) -> dict
     Unlike the dbt step inside `run_sync` (which tolerates test-only failures), this
     reports any failing model or test as status "failed", like `dango run`.
 
+    Model SQL written through create_model/update_model is validated (no file/URL access, no
+    COPY/ATTACH/INSTALL/LOAD, restricted Jinja); hand-written models under dbt/models are your
+    code and run as written. Mutation tools can change what runs against the warehouse: do not
+    auto-approve them.
+
     Args:
         select: dbt --select expression (e.g. "stg_stripe+", "marts"). Runs all if omitted.
         full_refresh: If True, rebuild incremental models from scratch.
