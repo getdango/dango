@@ -19,16 +19,28 @@ _PROJECT = "/srv/dango/project"
 
 def _recording_ssh(
     exec_results: dict[str, tuple[str, str, int]] | None = None,
+    *,
+    untrusted_until_rebuild: bool = False,
 ) -> tuple[MagicMock, list[str]]:
-    """Return an SSH mock plus the list every executed command is appended to."""
+    """Return an SSH mock plus the list every executed command is appended to.
+
+    With *untrusted_until_rebuild*, the venv taint probe reports a problem until a
+    fresh venv has been created successfully.
+    """
     results = exec_results or {}
     commands: list[str] = []
+    state = {"rebuilt": False}
 
     def _exec(command: str, *args: object, **kwargs: object) -> CommandResult:
         commands.append(command)
+        if untrusted_until_rebuild and "-print -quit" in command:
+            tainted = "" if state["rebuilt"] else "/srv/dango\n"
+            return CommandResult(stdout=tainted, stderr="", exit_code=0)
         for substr, (stdout, stderr, code) in results.items():
             if substr in command:
                 return CommandResult(stdout=stdout, stderr=stderr, exit_code=code)
+        if "python3 -m venv /srv/dango/venv" in command:
+            state["rebuilt"] = True
         return CommandResult(stdout="", stderr="", exit_code=0)
 
     ssh = MagicMock()
@@ -156,10 +168,8 @@ class TestSetupRerunOnOlderServer:
         from dango.platform.cloud.server_setup import SetupResult, _setup_runtime_ownership
 
         ssh, commands = _recording_ssh(
-            {
-                "-print -quit": ("/srv/dango\n", "", 0),
-                "getdango-*.dist-info": ("/v/getdango-1.0.13.dist-info\n", "", 0),
-            }
+            {"getdango-*.dist-info": ("/v/getdango-1.0.13.dist-info\n", "", 0)},
+            untrusted_until_rebuild=True,
         )
         _setup_runtime_ownership(ssh, SetupResult(), None)
         rebuilt = next(i for i, c in enumerate(commands) if "python3 -m venv /srv/dango/venv" in c)
@@ -195,10 +205,11 @@ def _run_upgrade(
             "",
             0 if backup_unit_present else 1,
         ),
-        "-print -quit": ("/srv/dango/venv/bin/x\n" if venv_untrusted else "", "", 0),
         "curl -sf": ("ok", "", 0),
     }
-    ssh, commands = _recording_ssh(results)
+    if not venv_untrusted:
+        results["-print -quit"] = ("", "", 0)
+    ssh, commands = _recording_ssh(results, untrusted_until_rebuild=venv_untrusted)
     backup_result = MagicMock(archive_path="/srv/dango/backups/deploy/backup-x.tar.gz")
     with (
         patch("dango.platform.cloud.server_status.check_latest_pypi_version", return_value=latest),
@@ -248,8 +259,8 @@ class TestUpgradeVenvRebuild:
         joined = "\n".join(commands)
         assert re.search(r"mv /srv/dango/venv /srv/dango/venv\.untrusted-\S+", joined), joined
         assert "python3 -m venv /srv/dango/venv" in joined
-        # The venv is rebuilt at the installed version (read from its metadata).
-        assert re.search(r"/srv/dango/venv/bin/pip install .*getdango==1\.0\.14", joined)
+        # The venv is rebuilt at the target version, never one chosen by server metadata.
+        assert re.search(r"/srv/dango/venv/bin/pip install .*getdango==1\.0\.15", joined)
         assert '/srv/dango/venv/bin/python -I -c "import dango' in joined
         assert re.search(r"rm -rf /srv/dango/venv\.untrusted-\S+", joined)
         assert "rebuilt" in (result.venv_rebuild or "")
