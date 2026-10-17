@@ -25,13 +25,48 @@ from dango.platform.cloud.backup import (
     METABASE_CONFIG_FILE,
     _sanitized_metabase_yaml,
     _sanitized_metabase_yaml_text,
+    wal_sidecar_names,
 )
+from dango.platform.cloud.backup_restore import unsafe_tar_members
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
 _SRV_PREFIX = "/srv/dango/project/"
+
+
+def _checkpoint_database(db_path: Path) -> bool:
+    """Fold a database's WAL into its main file.  Returns False if that is not possible."""
+    import sqlite3
+
+    import duckdb
+
+    try:
+        if db_path.suffix == ".duckdb":
+            duck = duckdb.connect(str(db_path))
+            try:
+                duck.execute("CHECKPOINT")
+            finally:
+                duck.close()
+            return True
+        lite = sqlite3.connect(str(db_path))
+        try:
+            busy = lite.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        finally:
+            lite.close()
+        return busy is not None and busy[0] == 0
+    except (duckdb.Error, sqlite3.Error, OSError):
+        return False
+
+
+def _live_sidecars(project_root: Path, fpath: str) -> list[str]:
+    """Return the relative WAL sidecar paths of *fpath* that exist (non-empty) in the project."""
+    return [
+        s
+        for s in wal_sidecar_names(fpath)
+        if (project_root / s).is_file() and (project_root / s).stat().st_size > 0
+    ]
 
 
 def _create_safety_backup(project_root: Path) -> Path | None:
@@ -46,7 +81,19 @@ def _create_safety_backup(project_root: Path) -> Path | None:
             for fpath in BACKUP_FILES:
                 src = project_root / fpath
                 if src.exists():
+                    # Committed writes may still live only in the WAL, which the
+                    # restore deletes: fold it in, or keep the WAL in the archive.
+                    sidecars = _live_sidecars(project_root, fpath)
+                    if sidecars and not _checkpoint_database(src):
+                        console.print(
+                            f"[yellow]Warning:[/yellow] Could not checkpoint {fpath}; "
+                            "its WAL files are included in the safety backup."
+                        )
+                    else:
+                        sidecars = []
                     tf.add(str(src), arcname=fpath)
+                    for sidecar in sidecars:
+                        tf.add(str(project_root / sidecar), arcname=sidecar)
             metabase_source = project_root / METABASE_CONFIG_FILE
             if metabase_source.exists():
                 try:
@@ -69,31 +116,54 @@ def _create_safety_backup(project_root: Path) -> Path | None:
         return None
 
 
-def _extract_archive(archive_path: Path, project_root: Path) -> None:
+def _clear_sidecar(sidecar: Path, keep_suffix: str) -> None:
+    """Delete a live WAL sidecar, or rename it with *keep_suffix* when one is given."""
+    if not keep_suffix:
+        sidecar.unlink(missing_ok=True)
+    elif sidecar.exists():
+        kept = sidecar.with_name(sidecar.name + keep_suffix)
+        sidecar.replace(kept)
+        console.print(f"[yellow]Warning:[/yellow] Live database WAL kept as {kept}")
+
+
+def _member_rel_path(name: str) -> str:
+    """Map an archive member name to a path relative to the project root."""
+    if name.startswith(_SRV_PREFIX):
+        return name[len(_SRV_PREFIX) :]
+    if name.startswith("backup-") and "/" in name:
+        # Legacy path: backup-TIMESTAMP/project/...
+        return name.split("/", 1)[1]
+    return name
+
+
+def _extract_archive(
+    archive_path: Path, project_root: Path, *, keep_wal_suffix: str = ""
+) -> list[str]:
     """Extract backup archive, mapping server paths to local project paths.
 
     Metabase H2 files (metabase/) are skipped — they are Docker volume paths
-    not relevant locally.  Paths that escape *project_root* are silently
-    skipped to prevent path-traversal attacks.
+    not relevant locally.  Paths that resolve outside *project_root* (path
+    traversal, or a symlink pointing elsewhere) are not written; their relative
+    paths are returned so the caller can report an incomplete restore.
     """
     resolved_root = project_root.resolve()
+    skipped: list[str] = []
     with tarfile.open(archive_path, mode="r:gz") as tf:
-        for member in tf.getmembers():
-            # Skip Metabase H2 files (Docker volume data)
-            if member.name.startswith("metabase/"):
-                continue
-            # Strip server prefix and map to project root
-            if member.name.startswith(_SRV_PREFIX):
-                rel_path = member.name[len(_SRV_PREFIX) :]
-            elif member.name.startswith("backup-") and "/" in member.name:
-                # Legacy path: backup-TIMESTAMP/project/...
-                parts = member.name.split("/", 1)
-                rel_path = parts[1] if len(parts) > 1 else member.name
-            else:
-                rel_path = member.name
+        # Skip Metabase H2 files (Docker volume data), whatever the archive's top-level dir.
+        members = [
+            m
+            for m in tf.getmembers()
+            if _member_rel_path(m.name).rstrip("/").split("/", 1)[0] != "metabase"
+        ]
+        # Where each member lands; a WAL carried by the archive (safety backup) is kept.
+        carried = {(project_root / _member_rel_path(m.name)).resolve() for m in members}
+        for member in members:
+            rel_path = _member_rel_path(member.name)
             dest = (project_root / rel_path).resolve()
-            # Defend against path traversal (absolute paths, .. components)
+            # Defend against path traversal (absolute paths, .. components, outside symlinks)
             if not str(dest).startswith(str(resolved_root) + "/") and dest != resolved_root:
+                if not member.isdir():
+                    skipped.append(rel_path)
                 continue
             if member.isdir():
                 dest.mkdir(parents=True, exist_ok=True)
@@ -112,7 +182,15 @@ def _extract_archive(archive_path: Path, project_root: Path) -> None:
                                 "YAML could not be safely sanitized."
                             )
                             continue
+                    # A leftover live WAL would be replayed into the restored database.
+                    # The database type comes from its logical name; the sidecars sit
+                    # next to the file actually written (which may be a symlink target).
+                    for side_rel in wal_sidecar_names(rel_path):
+                        side = Path(str(dest) + side_rel[len(rel_path) :])
+                        if side not in carried:
+                            _clear_sidecar(side, keep_wal_suffix)
                     dest.write_bytes(content)
+    return skipped
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +266,19 @@ def backup_restore(ctx: click.Context, file: str, yes: bool) -> None:
         console.print("[red]Error:[/red] Backup file must be a .tar.gz archive.")
         raise click.Abort()
 
+    # Links and special files are never restored: refuse before changing anything.
+    try:
+        unsafe = unsafe_tar_members(archive_path)
+    except (OSError, tarfile.TarError) as exc:
+        console.print(f"[red]Error:[/red] Cannot read backup archive: {exc}")
+        raise click.Abort() from exc
+    if unsafe:
+        console.print(
+            "[red]Error:[/red] Archive contains links or special files, which a restore "
+            f"never writes: {', '.join(unsafe)}. Nothing was restored."
+        )
+        raise click.Abort()
+
     if not yes:
         if not safe_confirm(
             f"This will restore project data from '{archive_path.name}'. "
@@ -216,7 +307,9 @@ def backup_restore(ctx: click.Context, file: str, yes: bool) -> None:
     # Extract archive
     console.print(f"Restoring from {archive_path.name}...")
     try:
-        _extract_archive(archive_path, project_root)
+        # Without a safety backup, a live WAL may hold the only copy of recent writes.
+        keep = "" if safety_path else f".pre-restore-{time.strftime('%Y%m%d-%H%M%S')}"
+        skipped = _extract_archive(archive_path, project_root, keep_wal_suffix=keep)
     except (OSError, tarfile.TarError) as exc:
         console.print(f"[red]Error:[/red] Restore failed: {exc}")
         if safety_path and safety_path.exists():
@@ -225,6 +318,17 @@ def backup_restore(ctx: click.Context, file: str, yes: bool) -> None:
                 f"dango backup restore {safety_path} --yes[/yellow]"
             )
         raise click.Abort() from exc
+
+    if skipped:
+        console.print(
+            "[red]Restore incomplete:[/red] these files were not restored because their "
+            "destination is outside the project (for example a symlink pointing elsewhere):"
+        )
+        for rel_path in skipped:
+            console.print(f"  {rel_path}")
+        if safety_path and safety_path.exists():
+            console.print(f"  Safety backup: {safety_path.name}")
+        raise click.Abort()
 
     console.print("[green]Restore complete.[/green]")
     if safety_path and safety_path.exists():

@@ -10,6 +10,8 @@ import duckdb
 import yaml
 from rich.console import Console
 
+from dango.utils.dbt_escaping import needs_identifier_quoting, neutralize_jinja
+
 console = Console()
 
 
@@ -202,7 +204,9 @@ class SchemaManager:
         # Build new columns list
         new_columns = []
         for col in actual_columns:
-            col_name = col["name"]
+            # dbt renders schema.yml names as Jinja, so data-derived names are stored
+            # neutralised; look existing entries up by that same form.
+            col_name = neutralize_jinja(col["name"])
 
             if col_name in existing_descriptions:
                 # Preserve existing description
@@ -217,10 +221,12 @@ class SchemaManager:
             entry = dict(existing_columns.get(col_name, {}))
             entry["name"] = col_name
             entry["description"] = description
+            if needs_identifier_quoting(col["name"]):
+                entry["quote"] = True
             new_columns.append(entry)
 
         # Detect removed columns
-        actual_col_names = {col["name"] for col in actual_columns}
+        actual_col_names = {neutralize_jinja(col["name"]) for col in actual_columns}
         for col_name, description in existing_descriptions.items():
             if col_name not in actual_col_names:
                 removed_columns.append({"name": col_name, "description": description})
