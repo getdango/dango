@@ -109,6 +109,7 @@ def remote_upgrade(
                 force=force,
                 on_progress=_on_progress,
                 local_project_root=require_project_context(ctx),
+                byos=getattr(cloud_cfg, "provider", None) == "byos",
             )
 
         console.print()

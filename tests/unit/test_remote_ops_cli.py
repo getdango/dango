@@ -26,6 +26,13 @@ _PATCH_LOADER = "dango.config.loader.ConfigLoader"
 _PATCH_SSH_CLS = "dango.platform.cloud.ssh.SSHManager"
 
 
+@pytest.fixture(autouse=True)
+def _trusted_server_venv() -> Any:
+    """These CLI tests mock SSH loosely; treat the server venv as trusted."""
+    with patch("dango.platform.cloud.runtime_ownership.venv_is_untrusted", return_value=False):
+        yield
+
+
 def _make_cloud_config(
     droplet_id: int = 42,
     droplet_ip: str = "1.2.3.4",

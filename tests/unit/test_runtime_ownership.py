@@ -69,7 +69,7 @@ class TestOwnershipScript:
         assert re.search(r"chown -R root:root /srv/dango/venv\b", script)
         assert "chmod -R go-w /srv/dango/venv" in script
         assert "install -d -o dango -g dango -m 0700 /srv/dango/secrets" in script
-        assert re.search(r"chgrp dango /srv/dango/backups /srv/dango/backups/deploy", script)
+        assert re.search(r"chgrp -h dango /srv/dango/backups /srv/dango/backups/deploy", script)
         assert "chmod 0750 /srv/dango/backups /srv/dango/backups/deploy" in script
         assert re.search(r"find /srv/dango/backups -type f -exec chmod 0600", script)
         assert re.search(r"chown -R dango:dango /srv/dango/project\b", script)
@@ -105,7 +105,7 @@ class TestOwnershipScript:
         script = build_verify_script()
         for path in ("/ ", "/srv ", "/srv/dango ", "/srv/dango/venv"):
             assert path in script, path
-        assert "-perm /022" in script
+        assert "-perm -020 -o -perm -002" in script
         assert "! -user root" in script
 
 
@@ -153,13 +153,6 @@ class TestSetupOwnership:
         joined = " ; ".join(commands)
         assert re.search(r"chown -R dango:dango /srv/dango/project\b", joined)
         assert "install -d -o dango -g dango -m 0700 /srv/dango/secrets" in joined
-
-    def test_setup_reports_a_failed_verification_as_a_warning(self) -> None:
-        from dango.platform.cloud.server_setup import setup_server
-
-        ssh, _commands = _recording_ssh({**_FRESH_SERVER, "bad=$(": ("/srv\n", "", 1)})
-        result = setup_server(ssh)
-        assert any("/srv" in w for w in result.warnings), result.warnings
 
 
 @pytest.mark.unit
@@ -243,13 +236,6 @@ class TestUpgradeOwnership:
     def test_upgrade_leaves_absent_backup_unit_absent(self) -> None:
         ssh, _commands, _result = _run_upgrade("1.0.14", "1.0.15", backup_unit_present=False)
         assert "/etc/systemd/system/dango-backup.service" not in _written(ssh)
-
-    def test_ownership_failure_is_a_warning_and_services_restart(self) -> None:
-        _ssh, commands, result = _run_upgrade(
-            "1.0.14", "1.0.15", extra={"set -e": ("", "chown: boom", 1)}
-        )
-        assert any("ownership" in w.lower() for w in result.warnings)
-        assert any("systemctl start dango-web" in c for c in commands)
 
 
 @pytest.mark.unit

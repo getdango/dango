@@ -527,10 +527,16 @@ def push_deploy(
             # Step 5b/5c: Install requirements.txt and scripts/requirements.txt as root
             # into the root-owned venv, from the pushed local files (never the server
             # copies, which the dango user can change). Runs every deploy.
-            from dango.platform.cloud.runtime_ownership import install_pushed_requirements
+            from dango.platform.cloud import runtime_ownership as ro
 
             _notify(on_progress, "install_deps", "running")
-            install_pushed_requirements(ssh, local_project_root, f"{VENV_BIN}/pip", warnings)
+            if ro.venv_is_untrusted(ssh):  # never run that venv's pip as root
+                warnings.append(
+                    "Requirements not installed: the server venv can be written by a non-root "
+                    "user. Run `dango remote upgrade` first (it rebuilds the venv), then push."
+                )
+            else:
+                ro.install_pushed_requirements(ssh, local_project_root, f"{VENV_BIN}/pip", warnings)
             _notify(on_progress, "install_deps", "done")
 
             # Step 6: Validate sources

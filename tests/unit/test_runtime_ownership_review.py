@@ -320,3 +320,22 @@ class TestVerificationSeverity:
         )
         result = _upgrade(ssh, byos=True)
         assert any("/srv" in w for w in result.warnings)
+
+
+@pytest.mark.unit
+def test_generated_probe_and_verify_scripts_execute(tmp_path: Path) -> None:
+    """Run the real scripts on a temp tree (not root-owned, so both must report it)."""
+    from dango.platform.cloud.runtime_ownership import VENV_TAINT_PROBE, build_verify_script
+
+    srv = tmp_path / "srv-dango"
+    (srv / "venv" / "lib").mkdir(parents=True)
+    (srv / "venv" / "lib64").symlink_to(srv / "venv" / "lib")
+    for script in (VENV_TAINT_PROBE, build_verify_script()):
+        run = subprocess.run(
+            ["bash", "-c", script.replace("/srv/dango", str(srv))],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert "syntax error" not in run.stderr, run.stderr
+        assert str(srv) in run.stdout, (run.stdout, run.stderr)

@@ -35,14 +35,38 @@ SECRETS_DIR = f"{SRV_DIR}/secrets"
 BACKUPS_DIR = f"{SRV_DIR}/backups"
 BACKUP_UNIT_PATH = "/etc/systemd/system/dango-backup.service"
 LOGROTATE_PATH = "/etc/logrotate.d/dango"
-#: Root runs the venv interpreter isolated: no cwd/script dir on sys.path, no PYTHON* vars.
-ROOT_PYTHON = f"{VENV_DIR}/bin/python -I"
+#: Root runs the venv interpreter isolated and from ``/``: no cwd/script dir on
+#: sys.path, no PYTHON* variables. Prefix for a command line.
+ROOT_PYTHON = f"cd / && {VENV_DIR}/bin/python -I"
+ROOT_UNITS = (
+    "/etc/systemd/system/dango-web.service",
+    BACKUP_UNIT_PATH,
+    "/etc/systemd/system/dango-backup.timer",
+    LOGROTATE_PATH,
+)
+VERSION_RE = re.compile(r"^\d+(\.\d+)*((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?$")
 
-# Anything in the venv not owned by root, or group/other-writable (links excluded).
-_UNTRUSTED = r"\( ! -user root -o \( ! -type l -perm /022 \) \)"
+# Not owned by root, or group/other-writable (links are judged by their target).
+_UNTRUSTED = r"\( ! -user root -o \( ! -type l \( -perm -020 -o -perm -002 \) \) \)"
+
+
+def links_outside_script(root: str) -> str:
+    """Shell that prints each symlink under *root* that resolves outside it and ``/usr``,
+    or into ``/usr`` at something another user could write (*root* itself is checked
+    separately)."""
+    return (
+        f'find {root} -type l -print0 2>/dev/null | while IFS= read -r -d "" l; do '
+        't=$(readlink -f "$l"); '
+        f'case "$t" in ({root}|{root}/*) continue;; (/usr/*) ;; (*) echo "$l -> $t"; continue;; esac; '
+        'if [ -e "$t" ] && [ -n "$(find "$t" -maxdepth 0 \\( ! -user root -o \\( -perm -020 -o -perm -002 \\) \\) '
+        '-print)" ]; then echo "$l -> $t"; fi; done'
+    )
+
+
 VENV_TAINT_PROBE = (
-    f"{{ find {SRV_DIR} -maxdepth 0 ! -user root -print; "
-    f"test ! -d {VENV_DIR} || find {VENV_DIR} {_UNTRUSTED} -print -quit; }} 2>/dev/null"
+    f"{{ find {SRV_DIR} -maxdepth 0 \\( -type l -o ! -user root \\) -print; "
+    f"test ! -d {VENV_DIR} || {{ find {VENV_DIR} {_UNTRUSTED} -print -quit; "
+    f"{links_outside_script(VENV_DIR)}; }}; }} 2>/dev/null | head -5"
 )
 
 
@@ -60,7 +84,7 @@ class OwnershipStep:
 
 def ownership_steps() -> list[OwnershipStep]:
     """Return the base ownership steps, in order."""
-    guarded = " ".join((VENV_DIR, SECRETS_DIR, BACKUPS_DIR, PROJECT_DIR))
+    guarded = " ".join((VENV_DIR, SECRETS_DIR, BACKUPS_DIR, f"{BACKUPS_DIR}/deploy", PROJECT_DIR))
     return [
         OwnershipStep(
             "symlink_guard",
@@ -82,7 +106,7 @@ def ownership_steps() -> list[OwnershipStep]:
             "backups",
             f"install -d -m 0750 {BACKUPS_DIR} {BACKUPS_DIR}/deploy"
             f" && chown -R root:root {BACKUPS_DIR}"
-            f" && chgrp dango {BACKUPS_DIR} {BACKUPS_DIR}/deploy"
+            f" && chgrp -h dango {BACKUPS_DIR} {BACKUPS_DIR}/deploy"
             f" && chmod 0750 {BACKUPS_DIR} {BACKUPS_DIR}/deploy"
             f" && find {BACKUPS_DIR} -type f -exec chmod 0600 {{}} +",
         ),
@@ -100,15 +124,19 @@ def build_ownership_script(extra_steps: Sequence[OwnershipStep] = ()) -> str:
 
 
 def build_verify_script() -> str:
-    """Script that prints every root-execution path not root-owned or group/other-writable.
+    """Script printing every root-execution path another user could change; exits 1 if any.
 
-    Exits non-zero if it printed anything.
+    Covers ``/``, ``/srv``, ``/srv/dango``, the venv (and where its links point),
+    the Dango systemd units and the logrotate file.
     """
-    units = f"{BACKUP_UNIT_PATH} /etc/systemd/system/dango-web.service"
+    units = " ".join(ROOT_UNITS)
     return (
-        f"bad=$( {{ find / /srv {SRV_DIR} -maxdepth 0 {_UNTRUSTED} -print; "
-        f"test ! -d {VENV_DIR} || find {VENV_DIR} {_UNTRUSTED} -print; "
-        f"for u in {units}; do test ! -e $u || find $u {_UNTRUSTED} -print; done; "
+        f"bad=$( {{ find / /srv {SRV_DIR} -maxdepth 0 \\( -type l -o ! -user root -o \\( -perm -020 -o -perm -002 \\) \\) "
+        "-print; "
+        f"test ! -d {VENV_DIR} || {{ find {VENV_DIR} {_UNTRUSTED} -print; "
+        f"{links_outside_script(VENV_DIR)}; }}; "
+        f"for u in {units}; do test ! -e $u || find $u -maxdepth 0 \\( -type l -o "
+        f"! -user root -o \\( -perm -020 -o -perm -002 \\) \\) -print; done; "
         '} 2>&1 | head -20 ); test -z "$bad" || { echo "$bad"; exit 1; }'
     )
 
@@ -119,24 +147,38 @@ def _run_script(ssh: SSHManager, script: str, timeout: int = 300) -> tuple[bool,
 
 
 def apply_ownership(
-    ssh: SSHManager, warnings: list[str], extra_steps: Sequence[OwnershipStep] = ()
+    ssh: SSHManager,
+    warnings: list[str],
+    extra_steps: Sequence[OwnershipStep] = (),
+    *,
+    strict: bool = False,
 ) -> bool:
-    """Run the ownership script, then verify. Problems become *warnings*; returns success."""
+    """Run the ownership script, then verify; returns success.
+
+    Never takes an untrusted venv: rebuild it first (:func:`rebuild_untrusted_venv`).
+    With *strict* (servers Dango provisioned), a failed check raises; otherwise
+    (BYOS) it becomes a warning with the remediation.
+
+    Raises:
+        VenvRebuildError: The venv is untrusted (nothing was changed).
+        CloudProvisioningError: *strict* and the script or the check failed.
+    """
+    if venv_is_untrusted(ssh):
+        raise VenvRebuildError("the venv can be written by a non-root user; rebuild it first")
     ok, detail = _run_script(ssh, build_ownership_script(extra_steps))
-    if not ok:
-        warnings.append(f"Runtime ownership was not applied: {detail}")
-        return False
-    ok, detail = _run_script(ssh, build_verify_script(), timeout=120)
-    if not ok:
-        warnings.append(
-            "Runtime ownership check failed; these paths are not root-owned or are "
-            f"writable by other users: {detail}"
-        )
-        return False
-    return True
-
-
-_VERSION_RE = re.compile(r"^\d+(\.\d+)*((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?$")
+    if ok:
+        ok, detail = _run_script(ssh, build_verify_script(), timeout=120)
+    if ok:
+        return True
+    message = (
+        "Runtime ownership check failed; these paths are not root-owned or are writable by "
+        f"other users: {detail}. Fix with `chown root:root <path> && chmod go-w <path>` "
+        "(and replace any symlink listed), then re-run."
+    )
+    if strict:
+        raise CloudProvisioningError(message)
+    warnings.append(message)
+    return False
 
 
 def installed_version_from_metadata(ssh: SSHManager) -> str | None:
@@ -151,9 +193,28 @@ def installed_version_from_metadata(ssh: SSHManager) -> str | None:
     for line in result.stdout.splitlines():
         name = line.strip().rsplit("/", 1)[-1]
         version = name[len("getdango-") : -len(".dist-info")]
-        if name.startswith("getdango-") and _VERSION_RE.match(version):
+        if name.startswith("getdango-") and VERSION_RE.match(version):
             return version
     return None
+
+
+REBUILD_ABORT = (
+    "The venv could not be rebuilt as root-owned; upgrade aborted, server unchanged ({}). "
+    "Retry `dango remote upgrade` or see the server logs."
+)
+
+
+def valid_version(value: str | None) -> str | None:
+    """*value* if it is a plain release version string, else ``None`` (it reaches shells)."""
+    return value if value and VERSION_RE.match(value) else None
+
+
+def trusted_metadata_version(ssh: SSHManager, requested: str | None) -> str | None:
+    """The version an untrusted venv records, believed only if the client knows it."""
+    import dango
+
+    found = installed_version_from_metadata(ssh)
+    return found if found in {dango.__version__, requested} else None
 
 
 def lock_srv_dango(ssh: SSHManager) -> None:
@@ -163,8 +224,9 @@ def lock_srv_dango(ssh: SSHManager) -> None:
 
 
 def venv_is_untrusted(ssh: SSHManager) -> bool:
-    """True if ``/srv/dango`` or anything in the venv could be written by a non-root user."""
-    result = ssh.exec_command(VENV_TAINT_PROBE, timeout=120)
+    """True if ``/srv/dango``, anything in the venv, or a venv link target could be
+    written by a non-root user, or a venv link leads out of it."""
+    result = ssh.exec_command(f"bash -c {shlex.quote(VENV_TAINT_PROBE)}", timeout=120)
     return bool(result.stdout.strip())
 
 
@@ -209,6 +271,7 @@ _NESTED_OR_EDITABLE = re.compile(
     r"^(-e|--editable|-r|--requirement|-c|--constraint)(\s|=|$)|^-[erc]\S", re.I
 )
 _URL_OPTION = re.compile(r"^(-i|--index-url|--extra-index-url|-f|--find-links)(?:\s+|=)(\S+)", re.I)
+_WEB_URL = re.compile(r"^https?://", re.I)
 _URL_CREDENTIALS = re.compile(r"[a-z][a-z0-9+.-]*://[^/\s@]+@", re.I)
 _SSH_GIT_USER = re.compile(r"^[a-z+]*ssh://git@", re.I)
 _LOCAL_ARCHIVE = re.compile(r"\.(whl|tar\.gz|zip|tgz|tar\.bz2)$", re.I)
@@ -226,18 +289,23 @@ def check_requirements(text: str) -> list[str]:
     """Return the lines root must not install (credentials redacted); ``[]`` if all are fine.
 
     Refused: editable installs, nested ``-r``/``-c`` files, ``file:`` and local or
-    relative paths, local archives, and URLs carrying credentials.
+    relative paths, local archives, non-http(s) index/find-links URLs, and URLs
+    carrying credentials. Backslash continuations are joined first, as pip does.
     """
     refused: list[str] = []
-    for raw in text.splitlines():
+    joined = re.sub(r"\\\r?\n", " ", text)  # pip joins backslash continuations first
+    for raw in joined.splitlines():
         line = _strip_comment(raw)
         if not line:
             continue
         url_option = _URL_OPTION.match(line)
         if url_option:
             target = url_option.group(2)
-            if "://" not in target or _URL_CREDENTIALS.search(target):
+            if not _WEB_URL.match(target) or _URL_CREDENTIALS.search(target):
                 refused.append(_redact(line))
+            continue
+        if re.search(r"\s(-e|--editable|-r|--requirement|-c|--constraint)(\s|=|$)", line):
+            refused.append(_redact(line))
             continue
         spec = line.split(";", 1)[0].split(" --hash", 1)[0].strip()
         url = spec.split("@", 1)[1].strip() if " @ " in spec else spec
@@ -315,8 +383,8 @@ def rebuild_venv(
     Raises:
         VenvRebuildError: The rebuild failed; the previous venv was put back.
     """
-    if not version:
-        raise VenvRebuildError("the installed Dango version could not be read from the venv")
+    if not version or not VERSION_RE.match(version):
+        raise VenvRebuildError(f"no valid getdango version to install ({version!r})")
     aside = f"{VENV_DIR}.untrusted-{uuid.uuid4().hex[:12]}"
     if not ssh.exec_command(f"mv {VENV_DIR} {aside}").success:
         raise VenvRebuildError("the current venv could not be moved aside")
@@ -335,30 +403,40 @@ def rebuild_venv(
             f'{ROOT_PYTHON} -c "import dango; print(dango.__version__)"', timeout=60
         ).success
     )
+    if verified:
+        ssh.exec_command(f"{ROOT_PYTHON} -m spacy download en_core_web_sm -q", timeout=180)
+        if local_project_root is not None:
+            install_pushed_requirements(ssh, local_project_root, pip, warnings)
+        else:
+            warnings.append(
+                "The venv was rebuilt without project packages; run `dango remote push` to "
+                "install requirements.txt."
+            )
+        # Trust the new venv only if nothing in it, or behind its links, is writable by others.
+        if venv_is_untrusted(ssh):
+            failed = "the post-rebuild ownership check"
+            verified = False
     if not verified:
         restored = ssh.exec_command(f"rm -rf {VENV_DIR} && mv {aside} {VENV_DIR}").success
         where = "the previous venv was put back" if restored else f"the previous venv is at {aside}"
         raise VenvRebuildError(f"`{failed or 'import check'}` failed; {where}")
-    ssh.exec_command(f"{ROOT_PYTHON} -m spacy download en_core_web_sm -q", timeout=180)
-    if local_project_root is not None:
-        install_pushed_requirements(ssh, local_project_root, pip, warnings)
-    else:
-        warnings.append(
-            "The venv was rebuilt without project packages; run `dango remote push` to "
-            "install requirements.txt."
-        )
     ssh.exec_command(f"rm -rf {aside}", timeout=300)
     return f"venv rebuilt as root (getdango=={version})"
 
 
 def rebuild_untrusted_venv(
-    ssh: SSHManager, warnings: list[str], local_project_root: Path | None = None
+    ssh: SSHManager,
+    warnings: list[str],
+    *,
+    version: str | None,
+    local_project_root: Path | None = None,
 ) -> str | None:
-    """Rebuild the venv, with services stopped, if a non-root user could write it.
+    """Rebuild the venv at *version*, with services stopped, if a non-root user could write it.
 
-    Run before root executes anything from the venv: the version comes from the
-    venv metadata (data, not code). Services are always started again. Returns a
-    status line, or ``None`` if the venv was trusted.
+    Run before root executes anything from the venv. *version* must come from the
+    client (target or local version), never from the server's metadata alone.
+    Services are stopped and started with systemctl/compose only. Returns a status
+    line, or ``None`` if the venv was trusted.
 
     Raises:
         VenvRebuildError: The venv could not be checked or rebuilt (fail closed);
@@ -375,12 +453,7 @@ def rebuild_untrusted_venv(
     stop_services(ssh)
     try:
         lock_srv_dango(ssh)
-        return rebuild_venv(
-            ssh,
-            warnings,
-            version=installed_version_from_metadata(ssh),
-            local_project_root=local_project_root,
-        )
+        return rebuild_venv(ssh, warnings, version=version, local_project_root=local_project_root)
     except VenvRebuildError:
         raise
     except Exception as exc:
@@ -394,16 +467,20 @@ def secure_runtime(
     warnings: list[str],
     *,
     installed_version: str | None,
+    strict: bool = False,
     extra_steps: Sequence[OwnershipStep] = (),
 ) -> str:
     """Apply ownership and refresh root-run config; returns a status line.
 
-    Run :func:`rebuild_untrusted_venv` first. Never raises for server-side
-    problems: they become *warnings*.
+    Run :func:`rebuild_untrusted_venv` first. Unexpected errors become *warnings*;
+    an untrusted venv, or a failed check with *strict*, raises
+    ``CloudProvisioningError`` (``VenvRebuildError`` for the venv).
     """
     try:
-        ok = apply_ownership(ssh, warnings, extra_steps)
+        ok = apply_ownership(ssh, warnings, extra_steps, strict=strict)
         refresh_root_config(ssh, warnings, installed_version)
+    except CloudProvisioningError:
+        raise
     except Exception as exc:
         warnings.append(f"Runtime ownership step failed ({type(exc).__name__}).")
         return f"Runtime ownership skipped: {type(exc).__name__}"

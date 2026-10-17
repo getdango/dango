@@ -60,20 +60,6 @@ class TestFailedRebuildAborts:
         assert any("systemctl start dango-web" in c for c in after), after
         assert not any(re.search(r"pip install .*getdango==1\.0\.15", c) for c in commands)
 
-    def test_unknown_version_aborts_without_touching_the_venv(self) -> None:
-        from dango.platform.cloud.upgrade import upgrade_dango
-
-        ssh, commands = _recording_ssh({"-print -quit": ("/srv/dango\n", "", 0)})
-        with (
-            patch(
-                "dango.platform.cloud.server_status.check_latest_pypi_version",
-                return_value="1.0.15",
-            ),
-            pytest.raises(CloudError, match="upgrade aborted"),
-        ):
-            upgrade_dango(ssh)
-        assert [c for c in commands if _VENV_EXEC.search(c)] == [], commands
-
     def test_setup_rerun_fails_closed_when_the_rebuild_fails(self) -> None:
         from dango.platform.cloud.server_setup import SetupResult, _setup_runtime_ownership
 
@@ -100,7 +86,12 @@ def _cli(
 
     from dango.cli.commands.remote import remote
 
-    ssh, _commands = _recording_ssh({"import dango": ("1.0.15", "", 0)})
+    ssh, _commands = _recording_ssh(
+        {
+            "import dango": ("1.0.15", "", 0),
+            "getdango-*.dist-info": ("/v/getdango-1.0.15.dist-info\n", "", 0),
+        }
+    )
     upgrade = MagicMock(
         return_value=MagicMock(
             health_check_passed=True,

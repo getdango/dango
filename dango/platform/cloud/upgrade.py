@@ -95,12 +95,17 @@ def check_versions(ssh: SSHManager) -> tuple[str | None, str | None]:
     """
     from packaging.version import Version
 
+    from dango.platform.cloud import runtime_ownership as ro
     from dango.platform.cloud.server_status import (
         _get_dango_version,
         check_latest_pypi_version,
     )
 
-    current = _get_dango_version(ssh)
+    # An untrusted venv is never run: read its recorded version as data instead.
+    if ro.venv_is_untrusted(ssh):
+        current = ro.installed_version_from_metadata(ssh)
+    else:
+        current = ro.valid_version(_get_dango_version(ssh))
     include_pre = current is not None and Version(current).is_prerelease
     latest = check_latest_pypi_version(include_pre=include_pre)
     return current, latest
@@ -255,6 +260,7 @@ def upgrade_dango(
     force: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
     local_project_root: Path | None = None,
+    byos: bool = False,
 ) -> UpgradeResult:
     """Upgrade Dango on the remote server.
 
@@ -276,6 +282,8 @@ def upgrade_dango(
         on_progress: Optional ``(step, status)`` callback.
         local_project_root: Local project; its requirements files are reinstalled
             if the server venv has to be rebuilt as root.
+        byos: Server not provisioned by Dango: a failed ownership check warns
+            instead of failing the upgrade.
 
     Returns:
         ``UpgradeResult`` with version change details and health status.
@@ -292,23 +300,20 @@ def upgrade_dango(
     start_time = time.monotonic()
     warnings: list[str] = []
 
-    # 0. A venv a non-root user could write is rebuilt before root runs anything from it
+    # 0. Never run a venv another user could write: check it as data first
     from dango.platform.cloud import runtime_ownership as ro
 
-    _notify(on_progress, "rebuild_venv", "running")
     try:
-        venv_rebuild = ro.rebuild_untrusted_venv(ssh, warnings, local_project_root)
-    except ro.VenvRebuildError as exc:
-        raise CloudError(
-            "The venv could not be rebuilt as root-owned; upgrade aborted, server unchanged "
-            f"({exc}). Retry `dango remote upgrade` or see the server logs.",
-            error_code="DANGO-D023",
-        ) from exc
-    _notify(on_progress, "rebuild_venv", "done")
+        untrusted = ro.venv_is_untrusted(ssh)
+    except Exception as exc:
+        raise CloudError(ro.REBUILD_ABORT.format(f"the venv could not be checked: {exc}")) from exc
 
-    # 1. Get current version
+    # 1. Get current version (from the venv metadata, as data, when it is untrusted)
     _notify(on_progress, "check_version", "running")
-    old_version = _get_dango_version(ssh)
+    if untrusted:
+        old_version = ro.trusted_metadata_version(ssh, version)
+    else:
+        old_version = ro.valid_version(_get_dango_version(ssh))
     _notify(on_progress, "check_version", "done")
 
     # 2. Determine target version
@@ -332,6 +337,26 @@ def upgrade_dango(
             )
         target_version = latest
 
+    # 3b. Downgrade guard
+    if old_version is not None and _Version(target_version) < _Version(old_version) and not force:
+        raise CloudError(
+            f"Target version {target_version} is older than current version {old_version}. "
+            "Use --force to downgrade.",
+            error_code="DANGO-D022",
+        )
+
+    # 3c. Rebuild an untrusted venv at the target version before anything runs it
+    venv_rebuild: str | None = None
+    if untrusted:
+        _notify(on_progress, "rebuild_venv", "running")
+        try:
+            venv_rebuild = ro.rebuild_untrusted_venv(
+                ssh, warnings, version=target_version, local_project_root=local_project_root
+            )
+        except ro.VenvRebuildError as exc:
+            raise CloudError(ro.REBUILD_ABORT.format(exc), error_code="DANGO-D023") from exc
+        _notify(on_progress, "rebuild_venv", "done")
+
     # 3. Already at target?  Still finish the Caddyfile WebSocket migration
     # (idempotent) so a re-run can complete a step an earlier run skipped.
     if old_version == target_version:
@@ -341,7 +366,9 @@ def upgrade_dango(
             if _has_ws_auth_endpoint(old_version)
             else None
         )
-        ownership_status = ro.secure_runtime(ssh, at_target_warnings, installed_version=old_version)
+        ownership_status = ro.secure_runtime(
+            ssh, at_target_warnings, installed_version=old_version, strict=not byos
+        )
         return UpgradeResult(
             old_version=old_version,
             new_version=old_version,
@@ -354,14 +381,6 @@ def upgrade_dango(
             caddyfile_ws_migration=ws_status,
             runtime_ownership=ownership_status,
             venv_rebuild=venv_rebuild,
-        )
-
-    # 3b. Downgrade guard
-    if old_version is not None and _Version(target_version) < _Version(old_version) and not force:
-        raise CloudError(
-            f"Target version {target_version} is older than current version {old_version}. "
-            "Use --force to downgrade.",
-            error_code="DANGO-D022",
         )
 
     # 4. Pre-upgrade backup
@@ -399,8 +418,8 @@ def upgrade_dango(
         _run_checked(ssh, pip_cmd, step="pip_install", timeout=300)
         _notify(on_progress, "pip_install", "done")
 
-        # 7. Verify new version
-        new_version = _get_dango_version(ssh)
+        # 7. Verify new version (validated before it is used anywhere)
+        new_version = ro.valid_version(_get_dango_version(ssh))
 
         # 8. Run migrations
         _notify(on_progress, "migrations", "running")
@@ -426,7 +445,9 @@ def upgrade_dango(
 
         # 8c. Root-owned runtime (the venv was already rebuilt in step 0 if needed)
         _notify(on_progress, "runtime_ownership", "running")
-        runtime_ownership = ro.secure_runtime(ssh, warnings, installed_version=new_version)
+        runtime_ownership = ro.secure_runtime(
+            ssh, warnings, installed_version=new_version, strict=not byos
+        )
         _notify(on_progress, "runtime_ownership", "done")
 
         # 9. Docker rebuild

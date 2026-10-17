@@ -490,24 +490,28 @@ def _setup_runtime_ownership(
     ssh: SSHManager,
     result: SetupResult,
     on_progress: Callable[[str, str], None] | None,
+    *,
+    byos: bool = False,
 ) -> None:
-    """Step 17: Root-owned /srv/dango and venv; verification problems become warnings.
+    """Step 17: Root-owned /srv/dango and venv, verified.
 
     On a re-run over an older server, a venv another user could write is rebuilt
-    first (taking ownership alone would hide that it was writable).
+    first, at this client's Dango version (never re-owned as it is). A failed check
+    stops setup, except on BYOS servers, where it becomes a warning with the fix.
     """
+    import dango
     from dango.platform.cloud import runtime_ownership as ro
 
     step = "runtime_ownership"
     _notify(on_progress, step, "running")
     try:
-        ro.rebuild_untrusted_venv(ssh, result.warnings)
+        ro.rebuild_untrusted_venv(ssh, result.warnings, version=dango.__version__)
     except ro.VenvRebuildError as exc:
         raise CloudProvisioningError(
             f"Server setup step '{step}' failed: the venv could not be rebuilt as "
             f"root-owned ({exc}). Setup stopped; re-run it or see the server logs."
         ) from exc
-    ro.apply_ownership(ssh, result.warnings)
+    ro.apply_ownership(ssh, result.warnings, strict=not byos)
     result.steps_completed.append(step)
     _notify(on_progress, step, "done")
 
@@ -756,6 +760,8 @@ def setup_server(
             _setup_caddyfile(ssh, result, on_progress, domain=domain)
         elif step_fn is _setup_systemd_unit:
             _setup_systemd_unit(ssh, result, on_progress, workers=None)
+        elif step_fn is _setup_runtime_ownership:
+            _setup_runtime_ownership(ssh, result, on_progress, byos=setup_ufw)
         elif step_fn is _setup_venv:
             _setup_venv(
                 ssh,
