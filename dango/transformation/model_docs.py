@@ -84,13 +84,20 @@ def _write_yaml(path: Path, data: dict[str, Any]) -> None:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
-def validate_column_entries(columns: list[dict[str, Any]] | None) -> None:
-    """Reject malformed column entries, including both `tests` and `data_tests` on one column."""
+def validate_column_entries(
+    columns: list[dict[str, Any]] | None, description: str | None = None
+) -> None:
+    """Reject malformed column entries and Jinja/SQL-bearing docs (see model_docs_guard)."""
+    from dango.transformation.model_docs_guard import check_docs_input
+
     for col in columns or []:
         if not isinstance(col, dict) or not col.get("name"):
             raise _err(["every column entry must be a mapping with a 'name'"])
         if "tests" in col and "data_tests" in col:
             raise _err([f"column '{col['name']}': pass either 'data_tests' or 'tests', not both"])
+    errors = check_docs_input(description, columns)
+    if errors:
+        raise _err(errors)
 
 
 def upsert_model_docs(
@@ -105,7 +112,7 @@ def upsert_model_docs(
 
     Returns the project-relative path if the file changed, else None.
     """
-    validate_column_entries(columns)
+    validate_column_entries(columns, description)
 
     path = resolve_docs_path(project_root, layer, model_name)
     existed = path.exists()
