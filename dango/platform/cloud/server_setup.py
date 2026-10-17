@@ -2,7 +2,7 @@
 
 SSH-based server setup orchestration for Dango cloud deployments.
 
-Runs 16 idempotent setup steps on a freshly provisioned Ubuntu 22.04
+Runs 17 idempotent setup steps on a freshly provisioned Ubuntu 22.04
 droplet via an already-connected ``SSHManager``.  Each step checks whether
 the target state already exists before acting, making the entire sequence
 safe to re-run.  Config file templates are in ``_server_templates.py``.
@@ -258,7 +258,10 @@ def _setup_directories(
     result: SetupResult,
     on_progress: Callable[[str, str], None] | None,
 ) -> None:
-    """Step 6: Create /srv/dango directory structure."""
+    """Step 6: Create /srv/dango directory structure (project owned by dango).
+
+    ``/srv/dango`` itself, the venv and backups stay root's; step 17 enforces it.
+    """
     step = "directories"
     _notify(on_progress, step, "running")
     _run_checked(
@@ -268,7 +271,7 @@ def _setup_directories(
         " /srv/dango/project/.dlt"
         " /srv/dango/project/dbt"
         " /srv/dango/backups/deploy"
-        " && chown -R dango:dango /srv/dango",
+        " && chown -R dango:dango /srv/dango/project",
         step=step,
     )
     result.steps_completed.append(step)
@@ -483,6 +486,36 @@ def _setup_unattended_upgrades(
     _mark(result, on_progress, step, changed)
 
 
+def _setup_runtime_ownership(
+    ssh: SSHManager,
+    result: SetupResult,
+    on_progress: Callable[[str, str], None] | None,
+    *,
+    byos: bool = False,
+) -> None:
+    """Step 17: Root-owned /srv/dango and venv, verified.
+
+    On a re-run over an older server, a venv another user could write is rebuilt
+    first, at this client's Dango version (never re-owned as it is). A failed check
+    stops setup, except on BYOS servers, where it becomes a warning with the fix.
+    """
+    import dango
+    from dango.platform.cloud import runtime_ownership as ro
+
+    step = "runtime_ownership"
+    _notify(on_progress, step, "running")
+    try:
+        ro.rebuild_untrusted_venv(ssh, result.warnings, version=dango.__version__)
+    except ro.VenvRebuildError as exc:
+        raise CloudProvisioningError(
+            f"Server setup step '{step}' failed: the venv could not be rebuilt as "
+            f"root-owned ({exc}). Setup stopped; re-run it or see the server logs."
+        ) from exc
+    ro.apply_ownership(ssh, result.warnings, strict=not byos)
+    result.steps_completed.append(step)
+    _notify(on_progress, step, "done")
+
+
 def _setup_ufw(
     ssh: SSHManager,
     result: SetupResult,
@@ -679,6 +712,7 @@ _SETUP_STEPS: list[
     _setup_caddyfile,
     _setup_fail2ban,
     _setup_unattended_upgrades,
+    _setup_runtime_ownership,
 ]
 
 
@@ -726,6 +760,8 @@ def setup_server(
             _setup_caddyfile(ssh, result, on_progress, domain=domain)
         elif step_fn is _setup_systemd_unit:
             _setup_systemd_unit(ssh, result, on_progress, workers=None)
+        elif step_fn is _setup_runtime_ownership:
+            _setup_runtime_ownership(ssh, result, on_progress, byos=setup_ufw)
         elif step_fn is _setup_venv:
             _setup_venv(
                 ssh,

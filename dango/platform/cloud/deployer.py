@@ -524,49 +524,20 @@ def push_deploy(
                 logger.warning("chown_failed", path=REMOTE_PROJECT_DIR, stderr=chown_result.stderr)
             _notify(on_progress, "fix_ownership", "done")
 
-            # Step 5b: Install project dependencies (if requirements.txt exists on server).
-            # Runs every deploy (not just when the file changed) because the old
-            # sync_result.synced_files check missed deploys where the file existed
-            # but wasn't modified. pip resolves already-installed packages quickly.
-            req_check = ssh.exec_command(
-                f"test -f {REMOTE_PROJECT_DIR}/requirements.txt && echo exists"
-            )
-            if req_check.stdout.strip() == "exists":
-                _notify(on_progress, "install_deps", "running")
-                pip_result = ssh.exec_command(
-                    f"sudo -u dango {VENV_BIN}/pip install -r {REMOTE_PROJECT_DIR}/requirements.txt",
-                    timeout=300,
-                )
-                if pip_result.exit_code != 0:
-                    warnings.append(
-                        f"pip install -r requirements.txt failed: {pip_result.stderr.strip()}"
-                    )
-                else:
-                    logger.info("requirements_installed", path="requirements.txt")
-                _notify(on_progress, "install_deps", "done")
+            # Step 5b/5c: Install requirements.txt and scripts/requirements.txt as root
+            # into the root-owned venv, from the pushed local files (never the server
+            # copies, which the dango user can change). Runs every deploy.
+            from dango.platform.cloud import runtime_ownership as ro
 
-            # Step 5c: Install script dependencies (if scripts/requirements.txt exists)
-            script_req_check = ssh.exec_command(
-                f"test -f {REMOTE_PROJECT_DIR}/scripts/requirements.txt && echo exists"
-            )
-            if script_req_check.stdout.strip() == "exists":
-                _notify(on_progress, "install_script_deps", "running")
-                script_pip_result = ssh.exec_command(
-                    f"sudo -u dango {VENV_BIN}/pip install "
-                    f"-r {REMOTE_PROJECT_DIR}/scripts/requirements.txt",
-                    timeout=300,
+            _notify(on_progress, "install_deps", "running")
+            if ro.venv_is_untrusted(ssh):  # never run that venv's pip as root
+                warnings.append(
+                    "Requirements not installed: the server venv can be written by a non-root "
+                    "user. Run `dango remote upgrade` first (it rebuilds the venv), then push."
                 )
-                if script_pip_result.exit_code != 0:
-                    warnings.append(
-                        "pip install -r scripts/requirements.txt failed: "
-                        f"{script_pip_result.stderr.strip()}"
-                    )
-                else:
-                    logger.info(
-                        "script_requirements_installed",
-                        path="scripts/requirements.txt",
-                    )
-                _notify(on_progress, "install_script_deps", "done")
+            else:
+                ro.install_pushed_requirements(ssh, local_project_root, f"{VENV_BIN}/pip", warnings)
+            _notify(on_progress, "install_deps", "done")
 
             # Step 6: Validate sources
             _notify(on_progress, "validate_sources", "running")

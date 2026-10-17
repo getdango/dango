@@ -26,6 +26,13 @@ _PATCH_LOADER = "dango.config.loader.ConfigLoader"
 _PATCH_SSH_CLS = "dango.platform.cloud.ssh.SSHManager"
 
 
+@pytest.fixture(autouse=True)
+def _trusted_server_venv() -> Any:
+    """These CLI tests mock SSH loosely; treat the server venv as trusted."""
+    with patch("dango.platform.cloud.runtime_ownership.venv_is_untrusted", return_value=False):
+        yield
+
+
 def _make_cloud_config(
     droplet_id: int = 42,
     droplet_ip: str = "1.2.3.4",
@@ -125,12 +132,25 @@ class TestRemoteUpgradeCommand:
         assert "1.1.0" in plain
 
     def test_already_at_latest_skips(self, tmp_path: Path) -> None:
-        """Upgrade exits early when already at target."""
+        """At target: no pip install, but the idempotent post-install steps still run."""
+        from dango.platform.cloud.upgrade import UpgradeResult
+
         cloud_cfg = _make_cloud_config()
         loader = _make_loader(cloud_cfg)
         ssh = _make_ssh_mock()
+        at_target = UpgradeResult(
+            old_version="1.1.0",
+            new_version="1.1.0",
+            backup_path=None,
+            migrations_run=False,
+            docker_rebuilt=False,
+            health_check_passed=True,
+            duration_seconds=1.0,
+            runtime_ownership="Runtime ownership applied",
+        )
 
         with (
+            patch("dango.platform.cloud.upgrade.upgrade_dango", return_value=at_target) as up,
             patch(_PATCH_REQUIRE_CTX, return_value=tmp_path),
             patch(_PATCH_LOADER, return_value=loader),
             patch(_PATCH_SSH_CLS, return_value=ssh),
@@ -146,6 +166,8 @@ class TestRemoteUpgradeCommand:
             result = _run(["upgrade"], tmp_path, catch_exceptions=True)
 
         assert "no upgrade needed" in result.output.lower()
+        assert up.called
+        assert "Runtime ownership applied" in _strip_ansi(result.output)
 
     def test_invalid_version_rejected(self, tmp_path: Path) -> None:
         """Invalid --version is caught before SSH."""

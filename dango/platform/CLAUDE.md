@@ -63,6 +63,7 @@ platform/
 │   ├── resize.py        # In-place resize (power off → resize → power on) (TASK-104)
 │   ├── migrate.py       # Server migration (new droplet via Spaces) (TASK-105)
 │   ├── upgrade.py       # Remote Dango version upgrade (TASK-106)
+│   ├── runtime_ownership.py  # Root-owned /srv/dango + venv, pushed-only requirements, venv rebuild (1.0.14)
 │   └── _server_templates.py  # Config file templates (incl. build_caddyfile(), backup timer)
 │
 │   # Backwards-compatible shims (re-export from local/)
@@ -113,6 +114,7 @@ platform/
 | `cloud/resize.py` | In-place droplet resize (power off → resize → power on, regenerate dbt profiles) | `resize_droplet`, `ResizeResult`, `validate_size_slug`, `generate_dbt_profiles_yml`, `regenerate_dbt_profiles`, `get_disk_warning` |
 | `cloud/migrate.py` | Server migration via Spaces (new droplet, transfer data, destroy old) | `migrate_server`, `MigrateResult` |
 | `cloud/upgrade.py` | Remote Dango version upgrade (pip install, migrations, Docker rebuild) | `upgrade_dango`, `UpgradeResult`, `validate_version_string`, `check_versions` |
+| `cloud/runtime_ownership.py` | Root-owned runtime: composable ownership steps (`OwnershipStep`) + verify script, root installs of pushed requirements only (`check_requirements`), in-place rebuild of a venv a non-root user could write (fails closed: `VenvRebuildError` aborts upgrade/setup) | `ownership_steps`, `build_ownership_script`, `build_verify_script`, `apply_ownership`, `secure_runtime`, `rebuild_untrusted_venv`, `at_target_restart_plan`, `install_pushed_requirements`, `check_requirements`, `VenvRebuildError`, `ROOT_PYTHON` |
 | `cloud/remote_launch.py` | Shell-script builder to start a command in the background on a remote host with `cd` guard and liveness check (shared by `remote sync` and MCP `remote_sync`) | `build_background_launch` |
 | `cloud/_server_templates.py` | Config file templates (systemd, Caddy, fail2ban, backup timer, etc.) | `build_caddyfile`, `build_systemd_unit`, `SYSTEMD_UNIT`, `CADDYFILE`, `SYSTEMD_BACKUP_SERVICE`, `SYSTEMD_BACKUP_TIMER`, etc. |
 
@@ -341,8 +343,8 @@ dango remote rollback
 ## Remote Server Layout
 
 ```
-/srv/dango/                            # Application root (owner: dango)
-├── project/                           # Synced project files
+/srv/dango/                            # Application root (root:root 0755; runtime_ownership.py)
+├── project/                           # Synced project files (owner: dango)
 │   ├── .dango/                        # Dango state
 │   │   ├── cloud.yml                  # Cloud config (IP, region, size, etc.)
 │   │   ├── state/                     # Runtime state
@@ -351,8 +353,9 @@ dango remote rollback
 │   ├── .env                           # Environment variables
 │   ├── data/warehouse.duckdb          # DuckDB database
 │   └── docker-compose.yml             # Generated Docker Compose
-├── venv/                              # Python virtual environment
-└── backups/deploy/                    # Pre-deploy backups
+├── venv/                              # Python virtual environment (root-owned, no group/other write)
+├── secrets/                           # dango 0700 (Metabase credential fallback)
+└── backups/deploy/                    # Pre-deploy backups (root:dango 0750, files 0600)
 
 /etc/caddy/Caddyfile                   # Reverse proxy (HTTP or HTTPS)
 /etc/systemd/system/dango.service      # Dango systemd unit
