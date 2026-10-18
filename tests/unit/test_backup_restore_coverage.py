@@ -293,6 +293,7 @@ def test_two_restores_in_one_second_do_not_nest_pipeline_state(which: str, tmp_p
         restore(tmp_path, project, _new_layout)
         _live_pipeline_state(project)
         shutil.rmtree(tmp_path / "content", ignore_errors=True)
+        shutil.rmtree(tmp_path / _TOP, ignore_errors=True)
         restore(tmp_path, project, _new_layout)
     kept = sorted(p.name for p in (project / ".dlt").iterdir())
     assert len(kept) == 2 and all(n.startswith("pipelines.pre-restore-") for n in kept), kept

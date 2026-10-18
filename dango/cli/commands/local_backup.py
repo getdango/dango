@@ -38,13 +38,12 @@ from dango.platform.cloud.backup_restore import (
     AUTH_CONFIG_MAX_BYTES,
     AUTH_CONFIG_OVERSIZED_WARNING,
     AUTH_CONFIG_SKIPPED_WARNING,
-    PIPELINE_STATE_DIR,
     WAREHOUSE_FILE,
     auth_config_keeps_auth_on,
     is_backup_excluded,
-    pipeline_state_aside_name,
     unsafe_tar_members,
 )
+from dango.platform.cloud.restore_pipeline_state import pipeline_names, set_aside_pipeline_state
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -190,20 +189,6 @@ def _clear_sidecar(sidecar: Path, keep_suffix: str) -> None:
         console.print(f"[yellow]Warning:[/yellow] Live database WAL kept as {kept}")
 
 
-def _set_aside_pipeline_state(project_root: Path) -> None:
-    """Move the live dlt state next to itself as ``pipelines.pre-restore-<stamp>``.
-
-    A restored warehouse older than the local dlt state would otherwise never reload the
-    rows loaded in between; without local state dlt re-derives it from the warehouse.
-    """
-    live = project_root / PIPELINE_STATE_DIR
-    if not (live.exists() or live.is_symlink()):
-        return
-    kept = live.with_name(pipeline_state_aside_name(time.strftime("%Y%m%d-%H%M%S")))
-    live.replace(kept)
-    console.print(f"[yellow]Note:[/yellow] Live dlt pipeline state moved to {kept}")
-
-
 def _member_rel_path(name: str) -> str:
     """Map an archive member name to a path relative to the project root."""
     if name.startswith(_SRV_PREFIX):
@@ -261,6 +246,8 @@ def _extract_archive(
 
     on_server = is_running_on_cloud()
     resolved_root = project_root.resolve()
+    live_pipelines = pipeline_names(project_root) or []
+    warehouse_restored = False
     skipped: list[str] = []
     rejected: list[str] = []
     with tarfile.open(archive_path, mode="r:gz") as tf:
@@ -310,8 +297,6 @@ def _extract_archive(
                 # A leftover live WAL would be replayed into the restored database.
                 # The database type comes from its logical name; the sidecars sit
                 # next to the file actually written (which may be a symlink target).
-                if rel == WAREHOUSE_FILE:
-                    _set_aside_pipeline_state(project_root)
                 for side_rel in wal_sidecar_names(rel):
                     side = Path(str(target) + side_rel[len(rel) :])
                     if side not in carried:
@@ -319,6 +304,16 @@ def _extract_archive(
 
             dest.parent.mkdir(parents=True, exist_ok=True)
             _write_streamed(src_f, dest, clear_sidecars)
+            warehouse_restored = warehouse_restored or rel_path == WAREHOUSE_FILE
+    if warehouse_restored:
+        restored = pipeline_names(project_root)
+        if restored is None:
+            console.print(
+                "[yellow]Warning:[/yellow] The restored sources.yml could not be loaded; "
+                "resetting dlt state for the sources the project had before the restore."
+            )
+        for kept in set_aside_pipeline_state(live_pipelines + (restored or [])):
+            console.print(f"[yellow]Note:[/yellow] Live dlt pipeline state moved to {kept}")
     if rejected:
         console.print(
             "[yellow]Warning:[/yellow] Skipped archive entries that are not part of a Dango "

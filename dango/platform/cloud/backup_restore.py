@@ -183,24 +183,22 @@ WAREHOUSE_FILE = "data/warehouse.duckdb"
 PIPELINE_STATE_DIR = ".dlt/pipelines"
 
 
-def pipeline_state_aside_name(stamp: str) -> str:
-    """Name (below ``.dlt``) the live pipeline state is moved to by a restore at *stamp*."""
-    return f"pipelines.pre-restore-{stamp}"
-
-
 def set_aside_pipeline_state_cmd(staging: str, project_dir: str, stamp: str) -> str:
     """Shell step moving the live dlt state aside when the archive carries a warehouse.
 
     dlt adopts the warehouse's stored state only when it is at least as new as the local
     state; stale local state would skip the rows loaded since the backup.  With the local
     state gone, dlt re-derives it from the restored warehouse.  Moved (not deleted) so
-    nothing is lost; runs as the service user.
+    nothing is lost, and numbered if the target is taken; runs as the service user.  The
+    server sets ``DLT_DATA_DIR`` to the project's ``.dlt``, so this is where dlt keeps it.
     """
     live = shlex.quote(f"{project_dir}/{PIPELINE_STATE_DIR}")
-    kept = shlex.quote(f"{project_dir}/.dlt/{pipeline_state_aside_name(stamp)}")
+    kept = shlex.quote(f"{project_dir}/.dlt/pipelines.pre-restore-{stamp}")
     return (
         f"if [ -f {shlex.quote(f'{staging}/{WAREHOUSE_FILE}')} ] &&"
-        f" {{ [ -e {live} ] || [ -L {live} ]; }}; then {AS_SERVICE_USER} mv -f {live} {kept}; fi"
+        f" {{ [ -e {live} ] || [ -L {live} ]; }}; then"
+        f' k={kept}; i=0; while [ -e "$k" ] || [ -L "$k" ]; do i=$((i+1)); k={kept}-$i; done;'
+        f' {AS_SERVICE_USER} mv -f {live} "$k"; fi'
     )
 
 
