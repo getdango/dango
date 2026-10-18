@@ -74,3 +74,15 @@ class TestWriteScriptInRealShell:
         assert not dest.is_symlink()
         assert dest.read_text() == "new"
         assert target.read_text() == "keep"
+
+    def test_symlink_to_directory_is_replaced_not_entered(self, tmp_path):
+        target_dir = tmp_path / "elsewhere"
+        target_dir.mkdir()
+        dest = tmp_path / "p" / ".env"
+        dest.parent.mkdir()
+        dest.symlink_to(target_dir)
+        result = _run(tmp_path, dest, "new")
+        assert result.returncode == 0, result.stderr
+        assert list(target_dir.iterdir()) == []
+        assert not dest.is_symlink()
+        assert dest.read_text() == "new"

@@ -22,12 +22,12 @@ def _plain(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"\x1b\[[0-9;]*m", "", text))
 
 
-def _cfg(domain: str | None) -> MagicMock:
+def _cfg(domain: str | None, provider: str = "digitalocean") -> MagicMock:
     cfg = MagicMock()
     cfg.droplet_ip = "203.0.113.42"
     cfg.domain = domain
     cfg.firewall_id = "fw-abc"
-    cfg.provider = "digitalocean"
+    cfg.provider = provider
     cfg.ssh_key_path = ".dango/cloud_key"
     return cfg
 
@@ -87,13 +87,13 @@ class TestAllowIpWarnsWithDomain:
         assert "renew" not in _plain(result.output)
 
 
-def _domain_remove(previous: str | None):
+def _domain_remove(previous: str | None, provider: str = "digitalocean"):
     from dango.cli.commands.remote import remote
 
     with (
         patch(
             "dango.cli.commands.remote._require_cloud_deployment",
-            return_value=(_cfg(previous), Path("/tmp/p")),
+            return_value=(_cfg(previous, provider), Path("/tmp/p")),
         ),
         patch("dango.cli.commands.remote._connect_ssh", return_value=MagicMock()),
         patch(
@@ -112,6 +112,15 @@ class TestDomainRemoveWarns:
         out = _plain(result.output)
         assert "unencrypted" in out
         assert "dango remote firewall allow-ip" in out
+        assert "dango remote domain set" in out
+
+    def test_byos_suggests_ufw_not_allow_ip(self):
+        result = _domain_remove("app.example.com", provider="byos")
+        assert result.exit_code == 0, result.output
+        out = _plain(result.output)
+        assert "unencrypted" in out
+        assert "ufw" in out
+        assert "dango remote firewall allow-ip" not in out
         assert "dango remote domain set" in out
 
 
