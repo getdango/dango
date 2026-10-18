@@ -96,3 +96,20 @@ def test_local_restore_falls_back_to_live_sources_when_restored_ones_unreadable(
     assert not (pipelines / "mine").exists()
     assert (pipelines / "other_project").exists()
     assert "sources" in result.output.lower() and "warning" in result.output.lower()
+
+
+@pytest.mark.unit
+def test_local_restore_on_a_server_also_resets_the_services_project_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipelines = _pipelines(tmp_path, monkeypatch)
+    monkeypatch.setenv("DANGO_CLOUD_MODE", "true")
+    project = _project(tmp_path, _SOURCES.format(name="mine"))
+    service_state = project / ".dlt" / "pipelines" / "mine"
+    service_state.mkdir(parents=True)
+    (service_state / "state.json").write_text("service")
+    result = _restore(tmp_path, project, _SOURCES.format(name="mine"))
+    assert result.exit_code == 0, result.output
+    assert not service_state.exists(), "the web service's pipeline state left in place"
+    assert len(list((project / ".dlt" / "pipelines").glob("mine.pre-restore-*"))) == 1
+    assert not (pipelines / "mine").exists()

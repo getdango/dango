@@ -57,7 +57,9 @@ def test_incremental_source_reloads_rows_loaded_after_the_backup(
     from dango.cli.commands.local_backup import backup_group
 
     # Default dlt location (~/.dlt), as a local project uses it.
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("DLT_DATA_DIR", raising=False)
 
     project = tmp_path / "project"
@@ -88,6 +90,7 @@ def test_incremental_source_reloads_rows_loaded_after_the_backup(
         )
     assert result.exit_code == 0, result.output
     assert _ids(project) == [1, 2, 3]
+    assert list((home / ".dlt" / "pipelines").glob("p.pre-restore-*")), "state not under ~/.dlt"
 
     _sync(project, 8)
     assert _ids(project) == [1, 2, 3, 4, 5, 6, 7, 8]
