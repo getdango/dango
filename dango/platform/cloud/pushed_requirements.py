@@ -36,6 +36,35 @@ def _strip_comment(line: str) -> str:
     return re.split(r"(?:^|\s)#", line, maxsplit=1)[0].strip()
 
 
+_COMMENT_START = re.compile(r"(^|\s+)#.*$")
+
+
+def _join_lines(lines: list[str]) -> list[str]:
+    """Join backslash continuations exactly as pip's ``join_lines`` does.
+
+    A line continues only if it ends with a backslash and is not a comment line;
+    continued pieces have their leading and trailing backslashes stripped.
+    """
+    joined: list[str] = []
+    pending: list[str] = []
+    for line in lines:
+        is_comment = _COMMENT_START.match(line) is not None
+        if not line.endswith("\\") or is_comment:
+            if is_comment:
+                line = " " + line
+            if pending:
+                pending.append(line)
+                joined.append("".join(pending))
+                pending = []
+            else:
+                joined.append(line)
+        else:
+            pending.append(line.strip("\\"))
+    if pending:
+        joined.append("".join(pending))
+    return joined
+
+
 def _redact(line: str) -> str:
     return re.sub(r"(://)[^/\s@]+@", r"\1***@", line)
 
@@ -48,8 +77,7 @@ def check_requirements(text: str) -> list[str]:
     carrying credentials. Backslash continuations are joined first, as pip does.
     """
     refused: list[str] = []
-    joined = re.sub(r"\\\r?\n", "", text)  # pip's join_lines: drop "\\\n" outright
-    for raw in joined.splitlines():
+    for raw in _join_lines(text.splitlines()):
         line = _strip_comment(raw)
         if not line:
             continue

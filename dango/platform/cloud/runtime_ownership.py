@@ -71,7 +71,7 @@ VENV_TAINT_PROBE = (
     f"find / /srv {SRV_DIR} -maxdepth 0 \\( -type l -o ! -user root -o "
     "\\( -perm -020 -o -perm -002 \\) \\) -print; "
     f"test ! -d {VENV_DIR} || {{ find {VENV_DIR} {_UNTRUSTED} -print -quit; "
-    f"{links_outside_script(VENV_DIR)}; }}; }} 2>&1 | head -5 ) || exit 2; "
+    f"{links_outside_script(VENV_DIR)}; }}; }} 2>&1 | sed -n 1,5p ) || exit 2; "
     f'test -z "$out" || printf "%s\\n" "$out"; echo {PROBE_SENTINEL}'
 )
 
@@ -378,12 +378,12 @@ def rebuild_untrusted_venv(
     from dango.platform.cloud.backup import start_services, stop_services
 
     try:
-        untrusted = venv_is_untrusted(ssh)
+        findings = venv_trust_findings(ssh)
     except Exception as exc:
         raise VenvRebuildError(f"the venv could not be checked ({type(exc).__name__})") from exc
-    if not untrusted:
+    if not findings:
         return None
-    parents = [f for f in venv_trust_findings(ssh) if f in ("/", "/srv")]
+    parents = [f for f in findings if f in ("/", "/srv")]
     if parents:  # outside what Dango manages: refuse rather than change the host
         raise VenvRebuildError(_remediation(ssh, parents))
     stop_services(ssh)
