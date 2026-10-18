@@ -171,6 +171,7 @@ def test_scheduled_backup_checkpoints_run_as_dango_not_in_the_root_process(
 
     with (
         patch.object(sb.subprocess, "run", side_effect=_run),
+        patch.object(sb.os, "geteuid", return_value=0),
         patch("duckdb.connect", side_effect=AssertionError("checkpoint ran in the root process")),
         patch("sqlite3.connect", side_effect=AssertionError("checkpoint ran in the root process")),
     ):

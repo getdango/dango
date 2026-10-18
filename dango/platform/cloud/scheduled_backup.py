@@ -136,11 +136,19 @@ _CHECKPOINT_SCRIPTS = {
 }
 
 
+#: ``*.wal`` files are not archived, so a failed checkpoint leaves recent writes out.
+_WRITES_MAY_BE_MISSING = "; its most recent writes may be missing from the backup"
+
+
 def _checkpoint_as_service_user(label: str, db_path: Path) -> str | None:
     """Checkpoint *db_path* as ``dango`` (it owns the file; root would leave root-owned
     ``-wal``/``-shm`` files). Runs the venv interpreter isolated, from ``/``.
     Returns a warning on failure."""
-    argv = ["runuser", "-u", "dango", "--", VENV_PYTHON, "-I", "-c"]
+    argv = [sys.executable, "-I", "-c"]
+    if os.geteuid() == 0:
+        from dango.platform.cloud.backup_restore import SERVICE_USER
+
+        argv = ["runuser", "-u", SERVICE_USER, "--", VENV_PYTHON, "-I", "-c"]
     try:
         result = subprocess.run(
             [*argv, _CHECKPOINT_SCRIPTS[label], str(db_path)],
@@ -150,9 +158,9 @@ def _checkpoint_as_service_user(label: str, db_path: Path) -> str | None:
             timeout=120,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return f"{label} checkpoint failed: {exc}"
+        return f"{label} checkpoint failed: {exc}{_WRITES_MAY_BE_MISSING}"
     if result.returncode != 0:
-        return f"{label} checkpoint failed: {result.stderr.strip()[-300:]}"
+        return f"{label} checkpoint failed: {result.stderr.strip()[-300:]}{_WRITES_MAY_BE_MISSING}"
     return None
 
 
