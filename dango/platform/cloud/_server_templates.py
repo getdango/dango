@@ -100,10 +100,10 @@ def build_systemd_unit(workers: int | None = None) -> str:
     Returns:
         Complete systemd unit file content as a string.
     """
+    # Loopback only: Caddy is the public entry point and proxies to localhost:8800.
+    exec_start = "/srv/dango/venv/bin/dango serve --host 127.0.0.1"
     if workers is not None and workers > 1:
-        exec_start = f"/srv/dango/venv/bin/dango serve --workers {workers}"
-    else:
-        exec_start = "/srv/dango/venv/bin/dango serve"
+        exec_start += f" --workers {workers}"
 
     return f"""\
 [Unit]

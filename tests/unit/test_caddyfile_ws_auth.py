@@ -19,6 +19,14 @@ from dango.auth.models import Role, User
 from dango.exceptions import AuthenticationError, AuthorizationError, DangoError
 from dango.platform.cloud.ssh import CommandResult
 
+
+@pytest.fixture(autouse=True)
+def _trusted_server_venv() -> Any:
+    """SSH mocks here are loose; the venv trust probe is tested in test_runtime_ownership*."""
+    with patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]):
+        yield
+
+
 _CADDYFILE = "/etc/caddy/Caddyfile"
 _CADDY_TMP = "/etc/caddy/Caddyfile.dango-new"
 _HEADER_STRIPS = (

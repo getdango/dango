@@ -522,7 +522,7 @@ def firewall_allow_ip(ctx: click.Context, ip_address: str) -> None:
     """
     from dango.platform.cloud.firewall import add_allowed_ip
 
-    _cloud_cfg, firewall_id = _load_cloud_config_or_fail(ctx)
+    cloud_cfg, firewall_id = _load_cloud_config_or_fail(ctx)
     client = _make_client()
 
     try:
@@ -536,6 +536,13 @@ def firewall_allow_ip(ctx: click.Context, ip_address: str) -> None:
         f"Ports 80/443 now restricted to [bold]{ip_address}[/bold]."
     )
     console.print(f"  Firewall: {fw.get('name', firewall_id)}")
+    if cloud_cfg.domain:
+        console.print(
+            f"[yellow]Warning:[/yellow] {cloud_cfg.domain} is configured. Restricting "
+            "ports 80/443 stops Let's Encrypt from reaching the server, so the "
+            "certificate cannot renew. Run [bold]dango remote firewall allow-all[/bold] "
+            "to keep HTTPS working."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -595,6 +602,30 @@ def _connect_ssh(cloud_cfg: Any, project_root: Path) -> Any:
     return ssh
 
 
+def _reopen_web_ports_for_certificate(cloud_cfg: Any) -> None:
+    """Open 80/443 to all if the DO firewall restricts them (certificate issuance)."""
+    from dango.exceptions import CloudError
+    from dango.platform.cloud.firewall import allow_all_web, get_firewall_rules
+
+    if cloud_cfg.provider == "byos" or not cloud_cfg.firewall_id:
+        return
+    try:
+        client = _make_client()
+        fw = get_firewall_rules(client, cloud_cfg.firewall_id)
+        web = [r for r in fw.get("inbound_rules", []) if r.get("ports") in ("80", "443")]
+        if web and all("0.0.0.0/0" in r.get("sources", {}).get("addresses", []) for r in web):
+            return
+        allow_all_web(client, cloud_cfg.firewall_id)
+    except CloudError as exc:
+        console.print(
+            f"[yellow]Warning:[/yellow] Could not check the firewall: {exc}\n"
+            "  The certificate may fail to issue until ports 80/443 are open to all. Run "
+            "[bold]dango remote firewall allow-all[/bold]"
+        )
+        return
+    console.print("Web ports 80/443 reopened to all traffic for certificate issuance.")
+
+
 # ---------------------------------------------------------------------------
 # domain set
 # ---------------------------------------------------------------------------
@@ -624,6 +655,8 @@ def domain_set(ctx: click.Context, domain_name: str) -> None:
 
     ssh = _connect_ssh(cloud_cfg, project_root)
     try:
+        # Before Caddy is switched to HTTPS: Let's Encrypt must reach 80/443.
+        _reopen_web_ports_for_certificate(cloud_cfg)
         result = set_domain(ssh, project_root, domain_name)
     except Exception as exc:
         console.print(f"[red]Error:[/red] {exc}")
@@ -688,6 +721,17 @@ def domain_remove(ctx: click.Context) -> None:
         console.print("Caddyfile reverted to HTTP-only (port 80).")
     else:
         console.print("Caddyfile was already HTTP-only.")
+
+    restrict = (
+        "restrict ports 80/443 with ufw on the server or your provider's firewall"
+        if cloud_cfg.provider == "byos"
+        else "restrict web access with [bold]dango remote firewall allow-ip <your-ip>[/bold]"
+    )
+    console.print(
+        "[yellow]Warning:[/yellow] The server is now HTTP only: your admin password "
+        f"and session cookie are sent unencrypted. {restrict[0].upper()}{restrict[1:]}, "
+        "or add a domain with [bold]dango remote domain set <domain>[/bold]."
+    )
 
 
 # ---------------------------------------------------------------------------

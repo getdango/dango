@@ -38,6 +38,14 @@ def project_root(tmp_path):
     return tmp_path
 
 
+_WRITE = "dango.cli.commands.deploy_provision.write_project_file"
+
+
+def _written(mock_write, suffix):
+    """Contents passed to write_project_file for paths ending in *suffix*."""
+    return [c.args[2] for c in mock_write.call_args_list if c.args[1].endswith(suffix)]
+
+
 def _make_mock_ssh():
     ssh = MagicMock()
     result = MagicMock()
@@ -203,17 +211,12 @@ class TestAdminCreation:
             _create_admin_and_enable_auth(ssh, "not-an-email", "password123")
 
     def test_auth_yml_written(self):
-        """auth.yml is written with 'enabled: true'."""
+        """auth.yml is written (as the dango user) with 'enabled: true'."""
         ssh = _make_mock_ssh()
-        _create_admin_and_enable_auth(ssh, "admin@test.com", "password123")
+        with patch(_WRITE) as mock_write:
+            _create_admin_and_enable_auth(ssh, "admin@test.com", "password123")
 
-        # Find the write_remote_file call for auth.yml
-        found = False
-        for call in ssh.write_remote_file.call_args_list:
-            if "auth.yml" in str(call):
-                assert "enabled: true" in str(call)
-                found = True
-        assert found, "auth.yml write not found"
+        assert _written(mock_write, "/.dango/auth.yml") == ["enabled: true\n"]
 
     def test_dango_dir_chowned_recursively(self):
         """After admin creation, .dango/ is recursively chowned to dango user."""
@@ -223,10 +226,10 @@ class TestAdminCreation:
         chown_calls = [
             str(c)
             for c in ssh.exec_command.call_args_list
-            if "chown -R dango:dango /srv/dango/project/.dango" in str(c)
+            if "chown -R -P dango:dango /srv/dango/project/.dango" in str(c)
         ]
         assert len(chown_calls) >= 1, (
-            "Expected chown -R dango:dango /srv/dango/project/.dango in SSH calls"
+            "Expected chown -R -P dango:dango /srv/dango/project/.dango in SSH calls"
         )
 
 
@@ -429,19 +432,18 @@ class TestSetupBackups:
         )
         tracker = _ResourceTracker()
 
-        _setup_backups(ssh, MagicMock(), project_root, config, tracker)
+        with patch(_WRITE) as mock_write:
+            _setup_backups(ssh, MagicMock(), project_root, config, tracker)
 
         # Bucket created
         mock_spaces.create_bucket.assert_called_once()
         # Tracker updated
         assert tracker.spaces_bucket is not None
         assert tracker.spaces_client is mock_spaces
-        # Credentials appended to .env
-        env_write_calls = [
-            c for c in ssh.write_remote_file.call_args_list if c[0][0] == "/srv/dango/project/.env"
-        ]
-        assert len(env_write_calls) == 1
-        written_content = env_write_calls[0][0][1]
+        # Credentials appended to .env (written as the dango user)
+        env_writes = _written(mock_write, "/srv/dango/project/.env")
+        assert len(env_writes) == 1
+        written_content = env_writes[0]
         assert "SPACES_ACCESS_KEY=DO_KEY" in written_content
         assert "SPACES_SECRET_KEY=DO_SECRET" in written_content
         # Systemd files written
@@ -559,14 +561,12 @@ class TestGenerateCloudProfiles:
         (dbt_dir / "dbt_project.yml").write_text("name: my_project\n")
 
         ssh = _make_mock_ssh()
-        _generate_cloud_profiles(ssh, project_root, size_slug="s-2vcpu-4gb")
+        with patch(_WRITE) as mock_write:
+            _generate_cloud_profiles(ssh, project_root, size_slug="s-2vcpu-4gb")
 
-        # Verify write_remote_file was called with profiles.yml
-        write_calls = [
-            c for c in ssh.write_remote_file.call_args_list if "profiles.yml" in str(c[0][0])
-        ]
+        write_calls = _written(mock_write, "dbt/profiles.yml")
         assert len(write_calls) == 1
-        content = write_calls[0][0][1]
+        content = write_calls[0]
         assert "my_project" in content
         assert "threads: 2" in content  # s-2vcpu-4gb has 2 vcpus
         assert "warehouse.duckdb" in content
@@ -594,41 +594,39 @@ class TestGenerateCloudProfiles:
 
         ssh.exec_command.side_effect = _exec_side_effect
 
-        _generate_cloud_profiles(ssh, project_root)
+        with patch(_WRITE) as mock_write:
+            _generate_cloud_profiles(ssh, project_root)
 
-        write_calls = [
-            c for c in ssh.write_remote_file.call_args_list if "profiles.yml" in str(c[0][0])
-        ]
+        write_calls = _written(mock_write, "dbt/profiles.yml")
         assert len(write_calls) == 1
-        content = write_calls[0][0][1]
+        content = write_calls[0]
         assert "byos_project" in content
         assert "threads: 4" in content  # auto-detected 4 vcpus
 
     def test_falls_back_to_defaults(self, project_root):
         """Falls back to project_name='dango' and 2/4 specs when dbt_project.yml missing."""
         ssh = _make_mock_ssh()
-        _generate_cloud_profiles(ssh, project_root, size_slug="custom-size")
+        with patch(_WRITE) as mock_write:
+            _generate_cloud_profiles(ssh, project_root, size_slug="custom-size")
 
-        write_calls = [
-            c for c in ssh.write_remote_file.call_args_list if "profiles.yml" in str(c[0][0])
-        ]
+        write_calls = _written(mock_write, "dbt/profiles.yml")
         assert len(write_calls) == 1
-        content = write_calls[0][0][1]
+        content = write_calls[0]
         # Falls back to "dango" project name and 2 vcpus / 4gb ram defaults
         assert "dango" in content
         assert "threads: 2" in content
 
-    def test_chowns_profiles_to_dango(self, project_root):
-        """profiles.yml is chowned to dango:dango after creation."""
+    def test_profiles_written_by_dango_user(self, project_root):
+        """profiles.yml is put in place by the dango user, so it is dango-owned."""
         ssh = _make_mock_ssh()
         _generate_cloud_profiles(ssh, project_root, size_slug="s-2vcpu-4gb")
 
-        chown_calls = [
+        copy_calls = [
             str(c)
             for c in ssh.exec_command.call_args_list
-            if "chown dango:dango" in str(c) and "profiles.yml" in str(c)
+            if "runuser -u dango --" in str(c) and "profiles.yml" in str(c)
         ]
-        assert len(chown_calls) >= 1
+        assert len(copy_calls) == 1
 
 
 # ---------------------------------------------------------------------------

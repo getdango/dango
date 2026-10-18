@@ -9,18 +9,27 @@ setup step calls the correct commands and handles idempotency.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from dango.exceptions import CloudProvisioningError
 from tests.factories.cloud_factories import make_ssh_mock_configurable
 
+
+@pytest.fixture(autouse=True)
+def _trusted_server_venv() -> Any:
+    """SSH mocks here are loose; the venv trust probe is tested in test_runtime_ownership*."""
+    with patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]):
+        yield
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-# All 16 step names, in the order they must execute.
+# All 17 step names, in the order they must execute.
 _ALL_STEP_NAMES = [
     "apt_packages",
     "create_user",
@@ -38,6 +47,7 @@ _ALL_STEP_NAMES = [
     "caddyfile",
     "fail2ban",
     "unattended_upgrades",
+    "runtime_ownership",
 ]
 
 
@@ -66,7 +76,7 @@ class TestSetupResult:
 @pytest.mark.unit
 class TestSetupServer:
     def test_all_steps_complete(self):
-        """setup_server() runs all 16 steps when nothing is pre-installed."""
+        """setup_server() runs all 17 steps when nothing is pre-installed."""
         from dango.platform.cloud.server_setup import setup_server
 
         # Docker/Caddy not installed, user doesn't exist, venv doesn't exist
@@ -89,10 +99,10 @@ class TestSetupServer:
 
         result = setup_server(ssh)
 
-        # L1: Verify ALL 16 steps are accounted for
+        # L1: Verify ALL 17 steps are accounted for
         total = len(result.steps_completed) + len(result.steps_skipped)
-        assert total == 16, (
-            f"Expected 16 steps, got {total}: "
+        assert total == 17, (
+            f"Expected 17 steps, got {total}: "
             f"completed={result.steps_completed}, skipped={result.steps_skipped}"
         )
         assert len(result.steps_skipped) == 0
@@ -129,9 +139,9 @@ class TestSetupServer:
         # Steps that always run should still be completed
         assert "apt_packages" in result.steps_completed
         assert "directories" in result.steps_completed
-        # L1: total must still be 16
+        # L1: total must still be 17
         total = len(result.steps_completed) + len(result.steps_skipped)
-        assert total == 16
+        assert total == 17
 
     def test_step_ordering(self):
         """Steps execute in the correct order (L3)."""
@@ -301,7 +311,7 @@ class TestSetupSteps:
         cmd = ssh.exec_command.call_args_list[0][0][0]
         assert "/srv/dango/project/.dango/logs" in cmd
         assert "/srv/dango/project/data" in cmd
-        assert "chown -R dango:dango" in cmd
+        assert "chown -R dango:dango /srv/dango/project" in cmd
         assert "directories" in result.steps_completed
 
     def test_venv_installs_getdango(self):

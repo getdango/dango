@@ -140,6 +140,13 @@ def remote_status(ctx: click.Context) -> None:
         server_lines.append("  Provider: BYOS")
     if cloud_cfg.domain:
         server_lines.append(f"  Domain: {cloud_cfg.domain}")
+    else:
+        server_lines.append("  [yellow]HTTP only (unencrypted)[/yellow]")
+        if cloud_cfg.provider == "byos":
+            server_lines.append("  Web ports are open in ufw unless you restricted them.")
+        else:
+            server_lines.append("  Web access rules: dango remote firewall list")
+        server_lines.append("  Enable HTTPS: dango remote domain set <domain>")
     console.print(Panel("\n".join(server_lines), title="Server", border_style="blue"))
 
     # --- Services ---
