@@ -589,6 +589,7 @@ def _resolve_pipeline_and_dataset_name(src: "DataSource") -> tuple[str, str]:
     ``csv_loader.py``, not dlt) — callers should expect no ``_dlt_pipeline_state``
     table to exist for those, regardless of the names returned here.
     """
+    # Also mirrored by pipeline_names in dango/platform/cloud/restore_pipeline_state.py.
     if src.dlt_native is not None:
         pipeline_name = src.dlt_native.pipeline_name or src.name
         dataset_name = src.dlt_native.dataset_name or f"raw_{src.name}"

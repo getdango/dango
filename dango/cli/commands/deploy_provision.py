@@ -24,6 +24,12 @@ from dango.cli import console
 from dango.cli.commands.deploy_wizard import _EMAIL_RE, BYOSConfig, WizardConfig
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.project_files import (
+    AS_DANGO,
+    append_env_line_if_missing,
+    read_project_file,
+    write_project_file,
+)
 
 _logger = get_logger(__name__)
 
@@ -99,6 +105,8 @@ class ProvisionResult:
     url: str = ""
     admin_password: str = ""
     warnings: list[str] = field(default_factory=list)
+    # IPv4 CIDRs the web ports (80/443) were restricted to; empty = open to all
+    allowed_ips: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -198,6 +206,15 @@ def run_provisioning(
         firewall_id: str = fw["id"]
         tracker.firewall_id = firewall_id
 
+        # Web access without a domain: explicit allowlist now, "detect" after SSH connects
+        wants_detect = config.allowed_ips == ["detect"]
+        applied_ips: list[str] = [] if wants_detect else list(config.allowed_ips)
+        if applied_ips:
+            from dango.platform.cloud.firewall import restrict_web_to_ips
+
+            restrict_web_to_ips(client, firewall_id, applied_ips)
+            console.print(f"  Web access restricted to {', '.join(applied_ips)}.")
+
         # --- Sub-step 5: Server setup ---
         _status("Setting up server (installs Docker, Caddy, Python, etc.)...")
         from dango.platform.cloud.server_setup import (
@@ -208,6 +225,9 @@ def run_provisioning(
         install_source = resolve_install_source()
         ssh.connect(droplet_ip, username="root")
         try:
+            deployer_ip = _deployer_ip(ssh) if config.allowed_ips else None
+            if wants_detect:
+                applied_ips = _restrict_to_detected_ip(client, firewall_id, deployer_ip)
             setup_result = setup_server(
                 ssh,
                 on_progress=_setup_progress,
@@ -241,14 +261,7 @@ def run_provisioning(
         # Pre-create dbt/target so Docker's bind mount doesn't recreate it as root.
         ssh.connect(droplet_ip, username="root")
         try:
-            result = ssh.exec_command("mkdir -p /srv/dango/project/dbt/target", timeout=10)
-            if result.exit_code != 0:
-                _logger.warning("mkdir_dbt_target_failed", stderr=result.stderr)
-            result = ssh.exec_command("chown -R dango:dango /srv/dango/project", timeout=30)
-            if result.exit_code != 0:
-                raise CloudProvisioningError(
-                    f"Failed to set file ownership: {result.stderr.strip()}"
-                )
+            _fix_project_ownership(ssh)
         finally:
             ssh.disconnect()
 
@@ -358,10 +371,17 @@ def run_provisioning(
             ssh.disconnect()
 
         url = f"https://{config.domain}" if config.domain else f"http://{droplet_ip}"
-        _status("Waiting for platform to become ready...")
-        health_ok = _health_check(url, timeout=180, interval=5)
-        if not health_ok:
-            warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
+        if applied_ips and not _ip_in_cidrs(deployer_ip, applied_ips):
+            # The check runs from this machine, which the firewall does not allow.
+            warnings.append(
+                f"Health check skipped: web access is restricted to {', '.join(applied_ips)}. "
+                "Check from an allowed address or run `dango remote status`."
+            )
+        else:
+            _status("Waiting for platform to become ready...")
+            health_ok = _health_check(url, timeout=180, interval=5)
+            if not health_ok:
+                warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
 
         # Wait for Metabase to be ready (Java startup takes ~2 min)
         _status("Waiting for Metabase to initialize...")
@@ -380,6 +400,7 @@ def run_provisioning(
             url=url,
             admin_password=config.admin_password,
             warnings=warnings,
+            allowed_ips=applied_ips,
         )
 
     except SizeUnavailableError as exc:
@@ -489,14 +510,7 @@ def run_byos_setup(
         # Pre-create dbt/target so Docker's bind mount doesn't recreate it as root.
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            result = ssh.exec_command("mkdir -p /srv/dango/project/dbt/target", timeout=10)
-            if result.exit_code != 0:
-                _logger.warning("mkdir_dbt_target_failed", stderr=result.stderr)
-            result = ssh.exec_command("chown -R dango:dango /srv/dango/project", timeout=30)
-            if result.exit_code != 0:
-                raise CloudProvisioningError(
-                    f"Failed to set file ownership: {result.stderr.strip()}"
-                )
+            _fix_project_ownership(ssh)
         finally:
             ssh.disconnect()
 
@@ -613,6 +627,68 @@ def run_byos_setup(
 # ---------------------------------------------------------------------------
 
 
+def _fix_project_ownership(ssh: Any) -> None:
+    """Hand the synced project to ``dango`` and pre-create ``dbt/target`` as ``dango``.
+
+    File sync uploads as root; dbt and dango-web run as dango.  ``-P`` (never
+    follow symlinks) is chown's default with ``-R``; it is stated explicitly.
+    ``dbt/target`` is pre-created so Docker's bind mount does not create it as root.
+    """
+    result = ssh.exec_command("chown -R -P dango:dango /srv/dango/project", timeout=30)
+    if result.exit_code != 0:
+        raise CloudProvisioningError(f"Failed to set file ownership: {result.stderr.strip()}")
+    result = ssh.exec_command(f"{AS_DANGO} mkdir -p /srv/dango/project/dbt/target", timeout=10)
+    if result.exit_code != 0:
+        _logger.warning("mkdir_dbt_target_failed", stderr=result.stderr)
+
+
+def _deployer_ip(ssh: Any) -> str | None:
+    """Return the deployer's IPv4 as ``<ip>/32`` as the server sees it, or None.
+
+    Reads ``$SSH_CLIENT`` over the open root session; no third-party lookup.
+    """
+    from dango.exceptions import CloudError
+    from dango.platform.cloud.firewall import validate_ip_or_cidr
+
+    result = ssh.exec_command("echo $SSH_CLIENT", timeout=10)
+    fields = str(result.stdout or "").split()
+    if not fields or "/" in fields[0]:
+        return None
+    try:
+        return validate_ip_or_cidr(fields[0])
+    except CloudError:
+        return None
+
+
+def _restrict_to_detected_ip(client: Any, firewall_id: str, deployer_ip: str | None) -> list[str]:
+    """Apply the ``detect`` choice: restrict 80/443 to *deployer_ip* if known."""
+    if deployer_ip is None:
+        console.print(
+            "  [yellow]Warning:[/yellow] Could not detect your IPv4 address. The server "
+            "serves plain HTTP and its web ports are OPEN to the internet. Restrict them "
+            "with: [bold]dango remote firewall allow-ip <your-ip>[/bold]"
+        )
+        return []
+    from dango.platform.cloud.firewall import restrict_web_to_ips
+
+    restrict_web_to_ips(client, firewall_id, [deployer_ip])
+    console.print(
+        f"  Web access restricted to {deployer_ip} (your address as the server sees it). "
+        "Change it with [bold]dango remote firewall allow-ip[/bold]."
+    )
+    return [deployer_ip]
+
+
+def _ip_in_cidrs(ip_cidr: str | None, cidrs: list[str]) -> bool:
+    """Return True if the single address *ip_cidr* (``a.b.c.d/32``) is inside *cidrs*."""
+    import ipaddress
+
+    if ip_cidr is None:
+        return False
+    address = ipaddress.IPv4Address(ip_cidr.split("/")[0])
+    return any(address in ipaddress.IPv4Network(c, strict=False) for c in cidrs)
+
+
 def _prebuild_command(compose_proj: str) -> str:
     """Build the pre-deploy ``docker compose build`` command.
 
@@ -676,20 +752,14 @@ def _push_secrets(
     secrets_path = project_root / ".dlt" / "secrets.toml"
     env_path = project_root / ".env"
 
-    pushed_paths: list[str] = []
+    # Written as the dango user (never through a symlink in the project).
     if secrets_path.exists():
-        content = secrets_path.read_text()
-        ssh.write_remote_file("/srv/dango/project/.dlt/secrets.toml", content, mode=0o600)
-        pushed_paths.append("/srv/dango/project/.dlt/secrets.toml")
+        write_project_file(
+            ssh, "/srv/dango/project/.dlt/secrets.toml", secrets_path.read_text(), mode=0o600
+        )
 
     if env_path.exists():
-        content = env_path.read_text()
-        ssh.write_remote_file("/srv/dango/project/.env", content, mode=0o600)
-        pushed_paths.append("/srv/dango/project/.env")
-
-    if pushed_paths:
-        # chown: best-effort (uses ; true — secrets may have been pushed to a path the user doesn't own)
-        ssh.exec_command(f"chown dango:dango {' '.join(pushed_paths)} 2>/dev/null; true")
+        write_project_file(ssh, "/srv/dango/project/.env", env_path.read_text(), mode=0o600)
 
 
 _ADMIN_SCRIPT_WAIT_SECONDS = 120
@@ -823,21 +893,13 @@ def _create_admin_and_enable_auth(
             f"Admin account creation failed:\n{result.stderr or result.stdout}"
         )
 
-    # Persist admin email for systemd service (BUG-100)
-    result = ssh.exec_command(
-        f"grep -q '^DANGO_ADMIN_EMAIL=' /srv/dango/project/.env 2>/dev/null "
-        f"|| echo 'DANGO_ADMIN_EMAIL={email}' >> /srv/dango/project/.env"
-    )
+    # Persist admin email for systemd service (BUG-100), appended as the dango user
+    result = append_env_line_if_missing(ssh, "/srv/dango/project/.env", "DANGO_ADMIN_EMAIL", email)
     if result.exit_code != 0:
         _logger.warning("persist_admin_email_failed", stderr=result.stderr)
-    # chown: best-effort (file may not exist yet on first deploy)
-    ssh.exec_command("chown dango:dango /srv/dango/project/.env 2>/dev/null; true")
 
     # Enable auth
-    ssh.write_remote_file("/srv/dango/project/.dango/auth.yml", "enabled: true\n", mode=0o644)
-    result = ssh.exec_command("chown dango:dango /srv/dango/project/.dango/auth.yml")
-    if result.exit_code != 0:
-        _logger.warning("chown_auth_yml_failed", stderr=result.stderr)
+    write_project_file(ssh, "/srv/dango/project/.dango/auth.yml", "enabled: true\n", mode=0o644)
 
     # Write cloud-specific auth timeouts (30-day session, 60-min idle)
     timeout_script = _build_auth_timeout_script()
@@ -852,7 +914,7 @@ def _create_admin_and_enable_auth(
 
     # Ensure the entire .dango/ directory is owned by the dango user so it can
     # create files like dbt.lock in .dango/state/ at runtime.
-    result = ssh.exec_command("chown -R dango:dango /srv/dango/project/.dango")
+    result = ssh.exec_command("chown -R -P dango:dango /srv/dango/project/.dango")
     if result.exit_code != 0:
         _logger.warning("chown_dango_dir_failed", stderr=result.stderr)
 
@@ -869,15 +931,12 @@ def _trigger_metabase_setup(ssh: Any, admin_email: str) -> None:
     if not _EMAIL_RE.match(admin_email):
         raise ValueError(f"Invalid email format: {admin_email}")
 
-    # Ensure admin email is in server .env for Metabase setup
-    result = ssh.exec_command(
-        f"grep -q '^DANGO_ADMIN_EMAIL=' /srv/dango/project/.env 2>/dev/null "
-        f"|| echo 'DANGO_ADMIN_EMAIL={admin_email}' >> /srv/dango/project/.env"
+    # Ensure admin email is in server .env for Metabase setup (appended as dango)
+    result = append_env_line_if_missing(
+        ssh, "/srv/dango/project/.env", "DANGO_ADMIN_EMAIL", admin_email
     )
     if result.exit_code != 0:
         _logger.warning("persist_metabase_email_failed", stderr=result.stderr)
-    # chown: best-effort (file may not exist yet)
-    ssh.exec_command("chown dango:dango /srv/dango/project/.env 2>/dev/null; true")
 
     # Restart dango-web so lifespan re-runs setup_metabase_if_needed
     result = ssh.exec_command("systemctl restart dango-web", timeout=120)
@@ -897,8 +956,9 @@ def _setup_backups(
 ) -> None:
     """Set up automated backups: create bucket, write credentials, enable timer."""
     from dango.platform.cloud._server_templates import (
-        SYSTEMD_BACKUP_SERVICE,
+        SERVER_DANGO_VERSION_COMMAND,
         SYSTEMD_BACKUP_TIMER,
+        backup_service_unit,
     )
     from dango.platform.cloud.spaces import SpacesClient
 
@@ -929,20 +989,19 @@ def _setup_backups(
         f"SPACES_BUCKET={bucket_name}\n"
         f"SPACES_REGION={config.region}\n"
     )
-    # Append to existing .env
-    result = ssh.exec_command("cat /srv/dango/project/.env 2>/dev/null || true")
-    existing = result.stdout if result.stdout else ""
-    ssh.write_remote_file("/srv/dango/project/.env", existing + env_lines, mode=0o600)
-    result = ssh.exec_command("chown dango:dango /srv/dango/project/.env")
-    if result.exit_code != 0:
-        _logger.warning("chown_env_file_failed", stderr=result.stderr)
+    # Append to existing .env (read and written as the dango user)
+    existing = read_project_file(ssh, "/srv/dango/project/.env")
+    write_project_file(ssh, "/srv/dango/project/.env", existing + env_lines, mode=0o600)
 
-    # Write systemd timer/service files
-    ssh.write_remote_file(
-        "/etc/systemd/system/dango-backup.service",
-        SYSTEMD_BACKUP_SERVICE,
-        mode=0o644,
+    # Write systemd timer/service files; the unit depends on the server's Dango
+    # version (normally the version just installed, so the current unit)
+    version = ssh.exec_command(SERVER_DANGO_VERSION_COMMAND, timeout=30)
+    unit, unit_warning = backup_service_unit(
+        version.stdout.strip() if version.exit_code == 0 else None
     )
+    if unit_warning:
+        console.print(f"  [yellow]Warning:[/yellow] {unit_warning}")
+    ssh.write_remote_file("/etc/systemd/system/dango-backup.service", unit, mode=0o644)
     ssh.write_remote_file(
         "/etc/systemd/system/dango-backup.timer",
         SYSTEMD_BACKUP_TIMER,
@@ -1050,10 +1109,7 @@ def _generate_cloud_profiles(
             ram_gb = 4
 
     content = generate_dbt_profiles_yml(project_name, vcpus, ram_gb)
-    ssh.write_remote_file("/srv/dango/project/dbt/profiles.yml", content, mode=0o644)
-    result = ssh.exec_command("chown dango:dango /srv/dango/project/dbt/profiles.yml")
-    if result.exit_code != 0:
-        _logger.warning("chown_dbt_profiles_failed", stderr=result.stderr)
+    write_project_file(ssh, "/srv/dango/project/dbt/profiles.yml", content, mode=0o644)
 
 
 def _start_services(ssh: Any) -> None:

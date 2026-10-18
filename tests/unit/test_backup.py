@@ -218,6 +218,7 @@ class TestCreateBackup:
                 "df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0),
                 "test -f": ("", "", 0),
                 "docker volume inspect": ("/var/lib/docker/vol/_data", "", 0),
+                "mktemp -d": ("/tmp/dango-backup.Ab3dE6fG\n", "", 0),
                 "import dango": ("0.1.1", "", 0),
                 "find /tmp": ("", "", 0),
                 "ls -1t": ("", "", 0),
@@ -241,7 +242,7 @@ class TestCreateBackup:
                 "df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0),
                 "test -f": ("", "", 0),
                 "docker volume inspect": ("/var/lib/docker/vol/_data", "", 0),
-                "mkdir -p /tmp/backup": ("", "disk full", 1),
+                "mktemp -d": ("", "disk full", 1),
             }
         )
 
@@ -264,6 +265,7 @@ class TestCreateBackup:
                 "test -f /srv/dango/project/data/warehouse.duckdb": ("", "", 1),
                 "test -f /srv/dango/project/.dango/auth.db": ("", "", 1),
                 "docker volume inspect": ("", "not found", 1),
+                "mktemp -d": ("/tmp/dango-backup.Ab3dE6fG\n", "", 0),
                 "import dango": ("0.1.1", "", 0),
                 "find /tmp": ("", "", 0),
                 "ls -1t": ("", "", 0),
@@ -285,6 +287,7 @@ class TestCreateBackup:
                 "df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0),
                 "test -f": ("", "", 0),
                 "docker volume inspect": ("/var/lib/docker/vol/_data", "", 0),
+                "mktemp -d": ("/tmp/dango-backup.Ab3dE6fG\n", "", 0),
                 "import dango": ("0.1.1", "", 0),
                 "find /tmp": ("", "", 0),
                 "ls -1t": ("", "", 0),
