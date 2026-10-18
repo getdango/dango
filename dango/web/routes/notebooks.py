@@ -32,7 +32,13 @@ from dango.notebooks.locking import (
     refresh_lock,
     release_lock,
 )
-from dango.notebooks.manager import get_marimo_status, start_idle_checker, start_marimo, stop_marimo
+from dango.notebooks.manager import (
+    ensure_marimo_protected,
+    get_marimo_status,
+    start_idle_checker,
+    start_marimo,
+    stop_marimo,
+)
 from dango.notebooks.snapshot import create_snapshot
 from dango.utils.dango_db import connect
 from dango.validation import validate_identifier
@@ -415,6 +421,7 @@ async def lock_notebook(
             },
         )
 
+    await asyncio.to_thread(ensure_marimo_protected, project_root)
     status = await asyncio.to_thread(get_marimo_status, project_root)
     already_running = status["running"]
     if not already_running:

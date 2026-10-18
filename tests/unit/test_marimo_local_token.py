@@ -230,6 +230,7 @@ def test_cli_open_url_carries_token(tmp_path: Path) -> None:
             "dango.notebooks.manager.get_marimo_status",
             return_value={"running": True, "port": 7805, "pid": 1},
         ),
+        patch("dango.notebooks.manager.ensure_marimo_protected", return_value=False),
         patch("webbrowser.open", side_effect=_open),
     ):
         CliRunner().invoke(notebook, ["open", "t"])

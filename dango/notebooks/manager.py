@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dango.notebooks.access_token import create_token_file, remove_token_file
+from dango.notebooks.protection import ensure_marimo_protected as ensure_marimo_protected
 from dango.utils.dango_db import connect
 from dango.utils.process import (
     is_process_running,
