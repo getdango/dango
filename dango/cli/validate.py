@@ -18,6 +18,25 @@ from dango.config import ConfigLoader
 console = Console()
 
 
+_FILE_FUNC_RE = re.compile(r"^(\w+)\(\) is not allowed")
+_FILE_PATH_RE = re.compile(r"^'([^']*)' (?:looks like a file path|ends in a file extension)")
+
+
+def _file_access_subject(error: str) -> str | None:
+    """Function or path named by a model-SQL guard error, if it is about reading files."""
+    m = _FILE_PATH_RE.match(error)
+    if m:
+        return m.group(1)
+    m = _FILE_FUNC_RE.match(error)
+    if m:
+        name = m.group(1)
+        if name in ("glob", "sniff_csv") or name.startswith(("read_", "parquet_")):
+            return f"{name}()"
+        if name.endswith("_scan"):
+            return f"{name}()"
+    return None
+
+
 class ValidationResult:
     """Result of a validation check"""
 
@@ -50,6 +69,8 @@ class ProjectValidator:
         """
         self.project_root = project_root
         self.results: list[ValidationResult] = []
+        # Model files already warned about by _check_model_file_access (project-relative)
+        self._file_access_flagged: set[Path] = set()
 
     def validate_all(
         self, *, display: bool = True, include_connectivity: bool = True
@@ -77,6 +98,7 @@ class ProjectValidator:
             self._check_source_connectivity()
         self._check_env_vars()
         self._check_dbt_setup()
+        self._check_model_file_access()  # before portability: it de-duplicates against this
         self._check_model_sql_portability()
         self._check_script_paths()
         self._check_database()
@@ -555,6 +577,8 @@ class ProjectValidator:
         abs_path_re = re.compile(r"~/|/(?:Users|home|srv)/|[A-Za-z]:\\|['\"]/")
 
         for sql_file in sorted(models_dir.rglob("*.sql")):
+            if sql_file in self._file_access_flagged:
+                continue  # already reported with a clearer message
             try:
                 content = sql_file.read_text(encoding="utf-8")
             except Exception:  # noqa: BLE001
@@ -577,6 +601,40 @@ class ProjectValidator:
                         "warn",
                         f"{rel_path} (line(s) {lines_str}) uses read_csv_auto/absolute path. "
                         "Use 'dango seed add <file>' and {{ ref('seed_name') }} instead.",
+                    )
+                )
+
+    def _check_model_file_access(self):
+        """Warn on human-written models/snapshots that read files or URLs.
+
+        The web query page, MCP ``query`` and Metabase run on a connection without file
+        access, so such a view builds under dbt but cannot be queried there. Warning-only.
+        Jinja is ignored (``jinja="ignore"``); seeds are not scanned.
+        """
+        from dango.transformation.model_sql_guard import check_model_sql
+
+        for sub in ("models", "snapshots"):
+            base = self.project_root / "dbt" / sub
+            if not base.exists():
+                continue
+            for sql_file in sorted(base.rglob("*.sql")):
+                try:
+                    content = sql_file.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                errors = check_model_sql(content, jinja="ignore")
+                what = next((w for w in map(_file_access_subject, errors) if w), None)
+                if what is None:
+                    continue
+                self._file_access_flagged.add(sql_file)
+                rel = sql_file.relative_to(self.project_root).as_posix()
+                self.results.append(
+                    ValidationResult(
+                        "dbt: Model file access",
+                        "warn",
+                        f"{rel}: reads files or URLs ({what}); this model will not be "
+                        "queryable from the web query page, MCP, or Metabase. Load the file "
+                        "with a local_files source and ref() it instead.",
                     )
                 )
 
