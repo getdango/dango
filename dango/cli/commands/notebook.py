@@ -141,8 +141,13 @@ def notebook_open(ctx: click.Context, name: str) -> None:
     import webbrowser
 
     from dango.cli.utils import require_project_context
+    from dango.notebooks.access_token import marimo_open_url
     from dango.notebooks.locking import acquire_lock, get_lock_info, refresh_lock, release_lock
-    from dango.notebooks.manager import get_marimo_status, start_marimo
+    from dango.notebooks.manager import (
+        ensure_marimo_protected,
+        get_marimo_status,
+        start_marimo,
+    )
     from dango.notebooks.snapshot import create_snapshot
 
     project_root = require_project_context(ctx)
@@ -176,6 +181,10 @@ def notebook_open(ctx: click.Context, name: str) -> None:
     heartbeat.start()
 
     try:
+        if ensure_marimo_protected(project_root):
+            console.print(
+                "[yellow]Restarted Marimo: it was running without an access token.[/yellow]"
+            )
         status = get_marimo_status(project_root)
         snapshot_path = None
         if not status["running"]:
@@ -193,7 +202,7 @@ def notebook_open(ctx: click.Context, name: str) -> None:
             status = get_marimo_status(project_root)
 
         port = status.get("port") or 7805
-        url = f"http://localhost:{port}/?file={name}.py"
+        url = marimo_open_url(project_root, int(str(port)), f"{name}.py")
         console.print(f"\n  [bold]Open in browser:[/bold] {url}")
 
         webbrowser.open(url)
