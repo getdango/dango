@@ -127,33 +127,49 @@ def _start_services() -> None:
     subprocess.run("systemctl start dango-web || true", shell=True, timeout=60)
 
 
+_CHECKPOINT_SCRIPTS = {
+    "DuckDB": "import duckdb, sys; c = duckdb.connect(sys.argv[1]); c.execute('CHECKPOINT'); c.close()",
+    "Auth DB": (
+        "import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); "
+        "c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.close()"
+    ),
+}
+
+
+def _checkpoint_as_service_user(label: str, db_path: Path) -> str | None:
+    """Checkpoint *db_path* as ``dango`` (it owns the file; root would leave root-owned
+    ``-wal``/``-shm`` files). Runs the venv interpreter isolated, from ``/``.
+    Returns a warning on failure."""
+    argv = ["runuser", "-u", "dango", "--", VENV_PYTHON, "-I", "-c"]
+    try:
+        result = subprocess.run(
+            [*argv, _CHECKPOINT_SCRIPTS[label], str(db_path)],
+            cwd="/",
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"{label} checkpoint failed: {exc}"
+    if result.returncode != 0:
+        return f"{label} checkpoint failed: {result.stderr.strip()[-300:]}"
+    return None
+
+
 def _checkpoint_databases() -> list[str]:
-    """Run CHECKPOINT on DuckDB and WAL checkpoint on auth.db. Returns warnings."""
+    """Run CHECKPOINT on DuckDB and WAL checkpoint on auth.db, as dango. Returns warnings."""
     warnings: list[str] = []
-    db_path = PROJECT_DIR / "data" / "warehouse.duckdb"
-    if db_path.exists():
-        try:
-            import duckdb
-
-            duck_conn = duckdb.connect(str(db_path))
-            duck_conn.execute("CHECKPOINT")
-            duck_conn.close()
-        except Exception as exc:
-            warnings.append(f"DuckDB checkpoint failed: {exc}")
-    else:
-        warnings.append("DuckDB warehouse not found — skipped checkpoint")
-    auth_path = PROJECT_DIR / ".dango" / "auth.db"
-    if auth_path.exists():
-        try:
-            import sqlite3
-
-            sqlite_conn = sqlite3.connect(str(auth_path))
-            sqlite_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            sqlite_conn.close()
-        except Exception as exc:
-            warnings.append(f"Auth DB checkpoint failed: {exc}")
-    else:
-        warnings.append("Auth database not found — skipped checkpoint")
+    for label, db_path in (
+        ("DuckDB", PROJECT_DIR / "data" / "warehouse.duckdb"),
+        ("Auth DB", PROJECT_DIR / ".dango" / "auth.db"),
+    ):
+        if not db_path.exists():
+            name = "DuckDB warehouse" if label == "DuckDB" else "Auth database"
+            warnings.append(f"{name} not found — skipped checkpoint")
+            continue
+        warning = _checkpoint_as_service_user(label, db_path)
+        if warning:
+            warnings.append(warning)
     return warnings
 
 
