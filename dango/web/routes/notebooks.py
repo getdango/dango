@@ -493,7 +493,12 @@ async def notebook_status(
         base = "/notebooks/marimo/"
         marimo_url = f"{base}?file={file}" if file else base
     else:
-        marimo_url = marimo_open_url(project_root, int(str(port)), file)
+        marimo_url = marimo_open_url(
+            project_root,
+            int(str(port)),
+            file,
+            with_token=has_permission(user, "notebooks.execute"),
+        )
 
     return JSONResponse(content={"ready": True, "marimo_url": marimo_url})
 

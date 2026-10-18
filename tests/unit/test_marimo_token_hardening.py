@@ -8,6 +8,8 @@ from __future__ import annotations
 import stat
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -44,9 +46,9 @@ def _marimo_stub(seen: dict[str, Any], *, delay: float = 0.0) -> Any:
     return _popen
 
 
-def _run_start(root: Path, popen: Any) -> int | None:
-    from dango.notebooks.manager import start_marimo
-
+@contextmanager
+def _patched(root: Path, popen: Any) -> Iterator[None]:
+    """Patch process/readiness plumbing once (never from racing threads)."""
     (root / ".dango").mkdir(parents=True, exist_ok=True)
     with (
         patch(f"{_M}.subprocess.Popen", side_effect=popen),
@@ -61,6 +63,13 @@ def _run_start(root: Path, popen: Any) -> int | None:
         patch(f"{_M}.time.sleep"),
         patch(_CLOUD, return_value=False),
     ):
+        yield
+
+
+def _run_start(root: Path, popen: Any) -> int | None:
+    from dango.notebooks.manager import start_marimo
+
+    with _patched(root, popen):
         return start_marimo(root, port=7805)
 
 
@@ -142,21 +151,24 @@ def test_status_url_token_only_for_executors(tmp_path: Path, role: Role, has_tok
 
 @pytest.mark.unit
 def test_concurrent_starts_spawn_one_marimo_and_keep_the_token(tmp_path: Path) -> None:
+    from dango.notebooks.manager import start_marimo
+
     seen: dict[str, Any] = {}
     popen = _marimo_stub(seen, delay=0.3)
     outcomes: list[Any] = []
 
     def _worker() -> None:
         try:
-            outcomes.append(_run_start(tmp_path, popen))
+            outcomes.append(start_marimo(tmp_path, port=7805))
         except Exception as exc:
             outcomes.append(exc)
 
-    threads = [threading.Thread(target=_worker) for _ in range(2)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=20)
+    with _patched(tmp_path, popen):
+        threads = [threading.Thread(target=_worker) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=20)
     assert not any(t.is_alive() for t in threads)
     assert seen["popen_calls"] == 1
     assert sum(1 for o in outcomes if o == 12345) == 1

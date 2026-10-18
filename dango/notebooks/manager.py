@@ -14,7 +14,12 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from dango.notebooks.access_token import create_token_file, remove_token_file
+from dango.notebooks.access_token import (
+    create_token_file,
+    open_private_log,
+    remove_token_file,
+    start_lock,
+)
 from dango.notebooks.protection import ensure_marimo_protected as ensure_marimo_protected
 from dango.utils.dango_db import connect
 from dango.utils.process import (
@@ -176,20 +181,21 @@ def start_marimo(
     port: int | None = None,
     snapshot_path: Path | None = None,
 ) -> int | None:
-    """Start Marimo notebook server in background.
+    """Start the Marimo notebook server in the background; return its PID.
 
-    Args:
-        project_root: Project root directory.
-        port: Port to listen on.  Defaults to ``PlatformSettings.marimo_port``.
-        snapshot_path: If provided, set ``DANGO_NOTEBOOK_DB_PATH`` env var so
-            templates connect to a read-only snapshot instead of the live warehouse.
-
-    Returns:
-        PID of started process, or ``None`` if failed.
-
-    Raises:
-        RuntimeError: If Marimo is already running or fails to start.
+    Starts are serialized by a file lock.  *port* defaults to
+    ``PlatformSettings.marimo_port``; *snapshot_path* becomes
+    ``DANGO_NOTEBOOK_DB_PATH``.  Raises ``RuntimeError`` if Marimo is already
+    running or fails to start.
     """
+    with start_lock(project_root):
+        return _start_marimo_locked(project_root, port, snapshot_path)
+
+
+def _start_marimo_locked(
+    project_root: Path, port: int | None, snapshot_path: Path | None
+) -> int | None:
+    """Body of :func:`start_marimo`, run while holding the start lock."""
     import sys
 
     pid_file = get_marimo_pid_file_path(project_root)
@@ -216,8 +222,7 @@ def start_marimo(
     log_file = project_root / ".dango" / "marimo.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Marimo's --timeout and Dango's _idle_check_loop use the same value
-    # intentionally — Marimo is a fallback if the Dango checker fails.
+    # Marimo's --timeout matches Dango's idle checker (fallback if it fails).
     timeout_minutes = _get_idle_timeout(project_root) // 60
 
     env = os.environ.copy()
@@ -226,7 +231,7 @@ def start_marimo(
 
     log_handle = None
     try:
-        log_handle = open(log_file, "w")  # noqa: SIM115
+        log_handle = open_private_log(log_file)
 
         cmd = [
             sys.executable,
@@ -254,7 +259,9 @@ def start_marimo(
             cmd.append("--no-token")
         else:
             # Local: nothing in front of Marimo, so it requires a random
-            # per-start token (read from a 0600 file, never from argv).
+            # per-start token (0600 file, never argv).  --quiet (a global
+            # option, before "edit") stops Marimo printing the token-bearing URL.
+            cmd.insert(3, "--quiet")
             cmd.extend(["--token-password-file", str(create_token_file(project_root))])
         if base_path != "/":
             cmd.extend(["--base-url", base_path])
@@ -307,15 +314,9 @@ def start_marimo(
 
 
 def stop_marimo(project_root: Path) -> bool:
-    """Stop Marimo notebook server.
+    """Stop the Marimo server; ``True`` if stopped, ``False`` if not running or not stoppable.
 
-    Args:
-        project_root: Project root directory.
-
-    Returns:
-        ``True`` if Marimo was stopped, ``False`` if it wasn't running or
-        could not be stopped (the pid file is then kept, so the running
-        process stays tracked).
+    The pid file is kept when the process could not be stopped, so it stays tracked.
     """
     pid_file = get_marimo_pid_file_path(project_root)
 

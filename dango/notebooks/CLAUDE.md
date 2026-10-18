@@ -9,7 +9,8 @@ Marimo notebook server lifecycle, DuckDB read-only snapshots, file-level locking
 | File | Lines | Purpose | Key Exports |
 |------|-------|---------|-------------|
 | `__init__.py` | ~45 | Re-exports public symbols | All public API |
-| `access_token.py` | ~65 | Per-start Marimo token file (`.dango/state/marimo.token`, 0600) and the browser open URL carrying `access_token` | `create_token_file()`, `read_token()`, `remove_token_file()`, `marimo_open_url()` |
+| `access_token.py` | ~110 | Per-start Marimo token file (`.dango/state/marimo.token`, 0600), the open URL carrying `access_token`, private 0600 log, start lock | `create_token_file()`, `read_token()`, `remove_token_file()`, `marimo_open_url()`, `open_private_log()`, `start_lock()` |
+| `protection.py` | ~45 | Restart a tokenless pre-fix local Marimo; drop stale token file | `ensure_marimo_protected()` |
 | `manager.py` | ~497 | Marimo process lifecycle (PID file, start/stop/status) + idle auto-shutdown + cloud base-url | `get_marimo_pid_file_path()`, `start_marimo()`, `stop_marimo()`, `get_marimo_status()`, `start_idle_checker()`, `stop_idle_checker()` |
 | `snapshot.py` | ~143 | DuckDB snapshot management | `create_snapshot()`, `list_snapshots()`, `cleanup_snapshots()` |
 | `locking.py` | ~285 | File-level notebook locking via `notebook_locks` table | `acquire_lock()`, `release_lock()`, `refresh_lock()`, `force_release_lock()`, `expire_stale_locks()`, `is_locked()`, `get_lock_info()`, `copy_locked_notebook()` |
