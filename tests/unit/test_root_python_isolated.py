@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -175,3 +176,35 @@ def test_scheduled_backup_checkpoints_run_as_dango_not_in_the_root_process(
     for argv in runs:
         assert argv[:5] == ["runuser", "-u", "dango", "--", "/srv/dango/venv/bin/python"], argv
         assert argv[5] == "-I", argv
+
+
+@pytest.mark.unit
+def test_deploy_backup_sqlite_checkpoint_runs_as_dango_isolated() -> None:
+    from dango.platform.cloud.backup import _checkpoint_sqlite
+
+    ssh, commands = _recording_ssh()
+    assert _checkpoint_sqlite(ssh, ".dango/dango.db") is None
+    runs = _python_invocations(commands)
+    assert len(runs) == 1, commands
+    _assert_isolated(runs[0])
+    assert re.search(r"runuser -u dango -- /srv/dango/venv/bin/python -I", runs[0]), runs[0]
+
+
+@pytest.mark.unit
+def test_scheduled_backup_sqlite_checkpoint_starts_from_root_dir(tmp_path: Path) -> None:
+    import subprocess
+
+    import dango.platform.cloud.scheduled_backup as sb
+
+    db = tmp_path / "dango.db"
+    db.write_bytes(b"")
+    seen: dict[str, Any] = {}
+
+    def _run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen["argv"], seen["cwd"] = argv, kwargs.get("cwd")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    with patch.object(sb.subprocess, "run", side_effect=_run):
+        assert sb._checkpoint_sqlite(db) is None
+    assert "-I" in seen["argv"]
+    assert seen["cwd"] == "/"
