@@ -227,3 +227,56 @@ def test_local_restore_off_server_restores_auth_yml_as_is(tmp_path: Path) -> Non
     (project / ".dango" / "auth.yml").write_text("enabled: true\n")
     _local_restore(tmp_path, project, _with_auth("false"))
     assert (project / ".dango" / "auth.yml").read_text() == "enabled: false\n"
+
+
+def _warehouse_only(content: Path) -> None:
+    (content / ".dango").mkdir(parents=True)
+    (content / ".dango" / "schedules.yml").write_text("schedules: []\n")
+    (content / "manifest.json").write_text("{}")
+
+
+def _live_pipeline_state(project: Path) -> Path:
+    state = project / ".dlt" / "pipelines" / "src" / "state.json"
+    state.parent.mkdir(parents=True)
+    state.write_text('{"live": true}')
+    return state
+
+
+@pytest.mark.unit
+def test_restore_moves_live_pipeline_state_aside(
+    restore: Callable[..., list[str]], tmp_path: Path
+) -> None:
+    project = _live_project(tmp_path)
+    _live_pipeline_state(project)
+    restore(tmp_path, project, _new_layout)
+    assert not (project / ".dlt" / "pipelines").exists(), "live pipeline state left in place"
+    kept = list((project / ".dlt").glob("pipelines.pre-restore-*"))
+    assert len(kept) == 1, kept
+    assert (kept[0] / "src" / "state.json").read_text() == '{"live": true}'
+
+
+@pytest.mark.unit
+def test_restore_without_warehouse_keeps_live_pipeline_state(
+    restore: Callable[..., list[str]], tmp_path: Path
+) -> None:
+    project = _live_project(tmp_path)
+    state = _live_pipeline_state(project)
+    restore(tmp_path, project, _warehouse_only)
+    assert state.read_text() == '{"live": true}'
+    assert not list((project / ".dlt").glob("pipelines.pre-restore-*"))
+
+
+@pytest.mark.unit
+def test_restore_refuses_oversized_auth_yml(
+    restore: Callable[..., list[str]], tmp_path: Path
+) -> None:
+    def build(content: Path) -> None:
+        _new_layout(content)
+        (content / ".dango" / "auth.yml").write_text("enabled: true\n" + "# pad\n" * 20000)
+
+    project = _live_project(tmp_path)
+    live_auth = project / ".dango" / "auth.yml"
+    live_auth.write_text("enabled: true\n")
+    warnings = _server_like(restore)(tmp_path, project, build)
+    assert live_auth.read_text() == "enabled: true\n"
+    assert any("auth.yml" in w for w in warnings), warnings

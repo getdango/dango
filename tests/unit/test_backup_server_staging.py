@@ -69,16 +69,18 @@ def test_predictable_staging_dir_or_symlink_is_never_used(tmp_path: Path) -> Non
 @pytest.mark.unit
 def test_planted_symlink_at_staging_name_is_not_followed(tmp_path: Path) -> None:
     project = _project(tmp_path / "project")
-    staging_root = tmp_path / "staging-root"
-    staging_root.mkdir()
     ts = unique_timestamp()
     target = tmp_path / "attacker-owned"
     target.mkdir()
-    (staging_root / f"backup-{ts}").symlink_to(target, target_is_directory=True)
-
-    run_server_archive(tmp_path, project, staging_root=staging_root, timestamp=ts)
-
-    assert not list(target.iterdir()), "backup wrote through a planted staging symlink"
+    # The old code staged at the predictable /tmp/backup-<timestamp>.
+    planted = Path("/tmp") / f"backup-{ts}"
+    planted.symlink_to(target, target_is_directory=True)
+    try:
+        run_server_archive(tmp_path, project, timestamp=ts)
+        assert not list(target.iterdir()), "backup wrote through a planted staging symlink"
+        assert planted.is_symlink(), "planted link was replaced"
+    finally:
+        planted.unlink(missing_ok=True)
 
 
 @pytest.mark.unit

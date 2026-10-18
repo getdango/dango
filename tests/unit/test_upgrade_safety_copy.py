@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -125,3 +126,20 @@ def test_upgrade_safety_copy_never_holds_the_metabase_password(tmp_path: Path) -
     assert "s3cret-pw" not in text and "a@example.com" in text
     # The copy made by this upgrade is not reported as a possibly legacy artifact.
     assert "may predate" not in result.output
+
+
+@pytest.mark.unit
+def test_failed_safety_copy_leaves_no_partial_copy(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+
+    def fail_on_yml(src: Any, dst: Any, **kwargs: Any) -> Any:
+        if str(src).endswith(".yml"):
+            raise OSError("disk full")
+        return shutil.copy2(src, dst, **kwargs)
+
+    with patch("dango.cli.commands.upgrade.shutil.copy2", side_effect=fail_on_yml):
+        result, _sp, migrate = _upgrade(project)
+
+    assert result.exit_code != 0
+    assert not migrate.called
+    assert _copies(project) == [], "partial safety copy left behind"
