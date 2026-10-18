@@ -512,6 +512,8 @@ class TestRequirementsInstall:
             commands.append(cmd)
             if "test -f" in cmd and "requirements.txt" in cmd:
                 return CommandResult(stdout="exists", stderr="", exit_code=0)
+            if "mktemp -d -t dango-req-" in cmd:
+                return CommandResult(stdout="/tmp/dango-req-Ab3dE9fGh1\n", stderr="", exit_code=0)
             return CommandResult(stdout="", stderr="", exit_code=0)
 
         ssh.exec_command.side_effect = _tracking_exec

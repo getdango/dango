@@ -10,7 +10,6 @@ are refused.
 from __future__ import annotations
 
 import re
-import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,6 +20,7 @@ if TYPE_CHECKING:
 
 _logger = get_logger(__name__)
 
+_SAFE_REMOTE_DIR = re.compile(r"/[A-Za-z0-9._/-]+")
 REQUIREMENT_FILES = ("requirements.txt", "scripts/requirements.txt")
 _NESTED_OR_EDITABLE = re.compile(
     r"^(-e|--editable|-r|--requirement|-c|--constraint)(\s|=|$)|^-[erc]\S", re.I
@@ -99,8 +99,9 @@ def install_pushed_requirements(
                 f"remote URLs without credentials; refused: {'; '.join(refused)}"
             )
             continue
-        workdir = f"/tmp/dango-req-{uuid.uuid4().hex}"
-        if not ssh.exec_command(f"mkdir -m 0700 {workdir}").success:
+        made = ssh.exec_command("mktemp -d -t dango-req-XXXXXXXXXX")
+        workdir = made.stdout.strip() if made.success else ""
+        if not _SAFE_REMOTE_DIR.fullmatch(workdir):
             warnings.append(f"{rel} not installed: could not create a private directory")
             continue
         try:

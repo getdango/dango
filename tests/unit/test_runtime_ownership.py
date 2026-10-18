@@ -29,7 +29,7 @@ def _recording_ssh(
     """
     results = exec_results or {}
     commands: list[str] = []
-    state = {"rebuilt": False}
+    state = {"rebuilt": False, "tmp": 0}
 
     def _exec(command: str, *args: object, **kwargs: object) -> CommandResult:
         commands.append(command)
@@ -39,6 +39,11 @@ def _recording_ssh(
         for substr, (stdout, stderr, code) in results.items():
             if substr in command:
                 return CommandResult(stdout=stdout, stderr=stderr, exit_code=code)
+        if "mktemp -d -t dango-req-" in command:
+            state["tmp"] += 1
+            return CommandResult(
+                stdout=f"/tmp/dango-req-Ab3dE9fG{state['tmp']:02d}\n", stderr="", exit_code=0
+            )
         if "python3 -m venv /srv/dango/venv" in command:
             state["rebuilt"] = True
         if "DANGO_PROBE_OK" in command:  # the trust probe: trusted unless a test says otherwise
@@ -372,10 +377,25 @@ class TestPushRequirements:
         for command in pip_runs:
             assert not re.search(r"sudo\s+-u\s+dango", command), command
             assert _PROJECT not in command, command
-            assert re.search(r"-r /tmp/dango-req-[0-9a-f]{32}/", command), command
+            assert re.search(r"-r /tmp/dango-req-Ab3dE9fG\d\d/", command), command
         uploaded = _written(ssh)
         assert "requests==2.32.3\n" in uploaded.values()
         assert "rich\n" in uploaded.values()
+
+    @pytest.mark.parametrize(
+        "bad", ["", "relative/dir\n", "/tmp/a\n/tmp/b\n", "/tmp/a b\n", "/tmp/$(x)\n"]
+    )
+    def test_invalid_mktemp_output_skips_the_install(self, tmp_path: Path, bad: str) -> None:
+        from dango.platform.cloud.pushed_requirements import install_pushed_requirements
+
+        (tmp_path / "requirements.txt").write_text("requests==2.32.3\n")
+        ssh, commands = _recording_ssh({"mktemp -d -t dango-req-": (bad, "", 0)})
+        warnings: list[str] = []
+        installed = install_pushed_requirements(ssh, tmp_path, "/srv/dango/venv/bin/pip", warnings)
+        assert installed == []
+        assert any("could not create a private directory" in w for w in warnings), warnings
+        assert not any("pip" in c and "install" in c for c in commands), commands
+        ssh.write_remote_file.assert_not_called()
 
     def test_refused_requirements_are_not_installed(self, tmp_path: Path) -> None:
         _ssh, commands, result = _push(tmp_path, {"requirements.txt": "-e ./mypkg\n"})
