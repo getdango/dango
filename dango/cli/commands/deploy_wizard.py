@@ -857,6 +857,7 @@ def run_wizard(
     *,
     allowed_ips: list[str] | None = None,
     accept_http_exposure: bool = False,
+    domain: str | None = None,
 ) -> WizardConfig:
     """Run the interactive deployment wizard (steps 1-8).
 
@@ -864,6 +865,7 @@ def run_wizard(
         project_root: Path to the Dango project root.
         allowed_ips: Pre-answer for the web-access step (validated ``--allow-ip``).
         accept_http_exposure: Pre-answer for the web-access step.
+        domain: ``--domain`` (HTTPS); when set, the web-access step is skipped.
 
     Returns:
         Completed ``WizardConfig`` ready for provisioning.
@@ -899,8 +901,10 @@ def run_wizard(
         project_root, region
     )
 
-    # Web access: the wizard has no domain step, so the deploy is HTTP only
-    web_ips, http_ack = _step_web_exposure(allowed_ips, accept_http_exposure)
+    # Web access: without --domain the deploy is HTTP only
+    web_ips, http_ack = (
+        ([], False) if domain else _step_web_exposure(allowed_ips, accept_http_exposure)
+    )
 
     # Step 8: Cost summary + confirm
     monthly_cost = _step_cost_summary(region, size_slug, enable_backups)
@@ -909,7 +913,7 @@ def run_wizard(
         region=region,
         size_slug=size_slug,
         size_tier=size_tier,
-        domain=None,
+        domain=domain,
         admin_email=admin_email,
         admin_password=admin_password,
         skip_oauth=skip_oauth,
@@ -1128,12 +1132,18 @@ def _validate_ssh_connectivity(
         ssh.disconnect()
 
 
-def run_byos_wizard(project_root: Path, *, accept_http_exposure: bool = False) -> BYOSConfig:
+def run_byos_wizard(
+    project_root: Path,
+    *,
+    accept_http_exposure: bool = False,
+    domain: str | None = None,
+) -> BYOSConfig:
     """Run the BYOS interactive wizard.
 
     Args:
         project_root: Path to the Dango project root.
         accept_http_exposure: Pre-answer for the HTTP-only acknowledgement.
+        domain: ``--domain`` (HTTPS); when set, no acknowledgement is needed.
 
     Returns:
         Completed ``BYOSConfig`` ready for server setup.
@@ -1167,8 +1177,8 @@ def run_byos_wizard(project_root: Path, *, accept_http_exposure: bool = False) -
     # Step 5: OAuth
     skip_oauth = _step_oauth()
 
-    # No domain step: the deploy is HTTP only and must be acknowledged
-    http_ack = _step_byos_http_ack(accept_http_exposure)
+    # Without --domain the deploy is HTTP only and must be acknowledged
+    http_ack = False if domain else _step_byos_http_ack(accept_http_exposure)
 
     # Confirmation
     console.print("\n[bold]Deployment Summary[/bold]\n")
@@ -1185,7 +1195,7 @@ def run_byos_wizard(project_root: Path, *, accept_http_exposure: bool = False) -
         server_ip=server_ip,
         ssh_user=ssh_user,
         ssh_key_path=ssh_key_path,
-        domain=None,
+        domain=domain,
         admin_email=admin_email,
         admin_password=admin_password,
         skip_oauth=skip_oauth,

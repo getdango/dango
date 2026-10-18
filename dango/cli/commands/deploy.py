@@ -165,7 +165,7 @@ def deploy(  # noqa: PLR0913
         from dango.cli.commands.deploy_provision import run_byos_setup
         from dango.cli.commands.deploy_wizard import run_byos_wizard
 
-        byos_config = run_byos_wizard(project_root, accept_http_exposure=preset_ack)
+        byos_config = run_byos_wizard(project_root, accept_http_exposure=preset_ack, domain=domain)
         try:
             byos_result = run_byos_setup(project_root, byos_config)
         except Exception:
@@ -176,7 +176,7 @@ def deploy(  # noqa: PLR0913
         from dango.cli.commands.deploy_wizard import run_wizard
 
         wizard_config = run_wizard(
-            project_root, allowed_ips=preset_ips, accept_http_exposure=preset_ack
+            project_root, allowed_ips=preset_ips, accept_http_exposure=preset_ack, domain=domain
         )
         _handle_do_deploy_with_config(project_root, wizard_config)
 
