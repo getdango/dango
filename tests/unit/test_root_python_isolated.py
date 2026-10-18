@@ -6,6 +6,7 @@ Root SSH steps run the venv interpreter isolated (-I, from /); database checkpoi
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -140,3 +141,37 @@ def test_remote_backup_server_commands_are_isolated(args: list[str]) -> None:
     assert runs, commands
     for command in runs:
         _assert_isolated(command)
+
+
+@pytest.mark.unit
+def test_scheduled_backup_checkpoints_run_as_dango_not_in_the_root_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Root opening auth.db in-process leaves root-owned -wal/-shm files dango-web cannot write."""
+    import subprocess
+
+    import dango.platform.cloud.scheduled_backup as sb
+
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "warehouse.duckdb").write_bytes(b"")
+    (tmp_path / ".dango").mkdir()
+    (tmp_path / ".dango" / "auth.db").write_bytes(b"")
+    monkeypatch.setattr(sb, "PROJECT_DIR", tmp_path)
+    runs: list[list[str]] = []
+
+    def _run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        runs.append(list(argv))
+        assert kwargs.get("cwd") == "/"
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    with (
+        patch.object(sb.subprocess, "run", side_effect=_run),
+        patch("duckdb.connect", side_effect=AssertionError("checkpoint ran in the root process")),
+        patch("sqlite3.connect", side_effect=AssertionError("checkpoint ran in the root process")),
+    ):
+        warnings = sb._checkpoint_databases()
+    assert warnings == []
+    assert len(runs) == 2, runs
+    for argv in runs:
+        assert argv[:5] == ["runuser", "-u", "dango", "--", "/srv/dango/venv/bin/python"], argv
+        assert argv[5] == "-I", argv
