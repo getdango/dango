@@ -522,7 +522,7 @@ def firewall_allow_ip(ctx: click.Context, ip_address: str) -> None:
     """
     from dango.platform.cloud.firewall import add_allowed_ip
 
-    _cloud_cfg, firewall_id = _load_cloud_config_or_fail(ctx)
+    cloud_cfg, firewall_id = _load_cloud_config_or_fail(ctx)
     client = _make_client()
 
     try:
@@ -536,6 +536,13 @@ def firewall_allow_ip(ctx: click.Context, ip_address: str) -> None:
         f"Ports 80/443 now restricted to [bold]{ip_address}[/bold]."
     )
     console.print(f"  Firewall: {fw.get('name', firewall_id)}")
+    if cloud_cfg.domain:
+        console.print(
+            f"[yellow]Warning:[/yellow] {cloud_cfg.domain} is configured. Restricting "
+            "ports 80/443 stops Let's Encrypt from reaching the server, so the "
+            "certificate cannot renew. Run [bold]dango remote firewall allow-all[/bold] "
+            "to keep HTTPS working."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -714,6 +721,13 @@ def domain_remove(ctx: click.Context) -> None:
         console.print("Caddyfile reverted to HTTP-only (port 80).")
     else:
         console.print("Caddyfile was already HTTP-only.")
+
+    console.print(
+        "[yellow]Warning:[/yellow] The server is now HTTP only: your admin password "
+        "and session cookie are sent unencrypted. Restrict web access with "
+        "[bold]dango remote firewall allow-ip <your-ip>[/bold], or add a domain with "
+        "[bold]dango remote domain set <domain>[/bold]."
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -150,8 +150,9 @@ def resolve_exposure_flags(
     if domain and allowed:
         raise click.UsageError(
             "--allow-ip cannot be combined with --domain: Let's Encrypt must reach "
-            "ports 80/443 to issue the certificate. Deploy with the domain, then "
-            "restrict access with 'dango remote firewall allow-ip'."
+            "ports 80/443 to issue and renew the certificate. With a domain, keep "
+            "ports 80/443 open: HTTPS and the login protect the app. IP restriction "
+            "is for deploys without a domain."
         )
     if require and not domain and not allowed and not accept_http_exposure:
         if byos:

@@ -125,7 +125,7 @@ Without a domain, Dango is accessible at `http://<server-ip>` over **plain HTTP*
 
 Dango opens ports 80 and 443 in `ufw` on your server. To limit who can reach them, restrict those ports in your provider's firewall or with `ufw` (`--allow-ip` is only available on DigitalOcean, where Dango manages the cloud firewall). `dango remote status` shows "HTTP only (unencrypted)" until you add a domain with `dango remote domain set <domain>`.
 
-On DigitalOcean the same rule applies, and the deploy can restrict the web ports for you: `--allow-ip <your-ip>` (repeatable, IPv4 address or CIDR), or the wizard's IP question (which also accepts `detect`). Without a restriction, the DigitalOcean firewall allows ports 22, 80 and 443 from anywhere. `dango remote domain set` reopens 80/443 before switching to HTTPS, because Let's Encrypt must reach them to issue the certificate; restrict them again afterwards with `dango remote firewall allow-ip`.
+On DigitalOcean the same rule applies, and the deploy can restrict the web ports for you: `--allow-ip <your-ip>` (repeatable, IPv4 address or CIDR), or the wizard's IP question (which also accepts `detect`). Without a restriction, the DigitalOcean firewall allows ports 22, 80 and 443 from anywhere. `dango remote domain set` reopens 80/443 before switching to HTTPS, because Let's Encrypt must reach them to issue and renew the certificate. With a domain, keep 80/443 open: HTTPS and the login protect the app, and restricting the ports would break automatic certificate renewal. IP restriction is for deploys without a domain.
 
 ## Post-Deployment
 

@@ -34,10 +34,17 @@ AS_DANGO = "runuser -u dango --"
 
 # Runs as dango: $1 = destination, $2 = octal mode, stdin = content.
 _WRITE_SCRIPT = (
-    'umask 077; d=$(dirname "$1"); mkdir -p "$d" && '
+    'umask 077; d=$(dirname "$1"); mkdir -p "$d" || exit 1; '
+    'if [ -d "$1" ] && [ ! -L "$1" ]; then '
+    'echo "refusing to replace directory $1" >&2; exit 1; fi; '
     't=$(mktemp "$d/.dango-write.XXXXXX") && '
-    '{ cat > "$t" && chmod "$2" "$t" && mv -f "$t" "$1" || { rm -f "$t"; exit 1; }; }'
+    '{ cat > "$t" && chmod "$2" "$t" && mv -fT "$t" "$1" || { rm -f "$t"; exit 1; }; }'
 )
+
+# Runs as dango: $1 = file.  Exit 3 = the path does not exist; any other failure
+# is a real read error.
+_READ_SCRIPT = '[ -e "$1" -o -L "$1" ] && exec cat "$1"; exit 3'
+_ABSENT_EXIT = 3
 
 # Runs as dango: $1 = file, $2 = KEY, $3 = full line.
 _APPEND_SCRIPT = 'grep -q "^$2=" "$1" 2>/dev/null || printf "%s\\n" "$3" >> "$1"'
@@ -82,6 +89,18 @@ def append_env_line_if_missing(ssh: Any, path: str, key: str, value: str) -> Any
 
 
 def read_project_file(ssh: Any, path: str) -> str:
-    """Return the content of *path* read as ``dango`` (empty if missing)."""
-    result = ssh.exec_command(f"{AS_DANGO} cat {shlex.quote(path)} 2>/dev/null || true")
+    """Return the content of *path* read as ``dango`` (empty if the file is absent).
+
+    Raises:
+        CloudProvisioningError: If the file exists but cannot be read (permission
+            or SSH error); an unreadable file is not the same as an absent one.
+    """
+    q = shlex.quote
+    result = ssh.exec_command(f"{AS_DANGO} sh -c {q(_READ_SCRIPT)} _ {q(path)}")
+    if result.exit_code == _ABSENT_EXIT:
+        return ""
+    if result.exit_code != 0:
+        raise CloudProvisioningError(
+            f"Failed to read {path}: {(result.stderr or result.stdout or '').strip()}"
+        )
     return str(result.stdout or "")
