@@ -370,7 +370,7 @@ Post-deployment hardening (not automated by Dango):
 
 - **Cloudflare proxy:** Route traffic through Cloudflare for DDoS protection and CDN. Set Caddy to trust Cloudflare IPs for correct client IP logging.
 - **UptimeRobot:** Monitor `/api/health` endpoint for uptime alerts. Free tier supports 5-minute check intervals.
-- **Firewall IP restriction:** Use `dango remote firewall allow-ip` to restrict web access to known IPs during development/staging.
+- **Firewall IP restriction:** Use `dango remote firewall allow-ip` to restrict web access to known IPs during development/staging (no-domain deploys only: with a domain, keep 80/443 open or certificate renewal breaks).
 
 ## Testing
 

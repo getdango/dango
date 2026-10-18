@@ -11,6 +11,7 @@ Reuses all startup helpers from ``dango.platform.common.startup``.
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -21,11 +22,15 @@ import click
 
 
 @click.command()
-@click.option("--host", default="0.0.0.0", help="Bind address (default: 0.0.0.0)")
+@click.option(
+    "--host",
+    default=None,
+    help="Bind address (default: 127.0.0.1 when DANGO_CLOUD_MODE=true, else 0.0.0.0)",
+)
 @click.option("--port", default=None, type=int, help="Port (default: config value or 8800)")
 @click.option("--workers", default=None, type=int, help="Number of uvicorn workers (default: 1)")
 @click.pass_context
-def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) -> None:
+def serve(ctx: click.Context, host: str | None, port: int | None, workers: int | None) -> None:
     """Run Dango in production server mode (foreground).
 
     Intended for use under systemd on a cloud server.  Runs all startup
@@ -35,7 +40,8 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
     Unlike ``dango start``, this command:
 
     \b
-      - Binds to 0.0.0.0 (all interfaces)
+      - Binds to 0.0.0.0 (all interfaces), or 127.0.0.1 on a cloud server
+        (DANGO_CLOUD_MODE=true), where Caddy is the public entry point
       - Runs uvicorn in the foreground (no PID file)
       - Does not open a browser or start the file watcher
       - Minimal console output (no Rich formatting)
@@ -248,7 +254,9 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
         pass
 
     # H4: Check port availability before starting uvicorn
-    _check_port(effective_port)
+    if host is None:
+        host = _default_host()
+    _check_port(effective_port, host)
 
     if watch_credential:
         # The login check needs a healthy Metabase, which is usually still booting here.
@@ -258,8 +266,6 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
         ).start()
 
     # Set project root env var so uvicorn workers can resolve it on import
-    import os
-
     os.environ["DANGO_PROJECT_ROOT"] = str(project_root)
 
     # H3: Wrap uvicorn in try/finally for Docker cleanup
@@ -282,14 +288,19 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
         _stop_docker_quiet(project_root)
 
 
-def _check_port(port: int) -> None:
-    """Exit with a clean error if *port* is already in use."""
+def _default_host() -> str:
+    """Loopback on a cloud server (Caddy is the public entry point), else all interfaces."""
+    return "127.0.0.1" if os.environ.get("DANGO_CLOUD_MODE") == "true" else "0.0.0.0"
+
+
+def _check_port(port: int, host: str = "0.0.0.0") -> None:
+    """Exit with a clean error if *port* is already in use on *host*."""
     import socket
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            s.bind(("0.0.0.0", port))
+            s.bind((host, port))
         except OSError:
             print(f"Port {port} is already in use", file=sys.stderr)
             raise SystemExit(1) from None

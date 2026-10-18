@@ -89,7 +89,7 @@ class TestServeHappyPath:
         # Metabase setup must begin only after that lifecycle step completes.
         assert startup_order == ["docker", "metabase"]
         mock_dashboards.assert_called_once_with(tmp_path)
-        mock_check_port.assert_called_once_with(8800)
+        mock_check_port.assert_called_once_with(8800, "0.0.0.0")
         mock_uvicorn_run.assert_called_once_with(
             "dango.web.app:app",
             host="0.0.0.0",
@@ -131,7 +131,7 @@ class TestServeHappyPath:
         result = runner.invoke(serve, ["--port", "9000"], obj={})
 
         assert result.exit_code == 0, result.output
-        mock_check_port.assert_called_once_with(9000)
+        mock_check_port.assert_called_once_with(9000, "0.0.0.0")
         mock_uvicorn_run.assert_called_once_with(
             "dango.web.app:app",
             host="0.0.0.0",
