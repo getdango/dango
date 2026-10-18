@@ -42,7 +42,10 @@ def remote_upgrade(
     from rich.status import Status
 
     from dango.cli.commands.remote import _load_cloud_config_with_ssh_or_fail
+    from dango.cli.utils import require_project_context
+    from dango.platform.cloud.runtime_ownership import at_target_restart_plan
     from dango.platform.cloud.upgrade import (
+        PROGRESS_LABELS,
         UpgradeResult,
         check_versions,
         upgrade_dango,
@@ -60,7 +63,6 @@ def remote_upgrade(
     cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
 
     try:
-        # Show current vs target version
         console.print("[bold]Checking versions...[/bold]")
         current, latest = check_versions(ssh)
 
@@ -68,19 +70,25 @@ def remote_upgrade(
         console.print(f"  Current version: [cyan]{current or 'unknown'}[/cyan]")
         console.print(f"  Target version:  [cyan]{display_target}[/cyan]")
 
-        if current == display_target:
+        if at_target := current == display_target:  # post-install steps still run, no pip
             console.print("\n[green]Already at target version — no upgrade needed.[/green]")
-            return
 
-        if not latest and target_version is None:
+        if not at_target and not latest and target_version is None:
             console.print(
                 "\n[red]Error:[/red] Could not determine latest version from PyPI. "
                 "Specify a version with --version."
             )
             raise SystemExit(1)
 
+        # At target, only a venv rebuild restarts services: ask first (plain steps need no prompt).
+        if at_target and not yes and (plan := at_target_restart_plan(ssh)):
+            console.print(f"\n{plan}")
+            if not safe_confirm("Rebuild the venv now?", default=False):
+                console.print("[yellow]Cancelled.[/yellow] Nothing changed; use --yes to rebuild.")
+                return
+
         # Confirm
-        if not yes:
+        if not yes and not at_target:
             console.print()
             if skip_backup:
                 console.print("[yellow]Warning:[/yellow] Pre-upgrade backup will be skipped.")
@@ -88,23 +96,11 @@ def remote_upgrade(
                 console.print("[yellow]Upgrade cancelled.[/yellow]")
                 return
 
-        # Execute upgrade
         with Status("[bold blue]Upgrading...", console=console) as status:
 
             def _on_progress(step: str, step_status: str) -> None:
                 if step_status == "running":
-                    labels: dict[str, str] = {
-                        "check_version": "Checking current version...",
-                        "check_pypi": "Checking latest PyPI version...",
-                        "backup": "Creating pre-upgrade backup...",
-                        "stop_services": "Stopping services...",
-                        "pip_install": "Installing new version...",
-                        "migrations": "Running migrations...",
-                        "docker_rebuild": "Rebuilding Docker images...",
-                        "start_services": "Starting services...",
-                        "verify_health": "Verifying health...",
-                    }
-                    status.update(f"[bold blue]{labels.get(step, step)}")
+                    status.update(f"[bold blue]{PROGRESS_LABELS.get(step, step)}")
 
             result: UpgradeResult = upgrade_dango(
                 ssh,
@@ -112,14 +108,16 @@ def remote_upgrade(
                 skip_backup=skip_backup,
                 force=force,
                 on_progress=_on_progress,
+                local_project_root=require_project_context(ctx),
+                byos=getattr(cloud_cfg, "provider", None) == "byos",
             )
 
-        # Show results
         console.print()
+        done = "Server configuration checked" if at_target else "Upgrade complete"
         if result.health_check_passed:
-            console.print("[green]Upgrade complete.[/green]")
+            console.print(f"[green]{done}.[/green]")
         else:
-            console.print("[yellow]Upgrade complete with warnings.[/yellow]")
+            console.print(f"[yellow]{done} with warnings.[/yellow]")
 
         console.print(
             f"  Version: [cyan]{result.old_version}[/cyan] → [cyan]{result.new_version}[/cyan]"
@@ -131,8 +129,9 @@ def remote_upgrade(
             console.print("  Migrations: applied")
         if result.docker_rebuilt:
             console.print("  Docker: rebuilt")
-        if result.caddyfile_ws_migration:
-            console.print(f"  {result.caddyfile_ws_migration}")
+        steps = (result.caddyfile_ws_migration, result.runtime_ownership, result.venv_rebuild)
+        for line in filter(None, steps):
+            console.print(f"  {line}")
 
         for warning in result.warnings:
             console.print(f"  [yellow]Warning:[/yellow] {warning}")

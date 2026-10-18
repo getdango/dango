@@ -5,11 +5,20 @@ Cloud upgrade and rebuild Compose commands must carry the server's Compose proje
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from dango.platform.cloud.ssh import CommandResult
+
+
+@pytest.fixture(autouse=True)
+def _trusted_server_venv() -> Any:
+    """SSH mocks here are loose; the venv trust probe is tested in test_runtime_ownership*."""
+    with patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]):
+        yield
+
 
 _PROJECT_YML_CMD = "cat /srv/dango/project/.dango/project.yml"
 _PROJECT_YML = "project:\n  id: abcdef1234567890\n"
