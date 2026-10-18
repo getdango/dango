@@ -83,8 +83,8 @@ def remote_upgrade(
         # At target, only a venv rebuild restarts services: ask first (plain steps need no prompt).
         if at_target and not yes and (plan := at_target_restart_plan(ssh)):
             console.print(f"\n{plan}")
-            if not safe_confirm("Rebuild the venv now?", default=True):
-                console.print("[yellow]Cancelled.[/yellow] Nothing was changed.")
+            if not safe_confirm("Rebuild the venv now?", default=False):
+                console.print("[yellow]Cancelled.[/yellow] Nothing changed; use --yes to rebuild.")
                 return
 
         # Confirm

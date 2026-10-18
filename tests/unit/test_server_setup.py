@@ -9,12 +9,21 @@ setup step calls the correct commands and handles idempotency.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from dango.exceptions import CloudProvisioningError
 from tests.factories.cloud_factories import make_ssh_mock_configurable
+
+
+@pytest.fixture(autouse=True)
+def _trusted_server_venv() -> Any:
+    """SSH mocks here are loose; the venv trust probe is tested in test_runtime_ownership*."""
+    with patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # Helpers

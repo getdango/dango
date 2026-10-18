@@ -9,6 +9,7 @@ service restart, and dbt command decisions.
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,6 +24,14 @@ from dango.platform.cloud.deployer import (
 from dango.platform.cloud.file_sync import SyncResult
 from dango.platform.cloud.ssh import CommandResult
 from tests.factories.cloud_factories import make_ssh_mock
+
+
+@pytest.fixture(autouse=True)
+def _trusted_server_venv() -> Any:
+    """SSH mocks here are loose; the venv trust probe is tested in test_runtime_ownership*."""
+    with patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # Helpers

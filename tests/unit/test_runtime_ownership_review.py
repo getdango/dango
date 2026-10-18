@@ -249,12 +249,12 @@ class TestScriptAndRuleHardening:
         ],
     )
     def test_more_refused_requirement_forms(self, text: str) -> None:
-        from dango.platform.cloud.runtime_ownership import check_requirements
+        from dango.platform.cloud.pushed_requirements import check_requirements
 
         assert check_requirements(text)
 
     def test_continuation_lines_are_still_accepted_when_safe(self) -> None:
-        from dango.platform.cloud.runtime_ownership import check_requirements
+        from dango.platform.cloud.pushed_requirements import check_requirements
 
         assert check_requirements("requests==2.32.3 \\\n    --hash=sha256:abc\n") == []
 
@@ -279,7 +279,7 @@ class TestVerificationSeverity:
     def test_managed_setup_fails_on_verification(self) -> None:
         from dango.platform.cloud.server_setup import SetupResult, _setup_runtime_ownership
 
-        ssh, _ = _recording_ssh({**_VERIFY_FAILS, "-print -quit": ("", "", 0)})
+        ssh, _ = _recording_ssh({**_VERIFY_FAILS, "-print -quit": ("DANGO_PROBE_OK\n", "", 0)})
         with pytest.raises(CloudProvisioningError, match="/srv"):
             _setup_runtime_ownership(ssh, SetupResult(), None)
 
@@ -289,7 +289,7 @@ class TestVerificationSeverity:
         ssh, _ = _recording_ssh(
             {
                 **_VERIFY_FAILS,
-                "-print -quit": ("", "", 0),
+                "-print -quit": ("DANGO_PROBE_OK\n", "", 0),
                 "id -u dango": ("", "", 1),
                 "docker --version": ("", "", 1),
                 "caddy version": ("", "", 1),
@@ -303,7 +303,11 @@ class TestVerificationSeverity:
 
     def test_managed_upgrade_fails_on_verification(self) -> None:
         ssh, commands = _recording_ssh(
-            {**_VERIFY_FAILS, "-print -quit": ("", "", 0), "import dango": ("1.0.14", "", 0)}
+            {
+                **_VERIFY_FAILS,
+                "-print -quit": ("DANGO_PROBE_OK\n", "", 0),
+                "import dango": ("1.0.14", "", 0),
+            }
         )
         with pytest.raises(CloudError, match="/srv"):
             _upgrade(ssh)
@@ -313,7 +317,7 @@ class TestVerificationSeverity:
         ssh, _ = _recording_ssh(
             {
                 **_VERIFY_FAILS,
-                "-print -quit": ("", "", 0),
+                "-print -quit": ("DANGO_PROBE_OK\n", "", 0),
                 "import dango": ("1.0.14", "", 0),
                 "curl -sf": ("ok", "", 0),
             }

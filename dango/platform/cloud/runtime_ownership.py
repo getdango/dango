@@ -6,8 +6,8 @@ Everything root executes, imports or loads as environment must not be writable
 by the ``dango`` service account: ``/srv/dango`` and the venv are root-owned,
 the project stays ``dango``'s. The ownership script is a list of named steps so
 later hardening (other service users, ACLs, helpers) can append its own.
-Also holds the rules for installing pushed ``requirements.txt`` files as root,
-and the in-place rebuild of a venv that a non-root user could write.
+Also holds the in-place rebuild of a venv that a non-root user could write
+(project packages come from :mod:`dango.platform.cloud.pushed_requirements`).
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.pushed_requirements import install_pushed_requirements
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -63,10 +64,15 @@ def links_outside_script(root: str) -> str:
     )
 
 
+PROBE_SENTINEL = "DANGO_PROBE_OK"
+# Findings (paths) then the sentinel; a missing sentinel or non-zero exit means untrusted.
 VENV_TAINT_PROBE = (
-    f"{{ find {SRV_DIR} -maxdepth 0 \\( -type l -o ! -user root \\) -print; "
+    "set -o pipefail; out=$( { "
+    f"find / /srv {SRV_DIR} -maxdepth 0 \\( -type l -o ! -user root -o "
+    "\\( -perm -020 -o -perm -002 \\) \\) -print; "
     f"test ! -d {VENV_DIR} || {{ find {VENV_DIR} {_UNTRUSTED} -print -quit; "
-    f"{links_outside_script(VENV_DIR)}; }}; }} 2>/dev/null | head -5"
+    f"{links_outside_script(VENV_DIR)}; }}; }} 2>&1 | head -5 ) || exit 2; "
+    f'test -z "$out" || printf "%s\\n" "$out"; echo {PROBE_SENTINEL}'
 )
 
 
@@ -94,7 +100,8 @@ def ownership_steps() -> list[OwnershipStep]:
         OwnershipStep(
             "srv_dango",
             f"install -d -o root -g root -m 0755 {SRV_DIR}"
-            f" && chown root:root {SRV_DIR} && chmod 0755 {SRV_DIR}",
+            f" && chown root:root {SRV_DIR} && chmod 0755 {SRV_DIR}"
+            f" && {{ ! command -v setfacl >/dev/null 2>&1 || setfacl -k {SRV_DIR}; }}",
         ),
         OwnershipStep(
             "venv",
@@ -218,16 +225,41 @@ def trusted_metadata_version(ssh: SSHManager, requested: str | None) -> str | No
 
 
 def lock_srv_dango(ssh: SSHManager) -> None:
-    """Make ``/srv/dango`` root-owned first, so nothing can swap the venv underneath."""
+    """Make ``/srv/dango`` root-owned first, so nothing can swap the venv underneath.
+
+    Raises:
+        VenvRebuildError: The lock failed.
+    """
     srv_step = next(step for step in ownership_steps() if step.name == "srv_dango")
-    _run_script(ssh, srv_step.script)
+    ok, detail = _run_script(ssh, srv_step.script)
+    if not ok:
+        raise VenvRebuildError(f"{SRV_DIR} could not be made root-owned ({detail})")
+
+
+def venv_trust_findings(ssh: SSHManager) -> list[str]:
+    """Paths that make the venv untrusted: ``/``, ``/srv`` or ``/srv/dango`` not root-owned,
+    writable by others or a link; anything in the venv another user could write; a venv
+    link leading out of it. A probe that does not finish counts as a finding."""
+    result = ssh.exec_command(f"bash -c {shlex.quote(VENV_TAINT_PROBE)}", timeout=120)
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if not result.success or not lines or lines[-1] != PROBE_SENTINEL:
+        return ["(the trust check did not complete)"]
+    return lines[:-1]
 
 
 def venv_is_untrusted(ssh: SSHManager) -> bool:
-    """True if ``/srv/dango``, anything in the venv, or a venv link target could be
-    written by a non-root user, or a venv link leads out of it."""
-    result = ssh.exec_command(f"bash -c {shlex.quote(VENV_TAINT_PROBE)}", timeout=120)
-    return bool(result.stdout.strip())
+    """True if :func:`venv_trust_findings` finds anything."""
+    return bool(venv_trust_findings(ssh))
+
+
+def _remediation(ssh: SSHManager, findings: list[str]) -> str:
+    """Name the fix for each finding (and a default ACL on /srv/dango, if any)."""
+    paths = [f.split(" -> ", 1)[0] for f in findings if f.startswith("/")]
+    fixes = [f"`chown root:root {p} && chmod go-w {p}`" for p in paths]
+    acl = ssh.exec_command(f"getfacl -p {SRV_DIR} 2>/dev/null | grep '^default:'")
+    if "default:" in acl.stdout:
+        fixes.append(f"a default ACL on {SRV_DIR} grants access: `setfacl -b {SRV_DIR}`")
+    return f"{'; '.join(findings)}. Fix: " + ("; ".join(fixes) or "see the server logs")
 
 
 def at_target_restart_plan(ssh: SSHManager) -> str | None:
@@ -260,106 +292,6 @@ def refresh_root_config(
         ssh.write_remote_file(LOGROTATE_PATH, LOGROTATE_CONF, mode=0o644)
     if changed and not ssh.exec_command("systemctl daemon-reload", timeout=60).success:
         warnings.append("systemctl daemon-reload failed after updating dango-backup.service")
-
-
-# ---------------------------------------------------------------------------
-# Requirements installed by root
-# ---------------------------------------------------------------------------
-
-REQUIREMENT_FILES = ("requirements.txt", "scripts/requirements.txt")
-_NESTED_OR_EDITABLE = re.compile(
-    r"^(-e|--editable|-r|--requirement|-c|--constraint)(\s|=|$)|^-[erc]\S", re.I
-)
-_URL_OPTION = re.compile(r"^(-i|--index-url|--extra-index-url|-f|--find-links)(?:\s+|=)(\S+)", re.I)
-_WEB_URL = re.compile(r"^https?://", re.I)
-_URL_CREDENTIALS = re.compile(r"[a-z][a-z0-9+.-]*://[^/\s@]+@", re.I)
-_SSH_GIT_USER = re.compile(r"^[a-z+]*ssh://git@", re.I)
-_LOCAL_ARCHIVE = re.compile(r"\.(whl|tar\.gz|zip|tgz|tar\.bz2)$", re.I)
-
-
-def _strip_comment(line: str) -> str:
-    return re.split(r"(?:^|\s)#", line, maxsplit=1)[0].strip()
-
-
-def _redact(line: str) -> str:
-    return re.sub(r"(://)[^/\s@]+@", r"\1***@", line)
-
-
-def check_requirements(text: str) -> list[str]:
-    """Return the lines root must not install (credentials redacted); ``[]`` if all are fine.
-
-    Refused: editable installs, nested ``-r``/``-c`` files, ``file:`` and local or
-    relative paths, local archives, non-http(s) index/find-links URLs, and URLs
-    carrying credentials. Backslash continuations are joined first, as pip does.
-    """
-    refused: list[str] = []
-    joined = re.sub(r"\\\r?\n", " ", text)  # pip joins backslash continuations first
-    for raw in joined.splitlines():
-        line = _strip_comment(raw)
-        if not line:
-            continue
-        url_option = _URL_OPTION.match(line)
-        if url_option:
-            target = url_option.group(2)
-            if not _WEB_URL.match(target) or _URL_CREDENTIALS.search(target):
-                refused.append(_redact(line))
-            continue
-        if re.search(r"\s(-e|--editable|-r|--requirement|-c|--constraint)(\s|=|$)", line):
-            refused.append(_redact(line))
-            continue
-        spec = line.split(";", 1)[0].split(" --hash", 1)[0].strip()
-        url = spec.split("@", 1)[1].strip() if " @ " in spec else spec
-        local = (
-            spec.startswith((".", "/", "~"))
-            or "file:" in spec.lower()
-            or ("://" not in url and ("/" in url or _LOCAL_ARCHIVE.search(url) is not None))
-        )
-        credentials = _URL_CREDENTIALS.search(spec) and not _SSH_GIT_USER.match(url)
-        if _NESTED_OR_EDITABLE.match(line) or local or credentials:
-            refused.append(_redact(line))
-    return refused
-
-
-def install_pushed_requirements(
-    ssh: SSHManager,
-    local_project_root: Path,
-    pip: str,
-    warnings: list[str],
-) -> list[str]:
-    """Install the local requirements files with *pip*, as root, from private uploads.
-
-    The server's copies are never read: they are writable by ``dango``. Returns
-    the labels of the files installed.
-    """
-    installed: list[str] = []
-    for rel in REQUIREMENT_FILES:
-        local = local_project_root / rel
-        if not local.is_file():
-            continue
-        text = local.read_text(encoding="utf-8")
-        refused = check_requirements(text)
-        if refused:
-            warnings.append(
-                f"{rel} not installed on the server: root installs only index packages and "
-                f"remote URLs without credentials; refused: {'; '.join(refused)}"
-            )
-            continue
-        workdir = f"/tmp/dango-req-{uuid.uuid4().hex}"
-        if not ssh.exec_command(f"mkdir -m 0700 {workdir}").success:
-            warnings.append(f"{rel} not installed: could not create a private directory")
-            continue
-        try:
-            remote = f"{workdir}/requirements.txt"
-            ssh.write_remote_file(remote, text, mode=0o600)
-            result = ssh.exec_command(f"{pip} install --no-input -r {remote}", timeout=300)
-        finally:
-            ssh.exec_command(f"rm -rf {workdir}")  # cleanup: silent OK
-        if result.success:
-            installed.append(rel)
-            _logger.info("requirements_installed", path=rel)
-        else:
-            warnings.append(f"pip install -r {rel} failed: {result.stderr.strip()}")
-    return installed
 
 
 # ---------------------------------------------------------------------------
@@ -413,13 +345,14 @@ def rebuild_venv(
                 "install requirements.txt."
             )
         # Trust the new venv only if nothing in it, or behind its links, is writable by others.
-        if venv_is_untrusted(ssh):
-            failed = "the post-rebuild ownership check"
+        findings = venv_trust_findings(ssh)
+        if findings:
+            failed = f"the post-rebuild check: {_remediation(ssh, findings)}"
             verified = False
     if not verified:
         restored = ssh.exec_command(f"rm -rf {VENV_DIR} && mv {aside} {VENV_DIR}").success
         where = "the previous venv was put back" if restored else f"the previous venv is at {aside}"
-        raise VenvRebuildError(f"`{failed or 'import check'}` failed; {where}")
+        raise VenvRebuildError(f"{failed or 'the import check'} failed; {where}")
     ssh.exec_command(f"rm -rf {aside}", timeout=300)
     return f"venv rebuilt as root (getdango=={version})"
 
@@ -450,6 +383,9 @@ def rebuild_untrusted_venv(
         raise VenvRebuildError(f"the venv could not be checked ({type(exc).__name__})") from exc
     if not untrusted:
         return None
+    parents = [f for f in venv_trust_findings(ssh) if f in ("/", "/srv")]
+    if parents:  # outside what Dango manages: refuse rather than change the host
+        raise VenvRebuildError(_remediation(ssh, parents))
     stop_services(ssh)
     try:
         lock_srv_dango(ssh)

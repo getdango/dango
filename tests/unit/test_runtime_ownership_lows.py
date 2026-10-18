@@ -16,7 +16,7 @@ from tests.unit.test_runtime_ownership import _recording_ssh
 
 @pytest.mark.unit
 def test_continuation_joined_like_pip_cannot_hide_an_editable_file_url() -> None:
-    from dango.platform.cloud.runtime_ownership import check_requirements
+    from dango.platform.cloud.pushed_requirements import check_requirements
 
     assert check_requirements("-\\\ne fi\\\nle:///srv/dango/project/pkg\n")
 
@@ -112,7 +112,7 @@ class TestRebuildGuards:
 
         ssh, _ = _recording_ssh(
             {
-                "-print -quit": ("/srv/dango/venv/bin\n", "", 0),
+                "-print -quit": ("/srv/dango/venv/bin\nDANGO_PROBE_OK\n", "", 0),
                 "getfacl": ("default:user::rwx\ndefault:group:dango:rwx\n", "", 0),
             }
         )
@@ -122,6 +122,6 @@ class TestRebuildGuards:
     def test_byos_untrusted_srv_is_refused_with_remediation(self) -> None:
         from dango.platform.cloud import runtime_ownership as ro
 
-        ssh, _ = _recording_ssh({"-print -quit": ("/srv\n", "", 0)})
+        ssh, _ = _recording_ssh({"-print -quit": ("/srv\nDANGO_PROBE_OK\n", "", 0)})
         with pytest.raises(ro.VenvRebuildError, match=r"chown root:root /srv"):
             ro.rebuild_untrusted_venv(ssh, [], version="1.0.15")

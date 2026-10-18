@@ -34,13 +34,15 @@ def _recording_ssh(
     def _exec(command: str, *args: object, **kwargs: object) -> CommandResult:
         commands.append(command)
         if untrusted_until_rebuild and "-print -quit" in command:
-            tainted = "" if state["rebuilt"] else "/srv/dango\n"
+            tainted = "DANGO_PROBE_OK\n" if state["rebuilt"] else "/srv/dango\n"
             return CommandResult(stdout=tainted, stderr="", exit_code=0)
         for substr, (stdout, stderr, code) in results.items():
             if substr in command:
                 return CommandResult(stdout=stdout, stderr=stderr, exit_code=code)
         if "python3 -m venv /srv/dango/venv" in command:
             state["rebuilt"] = True
+        if "DANGO_PROBE_OK" in command:  # the trust probe: trusted unless a test says otherwise
+            return CommandResult(stdout="DANGO_PROBE_OK\n", stderr="", exit_code=0)
         return CommandResult(stdout="", stderr="", exit_code=0)
 
     ssh = MagicMock()
@@ -201,7 +203,7 @@ def _run_upgrade(
         "curl -sf": ("ok", "", 0),
     }
     if not venv_untrusted:
-        results["-print -quit"] = ("", "", 0)
+        results["-print -quit"] = ("DANGO_PROBE_OK\n", "", 0)
     ssh, commands = _recording_ssh(results, untrusted_until_rebuild=venv_untrusted)
     backup_result = MagicMock(archive_path="/srv/dango/backups/deploy/backup-x.tar.gz")
     with (
@@ -313,7 +315,7 @@ class TestRequirementsRules:
         ],
     )
     def test_refused_lines(self, line: str) -> None:
-        from dango.platform.cloud.runtime_ownership import check_requirements
+        from dango.platform.cloud.pushed_requirements import check_requirements
 
         assert check_requirements(f"requests==2.32.3\n{line}\n")
 
@@ -329,12 +331,12 @@ class TestRequirementsRules:
         ],
     )
     def test_accepted_files(self, text: str) -> None:
-        from dango.platform.cloud.runtime_ownership import check_requirements
+        from dango.platform.cloud.pushed_requirements import check_requirements
 
         assert check_requirements(text) == []
 
     def test_refusal_message_does_not_echo_credentials(self) -> None:
-        from dango.platform.cloud.runtime_ownership import check_requirements
+        from dango.platform.cloud.pushed_requirements import check_requirements
 
         refused = check_requirements("git+https://user:s3cret@github.com/org/repo.git\n")
         assert refused and all("s3cret" not in r for r in refused)
