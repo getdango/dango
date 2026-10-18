@@ -157,3 +157,29 @@ class TestJinjaModeParameter:
         bad_mode: Any = "bogus"
         with pytest.raises(ValueError):
             check_model_sql("select 1", jinja=bad_mode)
+
+
+@pytest.mark.unit
+class TestNoDuplicateWarning:
+    def test_read_csv_view_produces_exactly_one_warning(self, tmp_path):
+        v = _project(
+            tmp_path,
+            {"dbt/models/marts/v.sql": "select * from read_csv_auto('/Users/me/x.csv')\n"},
+        )
+
+        v.validate_all(display=False, include_connectivity=False)
+
+        about_view = [r for r in v.results if "v.sql" in r.message]
+        assert len(about_view) == 1
+        assert about_view[0].name == "dbt: Model file access"
+
+    def test_portability_still_warns_when_file_access_does_not(self, tmp_path):
+        v = _project(
+            tmp_path,
+            {"dbt/models/marts/p.sql": "select '/Users/me/x' as p from {{ ref('a') }}\n"},
+        )
+
+        v.validate_all(display=False, include_connectivity=False)
+
+        about = [r for r in v.results if "p.sql" in r.message]
+        assert [r.name for r in about] == ["dbt: Model SQL portability"]
