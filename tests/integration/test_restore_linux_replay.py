@@ -157,4 +157,4 @@ def test_restore_on_linux_refuses_symlink_member_before_any_write(
     assert run("cat /root/target.txt") == "root secret"
     assert run("test -e /srv/dango/project/.dango && echo yes || echo no") == "no"
     assert run("ls /tmp | grep -c dango-restore-staging || true") == "0"
-    assert not any(c.startswith("/srv/dango/venv") for c in container.commands)
+    assert not any("/srv/dango/venv" in c for c in container.commands)

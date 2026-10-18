@@ -47,6 +47,7 @@ from dango.platform.cloud.backup_restore import (
     skipped_warning,
     wal_sidecar_names,
 )
+from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
 from dango.platform.docker import _legacy_path_hash
 
 _logger = get_logger(__name__)
@@ -57,6 +58,8 @@ if TYPE_CHECKING:
 PROJECT_DIR = "/srv/dango/project"
 BACKUP_DIR = "/srv/dango/backups/deploy"
 VENV_PYTHON = "/srv/dango/venv/bin/python"
+#: The same interpreter as the service user, for work on files that user owns.
+SERVICE_PYTHON = f"cd / && runuser -u dango -- {VENV_PYTHON} -I"
 MAX_LOCAL_BACKUPS = 1
 #: Parent of the generated per-restore staging directories.
 RESTORE_STAGING_ROOT = "/tmp"
@@ -276,7 +279,7 @@ except (OSError, yaml.YAMLError, ValueError) as exc:
     raise SystemExit(1)
 """
     command = (
-        f"{VENV_PYTHON} -c {shlex.quote(script)} {shlex.quote(source)} {shlex.quote(destination)}"
+        f"{ROOT_PYTHON} -c {shlex.quote(script)} {shlex.quote(source)} {shlex.quote(destination)}"
     )
     result = ssh.exec_command(command, timeout=30)
     if result.success:
@@ -404,13 +407,13 @@ def start_services(ssh: SSHManager) -> None:
 
 
 def _checkpoint_duckdb(ssh: SSHManager) -> bool:
-    """Run CHECKPOINT on DuckDB.  Returns False if file missing."""
+    """Run CHECKPOINT on DuckDB as the service user (it owns the file).  False if missing."""
     db_path = f"{PROJECT_DIR}/data/warehouse.duckdb"
     if not ssh.exec_command(f"test -f {db_path}").success:
         return False
     _run_checked(
         ssh,
-        f"{VENV_PYTHON} -c \"import duckdb; c=duckdb.connect('{db_path}'); "
+        f"{SERVICE_PYTHON} -c \"import duckdb; c=duckdb.connect('{db_path}'); "
         f"c.execute('CHECKPOINT'); c.close()\"",
         step="checkpoint_duckdb",
         timeout=120,
@@ -419,13 +422,13 @@ def _checkpoint_duckdb(ssh: SSHManager) -> bool:
 
 
 def _checkpoint_auth_db(ssh: SSHManager) -> bool:
-    """Run WAL checkpoint on auth.db.  Returns False if file missing."""
+    """Run WAL checkpoint on auth.db as the service user (it owns the file).  False if missing."""
     db_path = f"{PROJECT_DIR}/.dango/auth.db"
     if not ssh.exec_command(f"test -f {db_path}").success:
         return False
     _run_checked(
         ssh,
-        f"{VENV_PYTHON} -c \"import sqlite3; c=sqlite3.connect('{db_path}'); "
+        f"{SERVICE_PYTHON} -c \"import sqlite3; c=sqlite3.connect('{db_path}'); "
         f"c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.close()\"",
         step="checkpoint_auth_db",
         timeout=30,
@@ -448,7 +451,7 @@ def _checkpoint_sqlite(ssh: SSHManager, rel_path: str) -> str | None:
     )
     # As the service user: root opening the database could leave root-owned WAL files.
     result = ssh.exec_command(
-        f"{AS_SERVICE_USER} {VENV_PYTHON} -c {shlex.quote(script)} {shlex.quote(db_path)}",
+        f"{SERVICE_PYTHON} -c {shlex.quote(script)} {shlex.quote(db_path)}",
         timeout=30,
     )
     if result.success:
@@ -536,7 +539,7 @@ def _create_archive(
                 warnings.append(skipped_warning(rel))
 
         # Get version + file info for manifest
-        ver = ssh.exec_command(f'{VENV_PYTHON} -c "import dango; print(dango.__version__)"')
+        ver = ssh.exec_command(f'{ROOT_PYTHON} -c "import dango; print(dango.__version__)"')
         dango_version = ver.stdout.strip() if ver.success else "unknown"
 
         fi = ssh.exec_command(f"find {q_staging} -type f -exec stat --format='%n %s' {{}} \\;")

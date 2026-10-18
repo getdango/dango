@@ -225,7 +225,7 @@ def _get_duckdb_size(ssh: Any) -> int | None:
 def _get_dango_version(ssh: Any) -> str | None:
     """Get installed dango version from remote venv."""
     result = ssh.exec_command(
-        f'{_VENV_PYTHON} -c "import dango; print(dango.__version__)" 2>/dev/null'
+        f'cd / && {_VENV_PYTHON} -I -c "import dango; print(dango.__version__)" 2>/dev/null'
     )
     if not result.success or not result.stdout.strip():
         return None

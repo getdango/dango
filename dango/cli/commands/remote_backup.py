@@ -27,6 +27,7 @@ import click
 from dango.cli import console
 from dango.cli.utils import safe_confirm
 from dango.exceptions import format_structured_error
+from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -124,7 +125,7 @@ def backup_group(ctx: click.Context) -> None:
     try:
         with Status("[bold blue]Running on-demand backup on server...", console=console):
             result = ssh.exec_command(
-                "/srv/dango/venv/bin/python -m dango.platform.cloud.scheduled_backup",
+                f"{ROOT_PYTHON} -m dango.platform.cloud.scheduled_backup",
                 timeout=900,
             )
 
@@ -411,7 +412,7 @@ def _backup_download_from_server(ctx: click.Context, output: str | None) -> None
     try:
         with Status("[bold blue]Creating backup on server...", console=console):
             create_result = ssh.exec_command(
-                f'{VENV_PYTHON} -c "'
+                f'{ROOT_PYTHON} -c "'
                 "from dango.platform.cloud.scheduled_backup import _create_local_archive; "
                 "import json; "
                 "path, manifest, warnings = _create_local_archive('on-demand'); "
@@ -558,7 +559,7 @@ def backup_restore(ctx: click.Context, source: str, yes: bool, from_local: bool)
         with Status("[bold blue]Restoring from Spaces backup...", console=console):
             # Run restore on the server
             result = ssh.exec_command(
-                f'{VENV_PYTHON} -c "'
+                f'{ROOT_PYTHON} -c "'
                 "from dango.platform.cloud.scheduled_backup import restore_from_spaces; "
                 "from dango.platform.cloud.scheduled_backup import _load_spaces_config; "
                 f"restore_from_spaces(_load_spaces_config(), '{key}')\"",

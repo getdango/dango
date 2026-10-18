@@ -32,6 +32,9 @@ _STUBBED_PREFIXES = (
     "chown",
     "COMPOSE_PROJECT_NAME=",
     "/srv/dango/venv",
+    # Root and service-user Python run from ``/`` (``cd / && ...``).
+    "cd / && /srv/dango/venv",
+    "cd / && runuser -u dango -- /srv/dango/venv",
 )
 
 _CP_SHIM = """#!/bin/sh

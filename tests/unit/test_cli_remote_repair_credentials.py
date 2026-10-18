@@ -44,8 +44,9 @@ class TestRemoteRepairSchemaScanCredentials:
         """SSH schema scans must not rely on the dango-web systemd environment."""
         command = _metabase_schema_scan_command("/srv/dango/project")
 
-        assert command.startswith("cd /srv/dango/project && ")
-        assert "DANGO_CLOUD_MODE=true /srv/dango/venv/bin/python -c " in command
+        assert command.startswith("cd / && ")
+        assert "DANGO_CLOUD_MODE=true /srv/dango/venv/bin/python -I -c " in command
+        assert command.endswith(" /srv/dango/project")
         assert 'admin.get("password")' not in command
 
     @pytest.mark.parametrize("cloud_mode", [None, "true"])
@@ -71,7 +72,7 @@ class TestRemoteRepairSchemaScanCredentials:
             environment["DANGO_CLOUD_MODE"] = cloud_mode
 
         result = subprocess.run(
-            [sys.executable, "-c", _metabase_schema_scan_script()],
+            [sys.executable, "-c", _metabase_schema_scan_script(), str(tmp_path)],
             cwd=tmp_path,
             env=environment,
             capture_output=True,

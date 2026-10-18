@@ -120,7 +120,7 @@ def test_server_restore_sanitizes_metabase_yaml_outside_project(tmp_path: Path) 
     with _server(tmp_path, project, mb_volume):
         restore_from_archive(ssh, _archive(tmp_path))
 
-    sanitize = [c for c in ssh.commands if c.startswith("/srv/dango/venv")]
+    sanitize = [c for c in ssh.commands if "/srv/dango/venv" in c]
     assert sanitize
     destination = shlex.split(sanitize[-1])[-1]
     assert not destination.startswith(str(project)), destination

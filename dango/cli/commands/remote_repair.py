@@ -33,7 +33,7 @@ def _metabase_secret_project_id_command(server_project_dir: str) -> str:
         "from dango.security.metabase_credentials import MetabaseCredentialStore; "
         f"print(MetabaseCredentialStore(Path({server_project_dir!r}), cloud_mode=True).project_id)"
     )
-    return f"/srv/dango/venv/bin/python -c {shlex.quote(script)}"
+    return f"cd / && /srv/dango/venv/bin/python -I -c {shlex.quote(script)}"
 
 
 def _validated_metabase_secret_project_id(output: str) -> str | None:
@@ -65,12 +65,13 @@ print(f"Synced: {r['synced']}, Created: {r['created']}")
 def _metabase_schema_scan_script() -> str:
     """Build the server-side script that triggers a Metabase schema scan.
 
-    The command runs from the cloud project directory.  Credential resolution
+    The project directory is passed as ``argv[1]`` (root runs it from ``/``).  Credential resolution
     is intentionally delegated to the installed Dango security boundary so a
     protected cloud credential is used when one exists, with the narrowly
     scoped legacy compatibility behavior retained there during migration.
     """
     return """
+import sys
 from pathlib import Path
 
 from dango.security.metabase_config import (
@@ -78,7 +79,7 @@ from dango.security.metabase_config import (
     load_metabase_metadata,
 )
 
-project_root = Path(".")
+project_root = Path(sys.argv[1])
 metadata = load_metabase_metadata(project_root)
 credentials = load_metabase_admin_credentials(project_root)
 database = metadata.get("database") if metadata else None
@@ -114,9 +115,8 @@ def _metabase_schema_scan_command(server_project_dir: str) -> str:
     server-owned ``/srv/dango/secrets`` path rather than a local fallback.
     """
     return (
-        f"cd {shlex.quote(server_project_dir)} && "
-        "DANGO_CLOUD_MODE=true /srv/dango/venv/bin/python -c "
-        f"{shlex.quote(_metabase_schema_scan_script())}"
+        "cd / && DANGO_CLOUD_MODE=true /srv/dango/venv/bin/python -I -c "
+        f"{shlex.quote(_metabase_schema_scan_script())} {shlex.quote(server_project_dir)}"
     )
 
 
