@@ -451,7 +451,7 @@ def _checkpoint_sqlite(ssh: SSHManager, rel_path: str) -> str | None:
     )
     # As the service user: root opening the database could leave root-owned WAL files.
     result = ssh.exec_command(
-        f"{AS_SERVICE_USER} {VENV_PYTHON} -c {shlex.quote(script)} {shlex.quote(db_path)}",
+        f"{SERVICE_PYTHON} -c {shlex.quote(script)} {shlex.quote(db_path)}",
         timeout=30,
     )
     if result.success:

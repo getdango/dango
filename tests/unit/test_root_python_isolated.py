@@ -79,7 +79,11 @@ class TestBackupSteps:
         import dango.platform.cloud.backup as backup
 
         ssh, commands = _recording_ssh({"import dango": ("1.0.14", "", 0)})
-        with patch.object(backup, "_run_checked", return_value=""):
+
+        def _checked(_ssh: object, command: str, **_kw: object) -> str:
+            return "/tmp/dango-backup.ABCD1234" if command.startswith("mktemp") else ""
+
+        with patch.object(backup, "_run_checked", side_effect=_checked):
             try:
                 backup._create_archive(ssh, "20260101-000000", None, "test")
             except Exception:  # the archive steps themselves are not under test here

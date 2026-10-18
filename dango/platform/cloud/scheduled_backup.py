@@ -194,7 +194,7 @@ def _checkpoint_sqlite(db_path: Path) -> str | None:
 
         command = ["runuser", "-u", SERVICE_USER, "--", *command]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(command, capture_output=True, text=True, timeout=60, cwd="/")
     except (OSError, subprocess.TimeoutExpired) as exc:
         return f"{db_path.name} checkpoint failed: {exc}"
     if result.returncode != 0:
