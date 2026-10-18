@@ -212,3 +212,49 @@ def test_scheduled_backup_sqlite_checkpoint_starts_from_root_dir(tmp_path: Path)
         assert sb._checkpoint_sqlite(db) is None
     assert "-I" in seen["argv"]
     assert seen["cwd"] == "/"
+
+
+@pytest.mark.unit
+def test_failed_service_checkpoint_warning_says_writes_may_be_missing(tmp_path: Path) -> None:
+    import subprocess
+
+    import dango.platform.cloud.scheduled_backup as sb
+
+    db = tmp_path / "warehouse.duckdb"
+    db.write_bytes(b"")
+    failed = subprocess.CompletedProcess([], 1, "", "locked")
+    with patch.object(sb.subprocess, "run", return_value=failed):
+        warning = sb._checkpoint_as_service_user("DuckDB", db)
+    assert warning is not None
+    assert "DuckDB checkpoint failed" in warning
+    assert "most recent writes may be missing from the backup" in warning
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("euid", [0, 1000])
+def test_service_checkpoint_uses_runuser_only_as_root(tmp_path: Path, euid: int) -> None:
+    import subprocess
+
+    import dango.platform.cloud.scheduled_backup as sb
+    from dango.platform.cloud.backup_restore import SERVICE_USER
+
+    db = tmp_path / "warehouse.duckdb"
+    db.write_bytes(b"")
+    seen: list[list[str]] = []
+
+    def _run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.append(list(argv))
+        assert kwargs.get("cwd") == "/"
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    with (
+        patch.object(sb.subprocess, "run", side_effect=_run),
+        patch.object(sb.os, "geteuid", return_value=euid),
+    ):
+        assert sb._checkpoint_as_service_user("DuckDB", db) is None
+    argv = seen[0]
+    if euid == 0:
+        assert argv[:4] == ["runuser", "-u", SERVICE_USER, "--"], argv
+        assert argv[4:6] == ["/srv/dango/venv/bin/python", "-I"], argv
+    else:
+        assert argv[0] != "runuser" and "-I" in argv, argv
