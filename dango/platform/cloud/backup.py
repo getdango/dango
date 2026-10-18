@@ -37,6 +37,7 @@ from dango.platform.cloud.backup_restore import (
     restore_volume_file_cmd,
     wal_sidecar_names,
 )
+from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
 from dango.platform.docker import _legacy_path_hash
 
 _logger = get_logger(__name__)
@@ -47,9 +48,6 @@ if TYPE_CHECKING:
 PROJECT_DIR = "/srv/dango/project"
 BACKUP_DIR = "/srv/dango/backups/deploy"
 VENV_PYTHON = "/srv/dango/venv/bin/python"
-#: Root runs the venv interpreter isolated and from ``/``: no cwd/script dir on sys.path,
-#: no PYTHON* variables. Prefix for a command line.
-ROOT_PYTHON = f"cd / && {VENV_PYTHON} -I"
 #: The same interpreter as the service user, for work on files that user owns.
 SERVICE_PYTHON = f"cd / && runuser -u dango -- {VENV_PYTHON} -I"
 MAX_LOCAL_BACKUPS = 1

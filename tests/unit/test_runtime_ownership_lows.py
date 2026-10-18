@@ -5,6 +5,7 @@ Requirement continuations, at-target prompt default, /srv in the trust check, pr
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -71,12 +72,6 @@ class TestTrustProbe:
         ssh, _ = _recording_ssh({"PROBE_OK": (PROBE_SENTINEL + "\n", "", 0)})
         assert not venv_is_untrusted(ssh)
 
-    def test_probe_keeps_findings_with_many_results(self) -> None:
-        from dango.platform.cloud.runtime_ownership import VENV_TAINT_PROBE
-
-        assert "head -5" not in VENV_TAINT_PROBE
-        assert "sed -n 1,5p" in VENV_TAINT_PROBE
-
     @staticmethod
     def _local_probe(srv: Path) -> subprocess.CompletedProcess[str]:
         import getpass
@@ -100,8 +95,11 @@ class TestTrustProbe:
         os.chmod(srv, 0o755)
         os.chmod(srv / "venv", 0o755)
         trusted = self._local_probe(srv)
-        if trusted.returncode != 0:
+        if trusted.returncode != 0 and re.search(
+            r"unknown predicate|illegal option|unknown primary|unknown option", trusted.stderr
+        ):
             pytest.skip(f"find lacks the flags the probe needs: {trusted.stderr.strip()}")
+        assert trusted.returncode == 0, trusted.stderr
         assert trusted.stdout.strip().splitlines() == [PROBE_SENTINEL]
 
         os.chmod(srv / "venv", 0o775)  # group-writable venv
@@ -109,6 +107,25 @@ class TestTrustProbe:
         lines = untrusted.stdout.strip().splitlines()
         assert lines[-1] == PROBE_SENTINEL
         assert any(str(srv / "venv") in line for line in lines[:-1]), lines
+
+    def test_probe_keeps_findings_with_many_results(self, tmp_path: Path) -> None:
+        from dango.platform.cloud.runtime_ownership import PROBE_SENTINEL
+
+        srv = tmp_path / "srvd"
+        (srv / "venv").mkdir(parents=True)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        for i in range(7):
+            (srv / "venv" / f"link{i}").symlink_to(outside)
+        result = self._local_probe(srv)
+        if result.returncode != 0 and re.search(
+            r"unknown predicate|illegal option|unknown primary|unknown option", result.stderr
+        ):
+            pytest.skip(f"find lacks the flags the probe needs: {result.stderr.strip()}")
+        assert result.returncode == 0, result.stderr
+        lines = result.stdout.strip().splitlines()
+        assert lines[-1] == PROBE_SENTINEL
+        assert len(lines) > 1, lines
 
 
 @pytest.mark.unit

@@ -27,6 +27,7 @@ import click
 from dango.cli import console
 from dango.cli.utils import safe_confirm
 from dango.exceptions import format_structured_error
+from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -802,5 +803,3 @@ def backup_config(ctx: click.Context) -> None:
 
 #: Path to venv Python on the remote server.
 VENV_PYTHON = "/srv/dango/venv/bin/python"
-#: Root runs the venv interpreter isolated (-I) and from ``/``.
-ROOT_PYTHON = f"cd / && {VENV_PYTHON} -I"

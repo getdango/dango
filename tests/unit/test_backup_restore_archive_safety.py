@@ -93,7 +93,7 @@ def test_server_restore_refuses_archive_with_link_member(tmp_path: Path, member:
     stop.assert_not_called()
     start.assert_not_called()
     assert cp_log(ssh.shim_dir) == []
-    assert not any(c.startswith("/srv/dango/venv") for c in ssh.commands), "sanitizer ran"
+    assert not any("/srv/dango/venv" in c for c in ssh.commands), "sanitizer ran"
     assert list((tmp_path / "staging-root").iterdir()) == [], "staging left behind"
 
 
@@ -121,7 +121,7 @@ def test_server_restore_sanitizes_into_private_dir_outside_staging(tmp_path: Pat
     ):
         restore_from_archive(ssh, str(archive))
 
-    sanitize = [c for c in ssh.commands if c.startswith("/srv/dango/venv")]
+    sanitize = [c for c in ssh.commands if "/srv/dango/venv" in c]
     assert sanitize
     destination = Path(shlex.split(sanitize[-1])[-1])
     assert "dango-restore-staging-" not in str(destination), destination
