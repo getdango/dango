@@ -15,6 +15,10 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from dango.platform.common.metabase_best_effort import (
+    discard_pending_best_effort,
+    log_best_effort_failure,
+)
 from dango.security.metabase_config import (
     load_metabase_metadata,
     write_metabase_metadata,
@@ -238,10 +242,7 @@ def complete_metabase_credential_migration(project_root: Path) -> dict[str, obje
         candidate_session = _create_session(metabase_url, admin_email, candidate)
         if candidate_session is None:
             if not update_succeeded:
-                try:
-                    store.discard_pending()
-                except Exception:
-                    pass
+                discard_pending_best_effort(store)
                 return _failed(root, "remote_update_failed")
             # The remote result was successful but verification was not. Keep
             # the protected candidate for a later verified recovery attempt.
@@ -338,7 +339,8 @@ def _linked_admin_session(
         if user is None or not user.metabase_password_enc:
             return None
         password = decrypt_metabase_password(user.metabase_password_enc, project_root)
-    except Exception:
+    except Exception as exc:
+        log_best_effort_failure("linked_admin_credential_unavailable", exc)
         return None
     session = _create_session(metabase_url, admin_email, password)
     return (session, password) if session else None
