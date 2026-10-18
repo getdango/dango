@@ -312,7 +312,10 @@ def _extract_archive(
                 "[yellow]Warning:[/yellow] The restored sources.yml could not be loaded; "
                 "resetting dlt state for the sources the project had before the restore."
             )
-        for kept in set_aside_pipeline_state(live_pipelines + (restored or [])):
+        for kept in set_aside_pipeline_state(
+            live_pipelines + (restored or []),
+            project_root / ".dlt" / "pipelines" if on_server else None,
+        ):
             console.print(f"[yellow]Note:[/yellow] Live dlt pipeline state moved to {kept}")
     if rejected:
         console.print(
