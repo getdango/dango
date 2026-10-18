@@ -69,6 +69,8 @@ class ProjectValidator:
         """
         self.project_root = project_root
         self.results: list[ValidationResult] = []
+        # Model files already warned about by _check_model_file_access (project-relative)
+        self._file_access_flagged: set[Path] = set()
 
     def validate_all(
         self, *, display: bool = True, include_connectivity: bool = True
@@ -96,8 +98,8 @@ class ProjectValidator:
             self._check_source_connectivity()
         self._check_env_vars()
         self._check_dbt_setup()
+        self._check_model_file_access()  # before portability: it de-duplicates against this
         self._check_model_sql_portability()
-        self._check_model_file_access()
         self._check_script_paths()
         self._check_database()
         self._check_dependencies()
@@ -575,6 +577,8 @@ class ProjectValidator:
         abs_path_re = re.compile(r"~/|/(?:Users|home|srv)/|[A-Za-z]:\\|['\"]/")
 
         for sql_file in sorted(models_dir.rglob("*.sql")):
+            if sql_file in self._file_access_flagged:
+                continue  # already reported with a clearer message
             try:
                 content = sql_file.read_text(encoding="utf-8")
             except Exception:  # noqa: BLE001
@@ -622,6 +626,7 @@ class ProjectValidator:
                 what = next((w for w in map(_file_access_subject, errors) if w), None)
                 if what is None:
                     continue
+                self._file_access_flagged.add(sql_file)
                 rel = sql_file.relative_to(self.project_root).as_posix()
                 self.results.append(
                     ValidationResult(
