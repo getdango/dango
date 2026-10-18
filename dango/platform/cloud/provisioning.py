@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from dango.exceptions import CloudError
+from dango.platform.cloud.droplet_cleanup import delete_droplet_or_annotate
 
 __all__ = [
     "DropletSizeTier",
@@ -375,12 +376,9 @@ def provision_droplet(
 
         wait_for_ssh(ip_address)
 
-    except Exception:
-        # Best-effort cleanup — swallow delete errors, re-raise original
-        try:
-            client.delete_droplet(droplet_id)
-        except Exception:  # noqa: BLE001
-            pass
+    except Exception as exc:
+        # Best-effort cleanup; a failed delete is logged and noted on the original error
+        delete_droplet_or_annotate(client, droplet_id, exc)
         raise
 
     return active_droplet  # type: ignore[no-any-return]
