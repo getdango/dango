@@ -56,7 +56,7 @@ def cloud_marimo_port() -> Iterator[int]:
 @pytest.fixture
 def local_marimo_port() -> Iterator[int]:
     """A server shaped like Marimo started without a base url."""
-    yield from _serve({"/": (200, b"<html><title>marimo</title></html>")})
+    yield from _serve({"/health": (200, b'{"status":"healthy"}')})
 
 
 class _StubProc:
@@ -165,11 +165,11 @@ def test_cloud_readiness_probe_uses_base_path(tmp_path: Path, cloud_marimo_port:
 def test_local_readiness_probe_unchanged(
     tmp_path: Path, local_marimo_port: int, cloud_marimo_port: int
 ) -> None:
-    """Local mode keeps the root probe with the "marimo" body check."""
+    """Local mode probes the public /health endpoint (the root page needs the token)."""
     from dango.notebooks.manager import _is_marimo_responding, get_marimo_pid_file_path
 
     assert _is_marimo_responding(local_marimo_port) is True
-    # A base-url-only server is not Marimo for the default (root) probe.
+    # A base-url-only server is not Marimo for the default (root-path) probe.
     assert _is_marimo_responding(cloud_marimo_port) is False
 
     proc = _StubProc()

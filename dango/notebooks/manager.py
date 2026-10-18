@@ -14,6 +14,13 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dango.notebooks.access_token import (
+    create_token_file,
+    open_private_log,
+    remove_token_file,
+    start_lock,
+)
+from dango.notebooks.protection import ensure_marimo_protected as ensure_marimo_protected
 from dango.utils.dango_db import connect
 from dango.utils.process import (
     is_process_running,
@@ -63,23 +70,19 @@ def get_marimo_pid_file_path(project_root: Path) -> Path:
 def _is_marimo_responding(port: int, timeout: float = 1.0, base_path: str = "/") -> bool:
     """Check if a Marimo server is responding on localhost:port.
 
-    For the default root ``base_path`` this uses an HTTP GET and checks the
-    body mentions Marimo (not an unrelated service on the same port).  When
-    Marimo runs under a base url (cloud: ``--base-url /notebooks/marimo``)
-    the root 404s, so ``<base_path>/health`` is probed and HTTP 200 accepted.
+    Probes ``<base_path>/health``, which Marimo leaves public even when a
+    token is required (the root page redirects to a login form), and accepts
+    HTTP 200 whose body reports ``healthy`` (not an unrelated service).
+    Cloud runs Marimo under ``--base-url /notebooks/marimo``.
     """
     import urllib.request
 
-    is_root = base_path.strip("/") == ""
-    path = "/" if is_root else base_path.rstrip("/") + "/health"
+    path = base_path.rstrip("/") + "/health"
     try:
         req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", method="GET")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            if not is_root:
-                return bool(resp.status == 200)
-            # Marimo returns HTML with "marimo" in the response
             body = resp.read(4096).decode("utf-8", errors="ignore")
-            return "marimo" in body.lower()
+            return bool(resp.status == 200 and "healthy" in body.lower())
     except Exception:
         return False
 
@@ -178,20 +181,21 @@ def start_marimo(
     port: int | None = None,
     snapshot_path: Path | None = None,
 ) -> int | None:
-    """Start Marimo notebook server in background.
+    """Start the Marimo notebook server in the background; return its PID.
 
-    Args:
-        project_root: Project root directory.
-        port: Port to listen on.  Defaults to ``PlatformSettings.marimo_port``.
-        snapshot_path: If provided, set ``DANGO_NOTEBOOK_DB_PATH`` env var so
-            templates connect to a read-only snapshot instead of the live warehouse.
-
-    Returns:
-        PID of started process, or ``None`` if failed.
-
-    Raises:
-        RuntimeError: If Marimo is already running or fails to start.
+    Starts are serialized by a file lock.  *port* defaults to
+    ``PlatformSettings.marimo_port``; *snapshot_path* becomes
+    ``DANGO_NOTEBOOK_DB_PATH``.  Raises ``RuntimeError`` if Marimo is already
+    running or fails to start.
     """
+    with start_lock(project_root):
+        return _start_marimo_locked(project_root, port, snapshot_path)
+
+
+def _start_marimo_locked(
+    project_root: Path, port: int | None, snapshot_path: Path | None
+) -> int | None:
+    """Body of :func:`start_marimo`, run while holding the start lock."""
     import sys
 
     pid_file = get_marimo_pid_file_path(project_root)
@@ -218,8 +222,7 @@ def start_marimo(
     log_file = project_root / ".dango" / "marimo.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Marimo's --timeout and Dango's _idle_check_loop use the same value
-    # intentionally — Marimo is a fallback if the Dango checker fails.
+    # Marimo's --timeout matches Dango's idle checker (fallback if it fails).
     timeout_minutes = _get_idle_timeout(project_root) // 60
 
     env = os.environ.copy()
@@ -228,7 +231,7 @@ def start_marimo(
 
     log_handle = None
     try:
-        log_handle = open(log_file, "w")  # noqa: SIM115
+        log_handle = open_private_log(log_file)
 
         cmd = [
             sys.executable,
@@ -236,7 +239,6 @@ def start_marimo(
             "marimo",
             "edit",
             "--headless",
-            "--no-token",
             "--port",
             str(port),
             "--host",
@@ -249,7 +251,18 @@ def start_marimo(
         # Add base-url for cloud proxy so SPA assets use correct prefix
         from dango.config.helpers import is_running_on_cloud
 
-        base_path = _CLOUD_BASE_PATH if is_running_on_cloud() else "/"
+        on_cloud = is_running_on_cloud()
+        base_path = _CLOUD_BASE_PATH if on_cloud else "/"
+        if on_cloud:
+            # Cloud: Marimo is only reachable through Caddy forward_auth / the
+            # dango-web proxy, both of which authenticate the session.
+            cmd.append("--no-token")
+        else:
+            # Local: nothing in front of Marimo, so it requires a random
+            # per-start token (0600 file, never argv).  --quiet (a global
+            # option, before "edit") stops Marimo printing the token-bearing URL.
+            cmd.insert(3, "--quiet")
+            cmd.extend(["--token-password-file", str(create_token_file(project_root))])
         if base_path != "/":
             cmd.extend(["--base-url", base_path])
 
@@ -284,13 +297,16 @@ def start_marimo(
             write_pid_record(pid_file, proc.pid)
         except BaseException:
             _stop_unready_process(proc)
+            remove_token_file(project_root)
             raise
 
         return proc.pid
 
     except RuntimeError:
+        remove_token_file(project_root)
         raise
     except Exception as e:
+        remove_token_file(project_root)
         raise RuntimeError(f"Failed to start Marimo: {e}") from e
     finally:
         if log_handle is not None:
@@ -298,15 +314,9 @@ def start_marimo(
 
 
 def stop_marimo(project_root: Path) -> bool:
-    """Stop Marimo notebook server.
+    """Stop the Marimo server; ``True`` if stopped, ``False`` if not running or not stoppable.
 
-    Args:
-        project_root: Project root directory.
-
-    Returns:
-        ``True`` if Marimo was stopped, ``False`` if it wasn't running or
-        could not be stopped (the pid file is then kept, so the running
-        process stays tracked).
+    The pid file is kept when the process could not be stopped, so it stays tracked.
     """
     pid_file = get_marimo_pid_file_path(project_root)
 
@@ -324,6 +334,7 @@ def stop_marimo(project_root: Path) -> bool:
     if not is_process_running(pid, expected_start_time=record.start_time):
         logger.debug("Marimo PID %d is not running (stale PID file)", pid)
         pid_file.unlink(missing_ok=True)
+        remove_token_file(project_root)
         return False
 
     logger.debug("Stopping Marimo (PID %d)", pid)
@@ -340,6 +351,7 @@ def stop_marimo(project_root: Path) -> bool:
             pid_file,
         )
         pid_file.unlink(missing_ok=True)
+        remove_token_file(project_root)
         return False
     if outcome != "stopped":
         logger.warning(
@@ -351,6 +363,7 @@ def stop_marimo(project_root: Path) -> bool:
         pid_file.unlink()
     except OSError:
         pass
+    remove_token_file(project_root)
     logger.debug("Marimo stopped")
     return True
 
