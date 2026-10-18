@@ -722,11 +722,15 @@ def domain_remove(ctx: click.Context) -> None:
     else:
         console.print("Caddyfile was already HTTP-only.")
 
+    restrict = (
+        "restrict ports 80/443 with ufw on the server or your provider's firewall"
+        if cloud_cfg.provider == "byos"
+        else "restrict web access with [bold]dango remote firewall allow-ip <your-ip>[/bold]"
+    )
     console.print(
         "[yellow]Warning:[/yellow] The server is now HTTP only: your admin password "
-        "and session cookie are sent unencrypted. Restrict web access with "
-        "[bold]dango remote firewall allow-ip <your-ip>[/bold], or add a domain with "
-        "[bold]dango remote domain set <domain>[/bold]."
+        f"and session cookie are sent unencrypted. {restrict[0].upper()}{restrict[1:]}, "
+        "or add a domain with [bold]dango remote domain set <domain>[/bold]."
     )
 
 
