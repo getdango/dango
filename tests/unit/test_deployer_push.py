@@ -9,6 +9,7 @@ service restart, and dbt command decisions.
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,6 +24,14 @@ from dango.platform.cloud.deployer import (
 from dango.platform.cloud.file_sync import SyncResult
 from dango.platform.cloud.ssh import CommandResult
 from tests.factories.cloud_factories import make_ssh_mock
+
+
+@pytest.fixture(autouse=True)
+def _trusted_server_venv() -> Any:
+    """SSH mocks here are loose; the venv trust probe is tested in test_runtime_ownership*."""
+    with patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -484,12 +493,13 @@ class TestDockerRebuild:
 
 @pytest.mark.unit
 class TestRequirementsInstall:
-    """Test requirements.txt is installed when it exists on server."""
+    """requirements.txt is installed (by root, from the pushed local file) when it exists locally."""
 
     @patch("dango.platform.cloud.backup.create_backup")
     @patch("dango.platform.cloud.file_sync.sync_project_files")
     def test_requirements_installed_when_exists_on_server(self, mock_sync, mock_backup, tmp_path):
-        """pip install runs when requirements.txt exists on server, even if not in synced_files."""
+        """pip install runs when requirements.txt exists locally, even if not in synced_files."""
+        (tmp_path / "requirements.txt").write_text("requests\n")
         mock_sync.return_value = _make_sync_result(
             synced_files=["dbt/models/", ".dango/sources.yml"],  # no requirements.txt
         )
@@ -502,18 +512,20 @@ class TestRequirementsInstall:
             commands.append(cmd)
             if "test -f" in cmd and "requirements.txt" in cmd:
                 return CommandResult(stdout="exists", stderr="", exit_code=0)
+            if "mktemp -d -t dango-req-" in cmd:
+                return CommandResult(stdout="/tmp/dango-req-Ab3dE9fGh1\n", stderr="", exit_code=0)
             return CommandResult(stdout="", stderr="", exit_code=0)
 
         ssh.exec_command.side_effect = _tracking_exec
 
         push_deploy(ssh, tmp_path, "10.0.0.1")
 
-        assert any("pip install -r" in c and "requirements.txt" in c for c in commands)
+        assert any("pip install --no-input -r" in c and "requirements.txt" in c for c in commands)
 
     @patch("dango.platform.cloud.backup.create_backup")
     @patch("dango.platform.cloud.file_sync.sync_project_files")
     def test_requirements_skipped_when_not_on_server(self, mock_sync, mock_backup, tmp_path):
-        """pip install does NOT run when requirements.txt does not exist on server."""
+        """pip install does NOT run when there is no local requirements.txt (server copy ignored)."""
         mock_sync.return_value = _make_sync_result()
         mock_backup.return_value = _make_backup_result()
         ssh = make_ssh_mock()
@@ -530,4 +542,4 @@ class TestRequirementsInstall:
 
         push_deploy(ssh, tmp_path, "10.0.0.1")
 
-        assert not any("pip install -r" in c and "requirements.txt" in c for c in commands)
+        assert not any("pip install" in c and "requirements.txt" in c for c in commands)
