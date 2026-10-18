@@ -26,9 +26,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from dango.logging import get_logger
 from dango.platform.common import metabase_credential_migration as _migration
 from dango.security.metabase_config import load_metabase_metadata
 from dango.security.metabase_credentials import MetabaseCredentialStore
+
+_logger = get_logger(__name__)
 
 _STATE_FILENAME = "metabase_admin_repair.json"
 _RETRY_AFTER_SECONDS = 3600
@@ -268,8 +271,9 @@ def _redeem_token(metabase_url: str, token: str, password: str) -> bool:
 def _discard_pending(store: MetabaseCredentialStore) -> None:
     try:
         store.discard_pending()
-    except Exception:  # noqa: BLE001 - keep the original failure reason
-        pass
+    except Exception as exc:  # keep the original failure reason
+        # A leftover rejected pending credential makes the next start report credential_recovery_pending.
+        _logger.warning("pending_credential_discard_failed", error_type=type(exc).__name__)
 
 
 def _state_path(root: Path) -> Path:

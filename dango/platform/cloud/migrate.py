@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from dango.exceptions import CloudError, CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.droplet_cleanup import delete_droplet_or_annotate
 
 _logger = get_logger(__name__)
 
@@ -456,13 +457,10 @@ def migrate_server(
                 "Investigate both servers manually."
             )
 
-    except Exception:
-        # Cleanup new droplet on failure (best effort)
+    except Exception as exc:
+        # Cleanup new droplet on failure (best effort; a failed delete is logged and noted)
         if new_droplet_id is not None:
-            try:
-                client.delete_droplet(new_droplet_id)
-            except Exception:  # noqa: BLE001
-                pass
+            delete_droplet_or_annotate(client, new_droplet_id, exc)
         if new_ssh is not None:
             try:
                 new_ssh.disconnect()
