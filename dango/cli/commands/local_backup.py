@@ -35,9 +35,14 @@ from dango.platform.cloud.backup import (
 )
 from dango.platform.cloud.backup_restore import (
     AUTH_CONFIG_FILE,
+    AUTH_CONFIG_MAX_BYTES,
+    AUTH_CONFIG_OVERSIZED_WARNING,
     AUTH_CONFIG_SKIPPED_WARNING,
+    PIPELINE_STATE_DIR,
+    WAREHOUSE_FILE,
     auth_config_keeps_auth_on,
     is_backup_excluded,
+    pipeline_state_aside_name,
     unsafe_tar_members,
 )
 
@@ -185,6 +190,20 @@ def _clear_sidecar(sidecar: Path, keep_suffix: str) -> None:
         console.print(f"[yellow]Warning:[/yellow] Live database WAL kept as {kept}")
 
 
+def _set_aside_pipeline_state(project_root: Path) -> None:
+    """Move the live dlt state next to itself as ``pipelines.pre-restore-<stamp>``.
+
+    A restored warehouse older than the local dlt state would otherwise never reload the
+    rows loaded in between; without local state dlt re-derives it from the warehouse.
+    """
+    live = project_root / PIPELINE_STATE_DIR
+    if not (live.exists() or live.is_symlink()):
+        return
+    kept = live.with_name(pipeline_state_aside_name(time.strftime("%Y%m%d-%H%M%S")))
+    live.replace(kept)
+    console.print(f"[yellow]Note:[/yellow] Live dlt pipeline state moved to {kept}")
+
+
 def _member_rel_path(name: str) -> str:
     """Map an archive member name to a path relative to the project root."""
     if name.startswith(_SRV_PREFIX):
@@ -266,6 +285,9 @@ def _extract_archive(
             src_f = tf.extractfile(member)
             if src_f is None:
                 continue
+            if rel_path == AUTH_CONFIG_FILE and member.size > AUTH_CONFIG_MAX_BYTES:
+                console.print(f"[yellow]Warning:[/yellow] {AUTH_CONFIG_OVERSIZED_WARNING}")
+                continue
             if rel_path in (METABASE_CONFIG_FILE, AUTH_CONFIG_FILE):
                 text = src_f.read(1024 * 1024).decode(errors="replace")
                 if rel_path == AUTH_CONFIG_FILE and on_server:
@@ -288,6 +310,8 @@ def _extract_archive(
                 # A leftover live WAL would be replayed into the restored database.
                 # The database type comes from its logical name; the sidecars sit
                 # next to the file actually written (which may be a symlink target).
+                if rel == WAREHOUSE_FILE:
+                    _set_aside_pipeline_state(project_root)
                 for side_rel in wal_sidecar_names(rel):
                     side = Path(str(target) + side_rel[len(rel) :])
                     if side not in carried:

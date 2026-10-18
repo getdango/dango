@@ -115,7 +115,7 @@ def test_restore_commands_remove_wal_and_do_not_swallow_cp(tmp_path: Path) -> No
     # warehouse); no copy is followed by `|| true`.
     restore_cmd = next(c for c in ssh.commands if "dango-restore-staging" in c and "cp " in c)
     rm_at = restore_cmd.find(f"rm -f {project}/data/warehouse.duckdb.wal")
-    copy = re.search(r"cp -r \S+/data/\. ", restore_cmd)
+    copy = re.search(r"cp -RP \S+/data/\. ", restore_cmd)
     assert copy is not None
     cp_at = copy.start()
     assert rm_at != -1 and rm_at < cp_at
@@ -279,7 +279,7 @@ def _populate_project(project: Path) -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("failing", ["/data/.", ".dango/project.yml", "dbt/models"])
+@pytest.mark.parametrize("failing", ["/project/data", ".dango/project.yml", "dbt/models"])
 def test_create_backup_fails_when_warehouse_copy_fails(tmp_path: Path, failing: str) -> None:
     from dango.platform.cloud.backup import create_backup
 

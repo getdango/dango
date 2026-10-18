@@ -88,34 +88,38 @@ def _pre_upgrade_safety_copy(project_root: Path) -> Path:
     if dest.exists():
         dest = backups / f"pre-upgrade-{stamp}-{secrets.token_hex(3)}"
     dest.mkdir()
-    for db in sorted(dango_dir.glob("*.db")):
-        try:
-            conn = sqlite3.connect(str(db))
+    try:
+        for db in sorted(dango_dir.glob("*.db")):
             try:
-                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            finally:
-                conn.close()
-        except sqlite3.Error:
-            pass  # the sidecars below are copied with the database instead
-        for path in (db, db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm")):
-            if path.is_file():
-                shutil.copy2(path, dest / path.name)
-    from dango.platform.cloud.backup import METABASE_CONFIG_FILE, _write_sanitized_metabase_yaml
+                conn = sqlite3.connect(str(db))
+                try:
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                finally:
+                    conn.close()
+            except sqlite3.Error:
+                pass  # the sidecars below are copied with the database instead
+            for path in (db, db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm")):
+                if path.is_file():
+                    shutil.copy2(path, dest / path.name)
+        from dango.platform.cloud.backup import METABASE_CONFIG_FILE, _write_sanitized_metabase_yaml
 
-    for yml in sorted(dango_dir.glob("*.yml")):
-        if not yml.is_file():
-            continue
-        if yml.name == Path(METABASE_CONFIG_FILE).name:
-            # Copies never hold the Metabase administrator password.
-            try:
-                _write_sanitized_metabase_yaml(yml, dest / yml.name)
-            except ValueError:
-                console.print(
-                    "[yellow]Warning:[/yellow] metabase.yml left out of the safety copy "
-                    "(its YAML could not be safely sanitized)."
-                )
-            continue
-        shutil.copy2(yml, dest / yml.name)
+        for yml in sorted(dango_dir.glob("*.yml")):
+            if not yml.is_file():
+                continue
+            if yml.name == Path(METABASE_CONFIG_FILE).name:
+                # Copies never hold the Metabase administrator password.
+                try:
+                    _write_sanitized_metabase_yaml(yml, dest / yml.name)
+                except ValueError:
+                    console.print(
+                        "[yellow]Warning:[/yellow] metabase.yml left out of the safety copy "
+                        "(its YAML could not be safely sanitized)."
+                    )
+                continue
+            shutil.copy2(yml, dest / yml.name)
+    except BaseException:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
     copies = sorted(p for p in backups.glob("pre-upgrade-*") if p.is_dir())
     for old in copies[:-_SAFETY_COPIES_KEPT]:
         shutil.rmtree(old, ignore_errors=True)

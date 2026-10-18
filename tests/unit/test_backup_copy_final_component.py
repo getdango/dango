@@ -34,7 +34,7 @@ def test_file_copy_commands_do_not_follow_links() -> None:
 @pytest.mark.parametrize("rel", ["notebooks", "data"])
 def test_dir_backup_copies_the_directory_operand_not_its_contents(rel: str) -> None:
     cmd = backup_dir_cmd(f"/p/{rel}", f"/s/{rel}", rel)
-    assert "/." not in cmd.replace("2>/dev/null", "")
+    assert f"/p/{rel}/." not in cmd and "$real/." not in cmd
 
 
 @pytest.mark.unit

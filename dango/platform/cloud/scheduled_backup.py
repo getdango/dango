@@ -258,9 +258,19 @@ def _make_spaces_client(spaces_config: dict[str, Any]) -> Any:
 
 
 def _copy_file_without_special_bits(src: str, dest: str) -> str:
-    """Copy file contents, then apply the source permission bits minus setuid/setgid/sticky."""
-    shutil.copyfile(src, dest)
-    os.chmod(dest, stat.S_IMODE(os.stat(src).st_mode) & 0o777)
+    """Copy a regular file's contents, then apply its permission bits minus setuid/setgid/sticky.
+
+    Raises ``OSError`` if *src* is a link or not a regular file (opened without following
+    a final-component link), so a path swapped after the earlier checks is never read.
+    """
+    fd = os.open(src, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    with os.fdopen(fd, "rb") as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise OSError(f"not a regular file: {src}")
+        with open(dest, "wb") as out:
+            shutil.copyfileobj(handle, out, 1024 * 1024)
+    os.chmod(dest, stat.S_IMODE(info.st_mode) & 0o777)
     return dest
 
 
@@ -314,6 +324,8 @@ def _copy_tree_regular(src: Path, dest: Path, *, step: str, skipped: list[str], 
     copy keeps setuid/setgid/sticky bits.
     """
     try:
+        # Fails (instead of following) if *src* became a link after the caller checked it.
+        os.close(os.open(src, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)))
         shutil.copytree(
             src,
             dest,
@@ -824,6 +836,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
     from dango.platform.cloud.backup_restore import (
         AS_SERVICE_USER,
         AUTH_CONFIG_FILE,
+        AUTH_CONFIG_MAX_BYTES,
         SAFE_EXTRACT_OPTIONS,
         SANITIZED_METABASE_NAME,
         SERVICE_USER,
@@ -832,6 +845,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         hand_staging_to_service_user_cmd,
         restore_dir_cmd,
         restore_file_cmd,
+        set_aside_pipeline_state_cmd,
         unsafe_tar_members,
         unsafe_tree_entries,
         wal_sidecar_names,
@@ -899,12 +913,19 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                         step="restore_files",
                     )
                     _logger.warning("restore_wal_kept", path=kept)
+        _run_local(
+            set_aside_pipeline_state_cmd(str(staging), str(PROJECT_DIR), stamp),
+            step="restore_files",
+        )
         staged_auth = staging / AUTH_CONFIG_FILE
         skip_auth_config = False
         if staged_auth.is_file():
-            with open(staged_auth, "rb") as handle:
-                text = handle.read(65536).decode("utf-8", errors="replace")
-            skip_auth_config = not auth_config_keeps_auth_on(text)
+            if staged_auth.stat().st_size > AUTH_CONFIG_MAX_BYTES:
+                skip_auth_config = True
+            else:
+                with open(staged_auth, "rb") as handle:
+                    text = handle.read().decode("utf-8", errors="replace")
+                skip_auth_config = not auth_config_keeps_auth_on(text)
         if skip_auth_config:
             # A restore never turns authentication off on a server.
             _logger.warning("restore_auth_config_skipped", path=AUTH_CONFIG_FILE)
