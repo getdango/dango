@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -22,6 +22,7 @@ from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import has_permission, require_permission
 from dango.logging import get_logger
+from dango.notebooks.access_token import marimo_open_url
 from dango.notebooks.locking import (
     acquire_lock,
     copy_locked_notebook,
@@ -31,11 +32,18 @@ from dango.notebooks.locking import (
     refresh_lock,
     release_lock,
 )
-from dango.notebooks.manager import get_marimo_status, start_idle_checker, start_marimo, stop_marimo
+from dango.notebooks.manager import (
+    ensure_marimo_protected,
+    get_marimo_status,
+    start_idle_checker,
+    start_marimo,
+    stop_marimo,
+)
 from dango.notebooks.snapshot import create_snapshot
 from dango.utils.dango_db import connect
 from dango.validation import validate_identifier
 from dango.web.helpers import get_project_root
+from dango.web.middleware.origin import is_same_origin
 from dango.web.routes.ui import _render_template
 from dango.web.routes.websocket import ws_manager
 
@@ -413,6 +421,7 @@ async def lock_notebook(
             },
         )
 
+    await asyncio.to_thread(ensure_marimo_protected, project_root)
     status = await asyncio.to_thread(get_marimo_status, project_root)
     already_running = status["running"]
     if not already_running:
@@ -436,7 +445,7 @@ async def lock_notebook(
     if is_running_on_cloud():
         marimo_url = f"/notebooks/marimo/?file={name}.py"
     else:
-        marimo_url = f"http://localhost:{port}/?file={name}.py"
+        marimo_url = marimo_open_url(project_root, int(str(port)), f"{name}.py")
 
     start_idle_checker(project_root)
 
@@ -445,9 +454,23 @@ async def lock_notebook(
 
 @router.get("/api/notebooks/ws-auth", response_model=NotebookWsAuthResponse)
 async def notebook_ws_auth(
+    request: Request,
     user: User = Depends(require_permission("notebooks.execute")),
 ) -> NotebookWsAuthResponse:
-    """Target of Caddy ``forward_auth`` for the Marimo WebSocket; 200 only for permitted sessions."""
+    """Target of Caddy ``forward_auth`` for the Marimo WebSocket.
+
+    200 only for permitted sessions whose browser ``Origin`` matches the ``Host``
+    it connected to.  Caddy forwards the original request headers unchanged
+    (https://caddyserver.com/docs/caddyfile/directives/forward_auth), and
+    ``reverse_proxy`` keeps the client's ``Host`` for an HTTP upstream, so
+    ``Host`` is used; ``X-Forwarded-Host`` is not trusted.  A WebSocket upgrade
+    from a browser always carries ``Origin``; a request without one is refused.
+    """
+    if not any(name == b"origin" for name, _ in request.scope["headers"]) or not is_same_origin(
+        request.scope["headers"]
+    ):
+        logger.warning("notebook_ws_cross_origin_refused")
+        raise HTTPException(status_code=403, detail="Cross-origin request refused")
     return NotebookWsAuthResponse(ok=True)
 
 
@@ -470,8 +493,11 @@ async def notebook_status(
         base = "/notebooks/marimo/"
         marimo_url = f"{base}?file={file}" if file else base
     else:
-        marimo_url = (
-            f"http://localhost:{port}/?file={file}" if file else f"http://localhost:{port}/"
+        marimo_url = marimo_open_url(
+            project_root,
+            int(str(port)),
+            file,
+            with_token=has_permission(user, "notebooks.execute"),
         )
 
     return JSONResponse(content={"ready": True, "marimo_url": marimo_url})
