@@ -71,21 +71,44 @@ class TestTrustProbe:
         ssh, _ = _recording_ssh({"PROBE_OK": (PROBE_SENTINEL + "\n", "", 0)})
         assert not venv_is_untrusted(ssh)
 
-    def test_probe_script_executes_and_ends_with_the_sentinel(self, tmp_path: Path) -> None:
-        from dango.platform.cloud.runtime_ownership import PROBE_SENTINEL, VENV_TAINT_PROBE
+    def test_probe_keeps_findings_with_many_results(self) -> None:
+        from dango.platform.cloud.runtime_ownership import VENV_TAINT_PROBE
+
+        assert "head -5" not in VENV_TAINT_PROBE
+        assert "sed -n 1,5p" in VENV_TAINT_PROBE
+
+    @staticmethod
+    def _local_probe(srv: Path) -> subprocess.CompletedProcess[str]:
+        import getpass
+
+        from dango.platform.cloud.runtime_ownership import VENV_TAINT_PROBE
+
+        script = (
+            VENV_TAINT_PROBE.replace("find / /srv ", "find ")
+            .replace("/srv/dango", str(srv))
+            .replace("-user root", f"-user {getpass.getuser()}")
+        )
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+
+    def test_probe_script_reports_trusted_and_untrusted_trees(self, tmp_path: Path) -> None:
+        import os
+
+        from dango.platform.cloud.runtime_ownership import PROBE_SENTINEL
 
         srv = tmp_path / "srvd"
         (srv / "venv").mkdir(parents=True)
-        run = subprocess.run(
-            ["bash", "-c", VENV_TAINT_PROBE.replace("/srv/dango", str(srv))],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert "syntax error" not in run.stderr
-        lines = run.stdout.strip().splitlines()
-        # Not root-owned locally: findings are printed (or the probe fails), never only the sentinel.
-        assert lines != [PROBE_SENTINEL]
+        os.chmod(srv, 0o755)
+        os.chmod(srv / "venv", 0o755)
+        trusted = self._local_probe(srv)
+        if trusted.returncode != 0:
+            pytest.skip(f"find lacks the flags the probe needs: {trusted.stderr.strip()}")
+        assert trusted.stdout.strip().splitlines() == [PROBE_SENTINEL]
+
+        os.chmod(srv / "venv", 0o775)  # group-writable venv
+        untrusted = self._local_probe(srv)
+        lines = untrusted.stdout.strip().splitlines()
+        assert lines[-1] == PROBE_SENTINEL
+        assert any(str(srv / "venv") in line for line in lines[:-1]), lines
 
 
 @pytest.mark.unit
@@ -125,3 +148,46 @@ class TestRebuildGuards:
         ssh, _ = _recording_ssh({"-print -quit": ("/srv\nDANGO_PROBE_OK\n", "", 0)})
         with pytest.raises(ro.VenvRebuildError, match=r"chown root:root /srv"):
             ro.rebuild_untrusted_venv(ssh, [], version="1.0.15")
+
+
+@pytest.mark.unit
+def test_comment_line_ending_in_backslash_is_not_a_continuation() -> None:
+    from dango.platform.cloud.pushed_requirements import check_requirements
+
+    assert check_requirements("# note \\\n-e file:///srv/dango/project/pkg\n")
+
+
+@pytest.mark.unit
+def test_leading_backslashes_stripped_like_pip() -> None:
+    from dango.platform.cloud.pushed_requirements import check_requirements
+
+    assert check_requirements("\\-r \\\nhttps://example.com/r.txt\n")
+
+
+@pytest.mark.unit
+class TestRebuildProbeOnce:
+    def test_probe_error_after_first_check_becomes_rebuild_error(self) -> None:
+        from dango.platform.cloud import runtime_ownership as ro
+
+        probe = MagicMock(side_effect=[["/srv/dango/venv"], RuntimeError("boom")])
+        with (
+            patch.object(ro, "venv_trust_findings", probe),
+            patch("dango.platform.cloud.backup.stop_services"),
+            patch("dango.platform.cloud.backup.start_services"),
+            patch.object(ro, "lock_srv_dango"),
+            patch.object(ro, "rebuild_venv", return_value="ok"),
+        ):
+            result = ro.rebuild_untrusted_venv(MagicMock(), [], version="1.0.15")
+        assert result == "ok"
+        assert probe.call_count == 1
+
+    def test_probe_exception_raises_rebuild_error(self) -> None:
+        from dango.platform.cloud import runtime_ownership as ro
+
+        probe = MagicMock(side_effect=RuntimeError("boom"))
+        with (
+            patch.object(ro, "venv_trust_findings", probe),
+            pytest.raises(ro.VenvRebuildError),
+        ):
+            ro.rebuild_untrusted_venv(MagicMock(), [], version="1.0.15")
+        assert probe.call_count == 1
