@@ -5,6 +5,7 @@ After a restore replaces the warehouse, an incremental dlt source reloads the ro
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tarfile
@@ -19,7 +20,6 @@ _SYNC = """
 import os, sys
 import dlt
 project, upto = sys.argv[1], int(sys.argv[2])
-os.environ["DLT_DATA_DIR"] = os.path.join(project, ".dlt")
 os.environ["RUNTIME__DLTHUB_TELEMETRY"] = "false"
 rows = [{"id": i} for i in range(1, upto + 1)]
 
@@ -37,7 +37,9 @@ pipeline.run(items())
 
 
 def _sync(project: Path, upto: int) -> None:
-    subprocess.run([sys.executable, "-c", _SYNC, str(project), str(upto)], check=True)
+    subprocess.run(
+        [sys.executable, "-c", _SYNC, str(project), str(upto)], check=True, env=os.environ.copy()
+    )
 
 
 def _ids(project: Path) -> list[int]:
@@ -49,12 +51,22 @@ def _ids(project: Path) -> list[int]:
 
 
 @pytest.mark.integration
-def test_incremental_source_reloads_rows_loaded_after_the_backup(tmp_path: Path) -> None:
+def test_incremental_source_reloads_rows_loaded_after_the_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from dango.cli.commands.local_backup import backup_group
+
+    # Default dlt location (~/.dlt), as a local project uses it.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("DLT_DATA_DIR", raising=False)
 
     project = tmp_path / "project"
     (project / "data").mkdir(parents=True)
     (project / ".dango").mkdir()
+    (project / ".dango" / "sources.yml").write_text(
+        "version: '1.0'\nsources:\n  - name: p\n    type: csv\n"
+        "    csv:\n      directory: data/uploads\n"
+    )
     _sync(project, 3)
 
     content = tmp_path / "backup-20260101-000000"

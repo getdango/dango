@@ -5,6 +5,7 @@ All three restores bring back the new backup contents, still clear stale WALs, a
 
 from __future__ import annotations
 
+import shutil
 import tarfile
 from collections.abc import Callable
 from pathlib import Path
@@ -243,9 +244,9 @@ def _live_pipeline_state(project: Path) -> Path:
 
 
 @pytest.mark.unit
-def test_restore_moves_live_pipeline_state_aside(
-    restore: Callable[..., list[str]], tmp_path: Path
-) -> None:
+@pytest.mark.parametrize("which", ["server", "spaces"])
+def test_restore_moves_live_pipeline_state_aside(which: str, tmp_path: Path) -> None:
+    restore = RESTORES[which]
     project = _live_project(tmp_path)
     _live_pipeline_state(project)
     restore(tmp_path, project, _new_layout)
@@ -256,9 +257,9 @@ def test_restore_moves_live_pipeline_state_aside(
 
 
 @pytest.mark.unit
-def test_restore_without_warehouse_keeps_live_pipeline_state(
-    restore: Callable[..., list[str]], tmp_path: Path
-) -> None:
+@pytest.mark.parametrize("which", ["server", "spaces"])
+def test_restore_without_warehouse_keeps_live_pipeline_state(which: str, tmp_path: Path) -> None:
+    restore = RESTORES[which]
     project = _live_project(tmp_path)
     state = _live_pipeline_state(project)
     restore(tmp_path, project, _warehouse_only)
@@ -280,3 +281,20 @@ def test_restore_refuses_oversized_auth_yml(
     warnings = _server_like(restore)(tmp_path, project, build)
     assert live_auth.read_text() == "enabled: true\n"
     assert any("auth.yml" in w for w in warnings), warnings
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("which", ["server", "spaces"])
+def test_two_restores_in_one_second_do_not_nest_pipeline_state(which: str, tmp_path: Path) -> None:
+    restore = RESTORES[which]
+    project = _live_project(tmp_path)
+    _live_pipeline_state(project)
+    with patch("time.strftime", return_value="20260101-000000"):
+        restore(tmp_path, project, _new_layout)
+        _live_pipeline_state(project)
+        shutil.rmtree(tmp_path / "content", ignore_errors=True)
+        restore(tmp_path, project, _new_layout)
+    kept = sorted(p.name for p in (project / ".dlt").iterdir())
+    assert len(kept) == 2 and all(n.startswith("pipelines.pre-restore-") for n in kept), kept
+    for path in (project / ".dlt").iterdir():
+        assert (path / "src" / "state.json").is_file(), f"nested: {path}"
