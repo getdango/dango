@@ -235,3 +235,134 @@ def test_cli_open_url_carries_token(tmp_path: Path) -> None:
         CliRunner().invoke(notebook, ["open", "t"])
     assert opened == [f"http://localhost:7805/?file=t.py&access_token={seen['token']}"]
     assert os.path.exists(_token_file(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# Pre-fix (tokenless) Marimo is restarted with a token; stale token files are removed
+# ---------------------------------------------------------------------------
+
+
+def _pid_record(root: Path, start_time: float | None = 1.0) -> None:
+    import json
+
+    (root / ".dango").mkdir(parents=True, exist_ok=True)
+    (root / ".dango" / "marimo.pid").write_text(json.dumps({"pid": 777, "start_time": start_time}))
+
+
+def _ensure(root: Path, *, running: bool, stop_outcome: str = "stopped", cloud: bool = False):
+    from dango.notebooks.manager import ensure_marimo_protected
+
+    with (
+        patch(f"{_M}.is_process_running", return_value=running),
+        patch(f"{_M}._stop_marimo_process", return_value=stop_outcome) as stopper,
+        patch(_CLOUD, return_value=cloud),
+    ):
+        result = ensure_marimo_protected(root)
+    return result, stopper
+
+
+@pytest.mark.unit
+def test_prefix_tokenless_marimo_is_stopped_for_restart(tmp_path: Path) -> None:
+    _pid_record(tmp_path)
+    restarted, stopper = _ensure(tmp_path, running=True)
+    assert restarted is True
+    stopper.assert_called_once()
+    assert not (tmp_path / ".dango" / "marimo.pid").exists()
+
+
+@pytest.mark.unit
+def test_running_marimo_with_token_is_left_alone(tmp_path: Path) -> None:
+    from dango.notebooks.access_token import create_token_file
+
+    _pid_record(tmp_path)
+    create_token_file(tmp_path)
+    restarted, stopper = _ensure(tmp_path, running=True)
+    assert restarted is False
+    stopper.assert_not_called()
+    assert _token_file(tmp_path).exists()
+
+
+@pytest.mark.unit
+def test_unknown_identity_marimo_is_never_touched(tmp_path: Path) -> None:
+    """A pid record without a start time cannot prove Dango started the process."""
+    _pid_record(tmp_path, start_time=None)
+    restarted, stopper = _ensure(tmp_path, running=True)
+    assert restarted is False
+    stopper.assert_not_called()
+
+
+@pytest.mark.unit
+def test_cloud_marimo_is_never_restarted_for_a_token(tmp_path: Path) -> None:
+    _pid_record(tmp_path)
+    restarted, stopper = _ensure(tmp_path, running=True, cloud=True)
+    assert restarted is False
+    stopper.assert_not_called()
+
+
+@pytest.mark.unit
+def test_no_marimo_recorded_is_a_noop(tmp_path: Path) -> None:
+    restarted, stopper = _ensure(tmp_path, running=False)
+    assert restarted is False
+    stopper.assert_not_called()
+
+
+@pytest.mark.unit
+def test_stale_token_removed_when_recorded_process_is_gone(tmp_path: Path) -> None:
+    from dango.notebooks.access_token import create_token_file
+
+    _pid_record(tmp_path)
+    create_token_file(tmp_path)
+    restarted, stopper = _ensure(tmp_path, running=False)
+    assert restarted is False
+    stopper.assert_not_called()
+    assert not _token_file(tmp_path).exists()
+
+
+@pytest.mark.unit
+def test_token_kept_while_marimo_is_still_starting(tmp_path: Path) -> None:
+    """Token exists but no pid record yet (start_marimo writes it after readiness): keep it."""
+    from dango.notebooks.access_token import create_token_file
+
+    create_token_file(tmp_path)
+    restarted, _stopper = _ensure(tmp_path, running=False)
+    assert restarted is False
+    assert _token_file(tmp_path).exists()
+
+
+@pytest.mark.unit
+def test_cli_open_and_web_lock_call_the_protection_helper(tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from dango.cli.commands.notebook import notebook
+
+    (tmp_path / "notebooks").mkdir(exist_ok=True)
+    (tmp_path / "notebooks" / "t.py").write_text("x = 1\n")
+    with (
+        patch("dango.cli.utils.require_project_context", return_value=tmp_path),
+        patch("dango.notebooks.locking.acquire_lock", return_value=True),
+        patch("dango.notebooks.locking.release_lock"),
+        patch("dango.notebooks.locking.refresh_lock"),
+        patch("dango.notebooks.manager.ensure_marimo_protected", return_value=False) as ensure,
+        patch(
+            "dango.notebooks.manager.get_marimo_status",
+            return_value={"running": True, "port": 7805, "pid": 1},
+        ),
+        patch("webbrowser.open", side_effect=KeyboardInterrupt),
+    ):
+        CliRunner().invoke(notebook, ["open", "t"])
+    ensure.assert_called_once_with(tmp_path)
+
+    from tests.unit.test_web_notebooks import _client, _init_db, _seed_notebook
+
+    p = "dango.web.routes.notebooks"
+    _init_db(tmp_path)
+    _seed_notebook(tmp_path, "nb")
+    with (
+        patch(f"{p}.get_project_root", return_value=tmp_path),
+        patch(f"{p}.ensure_marimo_protected", return_value=False) as ensure_web,
+        patch(f"{p}.start_idle_checker"),
+        patch(f"{p}.get_marimo_status", return_value={"running": True, "port": 7805, "pid": 1}),
+    ):
+        resp = _client(tmp_path).post("/api/notebooks/nb/lock", json={})
+    assert resp.status_code == 200
+    ensure_web.assert_called_once_with(tmp_path)
