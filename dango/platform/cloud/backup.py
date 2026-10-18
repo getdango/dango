@@ -96,8 +96,12 @@ def get_remote_compose_project_name(ssh: SSHManager, project_dir: str = PROJECT_
                 if _COMPOSE_ID_PREFIX_RE.fullmatch(prefix):
                     return f"dango-{prefix}"
                 _logger.warning("remote_project_id_rejected", project_dir=project_dir)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning(
+            "remote_project_id_unreadable_using_legacy_hash",
+            project_dir=project_dir,
+            error_type=type(exc).__name__,
+        )
     return f"dango-{_legacy_path_hash(project_dir)}"
 
 
@@ -341,6 +345,7 @@ def _check_disk_space(ssh: SSHManager, required_mb: int = 500) -> None:
         try:
             available = int(parts[3])
         except ValueError:
+            _logger.warning("disk_space_check_skipped", reason="unparseable df output")
             return
         if available < required_mb:
             raise CloudProvisioningError(
@@ -360,7 +365,8 @@ def _check_disk_space(ssh: SSHManager, required_mb: int = 500) -> None:
                     total_mb=total_mb,
                 )
         except (ValueError, IndexError):  # noqa: BLE001
-            pass  # Best-effort — silently skip if df format unexpected
+            # Best-effort: the usage warning is skipped if the df format is unexpected.
+            _logger.warning("disk_usage_warning_skipped", reason="unparseable df output")
 
 
 def stop_services(ssh: SSHManager) -> None:
@@ -578,7 +584,7 @@ def _create_archive(
         )
     finally:
         if private:
-            ssh.exec_command(f"rm -rf {shlex.quote(private)}")  # cleanup: silent OK
+            _remove_leftovers(ssh, [private])
 
     return archive_path, manifest
 
@@ -884,11 +890,7 @@ def restore_from_archive(
                     ssh.exec_command("chown -R dango:dango /srv/dango/project")
             raise
         finally:
-            leftovers = " ".join(shlex.quote(p) for p in (staging, private_dir) if p)
-            try:
-                ssh.exec_command(f"rm -rf {leftovers}")  # cleanup: best effort
-            except Exception:  # noqa: BLE001
-                pass
+            _remove_leftovers(ssh, [p for p in (staging, private_dir) if p])
     finally:
         _notify(on_progress, "start_services", "running")
         start_services(ssh)
@@ -908,6 +910,21 @@ def restore_from_archive(
         duration_seconds=round(time.monotonic() - _start_time, 1),
         warnings=warnings,
     )
+
+
+def _remove_leftovers(ssh: SSHManager, paths: list[str]) -> None:
+    """Best-effort ``rm -rf`` of temporary directories; a failure is logged, never raised.
+
+    The directories may hold copies of project data (and secrets), so a leftover is named.
+    """
+    command = "rm -rf " + " ".join(shlex.quote(p) for p in paths)
+    try:
+        result = ssh.exec_command(command)
+        failed = not result.success
+    except Exception:  # cleanup must never mask the operation's own outcome
+        failed = True
+    if failed:
+        _logger.warning("temporary_directory_not_removed", paths=paths)
 
 
 def _archive_would_disable_auth(ssh: SSHManager, staging: str) -> bool:
