@@ -5,7 +5,7 @@ Fail-closed check that agent/service-written dbt model SQL reads only warehouse 
 
 import ast
 import re
-from typing import Any
+from typing import Any, Literal
 
 from dango.transformation.model_sql_functions import (
     function_error,
@@ -88,8 +88,11 @@ def _check_config(args: str) -> list[str]:
     return errors
 
 
-def _strip_jinja(sql: str) -> tuple[str, list[str]]:
-    """Replace allowed Jinja with placeholders/blanks; return (plain SQL, errors)."""
+def _strip_jinja(sql: str, strict: bool = True) -> tuple[str, list[str]]:
+    """Replace allowed Jinja with placeholders/blanks; return (plain SQL, errors).
+
+    With strict=False nothing is reported: ref/source/this become placeholders, all else blank.
+    """
     errors: list[str] = []
     counter = 0
 
@@ -101,7 +104,7 @@ def _strip_jinja(sql: str) -> tuple[str, list[str]]:
             return " "
         inner = block[2:-2].strip("-+").strip()
         if block.startswith("{%"):
-            if " ".join(inner.split()) not in _ALLOWED_STATEMENTS:
+            if strict and " ".join(inner.split()) not in _ALLOWED_STATEMENTS:
                 errors.append(f"Jinja construct not allowed in agent-created models: {block}")
             return " "
         if inner == "this" or _REF_RE.fullmatch(inner) or _SOURCE_RE.fullmatch(inner):
@@ -109,13 +112,15 @@ def _strip_jinja(sql: str) -> tuple[str, list[str]]:
             return f" {_PLACEHOLDER}{counter} "
         cfg = _CONFIG_RE.fullmatch(inner)
         if cfg:
-            errors.extend(_check_config(cfg.group(1)))
+            if strict:
+                errors.extend(_check_config(cfg.group(1)))
             return " "
-        errors.append(f"Jinja construct not allowed in agent-created models: {block}")
+        if strict:
+            errors.append(f"Jinja construct not allowed in agent-created models: {block}")
         return " "
 
     plain = _JINJA_RE.sub(repl, sql)
-    if not errors and any(t in plain for t in ("{{", "{%", "{#")):
+    if strict and not errors and any(t in plain for t in ("{{", "{%", "{#")):
         errors.append("Jinja construct not allowed in agent-created models: unclosed Jinja block")
     return plain, errors
 
@@ -151,13 +156,19 @@ def _check_table(table: Any) -> str | None:
     return None
 
 
-def check_model_sql(sql: str) -> list[str]:
-    """Return errors for model SQL that could read files/URLs/settings or run non-query SQL."""
+def check_model_sql(sql: str, *, jinja: Literal["strict", "ignore"] = "strict") -> list[str]:
+    """Return errors for model SQL that could read files/URLs/settings or run non-query SQL.
+
+    jinja="strict" (default, agent-created SQL) rejects Jinja outside the allow-list;
+    jinja="ignore" (human-written models) blanks it and checks only the remaining SQL.
+    """
+    if jinja not in ("strict", "ignore"):
+        raise ValueError(f"jinja must be 'strict' or 'ignore', got {jinja!r}")
     import sqlglot
     from sqlglot import exp
     from sqlglot.errors import SqlglotError
 
-    plain, errors = _strip_jinja(sql)
+    plain, errors = _strip_jinja(sql, strict=jinja == "strict")
     if errors:
         return errors
     try:
