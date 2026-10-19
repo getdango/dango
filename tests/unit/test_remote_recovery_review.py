@@ -75,6 +75,16 @@ _REBUILD_LINES = [
     "cd / && /srv/dango/venv/bin/python -I -m spacy download en_core_web_sm -q",
     "/srv/dango/venv/bin/python -m pip install --upgrade pip",
     "python3 -m venv /srv/dango/venv",
+    "/bin/sh /usr/local/sbin/dango-compose up-build",
+    "/bin/sh /usr/local/sbin/dango-compose build",
+    "/bin/sh /usr/local/sbin/dango-compose pull",
+    "docker compose --project-directory /srv/dango/compose -p dango-abcd1234 "
+    "-f /srv/dango/compose/docker-compose.yml up -d --build metabase",
+]
+_NOT_REBUILD_LINES = [
+    "/bin/sh /usr/local/sbin/dango-compose up",
+    "/bin/sh /usr/local/sbin/dango-compose restart metabase",
+    "/bin/sh /usr/local/sbin/dango-compose ps",
 ]
 
 
@@ -87,6 +97,11 @@ class TestRebuildCoverage:
         for p in patterns:
             assert not re.search(p, GUARD_ACTION)
             assert not re.search(p, shlex.join(["systemd-run", GUARD_ACTION]))
+
+    def test_guard_ignores_helper_calls_that_do_not_rebuild(self) -> None:
+        patterns = re.findall(r'pgrep -f "([^"]+)"', GUARD_ACTION)
+        for line in _NOT_REBUILD_LINES:
+            assert not any(re.search(p, line) for p in patterns), line
 
     def test_guard_waits_in_real_sh_while_spacy_download_runs(self, tmp_path: Path) -> None:
         marker = tmp_path / "started"
