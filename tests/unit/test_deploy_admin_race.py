@@ -185,14 +185,25 @@ class TestAdminScriptMatrix:
 class TestAdminStepErrorHandling:
     def _ssh(self, exit_code: int, stderr: str = "") -> MagicMock:
         ssh = MagicMock()
-        ssh.exec_command.return_value = MagicMock(exit_code=exit_code, stderr=stderr, stdout="")
+
+        def run(command: str, **_kw: object) -> MagicMock:
+            # Only the uploaded script run fails; chown/rm helper steps succeed.
+            failing = command.startswith("sudo -u dango")
+            return MagicMock(
+                exit_code=exit_code if failing else 0, stderr=stderr if failing else "", stdout=""
+            )
+
+        ssh.exec_command.side_effect = run
         return ssh
 
     def test_ssh_timeout_covers_the_wait_and_failure_is_admin_error(self) -> None:
         ssh = self._ssh(1, "sqlite3.OperationalError: no such table: users")
         with pytest.raises(AdminCreationError, match="no such table: users"):
             _create_admin_and_enable_auth(ssh, EMAIL, "password123")
-        assert ssh.exec_command.call_args_list[0].kwargs["timeout"] >= 180
+        run = next(
+            c for c in ssh.exec_command.call_args_list if c.args[0].startswith("sudo -u dango")
+        )
+        assert run.kwargs["timeout"] >= 180
         assert issubclass(AdminCreationError, CloudProvisioningError)
 
     @pytest.mark.parametrize(

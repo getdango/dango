@@ -288,9 +288,12 @@ def run_spaces_restore(
         return proc.stdout
 
     def shell(cmd: object, **_kw: object) -> None:
-        events.append(f"sh: {cmd}")
-        if str(cmd).startswith("rm -rf"):
-            real_run(str(cmd), shell=True, check=False)
+        import shlex
+
+        text = shlex.join(cmd) if isinstance(cmd, list) else str(cmd)
+        events.append(f"sh: {text}")
+        if text.startswith("rm -rf") and isinstance(cmd, list):
+            real_run(cmd, check=False)
 
     with (
         patch(f"{sb}.PROJECT_DIR", project),
