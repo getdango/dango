@@ -44,7 +44,9 @@ def _make_ssh(*, project_yml_ok: bool = True) -> tuple[MagicMock, list[str]]:
 
 
 def _pull_command(commands: list[str]) -> str:
-    matches = [c for c in commands if "pull" in c]
+    matches = [
+        c for c in commands if "pull" in c and "systemd-run" not in c
+    ]  # the guard text names "pull"
     assert len(matches) == 1, matches
     return matches[0]
 
