@@ -48,6 +48,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/remote_env.py` | `remote env` subgroup (set, get, list, delete) | `env` (Click group) |
 | `commands/remote_upload.py` | `remote upload LOCAL [REMOTE]` — one file into the server's `data/` (dango SSH user, `.part` then `mv -fT`, 2 GiB cap, never `warehouse.duckdb*` or `data/.tmp`) | `remote_upload()`, `resolve_remote_target()` |
 | `commands/remote_ops.py` | `remote upgrade`, `remote resize`, `remote migrate` | `remote_upgrade()`, `remote_resize()`, `remote_migrate()` |
+| `commands/remote_power.py` | `remote power-on` (DigitalOcean API; works when SSH cannot connect) + power-state lookups used by `remote status`/`resize`; registered by the top-level import in `remote_ops.py` | `remote_power_on()`, `lookup_power_state()`, `refuse_if_powered_off()` |
 | `commands/remote_backup.py` | `remote backup` subgroup (list, enable, disable, download, restore) | `backup_group` |
 | `commands/remote_auth.py` (~217 lines) | `remote auth` subgroup (add-user, list-users, remove-user, reset-password) | `auth_group` |
 | `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query`, `remote history` | `remote_status()`, `remote_logs()` |

@@ -18,11 +18,14 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from dango.exceptions import CloudError
+from dango.exceptions import CloudError, CloudProvisioningError
+from dango.logging import get_logger
 
 if TYPE_CHECKING:
     from dango.platform.cloud.digitalocean import DigitalOceanClient
     from dango.platform.cloud.ssh import SSHManager
+
+logger = get_logger(__name__)
 
 _SIZE_SLUG_PATTERN = re.compile(r"^[a-zA-Z0-9\-_.]+$")
 _PROFILES_PATH = "/srv/dango/project/dbt/profiles.yml"
@@ -142,17 +145,19 @@ def regenerate_dbt_profiles(
         ``True`` if profiles were written, ``False`` if ``dbt_project.yml``
         was not found on the server.
     """
+    # Read project name from dbt_project.yml on server
+    from dango.platform.cloud.project_files import read_project_file, write_project_file
     from dango.platform.cloud.provisioning import get_size_tier
 
-    # Read project name from dbt_project.yml on server
-    result = ssh.exec_command(f"cat {_DBT_PROJECT_PATH} 2>/dev/null")
-    if not result.success or not result.stdout.strip():
+    # Read and write as the dango user: a root access would follow a link it planted.
+    project_yml = read_project_file(ssh, _DBT_PROJECT_PATH)
+    if not project_yml.strip():
         return False
 
     # Parse project name via YAML
     project_name = "dango"
     try:
-        data: dict[str, Any] = yaml.safe_load(result.stdout)
+        data: dict[str, Any] = yaml.safe_load(project_yml)
         if isinstance(data, dict) and "name" in data:
             project_name = str(data["name"])
     except yaml.YAMLError:  # noqa: BLE001
@@ -181,7 +186,7 @@ def regenerate_dbt_profiles(
                     pass
 
     content = generate_dbt_profiles_yml(project_name, vcpus, ram_gb, dbt_overrides)
-    ssh.write_remote_file(_PROFILES_PATH, content, mode=0o644)
+    write_project_file(ssh, _PROFILES_PATH, content, 0o644)
     return True
 
 
@@ -302,12 +307,8 @@ def resize_droplet(
         _notify(on_progress, "wait_ssh", "running")
         wait_for_ssh(droplet_ip)
         _notify(on_progress, "wait_ssh", "done")
-    except Exception:
-        # Best effort: try to power on if we failed after power off
-        try:
-            client.power_on(droplet_id)
-        except Exception:  # noqa: BLE001
-            pass
+    except (Exception, KeyboardInterrupt) as exc:
+        _recover_power(client, droplet_id, exc)
         raise
 
     # 9. Reconnect SSH (connection was dropped during power cycle)
@@ -316,9 +317,13 @@ def resize_droplet(
 
     # 10. Regenerate dbt profiles
     _notify(on_progress, "dbt_profiles", "running")
-    dbt_regenerated = regenerate_dbt_profiles(ssh, new_size, dbt_overrides)
-    if not dbt_regenerated:
-        warnings.append("dbt_project.yml not found on server — profiles.yml not regenerated.")
+    try:
+        dbt_regenerated = regenerate_dbt_profiles(ssh, new_size, dbt_overrides)
+        if not dbt_regenerated:
+            warnings.append("dbt_project.yml not found on server — profiles.yml not regenerated.")
+    except Exception as exc:  # services must still be started below
+        dbt_regenerated = False
+        warnings.append(f"profiles.yml was not regenerated: {exc}")
     _notify(on_progress, "dbt_profiles", "done")
 
     # 11. Start services + verify health
@@ -354,6 +359,75 @@ def resize_droplet(
         dbt_profiles_regenerated=dbt_regenerated,
         warnings=warnings,
     )
+
+
+def _recover_power(client: DigitalOceanClient, droplet_id: int, exc: BaseException) -> None:
+    """Best-effort power-on after a failed resize.
+
+    Raises ``CloudProvisioningError`` with the recovery command only if the power-on failed and
+    the droplet is confirmed off; otherwise returns so the caller re-raises the original error.
+    """
+    try:
+        client.power_on(droplet_id)
+        return
+    except Exception:
+        logger.error("resize_power_on_failed", droplet_id=droplet_id, exc_info=True)
+    try:
+        still_off = get_power_state(client, droplet_id) == "off"
+    except Exception:
+        still_off = False
+    if still_off and not isinstance(exc, Exception):
+        import click
+
+        click.echo(
+            f"Interrupted: the droplet may still be powered off. "
+            f"Run: dango remote power-on  (droplet {droplet_id})",
+            err=True,
+        )
+    if still_off and isinstance(exc, Exception):
+        raise CloudProvisioningError(
+            f"{exc}. The droplet may still be powered off. "
+            f"Run: dango remote power-on  (droplet {droplet_id})"
+        ) from exc
+
+
+def get_power_state(client: DigitalOceanClient, droplet_id: int) -> str:
+    """Return the droplet's DigitalOcean status (``active``, ``off``, ``new``, ``archive``).
+
+    Raises:
+        CloudProvisioningError: If the DigitalOcean API call fails.
+    """
+    try:
+        droplet = client.get_droplet(droplet_id)
+    except Exception as exc:
+        raise CloudProvisioningError(
+            f"Could not read the power state of droplet {droplet_id}: {exc}"
+        ) from exc
+    return str(droplet.get("status", "")).lower()
+
+
+def power_on_and_wait(
+    client: DigitalOceanClient,
+    droplet_id: int,
+    droplet_ip: str,
+    *,
+    on_progress: Callable[[str, str], None] | None = None,
+) -> None:
+    """Power the droplet on and wait until it is active and SSH answers."""
+    from dango.platform.cloud.provisioning import wait_for_droplet_ready, wait_for_ssh
+
+    _notify(on_progress, "power_on", "running")
+    action = client.power_on(droplet_id)
+    client.wait_for_action(action["id"])
+    _notify(on_progress, "power_on", "done")
+
+    _notify(on_progress, "wait_active", "running")
+    wait_for_droplet_ready(client, droplet_id)
+    _notify(on_progress, "wait_active", "done")
+
+    _notify(on_progress, "wait_ssh", "running")
+    wait_for_ssh(droplet_ip)
+    _notify(on_progress, "wait_ssh", "done")
 
 
 def _extract_ipv4(droplet: dict[str, Any]) -> str:

@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudError, CloudProvisioningError
+from dango.platform.cloud.upgrade_caddy import has_ws_auth_endpoint, run_ws_migration
+from dango.platform.cloud.upgrade_guard import UpgradeGuard
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -23,15 +25,6 @@ if TYPE_CHECKING:
 _VENV_PIP = "/srv/dango/venv/bin/pip"
 _VENV_PYTHON = "/srv/dango/venv/bin/python"
 _PROJECT_DIR = "/srv/dango/project"
-_CADDYFILE = "/etc/caddy/Caddyfile"
-_CADDYFILE_CANDIDATE = "/etc/caddy/Caddyfile.dango-new"
-_WS_STATUS = "Caddyfile WebSocket route"
-# First release with the forward_auth target /api/notebooks/ws-auth.
-_WS_AUTH_MIN_RELEASE = (1, 0, 14)
-_WS_MANUAL_STEP = (
-    "add `forward_auth` to the `/notebooks/marimo/ws` handle, see the 1.0.14 release notes"
-)
-
 
 #: Progress messages for the ``on_progress`` steps of :func:`upgrade_dango`.
 PROGRESS_LABELS: dict[str, str] = {
@@ -128,130 +121,6 @@ def _notify(callback: Callable[[str, str], None] | None, step: str, status: str)
         callback(step, status)
 
 
-def _ws_handles_authenticated(content: str) -> bool:
-    """True when every ``/notebooks/marimo/ws`` handle has ``forward_auth``."""
-    import re
-
-    found = False
-    for m in re.finditer(r"(?m)^([ \t]*)handle /notebooks/marimo/ws \{", content):
-        found = True
-        end = content.find(f"\n{m.group(1)}}}", m.end())
-        body = content[m.end() : end if end != -1 else len(content)]
-        if "forward_auth" not in body:
-            return False
-    return found
-
-
-def _has_ws_auth_endpoint(installed_version: str | None) -> bool:
-    """True when *installed_version* serves ``/api/notebooks/ws-auth`` (1.0.14+)."""
-    from packaging.version import InvalidVersion, Version
-
-    if not installed_version:
-        return False
-    try:
-        return Version(installed_version).release >= _WS_AUTH_MIN_RELEASE
-    except InvalidVersion:
-        return False
-
-
-def _migrate_caddyfile_ws_route(
-    ssh: SSHManager, warnings: list[str], installed_version: str | None
-) -> str:
-    """Put ``forward_auth`` in front of the Marimo WebSocket route in place.
-
-    Only the exact handle written by 1.0.13 and earlier is replaced; every
-    other byte of the Caddyfile is kept, so domains, HSTS and hand edits
-    survive.  Any problem is a warning, never an abort.
-
-    Returns:
-        A status line for :class:`UpgradeResult`.
-    """
-    from dango.platform.cloud._server_templates import LEGACY_MARIMO_WS_RE, marimo_ws_block
-
-    def _skip(reason: str) -> str:
-        warnings.append(f"{_CADDYFILE} not updated ({reason}). Manually {_WS_MANUAL_STEP}.")
-        return f"{_WS_STATUS} skipped: {reason}"
-
-    # Only rewrite when the version now installed on the server serves the
-    # forward_auth target; otherwise every notebook WebSocket would be refused.
-    if not installed_version:
-        warnings.append(
-            f"{_CADDYFILE} not updated: the installed Dango version could not be read. "
-            "Re-run `dango remote upgrade` (it retries this step even at the same version), "
-            f"or manually {_WS_MANUAL_STEP}."
-        )
-        return f"{_WS_STATUS} skipped: installed version unknown"
-    if not _has_ws_auth_endpoint(installed_version):
-        warnings.append(
-            f"{_CADDYFILE} not updated: the installed Dango version ({installed_version}) "
-            "has no /api/notebooks/ws-auth endpoint (added in 1.0.14). Re-run "
-            "`dango remote upgrade` once 1.0.14 or later is installed."
-        )
-        return f"{_WS_STATUS} skipped: installed version {installed_version}"
-
-    read = ssh.exec_command(f"cat {_CADDYFILE}", timeout=30)
-    if not read.success:
-        return _skip("could not read the file")
-    original = read.stdout
-
-    matches = list(LEGACY_MARIMO_WS_RE.finditer(original))
-    if not matches and "handle /notebooks/marimo/ws" not in original:
-        return f"{_WS_STATUS}: no migration needed (no direct WebSocket route)"
-    if not matches and _ws_handles_authenticated(original):
-        return f"{_WS_STATUS} already migrated"
-    if len(matches) != 1:
-        return _skip(
-            "the WebSocket handle does not match the expected 1.0.13 form"
-            if not matches
-            else "the WebSocket handle appears more than once"
-        )
-
-    m = matches[0]
-    candidate = original[: m.start()] + marimo_ws_block(int(m.group(1))) + original[m.end() :]
-
-    try:
-        ssh.write_remote_file(_CADDYFILE_CANDIDATE, candidate, mode=0o644)
-        validate = ssh.exec_command(
-            f"caddy validate --adapter caddyfile --config {_CADDYFILE_CANDIDATE}", timeout=60
-        )
-    finally:
-        ssh.exec_command(f"rm -f {_CADDYFILE_CANDIDATE}", timeout=30)
-    if not validate.success:
-        return _skip("caddy validate rejected the updated file")
-
-    from dango.platform.cloud.domain import ensure_caddyfile
-
-    try:
-        ensure_caddyfile(ssh, candidate)
-    except Exception:
-        try:
-            ssh.write_remote_file(_CADDYFILE, original, mode=0o644)
-        except Exception:
-            return _skip(
-                "Caddy reload failed and restoring the original file also failed; "
-                f"check {_CADDYFILE} and run `systemctl reload-or-restart caddy`"
-            )
-        reload = ssh.exec_command("systemctl reload-or-restart caddy", timeout=60)
-        if reload.success:
-            return _skip("Caddy reload failed; the original file was restored and reloaded")
-        return _skip(
-            "Caddy reload failed; the original file was restored but Caddy did not reload, "
-            "run `systemctl reload-or-restart caddy`"
-        )
-    return f"{_WS_STATUS} migrated"
-
-
-def _run_ws_migration(ssh: SSHManager, warnings: list[str], installed: str | None) -> str:
-    """Run :func:`_migrate_caddyfile_ws_route`, turning any exception into a warning."""
-    try:
-        return _migrate_caddyfile_ws_route(ssh, warnings, installed)
-    except Exception as exc:
-        warnings.append(
-            f"{_CADDYFILE} not updated ({type(exc).__name__}). Manually {_WS_MANUAL_STEP}."
-        )
-        return f"{_WS_STATUS} skipped: {type(exc).__name__}"
-
-
 def upgrade_dango(
     ssh: SSHManager,
     *,
@@ -299,6 +168,7 @@ def upgrade_dango(
 
     start_time = time.monotonic()
     warnings: list[str] = []
+    guard = UpgradeGuard(ssh, warnings)
 
     # 0. Never run a venv another user could write: check it as data first
     from dango.platform.cloud import runtime_ownership as ro
@@ -349,12 +219,19 @@ def upgrade_dango(
     venv_rebuild: str | None = None
     if untrusted:
         _notify(on_progress, "rebuild_venv", "running")
+        guard.arm()  # the rebuild stops services; a dead client must not leave them down
         try:
             venv_rebuild = ro.rebuild_untrusted_venv(
-                ssh, warnings, version=target_version, local_project_root=local_project_root
+                ssh,
+                warnings,
+                version=target_version,
+                local_project_root=local_project_root,
+                on_step=guard.rearm,
             )
         except ro.VenvRebuildError as exc:
             raise CloudError(ro.REBUILD_ABORT.format(exc), error_code="DANGO-D023") from exc
+        finally:
+            guard.disarm()
         _notify(on_progress, "rebuild_venv", "done")
 
     # 3. Already at target?  Still finish the Caddyfile WebSocket migration
@@ -362,8 +239,8 @@ def upgrade_dango(
     if old_version == target_version:
         at_target_warnings = ["Already at target version — no upgrade performed.", *warnings]
         ws_status = (
-            _run_ws_migration(ssh, at_target_warnings, old_version)
-            if _has_ws_auth_endpoint(old_version)
+            run_ws_migration(ssh, at_target_warnings, old_version)
+            if has_ws_auth_endpoint(old_version)
             else None
         )
         ownership_status = ro.secure_runtime(
@@ -404,6 +281,7 @@ def upgrade_dango(
     )
 
     _notify(on_progress, "stop_services", "running")
+    guard.arm()  # before the stop: a killed client leaves a timer that starts dango-web
     stop_services(ssh)
     _notify(on_progress, "stop_services", "done")
 
@@ -417,6 +295,7 @@ def upgrade_dango(
             pip_cmd = f"{_VENV_PIP} install {pre_flag}--upgrade getdango"
         _run_checked(ssh, pip_cmd, step="pip_install", timeout=300)
         _notify(on_progress, "pip_install", "done")
+        guard.rearm()
 
         # 7. Verify new version (validated before it is used anywhere)
         new_version = ro.valid_version(_get_dango_version(ssh))
@@ -439,9 +318,10 @@ def upgrade_dango(
                 f"{migrate_result.stderr.strip() or migrate_result.stdout.strip()}"
             )
         _notify(on_progress, "migrations", "done")
+        guard.rearm()
 
         # 8b. Authenticate the Marimo WebSocket route on existing servers
-        caddyfile_ws_migration = _run_ws_migration(ssh, warnings, new_version)
+        caddyfile_ws_migration = run_ws_migration(ssh, warnings, new_version)
 
         # 8c. Root-owned runtime (the venv was already rebuilt in step 0 if needed)
         _notify(on_progress, "runtime_ownership", "running")
@@ -466,10 +346,14 @@ def upgrade_dango(
         else:
             warnings.append("Docker rebuild did not complete successfully.")
         _notify(on_progress, "docker_rebuild", "done")
+        guard.rearm()
     finally:
-        # 10. Start services
+        # 10. Start services, then the client-side restart makes the guard redundant
         _notify(on_progress, "start_services", "running")
-        start_services(ssh)
+        try:
+            start_services(ssh)
+        finally:
+            guard.disarm()
         _notify(on_progress, "start_services", "done")
 
     # 11. Verify health

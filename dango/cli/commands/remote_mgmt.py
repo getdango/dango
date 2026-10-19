@@ -114,7 +114,15 @@ def remote_status(ctx: click.Context) -> None:
     try:
         ssh.connect(cloud_cfg.droplet_ip)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
+        from dango.cli.commands.remote_power import POWER_ON_HINT, lookup_power_state
+
+        state = lookup_power_state(cloud_cfg)
+        if state == "off":
+            console.print(f"[red]Error:[/red] Server is powered off. Run: {POWER_ON_HINT}")
+        else:
+            console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
+            if state is None and cloud_cfg.provider != "byos":
+                console.print(f"If the server is powered off: {POWER_ON_HINT}")
         raise SystemExit(1) from exc
 
     try:
