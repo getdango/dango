@@ -92,7 +92,7 @@ def webhook_add(ctx: click.Context) -> None:
             inquirer.Text(
                 "name",
                 message="Webhook name (lowercase, alphanumeric + underscore)",
-                validate=lambda _, x: bool(_SLUG_RE.match(x)) and x not in existing_names,
+                validate=lambda _, x: bool(_SLUG_RE.fullmatch(x)) and x not in existing_names,
             ),
             inquirer.Text(
                 "url",

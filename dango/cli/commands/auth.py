@@ -72,10 +72,10 @@ def auth_enable(ctx: click.Context) -> None:
         if db_path.exists():
             import re
 
-            email_re = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+            email_re = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
             while True:
                 email = click.prompt("Admin email")
-                if email_re.match(email):
+                if email_re.fullmatch(email):
                     break
                 console.print("[red]Invalid email format.[/red]")
             result = ensure_admin(db_path, email=email)

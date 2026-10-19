@@ -122,6 +122,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 Apache 2.0 — see [LICENSE](LICENSE) for details.
 
+## Telemetry
+
+`dango init` asks once whether to allow anonymous usage data from Dango (install ping and
+periodic heartbeat: version, OS, configured source types; never source names, credentials or
+data) and from the tools it uses: dbt, dlt and Metabase each report their own anonymous
+telemetry. One answer covers all four. To opt out later (or in), run
+`dango telemetry off --all` (or `on --all`); `dango telemetry status` shows each provider.
+Every outbound host is listed in [`docs/network-egress.yml`](docs/network-egress.yml).
+
 ## Known limitations
 
 Dango is honest about what it doesn't do yet. The short version — full detail at
