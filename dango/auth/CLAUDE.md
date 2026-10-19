@@ -228,6 +228,7 @@ Session bridging syncs Dango auth state to Metabase so users get single sign-on.
 | Add a new OAuth provider | `oauth_login.py` (new provider class) + `web/routes/auth.py` (routes) | `pytest tests/unit/test_auth_oauth_login.py` |
 | Add a new permission | `permissions.py` (`PERMISSIONS` set + `ROLE_PERMISSIONS` mapping) | `pytest tests/unit/test_auth_permissions.py` |
 | Modify role permissions | `permissions.py` (`ROLE_PERMISSIONS` dict) | `pytest tests/unit/test_auth_permissions.py` |
+| Add a state-changing web route | Call `log_auth_event()` with an existing `AuditEvent` member (directly or via a helper such as `_audit`); `tests/unit/test_audit_coverage.py` fails otherwise unless the route has a reasoned ALLOWLIST entry | `pytest tests/unit/test_audit_coverage.py` |
 | Add a new audit event | `audit.py` (`AuditEvent` enum) | `pytest tests/unit/test_auth_audit.py` |
 | Debug session issues | `sessions.py` (`validate_session` / `validate_partial_session`) | `pytest tests/unit/test_auth_sessions.py` |
 | Change password policy | `security.py` (`check_password_strength`) | `pytest tests/unit/test_auth_security.py` |

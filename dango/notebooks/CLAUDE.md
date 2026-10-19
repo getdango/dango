@@ -34,6 +34,7 @@ CLI (notebook new/open/list, snapshot)
 ### Key Design Decisions
 
 - **Marimo runs headless.** Cloud: `--no-token` behind Caddy `forward_auth` / the dango-web proxy (session + same-origin checked). Local: nothing sits in front of Marimo, so it starts with a random per-start `--token-password-file` (never argv; removed on stop) and every Dango-opened URL carries `access_token`. The readiness probe uses Marimo's public `/health`.
+- **Cell executions are not attributable.** Notebook cells run inside one shared Marimo process as the server user, so only notebook create/copy/delete/force-release/restart events reach the audit log (`web/routes/notebooks.py`); what a cell does cannot be traced to a person. State this in the user docs (D1).
 - **Snapshots use `shutil.copy2()`** — simple file copy of `data/warehouse.duckdb`. DuckDB single-writer constraint means notebooks need read-only copies.
 - **Locks are time-limited** (15 minutes) — expired locks are garbage-collected automatically on every lock operation.
 - **Proxy is bidirectional** — HTTP proxy for REST, WebSocket proxy for Marimo's reactive kernel communication.

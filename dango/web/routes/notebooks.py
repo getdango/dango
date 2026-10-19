@@ -635,6 +635,7 @@ async def force_release_notebook_lock(
 @router.post("/api/notebooks/{name}/copy")
 async def copy_notebook(
     name: str,
+    request: Request,
     user: User = Depends(require_permission("notebooks.execute")),
 ) -> JSONResponse:
     """Copy a locked notebook for the current user."""
@@ -655,6 +656,15 @@ async def copy_notebook(
                 "message": f"Notebook file {name!r} not found.",
             },
         )
+
+    _audit(
+        AuditEvent.NOTEBOOK_CREATED,
+        user,
+        request,
+        project_root,
+        notebook_name=copy_name,
+        copied_from=name,
+    )
 
     return JSONResponse(
         status_code=201,

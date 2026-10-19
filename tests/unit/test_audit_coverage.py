@@ -251,7 +251,7 @@ class TestFixedGapsWriteEvents:
             asyncio.run(catalog.refresh_table_profile("src", "tbl", _request(), user))
 
         entries = _audit_entries(project.root)
-        assert [e["event_type"] for e in entries] == ["catalog_profile_triggered"]
+        assert [e["event"] for e in entries] == ["catalog_profile_triggered"]
         assert entries[0]["email"] == "ed@example.com"
         assert entries[0]["details"] == {"source": "src", "table": "tbl"}
 
@@ -265,7 +265,7 @@ class TestFixedGapsWriteEvents:
 
         assert resp.status_code == 201
         entries = _audit_entries(project.root)
-        assert [e["event_type"] for e in entries] == ["notebook_created"]
+        assert [e["event"] for e in entries] == ["notebook_created"]
         assert entries[0]["email"] == "ed@example.com"
         assert entries[0]["details"] == {"notebook_name": "nb_copy_ed", "copied_from": "nb"}
 
@@ -282,7 +282,7 @@ class TestFixedGapsWriteEvents:
 
         assert resp.status_code == 200
         entries = _audit_entries(project.root)
-        assert [e["event_type"] for e in entries] == ["session_expired"]
+        assert [e["event"] for e in entries] == ["session_expired"]
         assert entries[0]["email"] == "ed@example.com"
         assert entries[0]["details"] == {"session_id": other.id, "scope": "own"}
 
@@ -305,5 +305,5 @@ class TestFixedGapsWriteEvents:
 
         assert result["status"] == "started"
         entries = _audit_entries(project.root)
-        assert [e["event_type"] for e in entries] == ["sync_triggered"]
+        assert [e["event"] for e in entries] == ["sync_triggered"]
         assert entries[0]["details"] == {"initial_sync": True, "auth": "deploy_token", "sources": 1}
