@@ -34,6 +34,28 @@ import httpx
 from dango.exceptions import CloudAPIError, CloudAuthError, CloudError
 
 _BASE_URL = "https://api.digitalocean.com/v2"
+_MAX_ERROR_MESSAGE_CHARS = 300
+
+
+def _format_api_error(status: int, response: httpx.Response) -> str:
+    """Build an error string from DO's JSON ``message``/``id``, if present."""
+    text = f"DigitalOcean API error: HTTP {status}"
+    try:
+        data = response.json()
+    except Exception:
+        return text
+    if not isinstance(data, dict):
+        return text
+    message = data.get("message")
+    if not isinstance(message, str) or not message:
+        return text
+    text = f"{text}: {message[:_MAX_ERROR_MESSAGE_CHARS]}"
+    error_id = data.get("id")
+    if isinstance(error_id, str) and error_id:
+        text = f"{text} ({error_id[:_MAX_ERROR_MESSAGE_CHARS]})"
+    return text
+
+
 _NO_RETRY_CODES = {400, 401, 403, 404, 422}
 _RETRY_CODES = {429, 500, 502, 503, 504}
 
@@ -117,7 +139,7 @@ class DigitalOceanClient:
                 "DigitalOcean API authentication failed. Check your token.",
             )
         raise CloudAPIError(
-            f"DigitalOcean API error: HTTP {response.status_code}",
+            _format_api_error(response.status_code, response),
             status_code=response.status_code,
             response_body=body,
         )
