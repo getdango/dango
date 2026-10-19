@@ -39,7 +39,8 @@ GUARD_ACTION = (
     'pgrep -f "[a]pply_all_pending" >/dev/null || '
     'pgrep -f "/srv/dango/venv/bin/[p]ython.* -m (pip|spacy)" >/dev/null || '
     'pgrep -f "[p]ython3 -m venv /srv/dango" >/dev/null || '
-    'pgrep -f "[d]ocker compose.*build" >/dev/null; }; do n=$((n+1)); sleep 15; done; '
+    'pgrep -f "[d]ocker compose.*build" >/dev/null || '
+    'pgrep -f "[d]ango-compose (up-build|build|pull)" >/dev/null; }; do n=$((n+1)); sleep 15; done; '
     "systemctl start dango-web'"
 )
 
