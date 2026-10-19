@@ -65,6 +65,8 @@ platform/
 │   ├── migrate.py       # Server migration (new droplet via Spaces) (TASK-105)
 │   ├── upgrade.py       # Remote Dango version upgrade (TASK-106)
 │   ├── runtime_ownership.py  # Root-owned /srv/dango + venv, trust probe, venv rebuild (1.0.14)
+│   ├── compose_helper.py # Root-owned compose helper text + install scripts (1.0.14, not yet enabled)
+│   ├── server_compose.py # Server render run by the helper (1.0.14, not yet enabled)
 │   ├── pushed_requirements.py # Root installs requirements only from the pusher's local files (1.0.14)
 │   └── _server_templates.py  # Config file templates (incl. build_caddyfile(), backup timer)
 │
@@ -118,6 +120,8 @@ platform/
 | `cloud/migrate.py` | Server migration via Spaces (new droplet, transfer data, destroy old) | `migrate_server`, `MigrateResult` |
 | `cloud/upgrade.py` | Remote Dango version upgrade (pip install, migrations, Docker rebuild) | `upgrade_dango`, `UpgradeResult`, `validate_version_string`, `check_versions` |
 | `cloud/upgrade_guard.py` | Server-side systemd timer that starts `dango-web` if the upgrading client dies (re-armed per step, waits while a step runs) | `UpgradeGuard` |
+| `cloud/compose_helper.py` | Root-owned compose helper (POSIX sh text, sudoers rule, install scripts, per-verb budgets, `server_compose_cmd`); not yet enabled on servers | `helper_script`, `install_script`, `server_compose_cmd`, `VERB_BUDGET`, `min_caller_timeout` |
+| `cloud/server_compose.py` | Server-side compose/Dockerfile render and bounded plugin-jar staging, run by the helper's `render` verb | `main`, `Layout`, `acquire_lock`, `quote_name` |
 | `cloud/upgrade_caddy.py` | Caddyfile WebSocket-route migration run by `upgrade_dango` | `run_ws_migration`, `has_ws_auth_endpoint` |
 | `cloud/runtime_ownership.py` | Root-owned runtime: composable ownership steps (`OwnershipStep`) + verify script, root installs of pushed requirements only (`check_requirements`), in-place rebuild of a venv a non-root user could write (fails closed: `VenvRebuildError` aborts upgrade/setup) | `ownership_steps`, `build_ownership_script`, `build_verify_script`, `apply_ownership`, `secure_runtime`, `rebuild_untrusted_venv`, `at_target_restart_plan`, `venv_trust_findings`, `VenvRebuildError`, `ROOT_PYTHON` |
 | `cloud/pushed_requirements.py` | Root installs `requirements.txt` / `scripts/requirements.txt` only from the pusher's local copies (private upload), refusing editable, local-path, nested, non-http(s) index and credential-bearing lines | `check_requirements`, `install_pushed_requirements`, `REQUIREMENT_FILES` |
