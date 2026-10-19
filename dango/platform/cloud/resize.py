@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from dango.platform.cloud.digitalocean import DigitalOceanClient
     from dango.platform.cloud.ssh import SSHManager
 
-_SIZE_SLUG_PATTERN = re.compile(r"^[a-zA-Z0-9\-_.]+$")
+_SIZE_SLUG_PATTERN = re.compile(r"[a-zA-Z0-9\-_.]+")
 _PROFILES_PATH = "/srv/dango/project/dbt/profiles.yml"
 _DBT_PROJECT_PATH = "/srv/dango/project/dbt/dbt_project.yml"
 
@@ -49,7 +49,7 @@ def validate_size_slug(slug: str) -> None:
     Raises:
         CloudError: If *slug* contains characters outside ``[a-zA-Z0-9\\-_.]``.
     """
-    if not _SIZE_SLUG_PATTERN.match(slug):
+    if not _SIZE_SLUG_PATTERN.fullmatch(slug):
         raise CloudError(
             f"Invalid size slug: {slug!r}. "
             "Only alphanumeric characters, hyphens, underscores, and dots are allowed.",

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
     from dango.config.models import DataSource
 
-_DURATION_PATTERN = re.compile(r"^(\d+)([dwmDWM])$")
+_DURATION_PATTERN = re.compile(r"(\d+)([dwmDWM])")
 _DURATION_MULTIPLIERS = {"d": 1, "w": 7, "m": 30}
 
 
@@ -37,7 +37,7 @@ def _parse_duration(value: str) -> int:
     Raises:
         click.BadParameter: If the format is invalid or value is zero.
     """
-    match = _DURATION_PATTERN.match(value)
+    match = _DURATION_PATTERN.fullmatch(value)
     if not match:
         raise click.BadParameter(
             f"Invalid duration '{value}'. Use format like '7d', '2w', '1m' "

@@ -20,7 +20,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 # Enums
 # ---------------------------------------------------------------------------
 
-_SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+_SLUG_RE = re.compile(r"[a-z][a-z0-9_]*")
 
 
 class ComparisonType(str, Enum):
@@ -57,7 +57,7 @@ class MonitorConfig(BaseModel):
     @field_validator("name")
     @classmethod
     def _name_is_slug(cls, v: str) -> str:
-        if not _SLUG_RE.match(v):
+        if not _SLUG_RE.fullmatch(v):
             msg = (
                 f"Monitor name must be lowercase alphanumeric with underscores, "
                 f"starting with a letter: {v!r}"

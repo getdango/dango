@@ -36,9 +36,9 @@ LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 _FS_SCHEMES = frozenset(
     {"file", "s3", "gs", "gcs", "gdrive", "az", "abfs", "abfss", "adl", "azure", "hf", "sftp"}
 )
-_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+_LABEL_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
 # Human-entered hostnames may also use '_' (e.g. Docker service names such as my_api).
-_LENIENT_LABEL_RE = re.compile(r"^[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?$")
+_LENIENT_LABEL_RE = re.compile(r"[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?")
 
 
 def _is_hostname(value: str, *, lenient: bool = False) -> bool:

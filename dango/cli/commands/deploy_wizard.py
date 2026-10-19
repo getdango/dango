@@ -43,7 +43,7 @@ def _safe_confirm(prompt: str, default: bool = True, *, non_interactive: bool = 
 # Data structures
 # ---------------------------------------------------------------------------
 
-_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 
 
 @dataclass
@@ -497,7 +497,7 @@ def _step_admin() -> tuple[str, str]:
     # Email (with confirmation — BUG-237)
     while True:
         email = click.prompt("  Admin email")
-        if not _EMAIL_RE.match(email):
+        if not _EMAIL_RE.fullmatch(email):
             console.print("  [red]Invalid email format.[/red]")
             continue
         confirm = click.prompt("  Confirm admin email")
@@ -1003,7 +1003,7 @@ def run_non_interactive(
     if not admin_email:
         console.print("[red]Error:[/red] --admin-email is required for --non-interactive.")
         raise SystemExit(1)
-    if not _EMAIL_RE.match(admin_email):
+    if not _EMAIL_RE.fullmatch(admin_email):
         console.print(f"[red]Error:[/red] Invalid email format: {admin_email}")
         raise SystemExit(1)
 
@@ -1265,7 +1265,7 @@ def run_byos_non_interactive(
     if not admin_email:
         console.print("[red]Error:[/red] --admin-email is required for --byos.")
         raise SystemExit(1)
-    if not _EMAIL_RE.match(admin_email):
+    if not _EMAIL_RE.fullmatch(admin_email):
         console.print(f"[red]Error:[/red] Invalid email format: {admin_email}")
         raise SystemExit(1)
 

@@ -115,7 +115,7 @@ class TestAdminEmailValidation:
     def test_admin_email_command_is_quoted(self) -> None:
         ssh = _ssh()
         _trigger_metabase_setup(ssh, "first.last+tag@example.com")
-        (command,) = [c.args[0] for c in ssh.exec_command.call_args_list]
+        command = ssh.exec_command.call_args_list[0].args[0]
         q = shlex.quote
         assert command == (
             f"runuser -u dango -- sh -c {q(_APPEND_SCRIPT)} _ /srv/dango/project/.env "
