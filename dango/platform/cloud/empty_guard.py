@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING
 from dango.exceptions import CloudProvisioningError
 from dango.platform.cloud.project_files import AS_DANGO
 
+_JUNK = frozenset({".DS_Store", ".gitkeep", "Thumbs.db"})
+
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
 
@@ -39,16 +41,19 @@ def refuse_empty_mirrors(
         allow_empty: Skip the check (the caller accepts erasing the server copy).
 
     Raises:
-        CloudProvisioningError: If a local directory exists, is empty, and the server
-            copy has entries.
+        CloudProvisioningError: If a local directory exists, holds no real files, and the
+            server copy has files.
     """
     if allow_empty:
         return
     for rel in rel_dirs:
         local_dir = local_project_root / rel
-        if not local_dir.is_dir() or any(local_dir.iterdir()):
+        if not local_dir.is_dir() or any(
+            p.is_file() and p.name not in _JUNK for p in local_dir.rglob("*")
+        ):
             continue
-        probe = f'test -n "$(ls -A {shlex.quote(f"{remote_project_dir}/{rel}")} 2>/dev/null)"'
+        target = shlex.quote(f"{remote_project_dir}/{rel}")
+        probe = f'test -n "$(find {target} -type f -print -quit 2>/dev/null)"'
         if ssh.exec_command(f"{AS_DANGO} sh -c {shlex.quote(probe)}").exit_code == 0:
             raise CloudProvisioningError(
                 f"Local {rel}/ is empty but the server copy is not; rsync --delete would "

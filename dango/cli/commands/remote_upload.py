@@ -12,10 +12,12 @@ this command (or the web UI CSV upload) is the way to place a file there.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import posixpath
 import shlex
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.markup import escape
@@ -85,6 +87,12 @@ def _validate_local_file(local_path: Path) -> int:
     return size
 
 
+def _cleanup_part(ssh: Any, part: str) -> None:
+    """Best-effort removal of the partial upload; never masks the original error."""
+    with contextlib.suppress(Exception):
+        ssh.exec_command(f"rm -f {shlex.quote(part)}")
+
+
 @remote.command("upload")
 @click.argument("local_path", type=click.Path(path_type=Path))
 @click.argument("remote_path", required=False)
@@ -122,6 +130,9 @@ def remote_upload(ctx: click.Context, local_path: Path, remote_path: str | None)
         except CloudSSHError as exc:
             ssh.exec_command(f"rm -f {q(part)}")
             raise click.ClickException(f"Upload failed: {exc}") from exc
+        except BaseException:
+            _cleanup_part(ssh, part)
+            raise
         console.print(f"[green]Uploaded[/green] {escape(local_path.name)} -> {escape(target)}")
     finally:
         ssh.disconnect()

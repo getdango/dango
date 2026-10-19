@@ -284,7 +284,7 @@ class TestSourceValidation:
 
     def test_no_sources_configured(self):
         ssh = make_ssh_mock()
-        ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=1)
+        ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=3)
         errors = _validate_remote_sources(ssh)
         assert errors == []
 

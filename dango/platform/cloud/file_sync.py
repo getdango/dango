@@ -249,7 +249,9 @@ def _upload_file_if_exists(
     last_err: Exception | None = None
     for attempt in range(3):
         try:
-            write_project_file(ssh, remote_path, data)
+            write_project_file(
+                ssh, remote_path, data, source=local_path if content is None else None
+            )
             return True
         except Exception as e:
             last_err = e

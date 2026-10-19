@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.project_files import read_project_file
 
 logger = get_logger(__name__)
 
@@ -265,19 +266,18 @@ def _validate_remote_sources(ssh: SSHManager) -> list[str]:
     errors: list[str] = []
 
     # Read sources.yml
-    sources_result = ssh.exec_command(f"cat {REMOTE_PROJECT_DIR}/.dango/sources.yml 2>/dev/null")
-    if not sources_result.success or not sources_result.stdout.strip():
+    sources_text = read_project_file(ssh, f"{REMOTE_PROJECT_DIR}/.dango/sources.yml")
+    if not sources_text.strip():
         return errors  # No sources configured — nothing to validate
 
     # Read secrets.toml
-    secrets_result = ssh.exec_command(f"cat {REMOTE_PROJECT_DIR}/.dlt/secrets.toml 2>/dev/null")
-    secrets_content = secrets_result.stdout if secrets_result.success else ""
+    secrets_content = read_project_file(ssh, f"{REMOTE_PROJECT_DIR}/.dlt/secrets.toml")
 
     # Parse source names from sources.yml (look for name: fields)
     try:
         import yaml
 
-        sources_data: dict[str, Any] = yaml.safe_load(sources_result.stdout) or {}
+        sources_data: dict[str, Any] = yaml.safe_load(sources_text) or {}
     except Exception:
         # If YAML parsing fails, skip validation
         return errors

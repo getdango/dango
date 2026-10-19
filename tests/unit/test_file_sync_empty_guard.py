@@ -27,7 +27,7 @@ def _rsync_installed():
 
 
 def _fake_ssh(*, remote_nonempty: bool) -> MagicMock:
-    """Mock root SSHManager; ``ls -A`` on the server reports a non-empty directory when asked."""
+    """Mock root SSHManager; ``find -type f`` on the server reports a non-empty directory when asked."""
     ssh = MagicMock()
     ssh.key_path = Path("/tmp/test_key")
     ssh.known_hosts_path = Path("/tmp/test_known_hosts")
@@ -37,7 +37,7 @@ def _fake_ssh(*, remote_nonempty: bool) -> MagicMock:
     ssh.username = "root"
 
     def _exec(cmd: str, **kwargs: object) -> CommandResult:
-        if "ls -A" in cmd:
+        if "-type f -print -quit" in cmd:
             return CommandResult(stdout="", stderr="", exit_code=0 if remote_nonempty else 1)
         return CommandResult(stdout="", stderr="", exit_code=0)
 
@@ -187,7 +187,8 @@ class TestPushWritesAsDangoUser:
         ssh = _fake_ssh(remote_nonempty=False)
         with patch(_RSYNC, return_value=""):
             sync_project_files(ssh, root, remote_host="10.0.0.1")
-        ssh.upload_file.assert_not_called()
+        for call in ssh.upload_file.call_args_list:
+            assert str(call.args[1]).startswith("/root/"), call
         for call in ssh.write_remote_file.call_args_list:
             assert not str(call.args[0]).startswith(REMOTE_PROJECT_DIR), call
         cmds = [str(c.args[0]) for c in ssh.exec_command.call_args_list]
@@ -251,6 +252,9 @@ class _LocalTreeSSH:
     def write_remote_file(self, path: str, content, mode: int = 0o644, timeout=None) -> None:
         data = content.encode() if isinstance(content, str) else content
         Path(self._local(path)).write_bytes(data)
+
+    def upload_file(self, local_path, remote_path: str, **kwargs) -> None:
+        shutil.copyfile(local_path, self._local(remote_path))
 
     def exec_command(self, command: str, timeout=None, check: bool = False) -> CommandResult:
         argv = ["sh", "-c", self._local(command)]

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import secrets
 import shlex
+from pathlib import Path
 from typing import Any
 
 from dango.exceptions import CloudProvisioningError
@@ -50,21 +51,34 @@ _ABSENT_EXIT = 3
 _APPEND_SCRIPT = 'grep -q "^$2=" "$1" 2>/dev/null || printf "%s\\n" "$3" >> "$1"'
 
 
-def write_project_file(ssh: Any, path: str, content: str | bytes, mode: int = 0o644) -> None:
+def write_project_file(
+    ssh: Any,
+    path: str,
+    content: str | bytes,
+    mode: int = 0o644,
+    *,
+    source: Path | None = None,
+) -> None:
     """Write *content* to *path* as the ``dango`` user, replacing (not following) it.
 
     Args:
         ssh: Connected root ``SSHManager``.
         path: Absolute destination path inside the project directory.
-        content: File content.
+        content: File content (ignored when *source* is given).
         mode: Permission bits for the new file.
+        source: Local file to stage with a pipelined SFTP ``put`` instead of
+            sending *content* (large files, e.g. the Metabase driver jar).
 
     Raises:
         CloudProvisioningError: If the copy into place fails.
     """
     staging = f"/root/.dango-upload-{secrets.token_hex(8)}"
-    ssh.write_remote_file(staging, content, mode=0o600)
     q = shlex.quote
+    if source is not None:
+        ssh.upload_file(source, staging)
+        ssh.exec_command(f"chmod 600 {q(staging)}", timeout=30, check=False)
+    else:
+        ssh.write_remote_file(staging, content, mode=0o600)
     command = (
         f"{AS_DANGO} sh -c {q(_WRITE_SCRIPT)} _ {q(path)} {mode:o} < {q(staging)}; "
         f"rc=$?; rm -f {q(staging)}; exit $rc"

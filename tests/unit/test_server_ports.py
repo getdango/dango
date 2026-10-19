@@ -98,7 +98,8 @@ class FakeSSH:
         return CommandResult(stdout="", stderr="", exit_code=0)
 
     def upload_file(self, local_path: Path | str, remote_path: str) -> None:
-        self.uploaded[remote_path] = Path(local_path).read_bytes()
+        target = self.staged if remote_path.startswith("/root/") else self.uploaded
+        target[remote_path] = Path(local_path).read_bytes()
 
     def write_remote_file(self, remote_path: str, content: str | bytes, mode: int = 0o644) -> None:
         data = content.encode() if isinstance(content, str) else content
