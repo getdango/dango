@@ -376,6 +376,14 @@ def _recover_power(client: DigitalOceanClient, droplet_id: int, exc: BaseExcepti
         still_off = get_power_state(client, droplet_id) == "off"
     except Exception:
         still_off = False
+    if still_off and not isinstance(exc, Exception):
+        import click
+
+        click.echo(
+            f"Interrupted: the droplet may still be powered off. "
+            f"Run: dango remote power-on  (droplet {droplet_id})",
+            err=True,
+        )
     if still_off and isinstance(exc, Exception):
         raise CloudProvisioningError(
             f"{exc}. The droplet may still be powered off. "

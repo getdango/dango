@@ -41,6 +41,29 @@ def refuse_if_powered_off(cloud_cfg: Any) -> None:
         )
 
 
+def reconcile_size(client: Any, cloud_cfg: Any, project_root: Any, ssh: Any = None) -> None:
+    """Adopt the droplet's live size if it differs from cloud.yml; failures are warnings.
+
+    Connects over SSH only when the sizes differ and no *ssh* connection was passed in.
+    """
+    from dango.cli.commands.remote import _connect_ssh
+
+    try:
+        live_size = str(client.get_droplet(cloud_cfg.droplet_id).get("size_slug", ""))
+        if not live_size or live_size == cloud_cfg.size:
+            return
+        if ssh is not None:
+            _adopt_live_size(ssh, cloud_cfg, project_root, live_size)
+            return
+        own = _connect_ssh(cloud_cfg, project_root)
+        try:
+            _adopt_live_size(own, cloud_cfg, project_root, live_size)
+        finally:
+            own.disconnect()
+    except Exception as exc:
+        console.print(f"[yellow]Could not check or update the recorded server size: {exc}[/yellow]")
+
+
 def _adopt_live_size(ssh: Any, cloud_cfg: Any, project_root: Any, live_size: str) -> None:
     """A resize finished while the client was gone: record the new size and refresh profiles."""
     from dango.platform.cloud.provisioning import save_provisioning_metadata
@@ -96,6 +119,7 @@ def remote_power_on(ctx: click.Context, yes: bool) -> None:
     console.print(f"Server power state: [bold]{state}[/bold]")
     if state == "active":
         console.print("[green]Server is already powered on.[/green]")
+        reconcile_size(client, cloud_cfg, project_root)
         return
     if state != "off":
         console.print(f"[red]Error:[/red] Cannot power on a server in state '{state}'.")
@@ -108,11 +132,9 @@ def remote_power_on(ctx: click.Context, yes: bool) -> None:
     try:
         with Status("[bold blue]Powering on...", console=console):
             power_on_and_wait(client, cloud_cfg.droplet_id, cloud_cfg.droplet_ip)
-        live_size = str(client.get_droplet(cloud_cfg.droplet_id).get("size_slug", ""))
         ssh = _connect_ssh(cloud_cfg, project_root)
         try:
-            if live_size and live_size != cloud_cfg.size:
-                _adopt_live_size(ssh, cloud_cfg, project_root, live_size)
+            reconcile_size(client, cloud_cfg, project_root, ssh)
             start_services(ssh)
             healthy = verify_health(ssh)
         finally:
