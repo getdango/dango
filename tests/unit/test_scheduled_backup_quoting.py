@@ -1,8 +1,8 @@
 """tests/unit/test_scheduled_backup_quoting.py
 
-Shell-quoting contract for the root-run scheduled-backup commands.
+Quoting contract for the root-run scheduled-backup commands.
 The compose project name (read from the server's project.yml) and the Docker
-volume path must each reach the shell as exactly one argument.
+volume path must each reach the program as exactly one value.
 """
 
 from __future__ import annotations
@@ -28,62 +28,62 @@ _HOSTILE = [
 ]
 
 
-def _commands(mock_run: MagicMock) -> list[str]:
-    return [call.args[0] for call in mock_run.call_args_list]
-
-
-def _compose_commands(name: str) -> list[str]:
+def _compose_calls(name: str) -> list[Any]:
     with (
         patch(f"{_MODULE}.get_compose_project_name", return_value=name),
         patch("subprocess.run") as mock_run,
     ):
         sb._stop_services()
         sb._start_services()
-    return [c for c in _commands(mock_run) if "docker compose" in c]
+    return [c for c in mock_run.call_args_list if c.args[0][0] == "docker"]
 
 
 @pytest.mark.unit
 class TestScheduledBackupComposeQuoting:
-    """Compose project quoting in stop/start/volume-inspect commands."""
+    """The compose project name (from the server's project.yml) is one environment value."""
 
-    def test_scheduled_backup_quotes_compose_project(self) -> None:
-        compose = _compose_commands("dango-ab12cd34")
-        assert len(compose) == 2
-        for command in compose:
-            assert shlex.split(command)[0] == "COMPOSE_PROJECT_NAME=dango-ab12cd34"
-            assert command.startswith("COMPOSE_PROJECT_NAME=dango-ab12cd34 docker compose")
+    def test_scheduled_backup_passes_compose_project_in_env(self) -> None:
+        calls = _compose_calls("dango-ab12cd34")
+        assert len(calls) == 2
+        for call in calls:
+            assert call.args[0][:4] == [
+                "docker",
+                "compose",
+                "-f",
+                f"{sb.PROJECT_DIR}/docker-compose.yml",
+            ]
+            assert call.kwargs["env"]["COMPOSE_PROJECT_NAME"] == "dango-ab12cd34"
+            assert not call.kwargs.get("shell")
 
         with (
             patch(f"{_MODULE}.get_compose_project_name", return_value="dango-ab12cd34"),
             patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="/v\n")) as run,
         ):
             assert sb._get_metabase_volume_path() == "/v"
-        tokens = shlex.split(run.call_args.args[0])
-        assert tokens[:3] == ["docker", "volume", "inspect"]
-        assert tokens[3] == "dango-ab12cd34_metabase-data"
+        assert run.call_args.args[0][:4] == [
+            "docker",
+            "volume",
+            "inspect",
+            "dango-ab12cd34_metabase-data",
+        ]
 
     @pytest.mark.parametrize("name", _HOSTILE)
-    def test_scheduled_backup_hostile_project_name_is_one_token(self, name: str) -> None:
-        for command in _compose_commands(name):
-            # `$(..)` and backticks are one token to shlex.split but still expand
-            # in a shell unless single-quoted, so require the quoted form.
-            assert f"COMPOSE_PROJECT_NAME={shlex.quote(name)} docker" in command
-            tokens = shlex.split(command)
-            assert tokens[0] == f"COMPOSE_PROJECT_NAME={name}"
-            assert tokens[1:4] == ["docker", "compose", "-f"]
-            # Nothing from the hostile value escaped into another argument.
-            assert not any("id" == t or t.endswith(";") for t in tokens[1:])
+    def test_scheduled_backup_hostile_project_name_is_one_value(self, name: str) -> None:
+        for call in _compose_calls(name):
+            assert call.kwargs["env"]["COMPOSE_PROJECT_NAME"] == name
+            # Nothing from the hostile value became another argument.
+            assert call.args[0][:3] == ["docker", "compose", "-f"]
+            assert not any(name in arg for arg in call.args[0])
 
         with (
             patch(f"{_MODULE}.get_compose_project_name", return_value=name),
             patch("subprocess.run", return_value=MagicMock(returncode=1, stdout="")) as run,
         ):
             sb._get_metabase_volume_path()
-        assert shlex.quote(f"{name}_metabase-data") in run.call_args.args[0]
-        tokens = shlex.split(run.call_args.args[0])
-        assert tokens[:3] == ["docker", "volume", "inspect"]
-        assert tokens[3] == f"{name}_metabase-data"
-        assert tokens[4] == "--format"
+        args = run.call_args.args[0]
+        assert args[:3] == ["docker", "volume", "inspect"]
+        assert args[3] == f"{name}_metabase-data"
+        assert args[4] == "--format"
 
 
 @pytest.mark.unit
@@ -164,7 +164,7 @@ with open(os.environ["STUB_LOG"], "a") as fh:
 
 @pytest.mark.unit
 class TestScheduledBackupCommandsExecuted:
-    """Run the generated commands under a real shell with a stand-in docker."""
+    """Run the generated commands (no shell) with a stand-in docker."""
 
     @pytest.mark.parametrize("name", _EXEC_HOSTILE)
     def test_hostile_name_arrives_as_one_value_and_runs_nothing(
@@ -190,12 +190,14 @@ class TestScheduledBackupCommandsExecuted:
             sb._stop_services()
             sb._start_services()
             sb._get_metabase_volume_path()
-        commands = [c for c in _commands(mock_run) if "docker" in c]
-        assert len(commands) == 3
+        calls = [c for c in mock_run.call_args_list if c.args[0][0] == "docker"]
+        assert len(calls) == 3
 
-        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "STUB_LOG": str(log)}
-        for command in commands:
-            real_subprocess.run(["sh", "-c", command], cwd=work, env=env, check=True)
+        base_env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "STUB_LOG": str(log)}
+        for call in calls:
+            # The call's own environment (compose project name) with the stub docker first.
+            env = {**(call.kwargs.get("env") or {}), "PATH": base_env["PATH"], "STUB_LOG": str(log)}
+            real_subprocess.run(call.args[0], cwd=work, env=env, check=True)
 
         records = [json.loads(line) for line in log.read_text().splitlines()]
         assert len(records) == 3

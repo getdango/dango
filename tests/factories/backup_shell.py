@@ -272,13 +272,17 @@ def run_spaces_restore(
         local_path.parent.mkdir(parents=True, exist_ok=True)
         local_path.write_bytes(archive.read_bytes())
 
-    def run_local(command: str, **_kw: object) -> str:
+    def run_local(command: list[str], **_kw: object) -> str:
+        import shlex
+
         from dango.exceptions import CloudProvisioningError
 
-        events.append(f"run: {command}")
-        if command.startswith("chown"):
+        # Builder scripts run as ``sh -c <script>``; record the script text itself.
+        is_script = command[:2] == ["sh", "-c"]
+        events.append(f"run: {command[2] if is_script else shlex.join(command)}")
+        if command[0] == "chown":
             return ""
-        proc = real_run(command, shell=True, capture_output=True, text=True, env=env)
+        proc = real_run(command, capture_output=True, text=True, env=env)
         if proc.returncode != 0:
             raise CloudProvisioningError(f"Step failed (exit {proc.returncode}): {proc.stderr}")
         return proc.stdout

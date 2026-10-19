@@ -32,8 +32,11 @@ def _commands(ssh: MagicMock) -> list[str]:
 @pytest.mark.unit
 def test_remote_script_uploaded_not_exec_base64() -> None:
     ssh = _ssh()
-    with patch.object(deploy_provision, "write_project_file"), patch.object(
-        deploy_provision, "append_env_line_if_missing", return_value=MagicMock(exit_code=0)
+    with (
+        patch.object(deploy_provision, "write_project_file"),
+        patch.object(
+            deploy_provision, "append_env_line_if_missing", return_value=MagicMock(exit_code=0)
+        ),
     ):
         _create_admin_and_enable_auth(ssh, "admin@test.com", "password123")
 
