@@ -266,12 +266,16 @@ def _validate_remote_sources(ssh: SSHManager) -> list[str]:
     errors: list[str] = []
 
     # Read sources.yml
-    sources_text = read_project_file(ssh, f"{REMOTE_PROJECT_DIR}/.dango/sources.yml")
-    if not sources_text.strip():
-        return errors  # No sources configured — nothing to validate
+    try:
+        sources_text = read_project_file(ssh, f"{REMOTE_PROJECT_DIR}/.dango/sources.yml")
+        if not sources_text.strip():
+            return errors  # No sources configured — nothing to validate
 
-    # Read secrets.toml
-    secrets_content = read_project_file(ssh, f"{REMOTE_PROJECT_DIR}/.dlt/secrets.toml")
+        # Read secrets.toml
+        secrets_content = read_project_file(ssh, f"{REMOTE_PROJECT_DIR}/.dlt/secrets.toml")
+    except CloudProvisioningError as exc:
+        # An unreadable file is reported but never fails the deploy.
+        return [f"Could not validate sources: {exc}"]
 
     # Parse source names from sources.yml (look for name: fields)
     try:

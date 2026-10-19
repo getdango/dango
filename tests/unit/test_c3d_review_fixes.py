@@ -182,3 +182,51 @@ class TestUploadCleanupOnAnyException:
         ):
             CliRunner().invoke(remote, ["upload", str(f)], obj={})
         assert any(c.startswith("rm -f") and "a.csv.part" in c for c in ssh.commands)
+
+
+@pytest.mark.unit
+class TestReadFailureHandling:
+    @pytest.mark.parametrize("failing", ["sources.yml", "secrets.toml"])
+    def test_validate_sources_read_failure_is_a_warning_not_an_exception(self, failing):
+        from dango.platform.cloud.deployer import _validate_remote_sources
+
+        ssh = MagicMock()
+
+        def _exec(cmd, **kw):
+            if failing in cmd:
+                return CommandResult(stdout="", stderr="permission denied", exit_code=1)
+            if "sources.yml" in cmd:
+                return _ok("sources:\n  - name: s\n    type: google_sheets\n")
+            return _ok(code=3)
+
+        ssh.exec_command.side_effect = _exec
+        errors = _validate_remote_sources(ssh)
+        assert len(errors) == 1
+        assert failing in errors[0]
+
+    def test_compose_name_falls_back_to_legacy_hash_when_read_fails(self):
+        from dango.platform.cloud.backup import get_remote_compose_project_name as fn
+
+        ssh = MagicMock()
+        ssh.exec_command.return_value = CommandResult(stdout="", stderr="denied", exit_code=1)
+        name = fn(ssh, "/srv/dango/project")
+        assert name.startswith("dango-")
+        assert len(name) == len("dango-") + 8
+
+    def test_write_remote_file_close_error_becomes_cloud_ssh_error(self):
+        from dango.exceptions import CloudSSHError
+
+        manager = SSHManager.__new__(SSHManager)
+        manager._client = MagicMock()
+        remote_file = MagicMock()
+        remote_file.close.side_effect = OSError("write failed")
+        sftp = manager._client.open_sftp.return_value
+        sftp.open.return_value = remote_file
+        remote_file.__enter__.return_value = remote_file
+        remote_file.__exit__.side_effect = lambda *a: remote_file.close()
+        with (
+            patch.object(SSHManager, "_require_connected"),
+            patch("dango.platform.cloud.ssh._ensure_paramiko", return_value=MagicMock()),
+            pytest.raises(CloudSSHError),
+        ):
+            manager.write_remote_file("/root/x", b"data")
