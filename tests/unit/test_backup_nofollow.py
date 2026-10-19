@@ -6,6 +6,7 @@ service user's tree; remaining root Python steps run isolated.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import subprocess
@@ -42,6 +43,7 @@ def _run_remote_script(source: Path, destination: Path) -> subprocess.CompletedP
         [sys.executable, "-I", "-c", parts[3], parts[4], parts[5]],
         capture_output=True,
         text=True,
+        timeout=5,
         check=False,
     )
 
@@ -199,3 +201,95 @@ class TestSetupAndMigrateRootPython:
         migrate._run_transfer_script(ssh, "print(1)")
         run = [c[0][0] for c in ssh.exec_command.call_args_list if "transfer.py" in c[0][0]]
         assert any(c.startswith(f"{ROOT_PYTHON} ") for c in run), run
+
+
+_FIFO_RUNNER = """
+import sys
+from pathlib import Path
+from dango.platform.cloud.backup import _sanitized_metabase_yaml
+try:
+    _sanitized_metabase_yaml(Path(sys.argv[1]))
+except ValueError:
+    raise SystemExit(0)
+raise SystemExit(3)
+"""
+
+
+@pytest.mark.unit
+class TestSpecialAndLinkedFiles:
+    def test_fifo_is_refused_without_blocking(self, tmp_path: Path) -> None:
+        source = _project(tmp_path) / ".dango" / "metabase.yml"
+        os.mkfifo(source)
+        proc = subprocess.run(
+            [sys.executable, "-c", _FIFO_RUNNER, str(source)],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+
+    def test_remote_script_refuses_fifo_without_blocking(self, tmp_path: Path) -> None:
+        source = _project(tmp_path) / ".dango" / "metabase.yml"
+        os.mkfifo(source)
+        dest = tmp_path / "out" / "metabase.yml"
+        proc = _run_remote_script(source, dest)
+        assert proc.returncode != 0
+        assert not dest.exists()
+
+    def test_hard_linked_file_is_refused(self, tmp_path: Path) -> None:
+        from dango.platform.cloud.backup import _sanitized_metabase_yaml
+
+        source = _project(tmp_path) / ".dango" / "metabase.yml"
+        source.write_text(_YAML)
+        os.link(source, tmp_path / "second-name.yml")
+        with pytest.raises(ValueError):
+            _sanitized_metabase_yaml(source)
+
+    def test_remote_script_refuses_hard_link(self, tmp_path: Path) -> None:
+        source = _project(tmp_path) / ".dango" / "metabase.yml"
+        source.write_text(_YAML)
+        os.link(source, tmp_path / "second-name.yml")
+        dest = tmp_path / "out" / "metabase.yml"
+        proc = _run_remote_script(source, dest)
+        assert proc.returncode != 0
+        assert not dest.exists()
+
+
+_SIGTERM_RUNNER = """
+import os, signal, sys
+from pathlib import Path
+from unittest.mock import patch
+from dango.platform.cloud import scheduled_backup as sb
+
+def terminate():
+    os.kill(os.getpid(), signal.SIGTERM)
+    return []
+
+with (
+    patch.object(sb, "BACKUP_DIR", Path(sys.argv[1])),
+    patch.object(sb, "_load_backup_config", return_value={}),
+    patch.object(sb, "_acquire_backup_lock", return_value=None),
+    patch.object(sb, "_stop_services"),
+    patch.object(sb, "_start_services", side_effect=lambda: print("RESTARTED", flush=True)),
+    patch.object(sb, "_checkpoint_databases", side_effect=terminate),
+):
+    try:
+        sb.run_scheduled_backup()
+    except SystemExit:
+        print("EXITED", flush=True)
+        raise
+"""
+
+
+@pytest.mark.unit
+class TestScheduledBackupSigterm:
+    def test_sigterm_restarts_services(self, tmp_path: Path) -> None:
+        proc = subprocess.run(
+            [sys.executable, "-c", _SIGTERM_RUNNER, str(tmp_path / "backups")],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert "RESTARTED" in proc.stdout, (proc.returncode, proc.stderr)
+        assert "EXITED" in proc.stdout
