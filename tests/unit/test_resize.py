@@ -169,7 +169,7 @@ class TestRegenerateDbtProfiles:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/dbt/dbt_project.yml": (
+                "dbt_project.yml": (
                     "name: my_project\nversion: 1.0.0",
                     "",
                     0,
@@ -188,7 +188,7 @@ class TestRegenerateDbtProfiles:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/dbt/dbt_project.yml": ("", "", 1),
+                "dbt_project.yml": ("", "", 1),
             }
         )
 
@@ -200,7 +200,7 @@ class TestRegenerateDbtProfiles:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/dbt/dbt_project.yml": (
+                "dbt_project.yml": (
                     "name: proj\nversion: 1.0.0",
                     "",
                     0,
@@ -222,7 +222,7 @@ class TestResizeDroplet:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/dbt/dbt_project.yml": (
+                "dbt_project.yml": (
                     "name: proj\nversion: 1.0.0",
                     "",
                     0,
@@ -264,7 +264,7 @@ class TestResizeDroplet:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/dbt/dbt_project.yml": (
+                "dbt_project.yml": (
                     "name: proj",
                     "",
                     0,
@@ -329,7 +329,7 @@ class TestResizeDroplet:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/dbt/dbt_project.yml": (
+                "dbt_project.yml": (
                     "name: proj\nversion: 1.0.0",
                     "",
                     0,
@@ -358,7 +358,7 @@ class TestResizeDroplet:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/dbt/dbt_project.yml": (
+                "dbt_project.yml": (
                     "name: proj\nversion: 1.0.0",
                     "",
                     0,
