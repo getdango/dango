@@ -16,7 +16,7 @@ import click
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
-from dango.cli.commands.remote_sync import _PROJECT_ROOT, _VENV_PYTHON
+from dango.cli.commands.remote_sync import _PROJECT_ROOT, _VENV_PYTHON, SERVICE_ENV
 
 # Server-side Dango code runs as the service user from /, never as root.
 _AS_SERVICE_USER = "cd / && runuser -u dango --"
@@ -49,12 +49,13 @@ def _validated_metabase_secret_project_id(output: str) -> str | None:
 
 _USER_RESYNC_SCRIPT = """
 import sqlite3
+import sys
 from pathlib import Path
 
 from dango.auth.admin import get_auth_db_path
 from dango.auth.metabase_sync import sync_all_users_to_metabase
 
-p = Path(".")
+p = Path(sys.argv[1])
 db = get_auth_db_path(p)
 c = sqlite3.connect(str(db))
 c.execute("UPDATE users SET metabase_user_id = NULL")
@@ -346,7 +347,7 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         # 3. Remove metabase.yml so setup re-runs
         console.print("Removing metabase.yml...")
         ssh.exec_command(
-            f"rm -f {_server_project_dir}/.dango/metabase.yml",
+            f"{_AS_SERVICE_USER} rm -f {_server_project_dir}/.dango/metabase.yml",
             timeout=10,
         )
 
@@ -411,9 +412,8 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         # the shortcut path that only applies roles.
         console.print("Re-syncing users to Metabase...")
         sync_result = ssh.exec_command(
-            f"cd {_PROJECT_ROOT} && "
-            f"sudo -u dango -H env DANGO_CLOUD_MODE=true {_VENV_PYTHON} "
-            f"-c {shlex.quote(_USER_RESYNC_SCRIPT)}",
+            f"{_AS_SERVICE_USER} {SERVICE_ENV} {_VENV_PYTHON} "
+            f"-c {shlex.quote(_USER_RESYNC_SCRIPT)} {shlex.quote(_PROJECT_ROOT)}",
             timeout=60,
         )
         if sync_result.success:

@@ -252,6 +252,7 @@ class TestReconnect:
         mock_ssh_cls.return_value = mock_ssh
         mock_result = MagicMock()
         mock_result.success = True
+        mock_result.exit_code = 0
         mock_result.stdout = "project:\n  name: my-project\n"
         mock_ssh.exec_command.return_value = mock_result
 
@@ -282,6 +283,7 @@ class TestReconnect:
         mock_ssh_cls.return_value = mock_ssh
         mock_result = MagicMock()
         mock_result.success = False
+        mock_result.exit_code = 3  # project.yml absent
         mock_result.stdout = ""
         mock_ssh.exec_command.return_value = mock_result
 
