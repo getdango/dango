@@ -43,7 +43,7 @@ def _safe_confirm(prompt: str, default: bool = True, *, non_interactive: bool = 
 # Data structures
 # ---------------------------------------------------------------------------
 
-_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 
 
 @dataclass
@@ -316,12 +316,27 @@ def _step_prereqs(project_root: Path) -> None:
                 "  Generate a new token at: https://cloud.digitalocean.com/account/api/tokens"
             )
             raise SystemExit(1)
-        resp.raise_for_status()
-        console.print("[green]  \u2713 DigitalOcean token validated[/green]")
+        if resp.status_code == 403:
+            # A scoped token cannot read /account; permissions are checked
+            # when resources are created.
+            console.print(
+                "[green]  \u2713 Token accepted but cannot read the account "
+                "(normal for a scoped token); permissions are checked when "
+                "resources are created.[/green]"
+            )
+        else:
+            resp.raise_for_status()
+            console.print("[green]  \u2713 DigitalOcean token validated[/green]")
     except (httpx.ConnectError, httpx.TimeoutException):
         console.print(
             "[yellow]  Warning: Could not reach DigitalOcean API "
             "(network error). Proceeding...[/yellow]"
+        )
+    except httpx.HTTPStatusError as exc:
+        console.print(
+            "[yellow]  Warning: Could not validate token "
+            f"(unexpected API response: HTTP {exc.response.status_code}). "
+            "Proceeding...[/yellow]"
         )
     except httpx.HTTPError:
         console.print(
@@ -497,7 +512,7 @@ def _step_admin() -> tuple[str, str]:
     # Email (with confirmation — BUG-237)
     while True:
         email = click.prompt("  Admin email")
-        if not _EMAIL_RE.match(email):
+        if not _EMAIL_RE.fullmatch(email):
             console.print("  [red]Invalid email format.[/red]")
             continue
         confirm = click.prompt("  Confirm admin email")
@@ -1003,7 +1018,7 @@ def run_non_interactive(
     if not admin_email:
         console.print("[red]Error:[/red] --admin-email is required for --non-interactive.")
         raise SystemExit(1)
-    if not _EMAIL_RE.match(admin_email):
+    if not _EMAIL_RE.fullmatch(admin_email):
         console.print(f"[red]Error:[/red] Invalid email format: {admin_email}")
         raise SystemExit(1)
 
@@ -1265,7 +1280,7 @@ def run_byos_non_interactive(
     if not admin_email:
         console.print("[red]Error:[/red] --admin-email is required for --byos.")
         raise SystemExit(1)
-    if not _EMAIL_RE.match(admin_email):
+    if not _EMAIL_RE.fullmatch(admin_email):
         console.print(f"[red]Error:[/red] Invalid email format: {admin_email}")
         raise SystemExit(1)
 

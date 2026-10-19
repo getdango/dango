@@ -1410,14 +1410,14 @@ on-run-end:
                 return True
 
             # Interactive: prompt for admin credentials
-            email_re = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+            email_re = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 
             console.print("  Create the admin account for your project.\n")
 
             # Email
             while True:
                 email = click.prompt("  Admin email")
-                if not email_re.match(email):
+                if not email_re.fullmatch(email):
                     console.print("  [red]Invalid email format.[/red]")
                     continue
                 confirm_email = click.prompt("  Confirm email")
@@ -1597,11 +1597,11 @@ on-run-end:
                 read configured source *type* names for the install ping.
         """
         from dango.telemetry import (
+            apply_all_providers,
             has_recorded_consent,
             is_ci,
             is_telemetry_enabled,
             ping,
-            set_telemetry_enabled,
         )
 
         if is_ci():
@@ -1625,7 +1625,13 @@ on-run-end:
         consent = _ask_telemetry_consent()
         if consent is None:
             return
-        set_telemetry_enabled(consent)
+        results = apply_all_providers(consent, self.project_dir)
+        failed = [name for name, outcome in results.items() if outcome == "failed"]
+        if failed:
+            console.print(
+                f"[yellow]Could not save telemetry setting for: {', '.join(failed)}. "
+                "Run `dango telemetry on|off --all` to retry.[/yellow]"
+            )
         if consent:
             source_types = [s.type.value for s in config.sources.get_enabled_sources()]
             ping("install", source_types=source_types)
@@ -1661,11 +1667,15 @@ def _ask_telemetry_consent() -> bool | None:
     import click
 
     text = (
-        "Help improve Dango by sending anonymous usage data — an install "
-        "ping now, plus a periodic heartbeat (version, OS, configured "
-        "source types) while this project exists. Never source names, "
-        "credentials, or data."
+        "Dango can send anonymous usage data, and the tools it uses report their own telemetry:\n"
+        "  - Dango: an install ping and a periodic heartbeat (version, OS, configured "
+        "source types). Never source names, credentials, or data.\n"
+        "  - dbt: dbt Labs usage statistics (dbt's own anonymous telemetry).\n"
+        "  - dlt: dlthub usage statistics (dlt's own anonymous telemetry).\n"
+        "  - Metabase: Metabase's anonymous usage statistics.\n"
+        "Allow all of the above?"
     )
+    hint = "You can change this any time: dango telemetry on|off --all"
     while True:
         try:
             # No default on purpose — this is a real consent decision, not
@@ -1673,7 +1683,7 @@ def _ask_telemetry_consent() -> bool | None:
             # default keeps re-asking on an empty line until it gets a real
             # answer or a genuine abort (Ctrl+C/EOF), which the except
             # below already handles correctly.
-            result = click.prompt(f"{text} (yes/no)")
+            result = click.prompt(f"{text} (yes/no)   {hint}")
         except Exception:
             return None
         normalised = str(result).lower().strip()
