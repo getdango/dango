@@ -109,7 +109,8 @@ class FakeServer:
     archives: dict[str, str] = field(default_factory=dict)  # path -> "complete" | "partial"
     manifests: dict[str, str] = field(default_factory=dict)  # path -> manifest JSON
     files: dict[str, str] = field(default_factory=dict)
-    stale: set[str] = field(default_factory=set)  # partial archives old enough to delete
+    stale: set[str] = field(default_factory=set)  # entries older than any sweep threshold
+    age_minutes: dict[str, int] = field(default_factory=dict)  # path -> mtime age
     lost: bool = False
     disk_mb: int = 40000
     staging: set[str] = field(default_factory=set)
@@ -239,17 +240,25 @@ class FakeServer:
                 source.strip("'"), "{}"
             )
             return self._ok()
-        if "-name 'backup-*.tar.gz.partial'" in cmd and "-delete" in cmd:
-            for path in sorted(self.stale):
-                self.archives.pop(path, None)
-            return self._ok()
         if cmd.startswith("[ -e ") and "|| rm -f " in cmd:
             archive, manifest = (t for t in shlex.split(cmd) if t.startswith(BACKUP_DIR))
             if archive not in self.archives:
                 self.manifests.pop(manifest, None)
             return self._ok()
-        if "-mmin +15" in cmd and "-exec rm -rf" in cmd:
-            self.staging -= self.stale  # root-owned backup/restore staging older than 15 min
+        threshold = re.search(r"-mmin \+(\d+)", cmd)
+        if threshold and "-name 'backup-*.tar.gz.partial'" in cmd and "-delete" in cmd:
+            for path in [p for p in self.archives if p.endswith(".partial")]:
+                if self._age(path) > int(threshold.group(1)):
+                    del self.archives[path]
+            return self._ok()
+        if threshold and "-name 'backup-*.json'" in cmd:
+            for path in list(self.manifests):
+                sibling = path.removesuffix(".json") + ".tar.gz"
+                if self._age(path) > int(threshold.group(1)) and sibling not in self.archives:
+                    del self.manifests[path]
+            return self._ok()
+        if threshold and "-exec rm -rf" in cmd:
+            self.staging = {p for p in self.staging if self._age(p) <= int(threshold.group(1))}
             return self._ok()
         if cmd.startswith(f"ls -1t {BACKUP_DIR}/*.tar.gz"):
             newest_first = [
@@ -276,6 +285,9 @@ class FakeServer:
             self.live_data = "restored"
             return self._ok()
         return self._ok()
+
+    def _age(self, path: str) -> int:
+        return self.age_minutes.get(path, 10**6 if path in self.stale else 0)
 
     # ---- assertions ---------------------------------------------------------------------
     def complete_archives(self) -> list[str]:

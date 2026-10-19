@@ -230,3 +230,55 @@ def test_a_complete_archive_always_has_its_manifest(when: Literal["before", "aft
         assert archive.replace(".tar.gz", ".json") in server.manifests
     if not server.complete_archives():
         assert server.manifests == {}, "a manifest was left without its archive"
+
+
+def _staging_dir_age(minutes: int) -> FakeServer:
+    server = FakeServer()
+    server.staging.add("/tmp/dango-backup.cafe0001")
+    server.age_minutes["/tmp/dango-backup.cafe0001"] = minutes
+    return server
+
+
+def test_a_staging_directory_20_minutes_old_may_be_a_running_operation_and_survives() -> None:
+    # Directory mtime only changes when children are added or removed, so a restore or a
+    # long tar can look old; rollback, restore, resize and migrate take no deploy lock.
+    server = _staging_dir_age(20)
+    _backup(server)
+    assert "/tmp/dango-backup.cafe0001" in server.staging
+
+
+def test_a_staging_directory_7_hours_old_is_removed() -> None:
+    server = _staging_dir_age(7 * 60)
+    _backup(server)
+    assert "/tmp/dango-backup.cafe0001" not in server.staging
+
+
+def test_the_staging_threshold_is_far_above_the_scheduled_backup_timeout() -> None:
+    server = FakeServer()
+    _backup(server)
+    command = next(c for c in server.commands if "dango-backup.*" in c)
+    minutes = int(command.split("-mmin +")[1].split()[0])
+    assert minutes * 60 > 900 * 4  # scheduled backups time out at 900 s (TimeoutStartSec)
+
+
+def test_partial_archives_use_the_short_threshold() -> None:
+    server = FakeServer()
+    old, young = f"{BACKUP_DIR}/backup-1.tar.gz.partial", f"{BACKUP_DIR}/backup-2.tar.gz.partial"
+    server.archives.update({old: "partial", young: "partial"})
+    server.age_minutes.update({old: 20, young: 10})
+    _backup(server)
+    assert old not in server.archives and young in server.archives
+
+
+def test_an_old_manifest_without_an_archive_is_removed() -> None:
+    server = FakeServer()
+    orphan = f"{BACKUP_DIR}/backup-20250101-000000.json"
+    young = f"{BACKUP_DIR}/backup-20250101-000001.json"
+    paired = f"{BACKUP_DIR}/backup-20250101-000002.json"
+    server.manifests.update({orphan: "{}", young: "{}", paired: "{}"})
+    server.archives[paired.replace(".json", ".tar.gz")] = "complete"
+    server._order.append(paired.replace(".json", ".tar.gz"))
+    server.age_minutes.update({orphan: 20, young: 5, paired: 20})
+    _backup(server)
+    assert orphan not in server.manifests
+    assert young in server.manifests and paired in server.manifests

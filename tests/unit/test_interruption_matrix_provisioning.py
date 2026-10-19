@@ -338,3 +338,20 @@ def test_a_bucket_that_was_already_there_is_never_deleted(name: str | None, crea
     tracker, spaces = _tracker_after_backup_setup(bucket_name=name, created=created)
     assert tracker.cleanup() == []
     spaces.delete_bucket.assert_not_called()
+
+
+@pytest.mark.parametrize(("index", "cloud_yml_exists"), [(6, False), (STEPS_EXPECTED - 2, True)])
+def test_the_destroy_hint_is_printed_only_when_cloud_yml_can_drive_it(
+    project: Path, index: int, cloud_yml_exists: bool
+) -> None:
+    do = FakeDO(fail_delete=True)
+    console = MagicMock()
+    with pytest.raises(Killed):
+        _provision(project, do, StatusLines(kill_at=index), console=console)
+    out = _printed(console)
+    assert (project / ".dango" / "cloud.yml").exists() is cloud_yml_exists
+    assert ("dango deploy destroy" in out) is cloud_yml_exists
+    # Always: what is still running and where to remove it by hand.
+    assert "DigitalOcean console" in out
+    for resource_id in do.ever_created:
+        assert resource_id in out
