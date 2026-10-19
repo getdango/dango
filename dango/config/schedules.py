@@ -56,7 +56,7 @@ CRON_PRESETS: dict[str, str] = {
 
 _SCHEDULE_JOB_PREFIX = "schedule:"
 
-_SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+_SLUG_RE = re.compile(r"[a-z][a-z0-9_]*")
 
 _VALID_NOTIFY_ON = frozenset({"failure", "success", "stale"})
 
@@ -109,7 +109,7 @@ class ScheduleConfig(BaseModel):
     @field_validator("name")
     @classmethod
     def _validate_name(cls, v: str) -> str:
-        if not _SLUG_RE.match(v):
+        if not _SLUG_RE.fullmatch(v):
             msg = (
                 f"Schedule name must be lowercase alphanumeric + underscore, "
                 f"starting with a letter. Got: {v!r}"

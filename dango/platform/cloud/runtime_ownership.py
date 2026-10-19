@@ -45,7 +45,7 @@ ROOT_UNITS = (
     "/etc/systemd/system/dango-backup.timer",
     LOGROTATE_PATH,
 )
-VERSION_RE = re.compile(r"^\d+(\.\d+)*((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?$")
+VERSION_RE = re.compile(r"\d+(\.\d+)*((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?")
 
 # Not owned by root, or group/other-writable (links are judged by their target).
 _UNTRUSTED = r"\( ! -user root -o \( ! -type l \( -perm -020 -o -perm -002 \) \) \)"
@@ -200,7 +200,7 @@ def installed_version_from_metadata(ssh: SSHManager) -> str | None:
     for line in result.stdout.splitlines():
         name = line.strip().rsplit("/", 1)[-1]
         version = name[len("getdango-") : -len(".dist-info")]
-        if name.startswith("getdango-") and VERSION_RE.match(version):
+        if name.startswith("getdango-") and VERSION_RE.fullmatch(version):
             return version
     return None
 
@@ -213,7 +213,7 @@ REBUILD_ABORT = (
 
 def valid_version(value: str | None) -> str | None:
     """*value* if it is a plain release version string, else ``None`` (it reaches shells)."""
-    return value if value and VERSION_RE.match(value) else None
+    return value if value and VERSION_RE.fullmatch(value) else None
 
 
 def trusted_metadata_version(ssh: SSHManager, requested: str | None) -> str | None:
@@ -317,7 +317,7 @@ def rebuild_venv(
     Raises:
         VenvRebuildError: The rebuild failed; the previous venv was put back.
     """
-    if not version or not VERSION_RE.match(version):
+    if not version or not VERSION_RE.fullmatch(version):
         raise VenvRebuildError(f"no valid getdango version to install ({version!r})")
     tick = on_step or (lambda: None)
     aside = f"{VENV_DIR}.untrusted-{uuid.uuid4().hex[:12]}"

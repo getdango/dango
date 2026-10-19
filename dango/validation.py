@@ -26,15 +26,16 @@ __all__ = [
     "validate_port_range",
     "validate_limit",
     "sanitize_path_component",
+    "quote_identifier",
 ]
 
 # Stricter than config/models.py's isalnum() check: ASCII-only letters,
 # digits, and underscores.  The model validator also lowercases; we do the
 # same here so validated names always match what the config stores.
-_SOURCE_NAME_RE = re.compile(r"^[a-zA-Z0-9_]+$")
+_SOURCE_NAME_RE = re.compile(r"[a-zA-Z0-9_]+")
 
 # Duration parsing for backfill values ("7d", "2w", "1m")
-_DURATION_PATTERN = re.compile(r"^(\d+)([dwmDWM])$")
+_DURATION_PATTERN = re.compile(r"(\d+)([dwmDWM])")
 _DURATION_MULTIPLIERS = {"d": 1, "w": 7, "m": 30}
 
 
@@ -54,7 +55,7 @@ def parse_backfill_duration(value: str) -> int:
     Raises:
         ValueError: If the format is invalid or the amount is not positive.
     """
-    match = _DURATION_PATTERN.match(value)
+    match = _DURATION_PATTERN.fullmatch(value)
     if not match:
         raise ValueError(
             f"Invalid duration '{value}'. Use format like '7d', '2w', '1m' "
@@ -97,12 +98,17 @@ def validate_source_name(name: str) -> str:
             f"Source name must be at most {_SOURCE_NAME_MAX_LEN} characters (got {len(name)}).",
             context={"name": name[:256], "length": len(name)},
         )
-    if not _SOURCE_NAME_RE.match(name):
+    if not _SOURCE_NAME_RE.fullmatch(name):
         raise InvalidSourceNameError(
             f"Source name {name!r} is invalid. Use only letters, numbers, and underscores.",
             context={"name": name[:256]},
         )
     return name.lower()
+
+
+def quote_identifier(name: str) -> str:
+    """Return *name* as a double-quoted SQL identifier (embedded quotes doubled)."""
+    return '"' + name.replace('"', '""') + '"'
 
 
 # Alias for use with dbt model names and other identifiers that follow the

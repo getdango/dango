@@ -43,7 +43,7 @@ VENV_BIN = "/srv/dango/venv/bin"
 DBT_PROJECT_DIR = "/srv/dango/project/dbt"
 
 #: Pattern for valid dbt model/macro names (shell-safe for SSH commands).
-_SAFE_DBT_NAME = re.compile(r"^[a-zA-Z0-9_]+$")
+_SAFE_DBT_NAME = re.compile(r"[a-zA-Z0-9_]+")
 
 #: Docker files that require ``docker compose up --build`` when changed.
 _DOCKER_FILES = {"docker-compose.yml", "Dockerfile.metabase", "entrypoint.sh"}
@@ -318,7 +318,7 @@ def _validate_model_names(names: list[str]) -> None:
             ``[a-zA-Z0-9_]``.
     """
     for name in names:
-        if not _SAFE_DBT_NAME.match(name):
+        if not _SAFE_DBT_NAME.fullmatch(name):
             raise CloudProvisioningError(
                 f"Invalid model name for remote execution: {name!r}. "
                 "Model names must contain only alphanumeric characters and underscores."
