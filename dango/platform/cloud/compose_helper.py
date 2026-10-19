@@ -134,16 +134,19 @@ lockdir() { mkdir -m 0700 "$L" 2>/dev/null || [ -d "$L" ] || die "$L unsafe"
   [ -n "$(find "$L" -maxdepth 0 -type d -user root -perm 0700 2>/dev/null)" ] || die "$L unsafe"
   [ -e "$L/lock" ] || { umask 077; : >"$L/lock"; umask 022; }
   [ -n "$(find "$L/lock" -maxdepth 0 -type f -user root -perm 0600 2>/dev/null)" ] || die "$L/lock unsafe"; }
-run() { t=$1; shift; rc=0; timeout -k 10 "$t" "$@" </dev/null & cp=$!
-  trap 'kill -TERM $cp 2>/dev/null' HUP INT TERM
-  while :; do wait $cp && rc=0 || rc=$?; kill -0 $cp 2>/dev/null || break; done
+run() { t=$1; shift; rc=0; k=0; cp=
+  trap 'k=1; [ -z "$cp" ] || kill -TERM "$cp" 2>/dev/null' HUP INT TERM
+  timeout -k 10 "$t" "$@" </dev/null 9>&- & cp=$!
+  while :; do k=0; wait $cp && rc=0 || rc=$?; [ "$k" = 1 ] || break; done
   trap - HUP INT TERM
   case $rc in
-    75) printf 'dango-compose: busy (another Dango Docker operation is running)\n' >&2;;
     124|137) printf 'dango-compose: %s exceeded its time budget (%ss)\n' "$verb" "$t" >&2;;
   esac; exit "$rc"; }
 locked() { lockdir; w=$ROOT_WAIT; ! via_sudo || w=$SUDO_WAIT
-  run "$((b + w))" flock -o -w "$w" -E 75 "$L/lock" "$@"; }
+  exec 9>>"$L/lock"
+  flock -w "$w" -E 75 9 || { rc=$?; [ "$rc" != 75 ] ||
+    printf 'dango-compose: busy (another Dango Docker operation is running)\n' >&2; exit "$rc"; }
+  run "$b" "$@"; }
 dc() { m=$1; shift; base; name; own "$D/docker-compose.yml"
   if [ "$m" = lock ]; then
     locked $GENV docker compose --project-directory "$D" -p "$n" -f "$D/docker-compose.yml" "$@"

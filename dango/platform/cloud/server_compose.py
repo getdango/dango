@@ -32,7 +32,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import resources
 
-from jinja2 import Environment, PackageLoader
+from jinja2 import Environment, PackageLoader, select_autoescape
 
 from dango.platform.cloud.compose_helper import DOCS_ID, LOCK_DIR, METABASE_ID, SRV_DIR
 
@@ -42,11 +42,11 @@ EXIT_NAME = 66
 EXIT_IDS = 67
 EXIT_BUSY = 75
 
-_JAR_RE = re.compile(r"^[A-Za-z0-9._-]+\.jar$")
-_NAME_RE = re.compile(r"^dango-[0-9a-f]{8}$")
-_ID_RE = re.compile(r"^[0-9a-f]{8}[0-9a-f-]{0,28}$")
-_VERSION_RE = re.compile(r"^v[0-9][0-9.]{0,18}$")
-_PORT_RE = re.compile(r"^[1-9][0-9]{0,4}$")
+_JAR_RE = re.compile(r"[A-Za-z0-9._-]+\.jar")
+_NAME_RE = re.compile(r"dango-[0-9a-f]{8}")
+_ID_RE = re.compile(r"[0-9a-f]{8}[0-9a-f-]{0,28}")
+_VERSION_RE = re.compile(r"v[0-9][0-9.]{0,18}")
+_PORT_RE = re.compile(r"[1-9][0-9]{0,4}")
 _MIB = 1024 * 1024
 
 # Fixed programs run as the service user (``python -I -c``): list names; stream one jar.
@@ -195,7 +195,11 @@ def read_pinned(layout: Layout) -> tuple[str, str]:
     """Return (compose project name, project id) from the root-owned pin files."""
     name = _read_pinned_file(f"{layout.compose}/project")
     ident = _read_pinned_file(f"{layout.compose}/project-id")
-    if not _NAME_RE.match(name) or not _ID_RE.match(ident) or ident[:8] != name[len("dango-") :]:
+    if (
+        not _NAME_RE.fullmatch(name)
+        or not _ID_RE.fullmatch(ident)
+        or ident[:8] != name[len("dango-") :]
+    ):
         raise RenderError(EXIT_USAGE, "pinned project files are inconsistent")
     return name, ident
 
@@ -252,7 +256,7 @@ def list_jars(layout: Layout) -> list[str]:
     _stream(argv, out.extend, 65536, 30.0)
     jars = [n for n in out.decode("utf-8", "replace").splitlines() if n.endswith(".jar")]
     for jar in jars:
-        if not _JAR_RE.match(jar):
+        if not _JAR_RE.fullmatch(jar):
             raise RenderError(EXIT_STAGE, f"unsupported plugin file name: {jar!r}")
     if len(jars) > layout.max_jars:
         raise RenderError(EXIT_STAGE, f"more than {layout.max_jars} plugin jars")
@@ -292,9 +296,9 @@ def _write_tmp(path: str, data: bytes, mode: int) -> None:
 
 def render_compose(layout: Layout, mb_port: int, docs_port: int, name_q: str, id_q: str) -> str:
     """The server compose file (template ``server`` branch: absolute paths, long bind syntax)."""
-    template = Environment(loader=PackageLoader("dango", "templates")).get_template(
-        "docker-compose.yml.j2"
-    )
+    template = Environment(
+        loader=PackageLoader("dango", "templates"), autoescape=select_autoescape(default=False)
+    ).get_template("docker-compose.yml.j2")
     return template.render(
         server=True,
         metabase_port=mb_port,
@@ -326,7 +330,10 @@ def render_entrypoint() -> bytes:
     """The packaged entrypoint with the fixed Metabase ids in place of the names."""
     text = (resources.files("dango") / "templates" / "entrypoint.sh").read_text(encoding="utf-8")
     ids = f"{METABASE_ID}:{METABASE_ID}"
-    text = _swap(text, "chown -R metabase:metabase", f"chown -R {ids}")
+    text = _swap(text, "chown -R metabase:metabase /app/plugins", f"chown -R {ids} /app/plugins")
+    text = _swap(
+        text, "\n# Drop privileges", f"\nchown -R {ids} /metabase-data\n\n# Drop privileges"
+    )
     return _swap(text, "gosu metabase", f"gosu {ids}").encode()
 
 
@@ -369,12 +376,12 @@ def run(argv: list[str], layout: Layout) -> None:
     if len(argv) != 4:
         raise RenderError(EXIT_USAGE, "usage: render MB_PORT DOCS_PORT MB_VERSION NAME")
     mb_s, docs_s, version, name = argv
-    if not (_PORT_RE.match(mb_s) and _PORT_RE.match(docs_s)):
+    if not (_PORT_RE.fullmatch(mb_s) and _PORT_RE.fullmatch(docs_s)):
         raise RenderError(EXIT_USAGE, "bad port")
     mb_port, docs_port = int(mb_s), int(docs_s)
     if not (1024 <= mb_port <= 65535 and 1024 <= docs_port <= 65535) or mb_port == docs_port:
         raise RenderError(EXIT_USAGE, "bad port")
-    if not _VERSION_RE.match(version):
+    if not _VERSION_RE.fullmatch(version):
         raise RenderError(EXIT_USAGE, "bad version")
     name_q = quote_name(name)
     check_container_ids()
@@ -404,7 +411,7 @@ def run(argv: list[str], layout: Layout) -> None:
                 os.replace(tmp, final)
             for entry in os.scandir(layout.plugins):
                 if (
-                    _JAR_RE.match(entry.name)
+                    _JAR_RE.fullmatch(entry.name)
                     and entry.name not in jars
                     and entry.is_file(follow_symlinks=False)
                 ):
