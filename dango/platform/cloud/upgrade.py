@@ -222,7 +222,11 @@ def upgrade_dango(
         guard.arm()  # the rebuild stops services; a dead client must not leave them down
         try:
             venv_rebuild = ro.rebuild_untrusted_venv(
-                ssh, warnings, version=target_version, local_project_root=local_project_root
+                ssh,
+                warnings,
+                version=target_version,
+                local_project_root=local_project_root,
+                on_step=guard.rearm,
             )
         except ro.VenvRebuildError as exc:
             raise CloudError(ro.REBUILD_ABORT.format(exc), error_code="DANGO-D023") from exc

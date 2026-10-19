@@ -307,16 +307,8 @@ def resize_droplet(
         _notify(on_progress, "wait_ssh", "running")
         wait_for_ssh(droplet_ip)
         _notify(on_progress, "wait_ssh", "done")
-    except Exception as exc:
-        # Best effort: try to power on if we failed after power off
-        try:
-            client.power_on(droplet_id)
-        except Exception:
-            logger.error("resize_power_on_failed", droplet_id=droplet_id, exc_info=True)
-            raise CloudProvisioningError(
-                f"{exc}. The droplet may still be powered off. "
-                f"Run: dango remote power-on  (droplet {droplet_id})"
-            ) from exc
+    except (Exception, KeyboardInterrupt) as exc:
+        _recover_power(client, droplet_id, exc)
         raise
 
     # 9. Reconnect SSH (connection was dropped during power cycle)
@@ -329,7 +321,7 @@ def resize_droplet(
         dbt_regenerated = regenerate_dbt_profiles(ssh, new_size, dbt_overrides)
         if not dbt_regenerated:
             warnings.append("dbt_project.yml not found on server — profiles.yml not regenerated.")
-    except CloudProvisioningError as exc:  # services must still be started below
+    except Exception as exc:  # services must still be started below
         dbt_regenerated = False
         warnings.append(f"profiles.yml was not regenerated: {exc}")
     _notify(on_progress, "dbt_profiles", "done")
@@ -367,6 +359,28 @@ def resize_droplet(
         dbt_profiles_regenerated=dbt_regenerated,
         warnings=warnings,
     )
+
+
+def _recover_power(client: DigitalOceanClient, droplet_id: int, exc: BaseException) -> None:
+    """Best-effort power-on after a failed resize.
+
+    Raises ``CloudProvisioningError`` with the recovery command only if the power-on failed and
+    the droplet is confirmed off; otherwise returns so the caller re-raises the original error.
+    """
+    try:
+        client.power_on(droplet_id)
+        return
+    except Exception:
+        logger.error("resize_power_on_failed", droplet_id=droplet_id, exc_info=True)
+    try:
+        still_off = get_power_state(client, droplet_id) == "off"
+    except Exception:
+        still_off = False
+    if still_off and isinstance(exc, Exception):
+        raise CloudProvisioningError(
+            f"{exc}. The droplet may still be powered off. "
+            f"Run: dango remote power-on  (droplet {droplet_id})"
+        ) from exc
 
 
 def get_power_state(client: DigitalOceanClient, droplet_id: int) -> str:

@@ -143,8 +143,8 @@ class TestUpgradeGuard:
         docker = _idx(c, lambda x: "up -d --build" in x and not x.startswith("systemd-run"))
         assert arms[0] < pip < arms[1] < migrate < arms[2] < docker < arms[3]
         for i, a in enumerate(arms[1:], start=1):
-            stops = [x for x in c[arms[i - 1] + 1 : a] if f"{units[i - 1]}.timer" in x]
-            assert stops, f"previous timer {units[i - 1]} not stopped before re-arm {i}"
+            stops = [x for x in c[a + 1 :] if f"stop '{units[i - 1]}.timer'" in x]
+            assert stops, f"previous timer {units[i - 1]} not stopped after re-arm {i}"
 
     def test_upgrade_continues_when_guard_cannot_be_armed(self) -> None:
         ssh = _RecordingSSH(fail=("systemd-run",))
@@ -267,6 +267,7 @@ class TestResizeRecovery:
         client.resize.return_value = {"id": 2}
         client.wait_for_action.side_effect = [{"status": "completed"}, CloudError("resize failed")]
         client.power_on.side_effect = RuntimeError("api down")
+        client.get_droplet.return_value = {**client.get_droplet.return_value, "status": "off"}
         backup = MagicMock()
         backup.archive_path = "/b.tar.gz"
         with (

@@ -41,6 +41,28 @@ def refuse_if_powered_off(cloud_cfg: Any) -> None:
         )
 
 
+def _adopt_live_size(ssh: Any, cloud_cfg: Any, project_root: Any, live_size: str) -> None:
+    """A resize finished while the client was gone: record the new size and refresh profiles."""
+    from dango.platform.cloud.provisioning import save_provisioning_metadata
+    from dango.platform.cloud.resize import regenerate_dbt_profiles
+
+    console.print(
+        f"[yellow]The server was resized to {live_size} (cloud.yml had {cloud_cfg.size}); "
+        "updating cloud.yml and dbt profiles.[/yellow]"
+    )
+    try:
+        regenerate_dbt_profiles(ssh, live_size, cloud_cfg.dbt_overrides)
+    except Exception as exc:
+        console.print(f"[yellow]profiles.yml was not regenerated: {exc}[/yellow]")
+    save_provisioning_metadata(
+        project_root,
+        droplet_id=cloud_cfg.droplet_id,
+        droplet_ip=cloud_cfg.droplet_ip,
+        region=cloud_cfg.region,
+        size=live_size,
+    )
+
+
 @remote.command("power-on")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
 @click.pass_context
@@ -86,8 +108,11 @@ def remote_power_on(ctx: click.Context, yes: bool) -> None:
     try:
         with Status("[bold blue]Powering on...", console=console):
             power_on_and_wait(client, cloud_cfg.droplet_id, cloud_cfg.droplet_ip)
+        live_size = str(client.get_droplet(cloud_cfg.droplet_id).get("size_slug", ""))
         ssh = _connect_ssh(cloud_cfg, project_root)
         try:
+            if live_size and live_size != cloud_cfg.size:
+                _adopt_live_size(ssh, cloud_cfg, project_root, live_size)
             start_services(ssh)
             healthy = verify_health(ssh)
         finally:

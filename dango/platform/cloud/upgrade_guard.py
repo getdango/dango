@@ -37,6 +37,8 @@ GUARD_ACTION = (
     "/bin/sh -c 'n=0; while [ $n -lt 120 ] && { "
     'pgrep -f "/srv/dango/venv/bin/[p]ip install" >/dev/null || '
     'pgrep -f "[a]pply_all_pending" >/dev/null || '
+    'pgrep -f "/srv/dango/venv/bin/[p]ython.* -m (pip|spacy)" >/dev/null || '
+    'pgrep -f "[p]ython3 -m venv /srv/dango" >/dev/null || '
     'pgrep -f "[d]ocker compose.*build" >/dev/null; }; do n=$((n+1)); sleep 15; done; '
     "systemctl start dango-web'"
 )
@@ -68,24 +70,26 @@ class UpgradeGuard:
         self._arm_next()
 
     def rearm(self) -> None:
-        """Restart the window after a completed step (new unit; the previous one is stopped)."""
-        if self._unit is not None:
-            self._run(
-                f"systemctl stop '{self._unit}.timer' '{self._unit}.service' 2>/dev/null; true"
-            )
-        self._arm_next()
+        """Restart the window after a completed step (new unit; the previous one is stopped).
+
+        The new unit is armed first, so a failure or a dying client never leaves a gap.
+        """
+        previous = self._unit
+        if self._arm_next() and previous is not None:
+            self._run(f"systemctl stop '{previous}.timer' '{previous}.service' 2>/dev/null; true")
 
     def disarm(self) -> None:
         """Stop every guard unit (call once the client has restarted the services itself)."""
         self._unit = None
         self._run(DISARM_ALL)
 
-    def _arm_next(self) -> None:
+    def _arm_next(self) -> bool:
         self._step += 1
         unit = guard_unit(self._run_id, self._step)
-        result = self._run(arm_command(unit))
-        if result:
+        armed = self._run(arm_command(unit))
+        if armed:
             self._unit = unit
+        return armed
 
     def _run(self, command: str) -> bool:
         try:
