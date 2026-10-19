@@ -43,6 +43,12 @@ Patch upgrades are safe. Minor upgrades need testing.
 Everything else (`click`, `fastapi`, `pydantic`, etc.). Upgrade freely
 within SemVer constraints.
 
+Tier 3 packages carry floors only (no lock file). A fresh `pip install` therefore
+resolves newer releases than CI ran (e.g. fastapi 0.146.0, starlette 1.9.0,
+cryptography 50.0.2 on 2026-10-19, against CI's fastapi 0.138.1). An upper bound is
+added only once CI has run the next minor; `scripts/check_wheel_imports.py` checks
+that a fresh wheel install still imports every module.
+
 ## Upgrade Process (Tier 1)
 
 1. Check the [Metabase DuckDB driver releases](https://github.com/motherduckdb/metabase_duckdb_driver/releases)
