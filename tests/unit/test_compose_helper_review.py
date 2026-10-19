@@ -85,7 +85,7 @@ def kill_when_running(tree: Tree, verb: str) -> subprocess.Popen[str]:
     while time.monotonic() < deadline and not tree.logs("docker", "argv"):
         time.sleep(0.1)
     assert tree.logs("docker", "argv"), "docker was never started"
-    tree.runner.run(["kill", "-TERM", pidfile.read_text().strip()])
+    tree.runner.run(["sh", "-c", 'kill -TERM "$0"', pidfile.read_text().strip()])
     return proc
 
 
@@ -152,7 +152,7 @@ def test_metabase_directory_must_be_exactly_private(tree: Tree) -> None:
 
 def test_the_lock_is_not_inherited_by_docker(tree: Tree) -> None:
     (tree.root / "shim" / "docker").write_text(
-        f'#!/bin/sh\nfor f in /proc/$$/fd/*; do readlink "$f"; done >{tree.root}/fds\n'
+        f'#!/bin/sh\nfor f in /proc/$$/fd/*; do readlink "$f"; done >{tree.root}/fds\nexit 0\n'
     )
     assert tree.call("up", sudo=True).returncode == 0
     assert str(tree.lock_dir / "lock") not in (tree.root / "fds").read_text()

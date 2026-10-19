@@ -32,6 +32,11 @@ SUDOERS_TEXT = (
     f"dango ALL=(root) NOPASSWD: {HELPER_PATH} *\n"
 )
 
+#: Fixed ids the server render gives the containers (uid = gid); reserved, never host ids.
+METABASE_ID = 61000
+DOCS_ID = 61001
+CONTAINER_IDS = (METABASE_ID, DOCS_ID)
+
 #: Lock wait in seconds: short through sudo, long for root's own steps.
 SUDO_LOCK_WAIT = 30
 ROOT_LOCK_WAIT = 900
@@ -116,18 +121,29 @@ id_ok() { case "$1" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][
 own() { [ -n "$(find "$1" -maxdepth 0 ! -type l -user root ! -perm /022 2>/dev/null)" ] || die "$1 not root-owned"; }
 name() { own "$D/project"; n=$(cat "$D/project")
   case "$n" in dango-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;; *) die "bad project";; esac; }
-base() { own "$S"; own "$D"; own "$D/build"; own "$S/metabase"; }
-lockdir() { [ -d "$L" ] || mkdir -m 0700 "$L" 2>/dev/null || die "$L unsafe"
+base() { own "$S"; own "$D"; own "$D/build"; own "$S/metabase"
+  [ -n "$(find "$S/metabase" -maxdepth 0 -type d -user root -perm 0700 2>/dev/null)" ] || die "$S/metabase not private"; }
+ids() { command -v getent >/dev/null || { echo "dango-compose: getent missing" >&2; exit 67; }
+  for i in @CONTAINER_IDS@; do
+    [ -z "$(getent passwd "$i" 2>/dev/null)" ] && [ -z "$(getent group "$i" 2>/dev/null)" ] ||
+      { echo "dango-compose: container id $i is already used on this host" >&2; exit 67; }
+  done
+  g=$(getent group docker 2>/dev/null | cut -d: -f3)
+  case " @CONTAINER_IDS@ " in *" $g "*) echo "dango-compose: docker group id is a container id" >&2; exit 67;; esac; }
+lockdir() { mkdir -m 0700 "$L" 2>/dev/null || [ -d "$L" ] || die "$L unsafe"
   [ -n "$(find "$L" -maxdepth 0 -type d -user root -perm 0700 2>/dev/null)" ] || die "$L unsafe"
   [ -e "$L/lock" ] || { umask 077; : >"$L/lock"; umask 022; }
   [ -n "$(find "$L/lock" -maxdepth 0 -type f -user root -perm 0600 2>/dev/null)" ] || die "$L/lock unsafe"; }
-run() { t=$1; shift; rc=0; timeout -k 10 "$t" "$@" </dev/null || rc=$?
+run() { t=$1; shift; rc=0; timeout -k 10 "$t" "$@" </dev/null & cp=$!
+  trap 'kill -TERM $cp 2>/dev/null' HUP INT TERM
+  while :; do wait $cp && rc=0 || rc=$?; kill -0 $cp 2>/dev/null || break; done
+  trap - HUP INT TERM
   case $rc in
     75) printf 'dango-compose: busy (another Dango Docker operation is running)\n' >&2;;
     124|137) printf 'dango-compose: %s exceeded its time budget (%ss)\n' "$verb" "$t" >&2;;
   esac; exit "$rc"; }
 locked() { lockdir; w=$ROOT_WAIT; ! via_sudo || w=$SUDO_WAIT
-  run "$((b + w))" flock -w "$w" -E 75 "$L/lock" "$@"; }
+  run "$((b + w))" flock -o -w "$w" -E 75 "$L/lock" "$@"; }
 dc() { m=$1; shift; base; name; own "$D/docker-compose.yml"
   if [ "$m" = lock ]; then
     locked $GENV docker compose --project-directory "$D" -p "$n" -f "$D/docker-compose.yml" "$@"
@@ -140,6 +156,7 @@ case "$verb" in
   self-test)     argc $# 0; cd /; base; own "$S/venv"
                  command -v flock >/dev/null || die "flock missing"
                  command -v timeout >/dev/null || die "timeout missing"
+                 ids
                  timeout -k 5 60 $GENV docker compose version --short >/dev/null 2>&1 || die "compose v2 missing"
                  timeout -k 5 60 $GENV "$S/venv/bin/python" -I -c 'import dango.platform.cloud.server_compose' \
                    >/dev/null 2>&1 || die "server code"
@@ -168,7 +185,7 @@ case "$verb" in
                  case "${3#v}" in ''|*[!0-9.]*) die "bad version";; esac
                  case "$3" in v[0-9]*) ;; *) die "bad version";; esac
                  [ "${#3}" -le 20 ] || die "bad version"
-                 base; name; own "$D/project-id"; own "$S/venv"
+                 ids; base; name; own "$D/project-id"; own "$S/venv"
                  cd /; run "$b" env -i PATH="$PATH" LANG=C.UTF-8 "$S/venv/bin/python" -I \
                    -m dango.platform.cloud.server_compose "$@" ;;
   pin-project)   root_only
@@ -202,6 +219,7 @@ def helper_script() -> str:
         _SCRIPT.replace("@BUDGET_CASES@", cases)
         .replace("@SUDO_WAIT@", str(SUDO_LOCK_WAIT))
         .replace("@ROOT_WAIT@", str(ROOT_LOCK_WAIT))
+        .replace("@CONTAINER_IDS@", " ".join(str(i) for i in CONTAINER_IDS))
     )
 
 
@@ -228,7 +246,7 @@ def install_helper_script() -> str:
     return (
         "install -d -o root -g root -m 0755 /usr/local/sbin\n"
         + _heredoc(tmp, helper_script(), "DANGO_COMPOSE_HELPER_EOF")
-        + f"chown root:root {tmp} && chmod 0755 {tmp} && mv -f {tmp} {HELPER_PATH}\n"
+        + f"chown root:root {tmp} || exit 4\nchmod 0755 {tmp} || exit 4\nmv -f {tmp} {HELPER_PATH} || exit 4\n"
     )
 
 
@@ -238,7 +256,7 @@ def install_sudoers_script() -> str:
     return (
         "install -d -o root -g root -m 0750 /etc/sudoers.d\n"
         + _heredoc(tmp, SUDOERS_TEXT, "DANGO_SUDOERS_EOF")
-        + f"chown root:root {tmp} && chmod 0440 {tmp}\n"
+        + f"chown root:root {tmp} || exit 4\nchmod 0440 {tmp} || exit 4\n"
         f"visudo -cf {tmp} >/dev/null || {{ rm -f {tmp}; echo 'sudoers check failed' >&2; exit 4; }}\n"
         f"mv -f {tmp} {SUDOERS_PATH}\n"
         "visudo -c >/dev/null || { rm -f "

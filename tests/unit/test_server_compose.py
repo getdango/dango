@@ -132,7 +132,7 @@ def test_render_writes_compose_dockerfile_and_entrypoint(env: Env) -> None:
     docker = (env.srv / "compose/build/Dockerfile.metabase").read_text()
     assert docker.count("ENV MB_VERSION=v0.59.1\n") == 1
     entry = (env.srv / "compose/build/entrypoint.sh").read_bytes()
-    assert entry.startswith(b"#!/bin/bash") and b"gosu metabase" in entry
+    assert entry.startswith(b"#!/bin/bash") and b"gosu 61000:61000" in entry
     for rel in (
         "compose/docker-compose.yml",
         "compose/build/Dockerfile.metabase",

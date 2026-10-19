@@ -72,8 +72,16 @@ services:
 {%- else %}
       - ./dbt/target:/usr/share/nginx/html:ro
 {%- endif %}
+{%- if server %}
+    user: "{{ docs_uid }}:{{ docs_gid }}"
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    tmpfs:
+      - /var/cache/nginx:uid={{ docs_uid }},gid={{ docs_gid }}
+      - /run:uid={{ docs_uid }},gid={{ docs_gid }}
+{%- endif %}
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://{{ '127.0.0.1' if server else 'localhost' }}/"]
       interval: 30s
       timeout: 10s
       retries: 3

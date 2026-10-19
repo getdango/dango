@@ -34,11 +34,12 @@ from importlib import resources
 
 from jinja2 import Environment, PackageLoader
 
-from dango.platform.cloud.compose_helper import LOCK_DIR, SRV_DIR
+from dango.platform.cloud.compose_helper import DOCS_ID, LOCK_DIR, METABASE_ID, SRV_DIR
 
 EXIT_USAGE = 64
 EXIT_STAGE = 65
 EXIT_NAME = 66
+EXIT_IDS = 67
 EXIT_BUSY = 75
 
 _JAR_RE = re.compile(r"^[A-Za-z0-9._-]+\.jar$")
@@ -120,7 +121,7 @@ def quote_name(name: str) -> str:
         raise RenderError(EXIT_USAGE, "bad project name length")
     for ch in name:
         if (
-            ch in '\\"'
+            ch in '\\"$'
             or unicodedata.category(ch)[0] == "C"
             or unicodedata.category(ch) in ("Zl", "Zp")
         ):
@@ -304,6 +305,8 @@ def render_compose(layout: Layout, mb_port: int, docs_port: int, name_q: str, id
         data_dir=f"{layout.srv}/project/data",
         dbt_target_dir=f"{layout.srv}/project/dbt/target",
         plugins_dir=layout.plugins,
+        docs_uid=DOCS_ID,
+        docs_gid=DOCS_ID,
     )
 
 
@@ -315,7 +318,50 @@ def render_dockerfile(version: str) -> str:
     out, count = re.subn(r"(?m)^ENV MB_VERSION=.*$", f"ENV MB_VERSION={version}", text)
     if count != 1:
         raise RenderError(EXIT_STAGE, "packaged Dockerfile has no single MB_VERSION line")
-    return out
+    out = _swap(out, "groupadd -r metabase", f"groupadd -r -g {METABASE_ID} metabase")
+    return _swap(out, "useradd -r -g metabase", f"useradd -r -u {METABASE_ID} -g metabase")
+
+
+def render_entrypoint() -> bytes:
+    """The packaged entrypoint with the fixed Metabase ids in place of the names."""
+    text = (resources.files("dango") / "templates" / "entrypoint.sh").read_text(encoding="utf-8")
+    ids = f"{METABASE_ID}:{METABASE_ID}"
+    text = _swap(text, "chown -R metabase:metabase", f"chown -R {ids}")
+    return _swap(text, "gosu metabase", f"gosu {ids}").encode()
+
+
+def _swap(text: str, old: str, new: str) -> str:
+    if text.count(old) != 1:
+        raise RenderError(EXIT_STAGE, "packaged Metabase build files changed unexpectedly")
+    return text.replace(old, new)
+
+
+def _getent(database: str, key: str) -> str:
+    try:
+        done = subprocess.run(
+            ["getent", database, key],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise RenderError(EXIT_IDS, "cannot check the host user and group ids") from None
+    if done.returncode not in (0, 2):
+        raise RenderError(EXIT_IDS, "cannot check the host user and group ids")
+    return done.stdout if done.returncode == 0 else ""
+
+
+def check_container_ids() -> None:
+    """Refuse when a host user or group already uses a container id, or docker's gid is one."""
+    for ident in (METABASE_ID, DOCS_ID):
+        for database in ("passwd", "group"):
+            if _getent(database, str(ident)).strip():
+                raise RenderError(EXIT_IDS, f"container id {ident} is already used on this host")
+    fields = _getent("group", "docker").strip().split(":")
+    if len(fields) >= 3 and fields[2] in (str(METABASE_ID), str(DOCS_ID)):
+        raise RenderError(EXIT_IDS, "docker group id is a container id")
 
 
 def run(argv: list[str], layout: Layout) -> None:
@@ -331,10 +377,11 @@ def run(argv: list[str], layout: Layout) -> None:
     if not _VERSION_RE.match(version):
         raise RenderError(EXIT_USAGE, "bad version")
     name_q = quote_name(name)
+    check_container_ids()
     _, ident = read_pinned(layout)
     compose = render_compose(layout, mb_port, docs_port, name_q, f'"{ident}"')
     dockerfile = render_dockerfile(version)
-    entrypoint = (resources.files("dango") / "templates" / "entrypoint.sh").read_bytes()
+    entrypoint = render_entrypoint()
 
     jars = list_jars(layout)
     os.makedirs(layout.plugins, mode=0o755, exist_ok=True)
@@ -351,10 +398,10 @@ def run(argv: list[str], layout: Layout) -> None:
         _write_tmp(tmps[2][0], entrypoint, 0o644)
         lock_fd = acquire_lock(layout.lock_dir, layout.owner_uid, layout.lock_wait)
         try:
-            for tmp, final in tmps:
-                os.replace(tmp, final)
             for jar in jars:
                 os.replace(f"{stage}/{jar}", f"{layout.plugins}/{jar}")
+            for tmp, final in tmps:
+                os.replace(tmp, final)
             for entry in os.scandir(layout.plugins):
                 if (
                     _JAR_RE.match(entry.name)
@@ -378,6 +425,9 @@ def main(argv: list[str], layout: Layout | None = None) -> int:
     except RenderError as exc:
         print(f"dango-compose: render: {exc}", file=sys.stderr)
         return exc.code
+    except OSError as exc:
+        print(f"dango-compose: render: {exc.strerror or 'file error'}", file=sys.stderr)
+        return EXIT_STAGE
     return 0
 
 
