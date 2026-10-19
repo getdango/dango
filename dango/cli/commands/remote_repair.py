@@ -18,6 +18,9 @@ from dango.cli import console
 from dango.cli.commands.remote import remote
 from dango.cli.commands.remote_sync import _PROJECT_ROOT, _VENV_PYTHON
 
+# Server-side Dango code runs as the service user from /, never as root.
+_AS_SERVICE_USER = "cd / && runuser -u dango --"
+
 _METABASE_SECRET_PROJECT_ID_RE = re.compile(r"[a-f0-9]{32}|[a-f0-9]{8}")
 
 
@@ -33,7 +36,7 @@ def _metabase_secret_project_id_command(server_project_dir: str) -> str:
         "from dango.security.metabase_credentials import MetabaseCredentialStore; "
         f"print(MetabaseCredentialStore(Path({server_project_dir!r}), cloud_mode=True).project_id)"
     )
-    return f"cd / && /srv/dango/venv/bin/python -I -c {shlex.quote(script)}"
+    return f"{_AS_SERVICE_USER} /srv/dango/venv/bin/python -I -c {shlex.quote(script)}"
 
 
 def _validated_metabase_secret_project_id(output: str) -> str | None:
@@ -84,7 +87,12 @@ metadata = load_metabase_metadata(project_root)
 credentials = load_metabase_admin_credentials(project_root)
 database = metadata.get("database") if metadata else None
 database_id = database.get("id") if isinstance(database, dict) else None
-if not credentials or not database_id:
+if (
+    not credentials
+    or isinstance(database_id, bool)
+    or not isinstance(database_id, int)
+    or database_id <= 0
+):
     raise SystemExit(0)
 
 email, password = credentials
@@ -115,7 +123,7 @@ def _metabase_schema_scan_command(server_project_dir: str) -> str:
     server-owned ``/srv/dango/secrets`` path rather than a local fallback.
     """
     return (
-        "cd / && DANGO_CLOUD_MODE=true /srv/dango/venv/bin/python -I -c "
+        f"{_AS_SERVICE_USER} env DANGO_CLOUD_MODE=true /srv/dango/venv/bin/python -I -c "
         f"{shlex.quote(_metabase_schema_scan_script())} {shlex.quote(server_project_dir)}"
     )
 
