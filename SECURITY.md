@@ -22,7 +22,7 @@ Please include:
 
 ## What to expect
 
-- We aim to acknowledge a report within 7 days.
+- We aim to acknowledge a report within 14 days.
 - We will confirm whether the report is accepted, keep you updated on progress, and coordinate a
   disclosure date with you once a fix is available.
 
