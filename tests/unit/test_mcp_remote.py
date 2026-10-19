@@ -172,7 +172,7 @@ def test_remote_query_masks_union_of_local_and_remote_pii(
     # both remote commands run as the dango user from the project dir
     for cmd, _ in deployed.ssh.commands:
         assert cmd.startswith(
-            "cd /srv/dango/project && sudo -u dango -H /srv/dango/venv/bin/python3 -c "
+            "cd /srv/dango/project && sudo -u dango -H /srv/dango/venv/bin/python3 -I -c "
         )
     q = deployed.ssh.commands[0]
     assert q[1]["timeout"] == 40 and q[0].endswith(f" {shlex.quote('SELECT * FROM t')} 30")
@@ -245,7 +245,7 @@ def test_remote_sync_builds_cli_command(deployed: Any, known_source: str) -> Non
     }
     expected = (
         "cd /srv/dango/project && sudo -u dango -H env DANGO_CLOUD_MODE=true"
-        " /srv/dango/venv/bin/python3 -m dango.platform.scheduling.sync_trigger "
+        " /srv/dango/venv/bin/python3 -I -m dango.platform.scheduling.sync_trigger "
         + shlex.quote(json.dumps(payload))
     )
     assert deployed.ssh.commands == [(expected, {"timeout": 3600, "check": False})]
