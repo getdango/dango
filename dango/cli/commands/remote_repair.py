@@ -16,7 +16,10 @@ import click
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
-from dango.cli.commands.remote_sync import _PROJECT_ROOT, _VENV_PYTHON
+from dango.cli.commands.remote_sync import _PROJECT_ROOT, _VENV_PYTHON, SERVICE_ENV
+
+# Server-side Dango code runs as the service user from /, never as root.
+_AS_SERVICE_USER = "cd / && runuser -u dango --"
 
 _METABASE_SECRET_PROJECT_ID_RE = re.compile(r"[a-f0-9]{32}|[a-f0-9]{8}")
 
@@ -33,7 +36,7 @@ def _metabase_secret_project_id_command(server_project_dir: str) -> str:
         "from dango.security.metabase_credentials import MetabaseCredentialStore; "
         f"print(MetabaseCredentialStore(Path({server_project_dir!r}), cloud_mode=True).project_id)"
     )
-    return f"cd / && /srv/dango/venv/bin/python -I -c {shlex.quote(script)}"
+    return f"{_AS_SERVICE_USER} /srv/dango/venv/bin/python -I -c {shlex.quote(script)}"
 
 
 def _validated_metabase_secret_project_id(output: str) -> str | None:
@@ -46,12 +49,13 @@ def _validated_metabase_secret_project_id(output: str) -> str | None:
 
 _USER_RESYNC_SCRIPT = """
 import sqlite3
+import sys
 from pathlib import Path
 
 from dango.auth.admin import get_auth_db_path
 from dango.auth.metabase_sync import sync_all_users_to_metabase
 
-p = Path(".")
+p = Path(sys.argv[1])
 db = get_auth_db_path(p)
 c = sqlite3.connect(str(db))
 c.execute("UPDATE users SET metabase_user_id = NULL")
@@ -84,7 +88,12 @@ metadata = load_metabase_metadata(project_root)
 credentials = load_metabase_admin_credentials(project_root)
 database = metadata.get("database") if metadata else None
 database_id = database.get("id") if isinstance(database, dict) else None
-if not credentials or not database_id:
+if (
+    not credentials
+    or isinstance(database_id, bool)
+    or not isinstance(database_id, int)
+    or database_id <= 0
+):
     raise SystemExit(0)
 
 email, password = credentials
@@ -115,7 +124,7 @@ def _metabase_schema_scan_command(server_project_dir: str) -> str:
     server-owned ``/srv/dango/secrets`` path rather than a local fallback.
     """
     return (
-        "cd / && DANGO_CLOUD_MODE=true /srv/dango/venv/bin/python -I -c "
+        f"{_AS_SERVICE_USER} env DANGO_CLOUD_MODE=true /srv/dango/venv/bin/python -I -c "
         f"{shlex.quote(_metabase_schema_scan_script())} {shlex.quote(server_project_dir)}"
     )
 
@@ -338,7 +347,7 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         # 3. Remove metabase.yml so setup re-runs
         console.print("Removing metabase.yml...")
         ssh.exec_command(
-            f"rm -f {_server_project_dir}/.dango/metabase.yml",
+            f"{_AS_SERVICE_USER} rm -f {_server_project_dir}/.dango/metabase.yml",
             timeout=10,
         )
 
@@ -403,9 +412,8 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         # the shortcut path that only applies roles.
         console.print("Re-syncing users to Metabase...")
         sync_result = ssh.exec_command(
-            f"cd {_PROJECT_ROOT} && "
-            f"sudo -u dango -H env DANGO_CLOUD_MODE=true {_VENV_PYTHON} "
-            f"-c {shlex.quote(_USER_RESYNC_SCRIPT)}",
+            f"{_AS_SERVICE_USER} {SERVICE_ENV} {_VENV_PYTHON} "
+            f"-c {shlex.quote(_USER_RESYNC_SCRIPT)} {shlex.quote(_PROJECT_ROOT)}",
             timeout=60,
         )
         if sync_result.success:
