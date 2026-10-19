@@ -5,8 +5,8 @@ Interruption matrix for restore_from_archive: kill at every progress boundary, r
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any, cast
-from unittest.mock import patch
 
 import pytest
 
@@ -17,18 +17,20 @@ from tests.factories.interruption_fakes import (
     FakeServer,
     Killed,
     KillRule,
+    distinct_backup_names,
     distinct_events,
 )
 
 pytestmark = pytest.mark.unit
 
-ARCHIVE = f"{BACKUP_DIR}/backup-20260101-000000.tar.gz"
-
 
 @pytest.fixture(autouse=True)
-def _no_health_wait() -> Any:
-    with patch("dango.platform.cloud.backup.time.sleep"):
+def _distinct_backup_names() -> Iterator[None]:
+    with distinct_backup_names():
         yield
+
+
+ARCHIVE = f"{BACKUP_DIR}/backup-20260101-000000.tar.gz"
 
 
 def _server() -> FakeServer:

@@ -5,12 +5,17 @@ Stateful fake SSH server and kill helpers for the interruption ("run it twice") 
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
 import shlex
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Literal
+from unittest.mock import patch
 
 from dango.platform.cloud.ssh import CommandResult
 
@@ -19,6 +24,19 @@ JOURNAL_PATH = "/srv/dango/project/.dango/state/deployments.jsonl"
 BACKUP_DIR = "/srv/dango/backups/deploy"
 
 Event = tuple[str, str]
+
+
+@contextmanager
+def distinct_backup_names() -> Iterator[None]:
+    """Give every backup/restore stamp a new second, and make ``sleep`` instant."""
+    counter = itertools.count(1)
+    fake_time = SimpleNamespace(
+        monotonic=time.monotonic,
+        sleep=lambda _seconds: None,
+        strftime=lambda _fmt: f"20260101-{next(counter):06d}",
+    )
+    with patch("dango.platform.cloud.backup.time", fake_time):
+        yield
 
 
 class Killed(BaseException):
@@ -168,7 +186,9 @@ class FakeServer:
             return self._ok("/dev/vda1 50000 10000 40000 20% /srv")
         if cmd.startswith("mktemp -d"):
             self._counter += 1
-            path = f"/tmp/dango-tmp.{self._counter:08d}"
+            args = shlex.split(cmd)[2:]
+            template = next((a for a in args if a.startswith("/")), "/tmp/dango-tmp.XXXXXXXX")
+            path = template.rstrip("X") + f"{self._counter:08d}"
             self.staging.add(path)
             return self._ok(path + "\n")
         if "tar -czf -" in cmd and ".tar.gz" in cmd:
@@ -221,7 +241,9 @@ class FakeServer:
     def partial_archives(self) -> list[str]:
         """Archive-like files that are not a finished ``*.tar.gz`` (a killed ``tar`` leaves one)."""
         return [
-            p for p, state in self.archives.items() if state == "partial" or not p.endswith(".tar.gz")
+            p
+            for p, state in self.archives.items()
+            if state == "partial" or not p.endswith(".tar.gz")
         ]
 
     def journal_records(self) -> list[dict[str, object]]:

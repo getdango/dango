@@ -17,6 +17,7 @@ from dango.cli.commands import deploy_provision
 from dango.cli.commands.deploy_provision import run_provisioning
 from dango.cli.commands.deploy_wizard import WizardConfig
 from dango.platform.cloud.provisioning import provision_droplet
+from dango.platform.cloud.ssh import CommandResult
 from tests.factories.interruption_fakes import Killed
 
 pytestmark = pytest.mark.unit
@@ -84,6 +85,9 @@ class FakeSSH:
     def disconnect(self) -> None:
         return None
 
+    def exec_command(self, command: str, timeout: int | None = None) -> CommandResult:
+        return CommandResult(stdout="", stderr="", exit_code=0)
+
 
 class StatusLines:
     """Replaces ``_status``: records each line and raises :class:`Killed` at ``kill_at``."""
@@ -120,21 +124,39 @@ def _config() -> WizardConfig:
     )
 
 
+def _printed(console: MagicMock) -> str:
+    return "\n".join(str(call.args[0]) for call in console.print.call_args_list if call.args)
+
+
 def _provision(
-    project: Path, do: FakeDO, status: StatusLines, *, killed_in_wait: bool = False
+    project: Path,
+    do: FakeDO,
+    status: StatusLines,
+    *,
+    killed_in_wait: bool = False,
+    console: MagicMock | None = None,
 ) -> Any:
+    console = console if console is not None else MagicMock()
     wait = MagicMock(side_effect=Killed("killed while waiting")) if killed_in_wait else _wait_ready
     with ExitStack() as stack:
         enter = stack.enter_context
         enter(patch("dango.platform.cloud.digitalocean.DigitalOceanClient", return_value=do))
         enter(patch("dango.platform.cloud.ssh.SSHManager", FakeSSH))
-        enter(patch("dango.platform.cloud.size_availability.check_size_in_region", return_value=True))
+        enter(
+            patch("dango.platform.cloud.size_availability.check_size_in_region", return_value=True)
+        )
         enter(patch("dango.platform.cloud.provisioning.wait_for_droplet_ready", wait))
         enter(patch("dango.platform.cloud.provisioning.wait_for_ssh"))
-        enter(patch("dango.platform.cloud.server_setup.setup_server", return_value=MagicMock(warnings=[])))
+        enter(
+            patch(
+                "dango.platform.cloud.server_setup.setup_server",
+                return_value=MagicMock(warnings=[]),
+            )
+        )
         enter(patch("dango.platform.cloud.server_setup.resolve_install_source"))
         enter(patch("dango.platform.cloud.file_sync.sync_project_files"))
         enter(patch(f"{_MODULE}._status", status))
+        enter(patch(f"{_MODULE}.console", console))
         for name in (
             "_fix_project_ownership",
             "_generate_cloud_profiles",
@@ -149,7 +171,9 @@ def _provision(
         enter(patch(f"{_MODULE}._health_check", return_value=True))
         enter(patch(f"{_MODULE}._deployer_ip", return_value=None))
         enter(patch(f"{_MODULE}._prebuild_command", return_value="true"))
-        enter(patch("dango.platform.cloud.backup.get_remote_compose_project_name", return_value="p"))
+        enter(
+            patch("dango.platform.cloud.backup.get_remote_compose_project_name", return_value="p")
+        )
         return run_provisioning(project, _config())
 
 
@@ -180,12 +204,12 @@ def test_every_status_line_is_a_matrix_row(project: Path) -> None:
     assert len(_healthy_lines(project)) == STEPS_EXPECTED
 
 
-STEPS_EXPECTED = 11
+STEPS_EXPECTED = 14
 
 
 @pytest.mark.parametrize("index", range(STEPS_EXPECTED))
 def test_killed_at_status_line_cleans_everything_and_rerun_starts_clean(
-    project: Path, index: int, capsys: pytest.CaptureFixture[str]
+    project: Path, index: int
 ) -> None:
     do = FakeDO()
     with pytest.raises(Killed):
@@ -203,13 +227,12 @@ def test_killed_at_status_line_cleans_everything_and_rerun_starts_clean(
 
 
 @pytest.mark.parametrize("index", [3, 5, 10])
-def test_cleanup_names_every_resource_it_removed(
-    project: Path, index: int, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_cleanup_names_every_resource_it_removed(project: Path, index: int) -> None:
     do = FakeDO()
+    console = MagicMock()
     with pytest.raises(Killed):
-        _provision(project, do, StatusLines(kill_at=index))
-    out = capsys.readouterr().out
+        _provision(project, do, StatusLines(kill_at=index), console=console)
+    out = _printed(console)
     assert "Cleaning up" in out
     created = {"droplet": do.droplets, "firewall": do.firewalls}
     assert created["droplet"] == set() and created["firewall"] == set()
@@ -218,11 +241,12 @@ def test_cleanup_names_every_resource_it_removed(
         assert resource in out
 
 
-def test_failed_deletes_name_each_orphaned_resource(project: Path, capsys: Any) -> None:
+def test_failed_deletes_name_each_orphaned_resource(project: Path) -> None:
     do = FakeDO(fail_delete=True)
+    console = MagicMock()
     with pytest.raises(Killed):
-        _provision(project, do, StatusLines(kill_at=STEPS_EXPECTED - 2))
-    out = capsys.readouterr().out
+        _provision(project, do, StatusLines(kill_at=STEPS_EXPECTED - 2), console=console)
+    out = _printed(console)
     for droplet_id in do.droplets:
         assert f"Droplet {droplet_id}" in out
     for firewall_id in do.firewalls:

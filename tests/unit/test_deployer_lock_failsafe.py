@@ -86,9 +86,7 @@ def test_unparseable_expiry_is_held_when_the_file_age_is_unknown() -> None:
 
 
 def test_unparseable_expiry_is_taken_over_once_the_file_is_older_than_the_lock_lifetime() -> None:
-    server = FakeServer(
-        lock=_lock_json(expires_at="not-a-date"), lock_age_seconds=_MAX_AGE + 60
-    )
+    server = FakeServer(lock=_lock_json(expires_at="not-a-date"), lock_age_seconds=_MAX_AGE + 60)
     lock = _acquire(server)
     assert server.lock is not None and json.loads(server.lock)["deployer"] == lock.deployer
 

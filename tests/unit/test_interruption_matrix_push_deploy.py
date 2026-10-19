@@ -21,10 +21,17 @@ from tests.factories.interruption_fakes import (
     FakeServer,
     Killed,
     KillRule,
+    distinct_backup_names,
     distinct_events,
 )
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def _distinct_backup_names() -> Iterator[None]:
+    with distinct_backup_names():
+        yield
 
 
 def _fake_sync(

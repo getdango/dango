@@ -5,6 +5,7 @@ Interruption matrix for create_backup: kill at every progress boundary, then bac
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any, cast
 
 import pytest
@@ -15,10 +16,17 @@ from tests.factories.interruption_fakes import (
     FakeServer,
     Killed,
     KillRule,
+    distinct_backup_names,
     distinct_events,
 )
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def _distinct_backup_names() -> Iterator[None]:
+    with distinct_backup_names():
+        yield
 
 
 def _backup(server: FakeServer, recorder: EventRecorder | None = None, **kwargs: Any) -> Any:
