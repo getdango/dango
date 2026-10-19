@@ -6,6 +6,8 @@
 # writing through to each provider's own real config mechanism below. It
 # does not affect, and makes no claim about, the `functional` hosts further
 # down this file.
+# The `dango init` consent prompt covers all four providers at once: one
+# yes/no, and "no" switches all four off (dango/telemetry.py:apply_all_providers).
 # Functional: required for operation, disclosed but not toggleable
 # Verified against installed packages (dbt-core 1.11.14, dlt 1.28.1, marimo)
 # 2026-09-03 — re-verified to document the weekly telemetry heartbeat (Session Q,
@@ -55,7 +57,10 @@ telemetry:
       one-time `allow_tracking` field Dango already sets to false in the
       /api/setup payload when it provisions a fresh Metabase instance
       (visualization/metabase.py:setup_metabase), so tracking is off by
-      default on new installs even before this command is ever run.
+      default on new installs even before this command is ever run. The
+      `dango init` prompt answer is recorded in .dango/metabase_telemetry_state
+      before Metabase exists and setup_metabase applies it: "yes" provisions
+      Metabase with tracking on, "no" (or no answer) with tracking off.
       Manually toggling the setting in the Metabase admin UI still works too.
     sends: "anonymous usage statistics"
 

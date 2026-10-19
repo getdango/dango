@@ -293,6 +293,54 @@ def set_dlt_telemetry_state(enabled: bool) -> None:
         raise OSError("Could not write ~/.dango/config.yml")
 
 
+def set_metabase_telemetry_intent(project_root: Path, enabled: bool) -> bool:
+    """Record Metabase's desired telemetry state before Metabase is running.
+
+    Writes the same ``.dango/metabase_telemetry_state`` cache file that
+    ``set_metabase_telemetry()`` (Level 2, live API call) writes after a
+    successful toggle, so `dango telemetry status` reports it and
+    ``setup_metabase()`` applies it as ``allow_tracking`` when it first
+    provisions Metabase.
+
+    Returns:
+        True if the file was written, False on any failure (never raises).
+    """
+    try:
+        state_file = project_root / ".dango" / "metabase_telemetry_state"
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        state_file.write_text("true" if enabled else "false")
+        return True
+    except Exception:
+        return False
+
+
+def apply_all_providers(enabled: bool, project_root: Path | None = None) -> dict[str, str]:
+    """Set every provider's telemetry state at once (the `dango init` answer).
+
+    Dango, dbt and dlt are machine-level; Metabase is recorded as an intent
+    for ``project_root`` because it is not running yet (see
+    `set_metabase_telemetry_intent`). Never raises: each provider's outcome
+    is reported in the returned dict (``"on"``/``"off"`` on success,
+    ``"failed"`` or ``"skipped"`` otherwise).
+    """
+    state = "on" if enabled else "off"
+    results: dict[str, str] = {}
+    set_telemetry_enabled(enabled)
+    results["dango"] = state
+    for name, setter in (("dbt", set_dbt_telemetry_state), ("dlt", set_dlt_telemetry_state)):
+        try:
+            setter(enabled)
+            results[name] = state
+        except OSError:
+            results[name] = "failed"
+    if project_root is None:
+        results["metabase"] = "skipped"
+    else:
+        ok = set_metabase_telemetry_intent(project_root, enabled)
+        results["metabase"] = state if ok else "failed"
+    return results
+
+
 def has_recorded_consent() -> bool:
     """Check whether the user has already answered the telemetry prompt.
 

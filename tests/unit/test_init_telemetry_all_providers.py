@@ -92,4 +92,6 @@ class TestInitTelemetryAllProviders:
         text = seen[0]
         for needle in ("- Dango:", "- dbt:", "- dlt:", "- Metabase:", "Allow all of the above?"):
             assert needle in text
-        assert text.endswith("(yes/no)   You can change this any time: dango telemetry on|off --all")
+        assert text.endswith(
+            "(yes/no)   You can change this any time: dango telemetry on|off --all"
+        )

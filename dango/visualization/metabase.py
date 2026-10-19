@@ -1224,7 +1224,11 @@ def setup_metabase(
                     "site_name": f"{org_name} Analytics",
                 },
                 "database": None,  # We'll add DuckDB separately
-                "prefs": {"site_name": f"{org_name} Analytics", "allow_tracking": False},
+                "prefs": {
+                    "site_name": f"{org_name} Analytics",
+                    # Off unless the `dango init` prompt recorded an explicit "yes"
+                    "allow_tracking": get_metabase_telemetry_intent(project_root),
+                },
             }
 
             response = session.post(f"{metabase_url}/api/setup", json=setup_data, timeout=30)
@@ -1934,6 +1938,15 @@ def set_metabase_telemetry(
         # which is a RequestException. Convert to the same clean-error
         # contract this function promises for every other failure mode.
         raise click.ClickException(f"Failed to set Metabase telemetry: {e}") from e
+
+
+def get_metabase_telemetry_intent(project_root: Path) -> bool:
+    """True only if telemetry consent recorded an explicit "yes" for Metabase."""
+    state_file = project_root / ".dango" / "metabase_telemetry_state"
+    try:
+        return state_file.read_text().strip() == "true"
+    except OSError:
+        return False
 
 
 def get_metabase_telemetry_state(project_root: Path | None) -> bool:
