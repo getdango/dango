@@ -115,10 +115,7 @@ class TestCallSitesUseResolvedDbt:
         validator = ProjectValidator(project)
         with patch("subprocess.run", side_effect=fake_run):
             validator._validate_dbt_models()
-            try:
-                validator._check_dependencies()
-            except Exception:  # noqa: BLE001 - only the dbt --version call matters here
-                pass
+            validator._check_dependencies()
 
         heads = {c[1]: c[0] for c in calls if len(c) > 1 and c[1] in ("parse", "--version")}
         assert heads.get("parse") == str(venv_bin / DBT_NAME)
