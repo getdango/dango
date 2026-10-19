@@ -18,7 +18,6 @@ from tests.factories.compose_helper_sh import (
     PROD_WAIT_LINE,
     Runner,
     Tree,
-    docker_available,
     make_tree,
     patched_script,
     runner_session,
@@ -338,13 +337,12 @@ def test_ps_does_not_create_the_lock_directory(tree: Tree) -> None:
     assert not tree.lock_dir.exists()
 
 
-@pytest.mark.skipif(
-    not os.environ.get("DANGO_RUN_DOCKER_TESTS") or not docker_available(), reason="needs Docker"
-)
 def test_ownership_checks_with_real_root_and_real_find(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
     """In a container as uid 0, with real find/id (no shims): the root-owned checks really bite."""
+    if not os.environ.get("DANGO_RUN_DOCKER_TESTS"):  # repo gate for Docker tests
+        pytest.skip("set DANGO_RUN_DOCKER_TESTS=1 to run Docker tests")
     with runner_session(tmp_path_factory.getbasetemp(), user="0") as r:
         sh = "/tmp/t"
         root = Path(sh)
