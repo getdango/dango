@@ -188,7 +188,7 @@ class TestRegenerateDbtProfiles:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "dbt_project.yml": ("", "", 1),
+                "dbt_project.yml": ("", "", 3),  # read_project_file: exit 3 = path absent
             }
         )
 

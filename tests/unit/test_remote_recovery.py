@@ -6,6 +6,7 @@ power-state helpers, `remote power-on`, and the resize cleanup that no longer sw
 
 from __future__ import annotations
 
+import itertools
 import os
 import re
 import shlex
@@ -162,7 +163,10 @@ class TestUpgradeGuard:
             return "rebuilt"
 
         with (
-            patch("dango.platform.cloud.runtime_ownership.venv_is_untrusted", return_value=True),
+            patch(
+                "dango.platform.cloud.runtime_ownership.venv_is_untrusted",
+                side_effect=itertools.chain([True], itertools.repeat(False)),
+            ),
             patch(
                 "dango.platform.cloud.runtime_ownership.trusted_metadata_version",
                 return_value="1.2.0",
