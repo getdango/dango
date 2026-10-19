@@ -45,24 +45,29 @@ dependencies = [
     "jinja2>=3.1.4",
     "watchdog>=5.0.0",
     "rich>=13.7.0",
-    "inquirer>=3.4.0",
-    "InquirerPy>=0.3.4",              # used by oauth.py wizards (google_sheets, google_analytics)
+    "inquirer>=3.4.0",            # prompts in most CLI wizards (cli/wizard.py, source_wizard.py, ...)
+    "InquirerPy>=0.3.4",          # used only by cli/commands/oauth.py wizards (google_sheets, google_analytics)
     "requests>=2.33.0",           # CVE-2026-25645 fixed in 2.33.0
     "httpx>=0.27.0,<1.0",            # httpx 1.0 removes TimeoutException
-    "idna>=3.15",                     # CVE fix — transitive via httpx/requests/anyio
+    "idna>=3.15",                     # Not imported; floor pin for a CVE fix in a transitive dep (httpx/requests/anyio)
     "starlette>=1.0.1",               # PYSEC-2026-161 fixed in 1.0.1
-    "fastapi>=0.136.0",               # unpinned from <0.137 (S3-A tested on 0.138.1)
+    "fastapi>=0.136.0",               # unpinned from <0.137 (S3-A tested on 0.138.1); no upper bound, see VERSIONS.md
     "uvicorn[standard]>=0.27.0",
-    "python-multipart>=0.0.27",   # CVE-2026-40347, CVE-2026-42561 fixed in 0.0.27
+    "python-multipart>=0.0.27",   # Not imported by name; FastAPI needs it for File/UploadFile parsing (CSV upload). CVE-2026-40347, CVE-2026-42561 fixed in 0.0.27
     "websockets>=12.0",
     "aiofiles>=23.2.0",
     "psutil>=5.9.0",
     "structlog>=24.1.0",
     "tomlkit>=0.13.0",            # TOML read/write with style preservation (source_wizard, dlt_runner)
+    "tzlocal>=5.4.4",             # local timezone detection in cli/commands/schedule.py
+    "packaging>=26.3",            # version comparison in upgrade, platform and cloud code
+    "pendulum>=3.3.0",            # parsed date types in ingestion/dlt_runner.py (also a dlt dependency)
     "sqlglot>=30.17",             # SQL validation for /api/query and MCP query (fails closed without it)
 
     # Data governance and notebooks
     "pandas>=2.0.0",
+    # Plotting libraries for user-written Marimo notebooks (mo.ui.altair_chart/plotly, matplotlib
+    # figures); not imported by Dango itself, kept so notebooks work after a plain pip install.
     "matplotlib>=3.8.0",
     "plotly>=5.18.0",
     "altair>=5.2.0",
@@ -75,11 +80,10 @@ dependencies = [
     "cryptography>=46.0.7",  # Token encryption; CVE-2026-26007/34073/39892 fixed in 46.0.7
     "pwdlib[bcrypt]>=0.3.0,<1.0",  # Password hashing (bcrypt)
     "pyotp>=2.9,<3.0",   # TOTP two-factor authentication
-    "toml>=0.10.2",       # TOML file parsing for .dlt/secrets.toml
+    "toml>=0.10.2",       # TOML parsing/writing for .dlt/secrets.toml (config/credentials.py, oauth/storage.py)
 
     # Google API dependencies (for bundled Google Sheets source)
     "google-api-python-client>=2.100.0",  # Google Sheets API
-    "google-auth-oauthlib>=1.0.0",        # OAuth for Google services
     "google-auth>=2.22.0",                # Google authentication
 
     # Cloud deployment
