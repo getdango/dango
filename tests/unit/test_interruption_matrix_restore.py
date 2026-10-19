@@ -184,3 +184,12 @@ def test_ownership_is_given_back_to_the_service_user_when_interrupted_mid_restor
     with pytest.raises(Killed):
         _restore(server, EventRecorder(kill_at=event))
     assert "chown -R dango:dango /srv/dango/project" in server.commands
+
+
+def test_rollback_after_a_safety_backup_interrupted_before_its_manifest() -> None:
+    server = _server_with_manifest()
+    server.kill = KillRule("manifest.json >", when="before")
+    with pytest.raises(Killed):
+        _restore(server)
+    server.kill = None
+    assert rollback(cast(Any, server)).restored_from == ARCHIVE

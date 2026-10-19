@@ -111,6 +111,7 @@ class FakeServer:
     files: dict[str, str] = field(default_factory=dict)
     stale: set[str] = field(default_factory=set)  # partial archives old enough to delete
     lost: bool = False
+    disk_mb: int = 40000
     staging: set[str] = field(default_factory=set)
     lock_age_seconds: int | None = None
     live_data: str = "live"
@@ -206,7 +207,7 @@ class FakeServer:
         if cmd.startswith("curl -sf http://localhost:8800/api/health"):
             return self._ok() if self.web_active else self._fail()
         if cmd.startswith("df -m"):
-            return self._ok("/dev/vda1 50000 10000 40000 20% /srv")
+            return self._ok(f"/dev/vda1 50000 {50000 - self.disk_mb} {self.disk_mb} 20% /srv")
         if cmd.startswith("mktemp -d"):
             self._counter += 1
             args = shlex.split(cmd)[2:]
@@ -242,6 +243,9 @@ class FakeServer:
             for path in sorted(self.stale):
                 self.archives.pop(path, None)
             return self._ok()
+        if "-mmin +15" in cmd and "-exec rm -rf" in cmd:
+            self.staging -= self.stale  # root-owned backup/restore staging older than 15 min
+            return self._ok()
         if cmd.startswith(f"ls -1t {BACKUP_DIR}/*.tar.gz"):
             newest_first = [
                 p for p in reversed(self._order) if p in self.archives and p.endswith(".tar.gz")
@@ -258,6 +262,7 @@ class FakeServer:
             for token in shlex.split(cmd)[2:]:
                 self.staging.discard(token)
                 self.archives.pop(token, None)
+                self.manifests.pop(token, None)
             return self._ok()
         if cmd.startswith("mkdir -p /tmp/dango-restore-staging-"):
             self.staging.add(shlex.split(cmd.split("&&")[0])[-1])

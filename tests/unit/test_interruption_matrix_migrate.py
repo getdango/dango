@@ -262,3 +262,11 @@ def test_the_report_after_a_completed_switch_only_mentions_a_live_old_droplet(
         report = "\n".join([str(excinfo.value), *getattr(excinfo.value, "__notes__", [])])
         assert (f"doctl compute droplet delete {OLD_ID}" in report) is old_alive
         _project(project)  # reset cloud.yml for the next iteration
+
+
+def test_a_failed_delete_of_the_old_droplet_leaves_it_behind_its_firewall(project: Path) -> None:
+    do = FakeDO(fail_delete={OLD_ID})
+    result = _migrate(project, do, FakeServer())
+    assert result.old_droplet_destroyed is False
+    assert OLD_ID in do.alive
+    assert OLD_ID in do.firewall_droplets, "the running old server was left without a firewall"

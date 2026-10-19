@@ -6,7 +6,7 @@ Interruption matrix for create_backup: kill at every progress boundary, then bac
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 
@@ -182,11 +182,51 @@ def test_a_lost_connection_leaves_nothing_that_stops_the_next_backup(
         _backup(server)
     server.kill = None
     server.stale.update(server.partial_archives())  # time passes: a dead run's partial is old
+    server.stale.update(server.staging)
     server.reconnect()
 
     again = _backup(server)
+    assert server.staging == set(), "a dead run's staging directory (project data) was kept"
 
     assert again.archive_path in server.complete_archives()
     assert again.archive_path.replace(".tar.gz", ".json") in server.manifests
     assert server.web_active and server.metabase_up
     assert server.partial_archives() == []
+
+
+def test_the_stale_sweep_runs_before_the_disk_check_so_a_full_disk_heals() -> None:
+    server = FakeServer(disk_mb=10)
+    server.archives[ORPHAN] = "partial"
+    server.stale.add(ORPHAN)
+    with pytest.raises(CloudProvisioningError, match="Insufficient disk space"):
+        _backup(server)
+    assert ORPHAN not in server.archives, "the orphan that filled the disk was not removed"
+    sweep = next(i for i, c in enumerate(server.commands) if "-mmin +15" in c)
+    disk = next(i for i, c in enumerate(server.commands) if c.startswith("df -m"))
+    assert sweep < disk
+
+
+def test_stale_root_owned_staging_directories_are_removed_without_following_links() -> None:
+    server = FakeServer()
+    leftover = "/tmp/dango-backup.deadbeef"
+    server.staging.add(leftover)
+    server.stale.add(leftover)
+    _backup(server)
+    assert leftover not in server.staging
+    command = next(c for c in server.commands if "dango-backup.*" in c)
+    assert "-user root" in command and "-maxdepth 1" in command and "-type d" in command
+    assert "dango-restore-staging-*" in command
+
+
+@pytest.mark.parametrize("when", ["before", "after"])
+def test_a_complete_archive_always_has_its_manifest(when: Literal["before", "after"]) -> None:
+    """The archive is the commit marker: interrupted before the rename, no archive exists."""
+    server = FakeServer()
+    server.kill = KillRule("mv -T -n", when=when)
+    with pytest.raises(Killed):
+        _backup(server)
+    server.kill = None
+    for archive in server.complete_archives():
+        assert archive.replace(".tar.gz", ".json") in server.manifests
+    if not server.complete_archives():
+        assert server.manifests == {}, "a manifest was left without its archive"

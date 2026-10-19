@@ -259,6 +259,9 @@ def test_failed_deletes_name_each_orphaned_resource(project: Path) -> None:
     for key_id in do.ssh_keys:
         assert f"SSH key {key_id}" in out
     assert do.droplets and do.firewalls and do.ssh_keys
+    # The only record of the still-running resources must survive, with the way to finish.
+    assert (project / ".dango" / "cloud.yml").exists(), "cloud.yml was deleted with live resources"
+    assert "dango deploy destroy" in out
 
 
 def test_provision_droplet_deletes_a_droplet_it_created_when_interrupted_while_waiting() -> None:
