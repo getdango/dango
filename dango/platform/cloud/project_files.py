@@ -96,6 +96,8 @@ def append_env_line_if_missing(ssh: Any, path: str, key: str, value: str) -> Any
     Returns:
         The ``CommandResult`` of the remote command.
     """
+    if any(c in f"{key}{value}" for c in "\n\r\0"):
+        raise ValueError("env key and value must not contain newline or NUL characters")
     q = shlex.quote
     return ssh.exec_command(
         f"{AS_DANGO} sh -c {q(_APPEND_SCRIPT)} _ {q(path)} {q(key)} {q(f'{key}={value}')}"

@@ -864,15 +864,19 @@ def _build_auth_timeout_script() -> str:
     )
 
 
+def _validate_admin_email(email: str) -> None:
+    """Reject an admin email that could break out of a remote shell string or a ``.env`` line."""
+    if "\n" in email or "'" in email or not _EMAIL_RE.fullmatch(email):
+        raise ValueError(f"Invalid email format: {email!r}")
+
+
 def _create_admin_and_enable_auth(
     ssh: Any,
     email: str,
     password: str,
 ) -> None:
     """Create admin user and enable auth on remote server."""
-    # Validate email (shell injection prevention)
-    if not _EMAIL_RE.match(email):
-        raise ValueError(f"Invalid email format: {email}")
+    _validate_admin_email(email)
 
     # Hash password locally — never send plaintext to remote server
     from dango.auth.security import hash_password
@@ -927,9 +931,7 @@ def _trigger_metabase_setup(ssh: Any, admin_email: str) -> None:
     ``setup_metabase_if_needed`` runs with the correct admin email already
     in the environment.
     """
-    # Validate email (shell injection prevention — same as _create_admin_and_enable_auth)
-    if not _EMAIL_RE.match(admin_email):
-        raise ValueError(f"Invalid email format: {admin_email}")
+    _validate_admin_email(admin_email)
 
     # Ensure admin email is in server .env for Metabase setup (appended as dango)
     result = append_env_line_if_missing(
