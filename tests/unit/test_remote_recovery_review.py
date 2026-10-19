@@ -212,6 +212,17 @@ class TestResizeCleanup:
             _resize(client, _SSH())
         client.power_on.assert_called_once()
 
+    def test_keyboard_interrupt_while_off_prints_power_on_hint(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        client = _client("off")
+        client.wait_for_action.side_effect = [{"status": "completed"}, KeyboardInterrupt()]
+        client.power_on.side_effect = RuntimeError("api down")
+        with pytest.raises(KeyboardInterrupt):
+            _resize(client, _SSH())
+        captured = capsys.readouterr()
+        assert "dango remote power-on" in captured.out + captured.err
+
     def test_ssh_error_in_dbt_profiles_still_starts_services(self) -> None:
         client = _client("active")
         with (
@@ -231,7 +242,14 @@ class TestResizeCleanup:
 
 @pytest.mark.unit
 class TestPowerOnSizeDrift:
-    def _run(self, tmp_path: Path, live_size: str) -> tuple[Any, MagicMock, MagicMock]:
+    def _run(
+        self,
+        tmp_path: Path,
+        live_size: str,
+        *,
+        state: str = "off",
+        size_lookup_error: Exception | None = None,
+    ) -> tuple[Any, MagicMock, MagicMock]:
         from dango.cli.commands.remote import remote
 
         cfg = MagicMock()
@@ -241,9 +259,11 @@ class TestPowerOnSizeDrift:
         loader.load_cloud_config.return_value = cfg
         client = MagicMock()
         client.get_droplet.side_effect = [
-            {"status": "off", "size_slug": live_size},
-            {"status": "active", "size_slug": live_size},
+            {"status": state, "size_slug": live_size},
+            size_lookup_error or {"status": "active", "size_slug": live_size},
         ]
+        if state == "active":
+            client.get_droplet.side_effect = [{"status": state, "size_slug": live_size}] * 2
         ssh = MagicMock()
         ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=0)
         with (
@@ -275,3 +295,18 @@ class TestPowerOnSizeDrift:
         assert result.exit_code == 0, result.output
         regen.assert_not_called()
         save.assert_not_called()
+
+    def test_size_reconciled_when_server_is_already_powered_on(self, tmp_path: Path) -> None:
+        result, regen, save = self._run(tmp_path, "s-4vcpu-8gb", state="active")
+        assert result.exit_code == 0, result.output
+        regen.assert_called_once()
+        assert save.call_args.kwargs["size"] == "s-4vcpu-8gb"
+
+    def test_size_lookup_failure_is_a_warning_not_a_power_on_failure(self, tmp_path: Path) -> None:
+        result, _, _ = self._run(
+            tmp_path, "s-4vcpu-8gb", size_lookup_error=RuntimeError("api blip")
+        )
+        out = re.sub(r"\x1b\[[^m]*m", "", result.output)
+        assert result.exit_code == 0, out
+        assert "Power-on failed" not in out
+        assert "size" in out.lower() and "api blip" in out
