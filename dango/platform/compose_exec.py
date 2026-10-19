@@ -48,7 +48,7 @@ _LOCAL_TOKENS: dict[str, tuple[str, ...] | None] = {
     "restart": ("restart",),
     "image-exists": None,
 }
-_VERSION_LINE = re.compile(r"^ENV MB_VERSION=(v[0-9][0-9.]{0,18})$", re.MULTILINE)
+_VERSION_LINE = re.compile(r"^ENV MB_VERSION=(v[0-9][0-9.]{0,18})(?:\n|\Z)", re.MULTILINE)
 _BUDGET_LINE = re.compile(r"^dango-compose: .* exceeded its time budget.*\n?", re.MULTILINE)
 
 
