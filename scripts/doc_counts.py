@@ -36,6 +36,11 @@ def line_counts() -> dict[str, int]:
     return counts
 
 
+def within_tolerance(stated: int, actual: int, fraction: float = 0.10) -> bool:
+    """True when a documented line count is within ``fraction`` of the actual count."""
+    return abs(stated - actual) <= fraction * max(stated, actual)
+
+
 def main() -> int:
     """Print the counts."""
     print(f"sources: {source_count()}")

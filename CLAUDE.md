@@ -337,11 +337,11 @@ DuckDB allows only one writer process at a time. All write operations are serial
 
 ### Monolithic Files
 
-These files exceed 500 lines. One has planned refactoring; the rest are exempt (stable MVP code).
+These files exceed 500 lines (counts are approximate; `scripts/doc_counts.py` prints current values, and a test fails if one drifts more than 10%). One has planned refactoring; the rest are exempt (stable MVP code).
 Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 
-| File | Lines | Refactoring Task |
-|------|-------|-----------------|
+| File | Lines (approx.) | Refactoring Task |
+|------|-----------------|-----------------|
 | `ingestion/dlt_runner.py` | 3931 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2785 | — (metadata-only) |
 | `cli/source_wizard.py` | 2421 | — |
@@ -371,12 +371,12 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/validate.py` | 1048 | — |
 | `config/models.py` | 662 | — (Pydantic config models) |
 | `cli/commands/deploy.py` | 979 | — (deploy group with DO + BYOS routing, destroy command) |
-| `cli/commands/deploy_wizard.py` | 1307 | — (interactive deploy wizard + BYOS) |
+| `cli/commands/deploy_wizard.py` | 1322 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 781 | — |
 | `web/routes/catalog.py` | 564 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
 | `web/templates/catalog.html` | 1133 | — (Alpine.js data catalog page) |
-| `cli/commands/deploy_provision.py` | 1170 | — (provisioning orchestration + BYOS) |
-| `platform/cloud/digitalocean.py` | 573 | — (DO REST API v2 client) |
+| `cli/commands/deploy_provision.py` | 1180 | — (provisioning orchestration + BYOS) |
+| `platform/cloud/digitalocean.py` | 595 | — (DO REST API v2 client) |
 | `platform/cloud/server_setup.py` | 780 | — (server setup + install source detection) |
 | `cli/commands/auth.py` | 920 | — (13 auth subcommands) |
 | `auth/database.py` | 531 | — (SQLite CRUD) |

@@ -80,13 +80,13 @@ exemptions:
 
   # --- Phase 3 cloud deployment (TASK-029 + TASK-107) ---
   - file: dango/cli/commands/deploy_wizard.py
-    lines: 1307
+    lines: 1322
     category: exempt
     reason: "TASK-029+075e: Interactive wizard steps 1-8 + BYOS wizard + non-interactive modes. Sequential prompt flow — splitting would scatter closely coupled wizard steps. R9-C added cloud_credentials integration. R12-N1 added _safe_confirm helper. R12-I2 added email confirm + token flow UX."
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy_provision.py
-    lines: 1170
+    lines: 1180
     category: exempt
     reason: "TASK-029+075e: DO provisioning + BYOS setup with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery. R8-F added _generate_cloud_profiles + DANGO_ADMIN_EMAIL persistence. R9-C added _confirm_secrets_push, install source detection, empty error handling. R12-N1 added non_interactive param, project_root resolve. Deploy reliability: extracted script builders, added exit code checks."
     review_by: "v1.1"
@@ -297,7 +297,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/cloud/digitalocean.py
-    lines: 573
+    lines: 595
     category: exempt
     reason: "TASK-104: Added get_action() and wait_for_action() for resize/migrate action polling. Core DO API client — splitting would fragment related HTTP methods. R9-C added cloud_credentials fallback."
     review_by: "v1.1"
