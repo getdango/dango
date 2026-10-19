@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 from dango.exceptions import CloudError, CloudProvisioningError
 from dango.logging import get_logger
 from dango.platform.cloud.droplet_cleanup import delete_droplet_or_annotate
+from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
 
 _logger = get_logger(__name__)
 
@@ -33,7 +34,6 @@ if TYPE_CHECKING:
 
 _PROJECT_DIR = "/srv/dango/project"
 _ENV_FILE = f"{_PROJECT_DIR}/.env"
-_ROOT_PYTHON = "/srv/dango/venv/bin/python -I"
 _SECRETS_FILES = [
     f"{_PROJECT_DIR}/.env",
     f"{_PROJECT_DIR}/.dlt/secrets.toml",
@@ -108,7 +108,7 @@ def _run_transfer_script(ssh: SSHManager, script: str) -> Any:
         )
     try:
         ssh.write_remote_file(script_path, script, mode=0o600)
-        return ssh.exec_command(f"{_ROOT_PYTHON} {script_path}", timeout=600)
+        return ssh.exec_command(f"{ROOT_PYTHON} {script_path}", timeout=600)
     finally:
         ssh.exec_command(f"rm -rf {script_dir}")  # cleanup: silent OK
 
