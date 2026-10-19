@@ -636,11 +636,12 @@ def _create_archive(
             step="create_archive",
             timeout=600,
         )
+        # ``-n``: never over an existing path (a planted link included); old coreutils skip
+        # silently, so the partial file still being there means the rename did not happen.
         _run_checked(
             ssh,
-            # Never renamed over an existing path (a planted link included).
-            f"! [ -e {shlex.quote(archive_path)} ] && ! [ -L {shlex.quote(archive_path)} ]"
-            f" && mv {shlex.quote(partial_path)} {shlex.quote(archive_path)}",
+            f"mv -T -n {shlex.quote(partial_path)} {shlex.quote(archive_path)}"
+            f" && ! [ -e {shlex.quote(partial_path)} ]",
             step="create_archive",
         )
         _run_checked(
@@ -776,6 +777,19 @@ def list_local_backups(ssh: SSHManager) -> list[dict[str, Any]]:
     return backups
 
 
+def _is_safety_backup(ssh: SSHManager, archive_path: str) -> bool:
+    """True if the archive's manifest says it is a pre-restore safety backup."""
+    manifest = ssh.exec_command(
+        f"cat {shlex.quote(archive_path.replace('.tar.gz', '.json'))} 2>/dev/null"
+    )
+    if not manifest.success:
+        return False
+    try:
+        return bool(json.loads(manifest.stdout).get("backup_type") == "pre-restore")
+    except (ValueError, AttributeError):
+        return False
+
+
 def rollback(
     ssh: SSHManager,
     *,
@@ -790,7 +804,9 @@ def rollback(
 
     _notify(on_progress, "find_backup", "running")
     if backup_path is None:
-        backups = list_local_backups(ssh)
+        # The newest archive after a restore is its own pre-restore safety backup, which
+        # holds the state the restore replaced: never the default to roll back to.
+        backups = [b for b in list_local_backups(ssh) if not _is_safety_backup(ssh, b["path"])]
         if not backups:
             raise CloudProvisioningError("No backups found to restore from")
         backup_path = backups[0]["path"]
@@ -961,7 +977,7 @@ def restore_from_archive(
             _notify(on_progress, "fix_ownership", "running")
             _run_checked(ssh, "chown -R dango:dango /srv/dango/project", step="fix_ownership")
             _notify(on_progress, "fix_ownership", "done")
-        except Exception:
+        except BaseException:
             if copies_started:
                 # A failed copy leaves a partial, root-owned restore; give it back
                 # to the service user before services restart on it.
@@ -1029,7 +1045,15 @@ def _auth_config_refusal(ssh: SSHManager, staging: str) -> str | None:
 
 
 def rotate_local_backups(ssh: SSHManager, keep: int = MAX_LOCAL_BACKUPS) -> int:
-    """Delete old backup archives beyond the retention limit."""
+    """Delete old backup archives beyond the retention limit.
+
+    Also removes ``*.partial`` files older than the longest ``tar`` (600 s) plus margin:
+    what an interrupted backup whose client could not clean up leaves behind.
+    """
+    ssh.exec_command(  # cleanup: silent OK
+        f"find {shlex.quote(BACKUP_DIR)} -maxdepth 1 -type f"
+        f" -name {shlex.quote('backup-*.tar.gz.partial')} -mmin +15 -delete"
+    )
     result = ssh.exec_command(f"ls -1t {BACKUP_DIR}/*.tar.gz 2>/dev/null || true")
     if not result.success or not result.stdout.strip():
         return 0

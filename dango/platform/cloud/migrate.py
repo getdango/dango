@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 from dango.exceptions import CloudError, CloudProvisioningError
 from dango.logging import get_logger
 from dango.platform.cloud.droplet_cleanup import delete_droplet_or_annotate, note_old_droplet_left
+from dango.platform.cloud.firewall import update_firewall_droplets as _update_firewall_droplets
 from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
 
 _logger = get_logger(__name__)
@@ -255,30 +256,6 @@ def _copy_secrets_between_servers(
     return warnings
 
 
-def _update_firewall_droplets(
-    client: DigitalOceanClient,
-    firewall_id: str,
-    old_droplet_id: int,
-    new_droplet_id: int,
-) -> None:
-    """Swap old droplet for new in the firewall's droplet list."""
-    fw = client.get_firewall(firewall_id)
-    droplet_ids: list[int] = list(fw.get("droplet_ids", []))
-
-    if old_droplet_id in droplet_ids:
-        droplet_ids.remove(old_droplet_id)
-    if new_droplet_id not in droplet_ids:
-        droplet_ids.append(new_droplet_id)
-
-    client.update_firewall(
-        firewall_id=firewall_id,
-        name=fw["name"],
-        inbound_rules=fw.get("inbound_rules", []),
-        outbound_rules=fw.get("outbound_rules", []),
-        droplet_ids=droplet_ids,
-    )
-
-
 def migrate_server(
     client: DigitalOceanClient,
     old_ssh: SSHManager,
@@ -335,6 +312,7 @@ def migrate_server(
     new_droplet_id: int | None = None
     new_ssh: SSHManager | None = None
     committed = False  # cloud.yml names the new droplet
+    old_destroyed = False
 
     # 1. Validate
     validate_size_slug(new_size)
@@ -419,9 +397,8 @@ def migrate_server(
         if old_config.firewall_id:
             _notify(on_progress, "firewall", "running")
             try:
-                _update_firewall_droplets(
-                    client, old_config.firewall_id, old_droplet_id, new_droplet_id
-                )
+                # Add only: the old server stays protected until the switch is recorded.
+                _update_firewall_droplets(client, old_config.firewall_id, None, new_droplet_id)
             except Exception as exc:
                 warnings.append(f"Firewall update failed: {exc}")
             _notify(on_progress, "firewall", "done")
@@ -432,7 +409,6 @@ def migrate_server(
         _notify(on_progress, "verify_health", "done")
 
         # 13. Destroy old or keep both
-        old_destroyed = False
         if health_ok:
             # Record the new server first so cloud.yml never names a deleted droplet.
             save_provisioning_metadata(
@@ -443,6 +419,11 @@ def migrate_server(
                 size=new_size,
             )
             committed = True
+            if old_config.firewall_id:
+                try:
+                    _update_firewall_droplets(client, old_config.firewall_id, old_droplet_id, None)
+                except Exception as exc:
+                    warnings.append(f"Firewall still lists the old droplet: {exc}")
             _notify(on_progress, "cleanup", "running")
             try:
                 client.delete_droplet(old_droplet_id)
@@ -460,7 +441,7 @@ def migrate_server(
     except BaseException as exc:
         # Failure or Ctrl-C: delete the new droplet unless cloud.yml already names it.
         if committed:
-            note_old_droplet_left(exc, new_droplet_id, old_droplet_id)
+            note_old_droplet_left(exc, new_droplet_id, old_droplet_id, old_destroyed)
         elif new_droplet_id is not None:
             delete_droplet_or_annotate(client, new_droplet_id, exc)
         if new_ssh is not None:

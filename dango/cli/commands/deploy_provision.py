@@ -55,7 +55,10 @@ class _ResourceTracker:
     firewall_id: str | None = None
     ssh_key_id: int | None = None
     spaces_bucket: str | None = None
+    spaces_created: bool = False  # this run created the bucket, so cleanup may delete it
     spaces_client: Any = None  # SpacesClient
+    cloud_yml: Path | None = None  # restored after cleanup (see snapshot_cloud_yml)
+    cloud_yml_before: bytes | None = None
 
     def cleanup(self) -> list[str]:
         """Delete all tracked resources. Returns list of error messages."""
@@ -79,13 +82,31 @@ class _ResourceTracker:
             except Exception as exc:
                 errors.append(f"SSH key {self.ssh_key_id}: {exc}")
 
-        if self.spaces_bucket and self.spaces_client:
+        if self.spaces_bucket and self.spaces_created and self.spaces_client:
             try:
                 self.spaces_client.delete_bucket()
             except Exception as exc:
                 errors.append(f"Spaces bucket {self.spaces_bucket}: {exc}")
 
+        self._restore_cloud_yml(errors)
         return errors
+
+    def snapshot_cloud_yml(self, path: Path) -> None:
+        """Remember cloud.yml as it is before this run writes to it."""
+        self.cloud_yml = path
+        self.cloud_yml_before = path.read_bytes() if path.exists() else None
+
+    def _restore_cloud_yml(self, errors: list[str]) -> None:
+        """Put cloud.yml back, so it never names resources the cleanup just deleted."""
+        if self.cloud_yml is None:
+            return
+        try:
+            if self.cloud_yml_before is None:
+                self.cloud_yml.unlink(missing_ok=True)
+            else:
+                self.cloud_yml.write_bytes(self.cloud_yml_before)
+        except OSError as exc:
+            errors.append(f"{self.cloud_yml}: could not restore ({exc}); edit or delete it")
 
 
 def _cleanup_and_report(tracker: _ResourceTracker) -> None:
@@ -96,7 +117,7 @@ def _cleanup_and_report(tracker: _ResourceTracker) -> None:
             ("droplet", tracker.droplet_id),
             ("firewall", tracker.firewall_id),
             ("SSH key", tracker.ssh_key_id),
-            ("Spaces bucket", tracker.spaces_bucket),
+            ("Spaces bucket", tracker.spaces_bucket if tracker.spaces_created else None),
         )
         if value
     ]
@@ -178,6 +199,7 @@ def run_provisioning(
     project_root = project_root.resolve()
 
     tracker = _ResourceTracker()
+    tracker.snapshot_cloud_yml(project_root / ".dango" / "cloud.yml")
 
     try:
         client = DigitalOceanClient()
@@ -1010,7 +1032,7 @@ def _setup_backups(
 
     # Create bucket (idempotent) — skip if reusing an existing bucket
     if not config.spaces_bucket_name:
-        spaces.create_bucket()
+        tracker.spaces_created = bool(spaces.create_bucket())
     else:
         console.print(f"  [dim]Using existing bucket '{bucket_name}'.[/dim]")
 

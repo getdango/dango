@@ -163,7 +163,9 @@ def _is_lock_expired(lock: DeployLock, file_age_seconds: float | None = None) ->
         return stale_by_mtime
 
 
-def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
+def _acquire_lock(
+    ssh: SSHManager, *, force: bool = False, lock_json_out: list[str] | None = None
+) -> DeployLock:
     """Acquire the deploy lock on the remote server.
 
     Uses shell ``set -C`` (noclobber) for atomic lock creation so that
@@ -172,6 +174,8 @@ def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
     Args:
         ssh: Connected SSHManager.
         force: Override any existing lock.
+        lock_json_out: Receives the lock file content before it is written, so the caller
+            can remove the file if it is interrupted before it holds the returned lock.
 
     Returns:
         The newly created :class:`DeployLock`.
@@ -220,18 +224,11 @@ def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
     # Atomic creation: noclobber (set -C) makes > fail if the file
     # already exists, preventing a concurrent deployer from silently
     # overwriting our lock.
-    try:
-        result = ssh.exec_command(
-            f"(set -C; echo {shlex.quote(lock_json)} > {DEPLOY_LOCK_PATH}) 2>/dev/null"
-        )
-    except BaseException:
-        # Interrupted while the file may have been written: drop it, but only if it is ours.
-        with contextlib.suppress(Exception):
-            ssh.exec_command(
-                f'[ "$(cat {DEPLOY_LOCK_PATH} 2>/dev/null)" = {shlex.quote(lock_json)} ]'
-                f" && rm -f {DEPLOY_LOCK_PATH}"
-            )
-        raise
+    if lock_json_out is not None:
+        lock_json_out.append(lock_json)
+    result = ssh.exec_command(
+        f"(set -C; echo {shlex.quote(lock_json)} > {DEPLOY_LOCK_PATH}) 2>/dev/null"
+    )
     if not result.success:
         raise CloudProvisioningError(
             "Failed to acquire deploy lock — another deployment may have "
@@ -244,6 +241,14 @@ def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
 def _release_lock(ssh: SSHManager) -> None:
     """Remove the deploy lock file from the remote server."""
     ssh.exec_command(f"rm -f {DEPLOY_LOCK_PATH}")  # cleanup: silent OK
+
+
+def _release_lock_if_ours(ssh: SSHManager, lock_json: str) -> None:
+    """Remove the lock file only if it still holds *lock_json* (never another deployer's)."""
+    ssh.exec_command(
+        f'[ "$(cat {DEPLOY_LOCK_PATH} 2>/dev/null)" = {shlex.quote(lock_json)} ]'
+        f" && rm -f {DEPLOY_LOCK_PATH}"
+    )
 
 
 def _stop_web_service(ssh: SSHManager) -> None:
@@ -518,6 +523,7 @@ def push_deploy(
 
     # --- Full deploy ---
     lock: DeployLock | None = None
+    attempted_lock_json: list[str] = []
     services_stopped = False
     deploy_succeeded = False
     deploy_error: str | None = None
@@ -526,7 +532,7 @@ def push_deploy(
         try:
             # Step 1: Acquire deploy lock
             _notify(on_progress, "acquire_lock", "running")
-            lock = _acquire_lock(ssh, force=force)
+            lock = _acquire_lock(ssh, force=force, lock_json_out=attempted_lock_json)
             _notify(on_progress, "acquire_lock", "done")
 
             # Step 2: Stop dango-web BEFORE backup (DuckDB single-writer).
@@ -669,6 +675,10 @@ def push_deploy(
             finally:
                 if lock is not None:
                     _release_lock(ssh)
+                elif attempted_lock_json:
+                    # Interrupted around the acquire: remove the file if it is ours.
+                    with contextlib.suppress(Exception):
+                        _release_lock_if_ours(ssh, attempted_lock_json[0])
 
     finally:
         # Write deployment journal (never-fail)

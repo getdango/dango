@@ -434,4 +434,9 @@ class TestMigrateServer:
                 project_root=tmp_path,
             )
 
-        client.update_firewall.assert_called_once()
+        # The new droplet is added first (old one still protected); the old one is removed
+        # only after the switch is recorded.
+        calls = client.update_firewall.call_args_list
+        assert len(calls) == 2
+        assert 99 in calls[0][1]["droplet_ids"] and 42 in calls[0][1]["droplet_ids"]
+        assert 42 not in calls[1][1]["droplet_ids"]
