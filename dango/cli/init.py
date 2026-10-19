@@ -1410,14 +1410,14 @@ on-run-end:
                 return True
 
             # Interactive: prompt for admin credentials
-            email_re = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+            email_re = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 
             console.print("  Create the admin account for your project.\n")
 
             # Email
             while True:
                 email = click.prompt("  Admin email")
-                if not email_re.match(email):
+                if not email_re.fullmatch(email):
                     console.print("  [red]Invalid email format.[/red]")
                     continue
                 confirm_email = click.prompt("  Confirm email")

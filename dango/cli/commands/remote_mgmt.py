@@ -114,7 +114,15 @@ def remote_status(ctx: click.Context) -> None:
     try:
         ssh.connect(cloud_cfg.droplet_ip)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
+        from dango.cli.commands.remote_power import POWER_ON_HINT, lookup_power_state
+
+        state = lookup_power_state(cloud_cfg)
+        if state == "off":
+            console.print(f"[red]Error:[/red] Server is powered off. Run: {POWER_ON_HINT}")
+        else:
+            console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
+            if state is None and cloud_cfg.provider != "byos":
+                console.print(f"If the server is powered off: {POWER_ON_HINT}")
         raise SystemExit(1) from exc
 
     try:
@@ -475,7 +483,10 @@ def remote_ssh(ctx: click.Context) -> None:
 # query command
 # ---------------------------------------------------------------------------
 
-_VENV_PYTHON = "/srv/dango/venv/bin/python3"
+# Isolated (-I): never imports from the working directory or user site.
+_VENV_PYTHON = "/srv/dango/venv/bin/python3 -I"
+# Server-side Dango code runs as the service user from /, never as root in the project.
+_AS_SERVICE_USER = "cd / && runuser -u dango --"
 _AUTH_DB = "/srv/dango/project/.dango/auth.db"
 
 # Python script executed on the remote server via SSH. Creates a temporary
@@ -604,7 +615,7 @@ def remote_query(ctx: click.Context, sql: str, timeout: int) -> None:
     escaped_sql = shlex.quote(sql)
     script = _QUERY_SCRIPT.format(auth_db=_AUTH_DB)
     escaped_script = shlex.quote(script)
-    cmd = f"{_VENV_PYTHON} -c {escaped_script} {escaped_sql} {timeout}"
+    cmd = f"{_AS_SERVICE_USER} {_VENV_PYTHON} -c {escaped_script} {escaped_sql} {timeout}"
 
     try:
         result = ssh.exec_command(cmd, timeout=timeout + 10, check=False)

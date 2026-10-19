@@ -54,7 +54,7 @@ REPLACE_MODE_SOURCE_TYPES = frozenset(
     }
 )
 
-_DAYS_AGO = re.compile(r"^\d+daysAgo$")
+_DAYS_AGO = re.compile(r"\d+daysAgo")
 _BOOL_STRINGS = {"true": True, "yes": True, "1": True, "false": False, "no": False, "0": False}
 
 
@@ -329,7 +329,7 @@ def _coerce(param: dict[str, Any], value: Any) -> Any:
         text = value.strip()
         if not text:
             return None
-        if _DAYS_AGO.match(text):
+        if _DAYS_AGO.fullmatch(text):
             return text
         try:
             date.fromisoformat(text)

@@ -311,7 +311,7 @@ def remote_sync(
     def go(ssh: Any, _cfg: Any, _root: Path) -> dict[str, Any]:
         """Operation body run over the connected SSH session."""
         from dango.cli.commands.remote_mgmt import _VENV_PYTHON
-        from dango.cli.commands.remote_sync import _PROJECT_ROOT
+        from dango.cli.commands.remote_sync import _PROJECT_ROOT, SERVICE_ENV
 
         payload: dict[str, object] = {
             "sources": [source_name],
@@ -321,15 +321,15 @@ def remote_sync(
         if backfill_days is not None:
             payload["backfill_days"] = backfill_days
         sudo_cmd = (
-            f"sudo -u dango -H env DANGO_CLOUD_MODE=true"
+            f"runuser -u dango -- {SERVICE_ENV}"
             f" {_VENV_PYTHON} -m dango.platform.scheduling.sync_trigger"
             f" {shlex.quote(json.dumps(payload))}"
         )
-        cmd = f"cd {_PROJECT_ROOT} && {sudo_cmd}"
+        cmd = f"cd / && {sudo_cmd}"
         if not wait:
             from dango.platform.cloud.remote_launch import build_background_launch
 
-            script = build_background_launch(_PROJECT_ROOT, sudo_cmd)
+            script = build_background_launch("/", sudo_cmd)
             res = ssh.exec_command(f"sh -c {shlex.quote(script)}", timeout=30, check=False)
             if not res.success:
                 return {"status": "failed", "error": _safe(res.stderr or "Could not start sync")}

@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.project_files import read_project_file
 
 logger = get_logger(__name__)
 
@@ -42,7 +43,7 @@ VENV_BIN = "/srv/dango/venv/bin"
 DBT_PROJECT_DIR = "/srv/dango/project/dbt"
 
 #: Pattern for valid dbt model/macro names (shell-safe for SSH commands).
-_SAFE_DBT_NAME = re.compile(r"^[a-zA-Z0-9_]+$")
+_SAFE_DBT_NAME = re.compile(r"[a-zA-Z0-9_]+")
 
 #: Docker files that require ``docker compose up --build`` when changed.
 _DOCKER_FILES = {"docker-compose.yml", "Dockerfile.metabase", "entrypoint.sh"}
@@ -265,19 +266,22 @@ def _validate_remote_sources(ssh: SSHManager) -> list[str]:
     errors: list[str] = []
 
     # Read sources.yml
-    sources_result = ssh.exec_command(f"cat {REMOTE_PROJECT_DIR}/.dango/sources.yml 2>/dev/null")
-    if not sources_result.success or not sources_result.stdout.strip():
-        return errors  # No sources configured — nothing to validate
+    try:
+        sources_text = read_project_file(ssh, f"{REMOTE_PROJECT_DIR}/.dango/sources.yml")
+        if not sources_text.strip():
+            return errors  # No sources configured — nothing to validate
 
-    # Read secrets.toml
-    secrets_result = ssh.exec_command(f"cat {REMOTE_PROJECT_DIR}/.dlt/secrets.toml 2>/dev/null")
-    secrets_content = secrets_result.stdout if secrets_result.success else ""
+        # Read secrets.toml
+        secrets_content = read_project_file(ssh, f"{REMOTE_PROJECT_DIR}/.dlt/secrets.toml")
+    except CloudProvisioningError as exc:
+        # An unreadable file is reported but never fails the deploy.
+        return [f"Could not validate sources: {exc}"]
 
     # Parse source names from sources.yml (look for name: fields)
     try:
         import yaml
 
-        sources_data: dict[str, Any] = yaml.safe_load(sources_result.stdout) or {}
+        sources_data: dict[str, Any] = yaml.safe_load(sources_text) or {}
     except Exception:
         # If YAML parsing fails, skip validation
         return errors
@@ -314,7 +318,7 @@ def _validate_model_names(names: list[str]) -> None:
             ``[a-zA-Z0-9_]``.
     """
     for name in names:
-        if not _SAFE_DBT_NAME.match(name):
+        if not _SAFE_DBT_NAME.fullmatch(name):
             raise CloudProvisioningError(
                 f"Invalid model name for remote execution: {name!r}. "
                 "Model names must contain only alphanumeric characters and underscores."
@@ -412,6 +416,7 @@ def push_deploy(
     *,
     dry_run: bool = False,
     force: bool = False,
+    allow_empty: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
     git_info: GitInfo | None = None,
 ) -> DeployResult:
@@ -426,6 +431,8 @@ def push_deploy(
         remote_host: Hostname or IP for rsync transport.
         dry_run: If True, show what would change without applying.
         force: Override any existing deploy lock.
+        allow_empty: Mirror an empty local directory over a non-empty server copy
+            (default: refuse; ``rsync --delete`` would erase the server files).
         on_progress: Optional ``(step, status)`` callback for UI updates.
         git_info: Optional ``GitInfo`` from :func:`collect_git_info`.
 
@@ -455,6 +462,7 @@ def push_deploy(
             local_project_root,
             remote_host=remote_host,
             dry_run=True,
+            allow_empty=allow_empty,
             on_progress=on_progress,
         )
         _notify(on_progress, "sync_files", "done")
@@ -511,7 +519,11 @@ def push_deploy(
             # Step 4: Sync files
             _notify(on_progress, "sync_files", "running")
             sync_result = sync_project_files(
-                ssh, local_project_root, remote_host=remote_host, on_progress=on_progress
+                ssh,
+                local_project_root,
+                remote_host=remote_host,
+                allow_empty=allow_empty,
+                on_progress=on_progress,
             )
             _notify(on_progress, "sync_files", "done")
 
