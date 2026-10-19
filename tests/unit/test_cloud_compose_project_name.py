@@ -20,7 +20,7 @@ def _trusted_server_venv() -> Any:
         yield
 
 
-_PROJECT_YML_CMD = "cat /srv/dango/project/.dango/project.yml"
+_PROJECT_YML_CMD = "/srv/dango/project/.dango/project.yml"
 _PROJECT_YML = "project:\n  id: abcdef1234567890\n"
 
 

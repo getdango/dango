@@ -93,11 +93,13 @@ def get_remote_compose_project_name(ssh: SSHManager, project_dir: str = PROJECT_
     itself, via ``dango serve``).
     """
     try:
-        result = ssh.exec_command(f"cat {project_dir}/.dango/project.yml", timeout=10)
-        if result.success and result.stdout.strip():
+        from dango.platform.cloud.project_files import read_project_file
+
+        text = read_project_file(ssh, f"{project_dir}/.dango/project.yml")
+        if text.strip():
             import yaml
 
-            data = yaml.safe_load(result.stdout) or {}
+            data = yaml.safe_load(text) or {}
             project_id = data.get("project", {}).get("id")
             if isinstance(project_id, str) and project_id:
                 prefix = project_id[:8]

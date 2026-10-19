@@ -20,7 +20,9 @@ _LEGACY = f"dango-{_legacy_path_hash(PROJECT_DIR)}"
 
 def _ssh(yaml_text: str):
     return types.SimpleNamespace(
-        exec_command=lambda cmd, timeout=10: types.SimpleNamespace(success=True, stdout=yaml_text)
+        exec_command=lambda cmd, timeout=10: types.SimpleNamespace(
+            success=True, stdout=yaml_text, stderr="", exit_code=0
+        )
     )
 
 
@@ -65,7 +67,9 @@ class TestRemoteComposeProjectName:
 
     def test_ssh_failure_falls_back(self):
         failed = types.SimpleNamespace(
-            exec_command=lambda cmd, timeout=10: types.SimpleNamespace(success=False, stdout="")
+            exec_command=lambda cmd, timeout=10: types.SimpleNamespace(
+                success=False, stdout="", stderr="", exit_code=1
+            )
         )
 
         def _raise(cmd, timeout=10):

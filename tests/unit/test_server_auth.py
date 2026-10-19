@@ -6,9 +6,11 @@ Real YAML files in tmp_path and a fake SSH; nothing touches a network.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -18,6 +20,15 @@ from dango.platform.cloud.file_sync import REMOTE_PROJECT_DIR, sync_project_file
 from dango.platform.cloud.ssh import CommandResult
 
 REMOTE_YML = f"{REMOTE_PROJECT_DIR}/.dango/project.yml"
+
+_WRITE_RE = re.compile(r"_ (\S+) [0-7]+ < (\S+?);")
+
+
+def _capture_dango_write(ssh: Any, cmd: str) -> None:
+    """Record the project file written by ``write_project_file`` (staged, then copied as dango)."""
+    match = _WRITE_RE.search(cmd)
+    if match and "mv -fT" in cmd:
+        ssh.uploaded[match.group(1)] = ssh.staged[match.group(2)]
 
 
 class FakeSSH:
@@ -29,10 +40,13 @@ class FakeSSH:
         self.remote_md5 = remote_md5
         self.first_deploy = first_deploy
         self.uploaded: dict[str, bytes] = {}
+        self.staged: dict[str, bytes] = {}
         self.commands: list[str] = []
 
     def exec_command(self, cmd: str, **kwargs: object) -> CommandResult:
         self.commands.append(cmd)
+        _capture_dango_write(self, cmd)
+        cmd = cmd.removeprefix("runuser -u dango -- ")
         if cmd.startswith("test -f"):
             return CommandResult(stdout="", stderr="", exit_code=1 if self.first_deploy else 0)
         if cmd.startswith("md5sum") and cmd.split()[1] == REMOTE_YML and self.remote_md5:
@@ -40,10 +54,12 @@ class FakeSSH:
         return CommandResult(stdout="", stderr="", exit_code=0)
 
     def upload_file(self, local_path: Path, remote_path: str, **kwargs: object) -> None:
-        self.uploaded[remote_path] = Path(local_path).read_bytes()
+        target = self.staged if remote_path.startswith("/root/") else self.uploaded
+        target[remote_path] = Path(local_path).read_bytes()
 
     def write_remote_file(self, remote_path: str, content: str | bytes, **kw: object) -> None:
-        self.uploaded[remote_path] = content.encode() if isinstance(content, str) else content
+        data = content.encode() if isinstance(content, str) else content
+        (self.staged if remote_path.startswith("/root/") else self.uploaded)[remote_path] = data
 
 
 def _push(tmp_path: Path, yml: bytes, ssh: FakeSSH | None = None) -> tuple[FakeSSH, Path]:

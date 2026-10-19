@@ -19,7 +19,7 @@ on SSHManager's known_hosts file and port); see ``rsync_transport``.
 File sync scope
 ---------------
 Synced: ``.dango/sources.yml``, ``.dango/schedules.yml``,
-``dbt/models/``, ``dbt/macros/``, ``dbt/dbt_project.yml``,
+``.dango/scripts.yml``, ``dbt/models/``, ``dbt/macros/``, ``dbt/dbt_project.yml``,
 ``dbt/packages.yml``, ``metabase/`` (dashboard exports),
 ``custom_sources/``, ``scripts/`` (custom Python scripts).
 
@@ -31,6 +31,7 @@ Never synced: ``.env``, ``.dlt/secrets.toml``, ``*.duckdb``,
 from __future__ import annotations
 
 import hashlib
+import shlex
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -39,6 +40,8 @@ from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.empty_guard import refuse_empty_mirrors
+from dango.platform.cloud.project_files import AS_DANGO, write_project_file
 from dango.platform.cloud.rsync_transport import (
     RsyncTarget,
     _rsync_directory,
@@ -74,6 +77,7 @@ SYNC_CONFIG_FILES: list[tuple[str, str]] = [
     (".dango/schedules.yml", f"{REMOTE_PROJECT_DIR}/.dango/schedules.yml"),
     (".dango/monitors.yml", f"{REMOTE_PROJECT_DIR}/.dango/monitors.yml"),
     (PROJECT_YML_REL, f"{REMOTE_PROJECT_DIR}/.dango/project.yml"),
+    (".dango/scripts.yml", f"{REMOTE_PROJECT_DIR}/.dango/scripts.yml"),
     ("dbt/dbt_project.yml", f"{REMOTE_PROJECT_DIR}/dbt/dbt_project.yml"),
     ("dbt/packages.yml", f"{REMOTE_PROJECT_DIR}/dbt/packages.yml"),
     # Docker build context files — both required to build the Metabase image on the server
@@ -231,26 +235,23 @@ def _upload_file_if_exists(
     # Avoids re-uploading large files like the ~80MB Metabase DuckDB driver.
     data = content if content is not None else local_path.read_bytes()
     local_hash = hashlib.md5(data, usedforsecurity=False).hexdigest()
-    hash_result = ssh.exec_command(f"md5sum {remote_path} 2>/dev/null", timeout=10, check=False)
+    hash_result = ssh.exec_command(
+        f"{AS_DANGO} md5sum {shlex.quote(remote_path)} 2>/dev/null", timeout=10, check=False
+    )
     if hash_result.success and hash_result.stdout.strip():
         remote_hash = hash_result.stdout.strip().split(None, 1)[0]
         if local_hash == remote_hash:
             return False
     if dry_run:
         return True
-    # Ensure remote parent directory exists
-    remote_dir = remote_path.rsplit("/", 1)[0]
-    mkdir_result = ssh.exec_command(f"mkdir -p {remote_dir}")
-    if mkdir_result.exit_code != 0:
-        _logger.warning("mkdir_failed", path=remote_dir, stderr=mkdir_result.stderr)
-    # Retry SFTP upload on transient network errors (EOFError, timeout)
+    # Written as the dango user (creates the parent directory, replaces rather than
+    # follows a symlink at the destination). Retry on transient network errors.
     last_err: Exception | None = None
     for attempt in range(3):
         try:
-            if content is not None:
-                ssh.write_remote_file(remote_path, content)
-            else:
-                ssh.upload_file(local_path, remote_path)
+            write_project_file(
+                ssh, remote_path, data, source=local_path if content is None else None
+            )
             return True
         except Exception as e:
             last_err = e
@@ -275,7 +276,7 @@ def _check_packages_changed(
 
     local_hash = hashlib.md5(local_pkg.read_bytes()).hexdigest()  # noqa: S324
     remote_path = f"{REMOTE_PROJECT_DIR}/dbt/packages.yml"
-    result = ssh.exec_command(f"md5sum {remote_path} 2>/dev/null")
+    result = ssh.exec_command(f"{AS_DANGO} md5sum {shlex.quote(remote_path)} 2>/dev/null")
     if not result.success or not result.stdout.strip():
         # File doesn't exist on remote yet — counts as changed
         return True
@@ -301,6 +302,7 @@ def sync_project_files(
     *,
     remote_host: str | None = None,
     dry_run: bool = False,
+    allow_empty: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
 ) -> SyncResult:
     """Sync local project files to the remote server.
@@ -314,6 +316,8 @@ def sync_project_files(
         remote_host: Hostname or IP for rsync transport.  Required unless
             *dry_run* is ``True`` and no dbt directories exist locally.
         dry_run: If True, report what would change without transferring files.
+        allow_empty: Mirror a local directory that is empty over a non-empty server
+            copy (default: refuse, since ``rsync --delete`` would erase it).
         on_progress: Optional ``(step, status)`` callback for UI updates.
 
     Returns:
@@ -327,6 +331,15 @@ def sync_project_files(
             "rsync is not installed. Install it with your system package manager "
             "(e.g. brew install rsync on macOS, apt install rsync on Ubuntu)."
         )
+
+    # Refuse before anything is written (also in dry-run).
+    refuse_empty_mirrors(
+        ssh,
+        local_project_root,
+        [*SYNC_DBT_DIRS, *SYNC_EXTRA_DIRS],
+        REMOTE_PROJECT_DIR,
+        allow_empty=allow_empty,
+    )
 
     synced_files: list[str] = []
     first_deploy = _is_first_deploy(ssh)
@@ -394,7 +407,9 @@ def sync_project_files(
         remote_dest = f"{target.username}@{remote_host}:{REMOTE_PROJECT_DIR}/{dbt_dir}"
         # Ensure remote directory exists before rsync
         if not dry_run:
-            mkdir_result = ssh.exec_command(f"mkdir -p {REMOTE_PROJECT_DIR}/{dbt_dir}")
+            mkdir_result = ssh.exec_command(
+                f"{AS_DANGO} mkdir -p {shlex.quote(f'{REMOTE_PROJECT_DIR}/{dbt_dir}')}"
+            )
             if mkdir_result.exit_code != 0:
                 _logger.warning(
                     "mkdir_failed",
@@ -425,7 +440,9 @@ def sync_project_files(
         target = target or rsync_target(ssh, remote_host)
         remote_dest = f"{target.username}@{remote_host}:{REMOTE_PROJECT_DIR}/{extra_dir}"
         if not dry_run:
-            mkdir_result = ssh.exec_command(f"mkdir -p {REMOTE_PROJECT_DIR}/{extra_dir}")
+            mkdir_result = ssh.exec_command(
+                f"{AS_DANGO} mkdir -p {shlex.quote(f'{REMOTE_PROJECT_DIR}/{extra_dir}')}"
+            )
             if mkdir_result.exit_code != 0:
                 _logger.warning(
                     "mkdir_failed",

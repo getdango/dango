@@ -56,6 +56,7 @@ platform/
 │   ├── backup.py        # SSH-based backup + rollback (TASK-035)
 │   ├── backup_restore.py # Copy helpers for backup/restore (WAL sidecars, fail-on-error, restore as service user)
 │   ├── file_sync.py     # Project file sync: SFTP + rsync (TASK-028)
+│   ├── empty_guard.py   # Refuse an empty-dir rsync --delete mirror (1.0.14)
 │   ├── rsync_transport.py # rsync over ssh verifying the paramiko-pinned host key (1.0.14)
 │   ├── deployer.py      # Push deployment workflow + deploy lock (TASK-030)
 │   ├── deploy_journal.py # Append-only JSONL deployment history (P8-004)
@@ -107,7 +108,8 @@ platform/
 | `cloud/domain.py` | DNS check, domain set/remove for HTTPS via Caddy | `check_dns`, `set_domain`, `remove_domain` |
 | `cloud/backup.py` | SSH-based backup and rollback (private staging; only regular files/dirs copied; restores remove live WAL sidecars of `DATABASE_FILES` first and never turn auth off; a failed copy fails the step). Every project path is in `BACKUP_FILES`/`BACKUP_DIRS`/`SECRET_FILES` or `EXCLUDED_PATHS` (test-enforced) | `create_backup`, `rollback`, `wal_sidecar_names`, `list_local_backups`, `rotate_local_backups`, `BackupManifest`, `BackupResult`, `RestoreResult`, `BACKUP_FILES`, `BACKUP_DIRS`, `DATABASE_FILES`, `EXCLUDED_PATHS`, `SECRET_FILES`, `get_remote_compose_project_name()` |
 | `cloud/backup_restore.py` | Shell copy helpers shared by `backup.py` and `scheduled_backup.py`; restores run as root but write project files as the service user (`runuser -u dango --`), and root writes only the Metabase volume (refusing symlinked destinations) | `wal_sidecar_names`, `restore_file_cmd`, `restore_dir_cmd`, `restore_volume_file_cmd`, `hand_staging_to_service_user_cmd`, `AS_SERVICE_USER`, `backup_file_cmd`, `backup_dir_cmd`, `prune_backup_staging_cmd`, `owned_data_target`, `BACKUP_EXCLUDES`, `auth_config_keeps_auth_on` |
-| `cloud/file_sync.py` | Project file sync (SFTP + rsync) with change detection | `sync_project_files`, `SyncResult` |
+| `cloud/file_sync.py` | Project file sync with change detection; project writes run as `dango` via `project_files`, rsync's server side runs as `dango`, and an empty local sync dir over a non-empty server copy is refused unless `allow_empty` | `sync_project_files`, `SyncResult` |
+| `cloud/empty_guard.py` | Refuse `rsync --delete` of an empty local directory over a non-empty server copy | `refuse_empty_mirrors` |
 | `cloud/rsync_transport.py` | rsync with `StrictHostKeyChecking=yes` against SSHManager's known_hosts + port; refuses unpinned hosts | `rsync_target`, `_rsync_directory` |
 | `cloud/deployer.py` | Push deployment workflow with deploy lock | `push_deploy`, `DeployLock`, `DeployResult` |
 | `cloud/deploy_journal.py` | Append-only JSONL deployment history | `DeploymentRecord`, `write_local_journal`, `write_remote_journal`, `read_local_journal`, `read_remote_journal`, `get_latest_deployment` |
