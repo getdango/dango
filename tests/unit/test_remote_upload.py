@@ -5,6 +5,7 @@ Tests for ``dango remote upload``: target resolution and the part-file upload se
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -109,7 +110,7 @@ class TestUploadCommand:
         assert "mv -fT" in ssh.events[2][1]
         assert f"{_DATA}/uploads/a.csv.part" in ssh.events[2][1]
         assert ssh.events[2][1].rstrip().endswith(f"{_DATA}/uploads/a.csv")
-        assert f"{_DATA}/uploads/a.csv" in result.output
+        assert f"{_DATA}/uploads/a.csv" in re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         assert ssh.disconnected
 
     def test_upload_rejects_symlink_and_directory(self, tmp_path):

@@ -412,6 +412,7 @@ def push_deploy(
     *,
     dry_run: bool = False,
     force: bool = False,
+    allow_empty: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
     git_info: GitInfo | None = None,
 ) -> DeployResult:
@@ -426,6 +427,8 @@ def push_deploy(
         remote_host: Hostname or IP for rsync transport.
         dry_run: If True, show what would change without applying.
         force: Override any existing deploy lock.
+        allow_empty: Mirror an empty local directory over a non-empty server copy
+            (default: refuse; ``rsync --delete`` would erase the server files).
         on_progress: Optional ``(step, status)`` callback for UI updates.
         git_info: Optional ``GitInfo`` from :func:`collect_git_info`.
 
@@ -455,6 +458,7 @@ def push_deploy(
             local_project_root,
             remote_host=remote_host,
             dry_run=True,
+            allow_empty=allow_empty,
             on_progress=on_progress,
         )
         _notify(on_progress, "sync_files", "done")
@@ -511,7 +515,11 @@ def push_deploy(
             # Step 4: Sync files
             _notify(on_progress, "sync_files", "running")
             sync_result = sync_project_files(
-                ssh, local_project_root, remote_host=remote_host, on_progress=on_progress
+                ssh,
+                local_project_root,
+                remote_host=remote_host,
+                allow_empty=allow_empty,
+                on_progress=on_progress,
             )
             _notify(on_progress, "sync_files", "done")
 

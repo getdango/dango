@@ -296,8 +296,6 @@ class TestRealTree:
 class TestRsyncDoesNotFollowDestinationLinks:
     def test_real_rsync_replaces_links_inside_destination(self, tmp_path):
         """Run the command _rsync_directory builds against a real tree (local transport)."""
-        if shutil.which("rsync") is None:
-            pytest.skip("rsync not installed")
         from dango.platform.cloud.rsync_transport import _rsync_directory
 
         src = tmp_path / "src"
@@ -313,6 +311,7 @@ class TestRsyncDoesNotFollowDestinationLinks:
         (dest / "sub").symlink_to(outside)
 
         captured: dict[str, list[str]] = {}
+        real_run = subprocess.run
 
         def _run_local(cmd, **kwargs):
             captured["cmd"] = cmd
@@ -320,7 +319,7 @@ class TestRsyncDoesNotFollowDestinationLinks:
             i = local.index("-e")
             del local[i : i + 2]
             local[-1] = f"{dest}/"
-            return subprocess.run(local, capture_output=True, text=True, check=False)
+            return real_run(local, capture_output=True, text=True, check=False)
 
         with (
             patch("dango.platform.cloud.rsync_transport._require_pinned_host"),

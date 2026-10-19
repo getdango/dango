@@ -50,7 +50,7 @@ _ABSENT_EXIT = 3
 _APPEND_SCRIPT = 'grep -q "^$2=" "$1" 2>/dev/null || printf "%s\\n" "$3" >> "$1"'
 
 
-def write_project_file(ssh: Any, path: str, content: str, mode: int = 0o644) -> None:
+def write_project_file(ssh: Any, path: str, content: str | bytes, mode: int = 0o644) -> None:
     """Write *content* to *path* as the ``dango`` user, replacing (not following) it.
 
     Args:

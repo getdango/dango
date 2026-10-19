@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -64,6 +65,15 @@ platform:
   marimo_port: 7805
 """
 
+_WRITE_RE = re.compile(r"_ (\S+) [0-7]+ < (\S+?);")
+
+
+def _capture_dango_write(ssh: Any, cmd: str) -> None:
+    """Record the project file written by ``write_project_file`` (staged, then copied as dango)."""
+    match = _WRITE_RE.search(cmd)
+    if match and "mv -fT" in cmd:
+        ssh.uploaded[match.group(1)] = ssh.staged[match.group(2)]
+
 
 class FakeSSH:
     """Records uploads; optionally reports a remote md5 for project.yml."""
@@ -72,9 +82,12 @@ class FakeSSH:
         self.key_path = Path("/nonexistent/key")
         self.remote_project_yml = remote_project_yml
         self.uploaded: dict[str, bytes] = {}
+        self.staged: dict[str, bytes] = {}
         self.exec_command = MagicMock(side_effect=self._exec)
 
     def _exec(self, cmd: str, **_kw: object) -> CommandResult:
+        _capture_dango_write(self, cmd)
+        cmd = cmd.removeprefix("runuser -u dango -- ")
         if cmd.startswith("md5sum") and REMOTE_PROJECT_YML in cmd:
             if self.remote_project_yml is None:
                 return CommandResult(stdout="", stderr="", exit_code=1)
@@ -88,7 +101,8 @@ class FakeSSH:
         self.uploaded[remote_path] = Path(local_path).read_bytes()
 
     def write_remote_file(self, remote_path: str, content: str | bytes, mode: int = 0o644) -> None:
-        self.uploaded[remote_path] = content.encode() if isinstance(content, str) else content
+        data = content.encode() if isinstance(content, str) else content
+        (self.staged if remote_path.startswith("/root/") else self.uploaded)[remote_path] = data
 
 
 def _project(tmp_path: Path, text: str) -> Path:
