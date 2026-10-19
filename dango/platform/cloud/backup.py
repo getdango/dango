@@ -1058,19 +1058,35 @@ def _auth_config_refusal(ssh: SSHManager, staging: str) -> str | None:
     return AUTH_CONFIG_SKIPPED_WARNING
 
 
+#: Minutes after which a ``*.partial`` archive or orphaned manifest is a dead run's leftover
+#: (longer than the slowest ``tar``, 600 s).
+_STALE_FILE_MINUTES = 15
+#: Staging directories: a directory's mtime only changes when children are added or removed,
+#: so a live tar or restore can look old, and restore/rollback/resize/migrate take no deploy
+#: lock. Far above any operation, including the scheduled backup's TimeoutStartSec=900.
+_STALE_STAGING_MINUTES = 360
+
+
 def _sweep_stale_leftovers(ssh: SSHManager) -> None:
     """Remove what a backup or restore whose client died could not clean up.
 
-    ``*.partial`` archives and root-owned staging directories (project data) older than
-    15 minutes, longer than the slowest ``tar`` (600 s).  ``find`` never follows links.
+    ``find`` never follows links; only root-owned entries directly in ``/tmp`` and the
+    backup directory are touched.
     """
     names = " -o ".join(
         f"-name {shlex.quote(n)}" for n in ("dango-backup.*", "dango-restore-staging-*")
     )
+    backup_dir = shlex.quote(BACKUP_DIR)
+    orphan_manifests = (
+        'for f; do [ -e "${f%.json}.tar.gz" ] || rm -f "$f"; done'  # no sibling archive
+    )
     for command in (
-        f"find {shlex.quote(BACKUP_DIR)} -maxdepth 1 -type f"
-        f" -name {shlex.quote('backup-*.tar.gz.partial')} -mmin +15 -delete",
-        f"find /tmp -maxdepth 1 -type d -user root \\( {names} \\) -mmin +15 -exec rm -rf {{}} +",
+        f"find {backup_dir} -maxdepth 1 -type f"
+        f" -name {shlex.quote('backup-*.tar.gz.partial')} -mmin +{_STALE_FILE_MINUTES} -delete",
+        f"find {backup_dir} -maxdepth 1 -type f -name {shlex.quote('backup-*.json')}"
+        f" -mmin +{_STALE_FILE_MINUTES} -exec sh -c {shlex.quote(orphan_manifests)} sh {{}} +",
+        f"find /tmp -maxdepth 1 -type d -user root \\( {names} \\)"
+        f" -mmin +{_STALE_STAGING_MINUTES} -exec rm -rf {{}} +",
     ):
         try:
             ssh.exec_command(command)

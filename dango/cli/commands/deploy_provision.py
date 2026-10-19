@@ -128,7 +128,10 @@ def _cleanup_and_report(tracker: _ResourceTracker) -> None:
         console.print("[yellow]Cleanup errors (delete these in the DigitalOcean console):[/yellow]")
         for err in errors:
             console.print(f"  - {err}")
-        console.print("Run [bold]dango deploy destroy[/bold] to finish the cleanup.")
+        if tracker.cloud_yml is not None and tracker.cloud_yml.exists():
+            console.print("Run [bold]dango deploy destroy[/bold] to finish the cleanup.")
+        else:  # nothing recorded locally for destroy to read
+            console.print("Delete the resources named above in the DigitalOcean console.")
     elif created:
         console.print("[green]All resources cleaned up.[/green]")
 

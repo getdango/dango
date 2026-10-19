@@ -279,6 +279,6 @@ def test_an_old_manifest_without_an_archive_is_removed() -> None:
     server.archives[paired.replace(".json", ".tar.gz")] = "complete"
     server._order.append(paired.replace(".json", ".tar.gz"))
     server.age_minutes.update({orphan: 20, young: 5, paired: 20})
-    _backup(server)
+    _backup(server, on_server_retention=5)  # retention must not be what removes `paired`
     assert orphan not in server.manifests
     assert young in server.manifests and paired in server.manifests
