@@ -238,11 +238,11 @@ def make_tree(
         tmp / "srv",
         tmp / "srv/compose",
         tmp / "srv/compose/build",
-        tmp / "srv/metabase",
         tmp / "srv/venv",
         tmp / "run",
     ):
         d.chmod(0o755)
+    (tmp / "srv/metabase").chmod(0o700)
     if pinned:
         (tmp / "srv/compose/project").write_text("dango-abcd1234\n")
         (tmp / "srv/compose/project-id").write_text("abcd1234-0000-4000-8000-000000000000\n")

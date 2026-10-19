@@ -49,9 +49,20 @@ os.execv(sys.executable, [sys.executable] + args)
 """
 
 
+_FAKE_GETENT = """#!/bin/sh
+d=$(dirname "$0")
+if [ -f "$d/hit.$1.$2" ]; then cat "$d/hit.$1.$2"; exit 0; fi
+exit 2
+"""
+
+
 class Env:
     def __init__(self, tmp: Path) -> None:
         self.tmp = tmp
+        self.getent_dir = tmp / "getent-bin"
+        self.getent_dir.mkdir()
+        (self.getent_dir / "getent").write_text(_FAKE_GETENT)
+        (self.getent_dir / "getent").chmod(0o755)
         self.srv = tmp / "srv"
         for rel in (
             "compose/build",
@@ -80,6 +91,10 @@ class Env:
             total_timeout=8.0,
         )
 
+    def host_has(self, database: str, key: str, line: str) -> None:
+        """Make the fake ``getent`` report *line* for ``getent DATABASE KEY``."""
+        (self.getent_dir / f"hit.{database}.{key}").write_text(line + "\n")
+
     def configure(self, **cfg: str) -> None:
         (self.srv / "bin/fakepy.json").write_text(json.dumps(cfg))
 
@@ -103,8 +118,10 @@ class Env:
 
 
 @pytest.fixture
-def env(tmp_path: Path) -> Env:
-    return Env(tmp_path)
+def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Env:
+    made = Env(tmp_path)
+    monkeypatch.setenv("PATH", f"{made.getent_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}")
+    return made
 
 
 def test_render_writes_compose_dockerfile_and_entrypoint(env: Env) -> None:
@@ -333,3 +350,84 @@ def test_the_module_never_consults_the_environment_or_home() -> None:
     source = Path(sc.__file__).read_text()
     for needle in ("os.environ", "getenv", "expanduser", "Path.home", "getcwd", "dotenv"):
         assert needle not in source
+
+
+def test_server_render_pins_container_ids_in_every_rendered_file(env: Env) -> None:
+    assert env.run() == 0
+    compose = (env.srv / "compose/docker-compose.yml").read_text()
+    assert 'user: "61001:61001"' in compose
+    docker = (env.srv / "compose/build/Dockerfile.metabase").read_text()
+    assert "groupadd -r -g 61000 metabase" in docker and "useradd -r -u 61000 -g metabase" in docker
+    entry = (env.srv / "compose/build/entrypoint.sh").read_text()
+    assert "chown -R 61000:61000 /app/plugins" in entry and "gosu 61000:61000" in entry
+
+
+def test_the_packaged_files_used_by_local_projects_keep_the_default_ids() -> None:
+    root = Path(sc.__file__).resolve().parents[2] / "templates"
+    for name in ("Dockerfile.metabase", "entrypoint.sh"):
+        assert "6100" not in (root / name).read_text()
+
+
+CLASHES = [
+    ("passwd", "61000", "x:x:61000:61000::/:/bin/false"),
+    ("passwd", "61001", "x:x:61001:100::/:/bin/false"),
+    ("group", "61000", "x:x:61000:"),
+    ("group", "61001", "x:x:61001:"),
+    ("group", "docker", "docker:x:61001:"),
+]
+
+
+@pytest.mark.parametrize(("database", "key", "line"), CLASHES)
+def test_render_refuses_when_the_host_uses_a_container_id(
+    env: Env, database: str, key: str, line: str
+) -> None:
+    env.host_has(database, key, line)
+    assert env.run() == 67
+    assert not (env.srv / "compose/docker-compose.yml").exists()
+    assert env.leftovers() == []
+
+
+def test_render_refuses_when_the_host_ids_cannot_be_checked(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", str(env.srv / "bin-missing"))
+    assert env.run() == 67
+    assert not (env.srv / "compose/docker-compose.yml").exists()
+
+
+def test_other_docker_group_ids_are_fine(env: Env) -> None:
+    env.host_has("group", "docker", "docker:x:999:")
+    assert env.run() == 0
+
+
+@pytest.mark.parametrize("name", ["a$b", "${HOME}", "$(id)", "$$"])
+def test_dollar_in_the_project_name_is_refused(env: Env, name: str) -> None:
+    assert env.run([*ARGS[:3], name]) == 66
+    assert not (env.srv / "compose/docker-compose.yml").exists()
+
+
+def test_an_os_error_while_installing_exits_65_and_cleans_up(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(src: str, dst: str) -> None:
+        raise PermissionError(13, "denied", dst)
+
+    monkeypatch.setattr(sc.os, "replace", boom)
+    assert env.run() == 65
+    assert env.leftovers() == []
+
+
+def test_jars_are_replaced_before_the_compose_file(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (env.plugins_in / "duckdb.jar").write_bytes(b"jar")
+    order: list[str] = []
+    real = os.replace
+
+    def spy(src: str, dst: str) -> None:
+        order.append(os.path.basename(dst))
+        real(src, dst)
+
+    monkeypatch.setattr(sc.os, "replace", spy)
+    assert env.run() == 0
+    assert order.index("duckdb.jar") < order.index("docker-compose.yml")

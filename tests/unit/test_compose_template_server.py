@@ -140,3 +140,19 @@ def test_labels_and_site_name_match_the_old_render_for_every_parsable_name(name:
         == name
     )
     assert new["volumes"]["metabase-data"]["driver"] == "local"
+
+
+def test_server_render_runs_the_docs_server_as_a_fixed_unprivileged_id() -> None:
+    docs = server_render("my-project")["services"]["dbt-docs"]
+    assert docs["user"] == "61001:61001"
+    assert docs["sysctls"] == {"net.ipv4.ip_unprivileged_port_start": 0}
+    assert docs["tmpfs"] == [
+        "/var/cache/nginx:uid=61001,gid=61001",
+        "/run:uid=61001,gid=61001",
+    ]
+    assert docs["healthcheck"]["test"][-1] == "http://127.0.0.1/"
+
+
+def test_local_render_has_no_fixed_ids() -> None:
+    text = local_render("my-project")
+    assert "user:" not in text and "tmpfs" not in text and "61001" not in text
