@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,6 +21,7 @@ from dango.cli.commands.deploy import _handle_reconnect
 from dango.cli.commands.remote_backup import backup_enable
 from dango.cli.commands.remote_repair import _USER_RESYNC_SCRIPT, remote_reset_metabase
 from dango.cli.commands.remote_sync import remote_sync
+from dango.platform.cloud._server_templates import build_systemd_unit
 from dango.platform.cloud.ssh import CommandResult
 
 _PROJECT = "/srv/dango/project"
@@ -170,3 +172,75 @@ class TestRemoteSync:
             assert cmd.startswith("cd / && ")
         else:
             assert "cd / ||" in cmd
+
+
+def _unit_env() -> dict[str, str]:
+    """Environment the dango.service unit gives the web and scheduled syncs."""
+    values: dict[str, str] = {}
+    for line in build_systemd_unit().splitlines():
+        if line.startswith("Environment="):
+            key, _, value = line[len("Environment=") :].partition("=")
+            values[key] = value
+        if line.startswith("WorkingDirectory="):
+            values["DANGO_PROJECT_ROOT"] = line.partition("=")[2]
+    return values
+
+
+def _assert_service_env(command: str) -> None:
+    unit = _unit_env()
+    for key in ("DLT_DATA_DIR", "DANGO_PROJECT_ROOT", "DANGO_CLOUD_MODE"):
+        assert f" {key}={unit[key]} " in command, (key, command)
+
+
+class TestServiceEnvironment:
+    @pytest.mark.parametrize("flags", [["--wait"], []])
+    def test_cli_sync_carries_unit_environment(self, tmp_path: Path, flags: list[str]) -> None:
+        _assert_service_env(TestRemoteSync()._cmds(tmp_path, *flags)[0])
+
+    def test_reset_resync_carries_unit_environment(self, tmp_path: Path) -> None:
+        commands = TestResetMetabase()._run(tmp_path)
+        _assert_service_env([c for c in commands if "metabase_user_id" in c][0])
+
+
+class TestBackupEnableEdges:
+    def _run(self, env_text: str) -> Any:
+        ssh = MagicMock()
+        ssh.exec_command.side_effect = lambda c, *a, **k: _ok(
+            env_text if "exec cat" in c else "1.0.14"
+        )
+        with patch("dango.cli.utils.load_cloud_config_with_ssh", return_value=(MagicMock(), ssh)):
+            return CliRunner().invoke(backup_enable)
+
+    @pytest.mark.parametrize(
+        ("env_text", "ok"),
+        [
+            ("SPACES_ACCESS_KEY = x\n", True),
+            ("SPACES_ACCESS_KEY='x'\n", True),
+            ("SPACES_ACCESS_KEY=\n", False),
+            ("SPACES_ACCESS_KEY_OLD=x\n", False),
+        ],
+    )
+    def test_key_check_matches_env_parser(self, env_text: str, ok: bool) -> None:
+        result = self._run(env_text)
+        assert (result.exit_code == 0) is ok, result.output
+
+    def test_unreadable_env_is_a_clean_error(self) -> None:
+        ssh = MagicMock()
+        ssh.exec_command.return_value = CommandResult(stdout="", stderr="denied", exit_code=1)
+        with patch("dango.cli.utils.load_cloud_config_with_ssh", return_value=(MagicMock(), ssh)):
+            result = CliRunner().invoke(backup_enable)
+        assert result.exit_code == 1
+        assert "Error" in result.output and "Traceback" not in result.output
+        assert isinstance(result.exception, SystemExit)
+
+
+def test_reconnect_unreadable_project_file_is_a_clean_error(tmp_path: Path) -> None:
+    (tmp_path / ".dango").mkdir()
+    (tmp_path / ".dango" / "cloud_key").write_text("k")
+    ssh = MagicMock()
+    ssh.exec_command.return_value = CommandResult(stdout="", stderr="denied", exit_code=1)
+    with patch("dango.platform.cloud.ssh.SSHManager", return_value=ssh):
+        with pytest.raises(SystemExit) as exc:
+            _handle_reconnect(tmp_path, "203.0.113.1")
+    assert exc.value.code == 1
+    ssh.disconnect.assert_called_once()

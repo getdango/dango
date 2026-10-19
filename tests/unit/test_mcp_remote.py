@@ -244,7 +244,7 @@ def test_remote_sync_builds_cli_command(deployed: Any, known_source: str) -> Non
         "backfill_days": 14,
     }
     expected = (
-        "cd /srv/dango/project && sudo -u dango -H env DANGO_CLOUD_MODE=true"
+        "cd / && runuser -u dango -- env DANGO_CLOUD_MODE=true DANGO_PROJECT_ROOT=/srv/dango/project DLT_DATA_DIR=/srv/dango/project/.dlt"
         " /srv/dango/venv/bin/python3 -I -m dango.platform.scheduling.sync_trigger "
         + shlex.quote(json.dumps(payload))
     )
@@ -261,8 +261,11 @@ def test_remote_sync_no_wait_uses_background_launcher(deployed: Any, known_sourc
     cmd, kw = deployed.ssh.commands[0]
     assert cmd.startswith("sh -c ")
     script = shlex.split(cmd)[2]
-    assert script.startswith("cd /srv/dango/project || {")
-    assert "\nnohup sudo -u dango -H env DANGO_CLOUD_MODE=true" in script
+    assert script.startswith("cd / || {")
+    assert (
+        "\nnohup runuser -u dango -- env DANGO_CLOUD_MODE=true DANGO_PROJECT_ROOT=/srv/dango/project DLT_DATA_DIR=/srv/dango/project/.dlt "
+        in script
+    )
     assert "nohup cd" not in script and "> /dev/null 2>&1 &\n" in script
     assert kw == {"timeout": 30, "check": False}
     assert out == {"status": "started", "source": known_source}
