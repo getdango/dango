@@ -190,7 +190,9 @@ class TestAdminStepErrorHandling:
             # Only the uploaded script run fails; chown/rm helper steps succeed.
             failing = command.startswith("sudo -u dango")
             return MagicMock(
-                exit_code=exit_code if failing else 0, stderr=stderr if failing else "", stdout=""
+                exit_code=exit_code if failing else 0,
+                stderr=stderr if failing else "",
+                stdout="/tmp/dango-x.AbCd1234" if command.startswith("mktemp") else "",
             )
 
         ssh.exec_command.side_effect = run

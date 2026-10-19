@@ -887,20 +887,30 @@ _SERVER_PYTHON = "/srv/dango/venv/bin/python"
 def _run_remote_script(
     ssh: Any, script: str, *, purpose: str, timeout: int, python: str = _SERVER_PYTHON
 ) -> Any:
-    """Upload *script* to a private temp file, run it as the ``dango`` user, then remove it.
+    """Upload *script* to a root-owned private directory, run it as ``dango``, then remove it.
 
-    The file is written with mode 0o700 and handed to ``dango`` (the script may hold a
-    password hash); it is removed even if the upload or the run fails.
+    The server creates the directory (``mktemp -d``), so no path is predictable or
+    plantable by the ``dango`` user; the directory and file stay root-owned (group
+    ``dango``, read-only) so root never writes into a location ``dango`` controls. The
+    script may hold a password hash, hence no access for others. Removed even on failure.
     """
-    path = f"/tmp/dango-{purpose}-{uuid.uuid4().hex}.py"
+    made = ssh.exec_command(f"mktemp -d -t dango-{purpose}.XXXXXXXX", timeout=30)
+    directory = (made.stdout or "").strip()
+    if made.exit_code != 0 or not directory.startswith("/") or any(c.isspace() for c in directory):
+        return made
+    path = f"{directory}/{uuid.uuid4().hex}.py"
+    q_dir, q_path = shlex.quote(directory), shlex.quote(path)
     try:
-        ssh.write_remote_file(path, script, mode=0o700)
-        chown = ssh.exec_command(f"chown -h dango:dango {shlex.quote(path)}", timeout=30)
-        if chown.exit_code != 0:
-            return chown
-        return ssh.exec_command(f"sudo -u dango {python} {shlex.quote(path)}", timeout=timeout)
+        prep = ssh.exec_command(f"chgrp dango {q_dir} && chmod 750 {q_dir}", timeout=30)
+        if prep.exit_code != 0:
+            return prep
+        ssh.write_remote_file(path, script, mode=0o640)
+        grant = ssh.exec_command(f"chgrp -h dango {q_path}", timeout=30)
+        if grant.exit_code != 0:
+            return grant
+        return ssh.exec_command(f"sudo -u dango {python} {q_path}", timeout=timeout)
     finally:
-        ssh.exec_command(f"rm -f {shlex.quote(path)}", timeout=30)
+        ssh.exec_command(f"rm -rf {q_dir}", timeout=30)
 
 
 def _create_admin_and_enable_auth(
