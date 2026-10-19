@@ -17,6 +17,7 @@ Registered as a subgroup of ``remote`` in ``remote.py`` via
 
 from __future__ import annotations
 
+import re
 import shlex
 import uuid
 from pathlib import Path
@@ -27,6 +28,7 @@ import click
 from dango.cli import console
 from dango.cli.utils import safe_confirm
 from dango.exceptions import format_structured_error
+from dango.platform.cloud.project_files import read_project_file
 from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
 
 # ---------------------------------------------------------------------------
@@ -253,10 +255,8 @@ def backup_enable(ctx: click.Context) -> None:
 
     try:
         # Verify Spaces credentials exist on server
-        env_check = ssh.exec_command(
-            "grep -q SPACES_ACCESS_KEY /srv/dango/project/.env 2>/dev/null"
-        )
-        if not env_check.success:
+        env_text = read_project_file(ssh, "/srv/dango/project/.env")
+        if not re.search(r"^\s*(?:export\s+)?SPACES_ACCESS_KEY=", env_text, re.MULTILINE):
             console.print(
                 "[red]Error:[/red] SPACES_ACCESS_KEY not found in server .env file. "
                 "Add Spaces credentials before enabling scheduled backups."
@@ -799,7 +799,3 @@ def backup_config(ctx: click.Context) -> None:
         console.print(f"    Daily:   {sr.daily}")
         console.print(f"    Weekly:  {sr.weekly}")
         console.print(f"    Monthly: {sr.monthly}")
-
-
-#: Path to venv Python on the remote server.
-VENV_PYTHON = "/srv/dango/venv/bin/python"

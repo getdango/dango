@@ -190,6 +190,7 @@ def _handle_reconnect(project_root: Path, ip: str | None) -> None:
     """Reconnect to an existing Dango server and write cloud.yml."""
     from dango.config.loader import ConfigLoader
     from dango.config.models import CloudConfig
+    from dango.platform.cloud.project_files import read_project_file
     from dango.platform.cloud.ssh import SSHManager
 
     if not ip:
@@ -210,8 +211,10 @@ def _handle_reconnect(project_root: Path, ip: str | None) -> None:
         raise SystemExit(1) from exc
 
     try:
-        result = ssh.exec_command("cat /srv/dango/project/.dango/project.yml 2>/dev/null | head -5")
-        if not result.success or not result.stdout.strip():
+        head = "\n".join(
+            read_project_file(ssh, "/srv/dango/project/.dango/project.yml").splitlines()[:5]
+        )
+        if not head.strip():
             console.print("[red]Error:[/red] Server does not appear to be a Dango deployment.")
             raise SystemExit(1)
     finally:

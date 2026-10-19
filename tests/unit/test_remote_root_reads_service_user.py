@@ -51,7 +51,7 @@ def _assert_no_root_project_tool(command: str) -> None:
 class TestResetMetabase:
     def _run(self, tmp_path: Path) -> list[str]:
         ssh = MagicMock()
-        ssh.exec_command.return_value = _ok("a" * 32 + " ok")
+        ssh.exec_command.side_effect = lambda c, *a, **k: _ok("a" * 32 if "print(" in c else "ok")
         p1, p2 = _patch_cloud(ssh, tmp_path)
         with (
             p1,
