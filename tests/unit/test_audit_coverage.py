@@ -21,15 +21,15 @@ from fastapi.routing import iter_route_contexts
 from dango.auth.models import Role, User
 from dango.auth.sessions import create_session
 from dango.web.app import app
-from dango.web.routes import catalog, initial_sync, notebooks
+from dango.web.routes import catalog, dbt, initial_sync, notebooks
 from dango.web.routes.auth import router as auth_router
+from dango.web.routes.auth_2fa import router as auth_2fa_router
 from tests.factories.auth_app_factories import AuthProject, build_client
 
 _STATE_CHANGING = {"POST", "PUT", "PATCH", "DELETE"}
 _MAX_DEPTH = 3
 
 # (method or "*", path) -> why this state-changing route has no audit call in its handler (or helpers it calls).
-# "PENDING" entries have no fitting AuditEvent member today; each needs a coordinator decision on a new member.
 ALLOWLIST: dict[tuple[str, str], str] = {
     # --- no state worth attributing ---
     (
@@ -62,23 +62,6 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("*", "/api/database/{path:path}"): "Metabase API proxy",
     ("*", "/metabase"): "Metabase proxy",
     ("*", "/metabase/{path:path}"): "Metabase proxy",
-    # --- PENDING: no existing AuditEvent member fits; proposed members listed for the coordinator ---
-    (
-        "POST",
-        "/api/dbt/models/{model_name}/run",
-    ): "PENDING: runs dbt as the server user; proposed member DBT_MODEL_RUN",
-    (
-        "POST",
-        "/api/notebooks/{name}/lock",
-    ): "PENDING: opens a notebook and starts Marimo; proposed member NOTEBOOK_LOCKED",
-    (
-        "POST",
-        "/api/notebooks/{name}/release",
-    ): "PENDING: releases the caller's own lock; proposed member NOTEBOOK_RELEASED",
-    (
-        "POST",
-        "/api/auth/2fa/regenerate-recovery",
-    ): "PENDING: own account, replaces recovery codes; proposed member RECOVERY_CODES_REGENERATED",
 }
 
 
@@ -210,6 +193,10 @@ class TestAuditCoverage:
             ("POST", "/api/catalog/{source}/{table}/profile"): "CATALOG_PROFILE_TRIGGERED",
             ("POST", "/api/initial-sync/start"): "SYNC_TRIGGERED",
             ("DELETE", "/api/auth/sessions/{session_id}"): "SESSION_EXPIRED",
+            ("POST", "/api/dbt/models/{model_name}/run"): "DBT_MODEL_RUN",
+            ("POST", "/api/notebooks/{name}/lock"): "NOTEBOOK_LOCKED",
+            ("POST", "/api/notebooks/{name}/release"): "NOTEBOOK_RELEASED",
+            ("POST", "/api/auth/2fa/regenerate-recovery"): "RECOVERY_CODES_REGENERATED",
         }
         for key, event in expected.items():
             assert event in _audit_events(by_key[key]), key
@@ -307,3 +294,104 @@ class TestFixedGapsWriteEvents:
         entries = _audit_entries(project.root)
         assert [e["event"] for e in entries] == ["sync_triggered"]
         assert entries[0]["details"] == {"initial_sync": True, "auth": "deploy_token", "sources": 1}
+
+
+@pytest.mark.unit
+class TestNewEventsWired:
+    def test_dbt_model_run_logs_dbt_model_run(self, project: AuthProject) -> None:
+        user = User(email="ed@example.com", role=Role.EDITOR, password_hash="x")
+        manifest = {"nodes": {"model.p.m1": {"resource_type": "model", "name": "m1"}}}
+        tasks = types.SimpleNamespace(add_task=lambda *a, **k: None)
+        with (
+            patch.object(dbt, "get_project_root", return_value=project.root),
+            patch.object(dbt, "get_dbt_manifest", return_value=manifest),
+            patch.object(dbt.ws_manager, "broadcast", new=AsyncMock()),
+        ):
+            asyncio.run(
+                dbt.run_dbt_model("m1", tasks, request=_request(), cascade=False, user=user)
+            )
+
+        entries = _audit_entries(project.root)
+        assert [e["event"] for e in entries] == ["dbt_model_run"]
+        assert entries[0]["email"] == "ed@example.com"
+        assert entries[0]["details"] == {"model_name": "m1", "cascade": False}
+
+    def _lock(self, project: AuthProject, acquired: bool) -> Any:
+        user = User(email="ed@example.com", role=Role.EDITOR, password_hash="x")
+        (project.root / "notebooks").mkdir()
+        (project.root / "notebooks" / "nb.py").write_text("# nb\n")
+        with (
+            patch.object(notebooks, "get_project_root", return_value=project.root),
+            patch.object(notebooks, "acquire_lock", return_value=acquired),
+            patch.object(notebooks, "get_lock_info", return_value=None),
+            patch.object(notebooks, "ensure_marimo_protected"),
+            patch.object(notebooks, "get_marimo_status", return_value={"running": False}),
+            patch.object(notebooks, "_start_marimo_background", new=AsyncMock()),
+            patch.object(notebooks, "start_idle_checker"),
+        ):
+            return asyncio.run(notebooks.lock_notebook("nb", _request(), user))
+
+    def test_notebook_lock_logs_notebook_locked(self, project: AuthProject) -> None:
+        self._lock(project, acquired=True)
+
+        entries = _audit_entries(project.root)
+        assert [e["event"] for e in entries] == ["notebook_locked"]
+        assert entries[0]["details"] == {"notebook_name": "nb"}
+
+    def test_refused_notebook_lock_logs_nothing(self, project: AuthProject) -> None:
+        resp = self._lock(project, acquired=False)
+
+        assert resp.status_code == 409
+        assert _audit_entries(project.root) == []
+
+    @pytest.mark.parametrize(("released", "expected"), [(True, ["notebook_released"]), (False, [])])
+    def test_notebook_release_logs_only_on_release(
+        self, project: AuthProject, released: bool, expected: list[str]
+    ) -> None:
+        user = User(email="ed@example.com", role=Role.EDITOR, password_hash="x")
+        with (
+            patch.object(notebooks, "get_project_root", return_value=project.root),
+            patch.object(notebooks, "release_lock", return_value=released),
+        ):
+            asyncio.run(notebooks.release_notebook_lock("nb", _request(), user))
+
+        entries = _audit_entries(project.root)
+        assert [e["event"] for e in entries] == expected
+
+    def test_recovery_regeneration_logs_event_without_codes(self, project: AuthProject) -> None:
+        user = project.add_user("ed@example.com", Role.EDITOR)
+        client = build_client(project.root, auth_2fa_router)
+        stored = types.SimpleNamespace(totp_enabled=True, totp_secret="SECRETSEED")
+        codes = ["AAAA-BBBB", "CCCC-DDDD"]
+        with (
+            patch("dango.web.routes.auth_2fa.verify_password", return_value=True),
+            patch("dango.web.routes.auth_2fa.get_user_by_id", return_value=stored),
+            patch("dango.web.routes.auth_2fa.verify_totp_code", return_value=True),
+            patch("dango.web.routes.auth_2fa.regenerate_recovery_codes", return_value=codes),
+        ):
+            resp = client.post(
+                "/api/auth/2fa/regenerate-recovery",
+                json={"password": "pw-secret-value", "code": "123456"},
+                headers={"Cookie": project.session_cookie(user), "X-Requested-With": "test"},
+            )
+
+        assert resp.status_code == 200
+        entries = _audit_entries(project.root)
+        assert [e["event"] for e in entries] == ["recovery_codes_regenerated"]
+        assert entries[0]["email"] == "ed@example.com"
+        log_text = (project.root / ".dango" / "logs" / "audit.jsonl").read_text()
+        for secret in [*codes, "pw-secret-value", "123456", "SECRETSEED"]:
+            assert secret not in log_text
+
+    def test_failed_recovery_regeneration_logs_nothing(self, project: AuthProject) -> None:
+        user = project.add_user("ed@example.com", Role.EDITOR)
+        client = build_client(project.root, auth_2fa_router)
+        with patch("dango.web.routes.auth_2fa.verify_password", return_value=False):
+            resp = client.post(
+                "/api/auth/2fa/regenerate-recovery",
+                json={"password": "wrong", "code": "123456"},
+                headers={"Cookie": project.session_cookie(user), "X-Requested-With": "test"},
+            )
+
+        assert resp.status_code == 400
+        assert _audit_entries(project.root) == []
