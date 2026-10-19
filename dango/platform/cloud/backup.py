@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import re
 import shlex
+import stat
 import time
 import uuid
 from collections.abc import Callable
@@ -240,30 +242,77 @@ def _sanitized_metabase_yaml_text(raw_config: str) -> str:
     return yaml.safe_dump(sanitized, sort_keys=False)
 
 
-def _sanitized_metabase_yaml(source: Path) -> str:
-    """Return password-free Metabase metadata read from *source*."""
+#: Upper bound for a Metabase metadata file; anything larger is not ours.
+METABASE_CONFIG_MAX_BYTES = 1024 * 1024
+
+
+def _read_config_nofollow(source: Path) -> str:
+    """Read *source* without following a link at its name or in its directory.
+
+    Root reads files in a tree the service user controls, so neither the file
+    nor its parent directory may be a link, and the file must be a modest regular
+    file.  Raises ``ValueError`` otherwise.
+    """
+    dir_fd = -1
+    fd = -1
     try:
-        return _sanitized_metabase_yaml_text(source.read_text())
-    except OSError as exc:
+        dir_fd = os.open(source.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        fd = os.open(
+            source.name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOCTTY,
+            dir_fd=dir_fd,
+        )
+        info = os.fstat(fd)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_size > METABASE_CONFIG_MAX_BYTES
+        ):
+            raise ValueError("invalid Metabase config: not a regular file of reasonable size")
+        with os.fdopen(fd, encoding="utf-8") as handle:
+            fd = -1
+            return handle.read()
+    except (OSError, UnicodeDecodeError) as exc:
         raise ValueError(f"invalid Metabase config: {exc}") from exc
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        if dir_fd >= 0:
+            os.close(dir_fd)
+
+
+def _sanitized_metabase_yaml(source: Path) -> str:
+    """Return password-free Metabase metadata read from *source* (links refused)."""
+    return _sanitized_metabase_yaml_text(_read_config_nofollow(source))
 
 
 def _write_sanitized_metabase_yaml(source: Path, destination: Path) -> None:
     """Write password-free Metabase metadata from *source* to *destination*."""
+    sanitized = _sanitized_metabase_yaml(source)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(_sanitized_metabase_yaml(source))
+    destination.write_text(sanitized)
 
 
 def _sanitize_remote_metabase_yaml(ssh: SSHManager, source: str, destination: str) -> str | None:
     """Sanitize remote Metabase metadata, returning a non-secret warning on error."""
     script = """
 from pathlib import Path
+import os
+import stat
 import sys
 import yaml
 
 source, destination = map(Path, sys.argv[1:3])
 try:
-    config = yaml.safe_load(source.read_text())
+    dir_fd = os.open(source.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    fd = os.open(
+        source.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOCTTY, dir_fd=dir_fd
+    )
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 1048576:
+        raise ValueError("not a regular file of reasonable size")
+    with os.fdopen(fd, encoding="utf-8") as handle:
+        config = yaml.safe_load(handle.read())
     if not isinstance(config, dict):
         raise ValueError("expected a YAML mapping")
     sanitized = dict(config)
@@ -274,7 +323,7 @@ try:
         sanitized["admin"] = sanitized_admin
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(yaml.safe_dump(sanitized, sort_keys=False))
-except (OSError, yaml.YAMLError, ValueError) as exc:
+except (OSError, UnicodeDecodeError, yaml.YAMLError, ValueError) as exc:
     print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
     raise SystemExit(1)
 """
