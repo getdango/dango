@@ -22,7 +22,7 @@ from typing import Any
 
 from dango.cli import console
 from dango.cli.commands.deploy_wizard import _EMAIL_RE, BYOSConfig, WizardConfig
-from dango.exceptions import CloudProvisioningError
+from dango.exceptions import CloudAPIError, CloudProvisioningError
 from dango.logging import get_logger
 from dango.platform.cloud.project_files import (
     AS_DANGO,
@@ -416,6 +416,16 @@ def run_provisioning(
                 "\n[dim]The admin-creation step failed on the server (details above)."
                 "\nRun [bold]dango deploy[/bold] to retry with a fresh server.[/dim]"
             )
+        elif isinstance(exc, CloudAPIError) and exc.is_permission_error:
+            console.print(
+                "\n[dim]Your DigitalOcean token is missing a permission. Required scopes: "
+                "droplet (create, read, update, delete, actions), "
+                "firewall (create, read, update, delete), "
+                "ssh_key (create, read, delete), tag (create, read), "
+                "regions/sizes/images (read). Spaces keys are separate.[/dim]"
+            )
+        elif isinstance(exc, CloudAPIError) and exc.status_code and 400 <= exc.status_code < 500:
+            console.print("\n[dim]DigitalOcean rejected the request (see message above).[/dim]")
         else:
             console.print(
                 "\n[dim]This is usually a transient infrastructure issue (not a Dango bug)."
