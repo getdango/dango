@@ -316,12 +316,27 @@ def _step_prereqs(project_root: Path) -> None:
                 "  Generate a new token at: https://cloud.digitalocean.com/account/api/tokens"
             )
             raise SystemExit(1)
-        resp.raise_for_status()
-        console.print("[green]  \u2713 DigitalOcean token validated[/green]")
+        if resp.status_code == 403:
+            # A scoped token cannot read /account; permissions are checked
+            # when resources are created.
+            console.print(
+                "[green]  \u2713 Token accepted but cannot read the account "
+                "(normal for a scoped token); permissions are checked when "
+                "resources are created.[/green]"
+            )
+        else:
+            resp.raise_for_status()
+            console.print("[green]  \u2713 DigitalOcean token validated[/green]")
     except (httpx.ConnectError, httpx.TimeoutException):
         console.print(
             "[yellow]  Warning: Could not reach DigitalOcean API "
             "(network error). Proceeding...[/yellow]"
+        )
+    except httpx.HTTPStatusError as exc:
+        console.print(
+            "[yellow]  Warning: Could not validate token "
+            f"(unexpected API response: HTTP {exc.response.status_code}). "
+            "Proceeding...[/yellow]"
         )
     except httpx.HTTPError:
         console.print(

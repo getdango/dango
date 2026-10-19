@@ -455,6 +455,11 @@ class CloudAPIError(CloudError):
             user_message=user_message,
         )
 
+    @property
+    def is_permission_error(self) -> bool:
+        """True when DigitalOcean rejected the request with HTTP 403."""
+        return self.status_code == 403
+
 
 class CloudAuthError(CloudError):
     """Cloud API authentication failed (invalid or missing token)."""
