@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import ast
 import os
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -41,9 +40,7 @@ class TestGetDbtExecutable:
     def test_prefers_sibling_of_interpreter(self, venv_bin: Path) -> None:
         assert _get_dbt_executable() == str(venv_bin / DBT_NAME)
 
-    def test_falls_back_to_path(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_falls_back_to_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         bin_dir = tmp_path / "py"
         bin_dir.mkdir()
         monkeypatch.setattr("sys.executable", str(bin_dir / "python"))
@@ -98,7 +95,7 @@ class TestCallSitesUseResolvedDbt:
             patch("dango.cli.utils.require_project_context", return_value=project),
             patch("subprocess.run", side_effect=fake_run),
         ):
-            CliRunner().invoke(cli, ["docs", "generate"])
+            CliRunner().invoke(cli, ["docs"])
 
         assert calls
         assert calls[0][0] == str(venv_bin / DBT_NAME)

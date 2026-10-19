@@ -466,7 +466,7 @@ class ProjectValidator:
 
     def _validate_dbt_models(self):
         """Validate dbt models by running dbt parse"""
-        from dango.transformation import _dbt_telemetry_env
+        from dango.transformation import _dbt_telemetry_env, _get_dbt_executable
 
         dbt_dir = self.project_root / "dbt"
 
@@ -476,7 +476,14 @@ class ProjectValidator:
         try:
             # Run dbt parse to validate all models
             result = subprocess.run(
-                ["dbt", "parse", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)],
+                [
+                    _get_dbt_executable(),
+                    "parse",
+                    "--project-dir",
+                    str(dbt_dir),
+                    "--profiles-dir",
+                    str(dbt_dir),
+                ],
                 cwd=str(self.project_root),
                 capture_output=True,
                 text=True,
@@ -738,6 +745,8 @@ class ProjectValidator:
 
     def _check_dependencies(self):
         """Check if required Python packages are installed"""
+        from dango.transformation import _get_dbt_executable
+
         required_packages = [
             ("duckdb", "DuckDB"),
             ("dlt", "dlt"),
@@ -771,7 +780,9 @@ class ProjectValidator:
 
         # Check dbt CLI
         try:
-            result = subprocess.run(["dbt", "--version"], capture_output=True, text=True, timeout=5)
+            result = subprocess.run(
+                [_get_dbt_executable(), "--version"], capture_output=True, text=True, timeout=5
+            )
             if result.returncode == 0:
                 # Extract version from output
                 version_line = result.stdout.split("\n")[0]
