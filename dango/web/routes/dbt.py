@@ -15,6 +15,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import Response
 
+from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
 from dango.validation import validate_identifier
@@ -47,6 +48,7 @@ async def list_dbt_models(
 async def run_dbt_model(
     model_name: str,
     background_tasks: BackgroundTasks,
+    request: Request,
     cascade: bool = True,
     user: User = Depends(require_permission("dbt.run")),
 ) -> dict[str, str | bool]:
@@ -83,6 +85,15 @@ async def run_dbt_model(
             "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         },
         log=False,
+    )
+
+    log_auth_event(
+        AuditEvent.DBT_MODEL_RUN,
+        user_id=user.id,
+        email=user.email,
+        ip=request.client.host if request.client else None,
+        details={"model_name": model_name, "cascade": cascade},
+        log_dir=get_project_root() / ".dango" / "logs",
     )
 
     # Run in background
