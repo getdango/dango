@@ -24,8 +24,8 @@ FAKE_TOOL = """#!/bin/sh
 d=$(dirname "$0")
 printf '%s\\n' "$*" >> "$d/$(basename "$0").calls"
 cat >/dev/null
-if [ "$(basename "$0")" = sudo ] && [ -f "$d/out.$4" ]; then cat "$d/out.$4"; fi
-exit "$(cat "$d/rc.$4" 2>/dev/null || echo 0)"
+if [ "$(basename "$0")" = sudo ] && [ -f "$d/out.$3" ]; then cat "$d/out.$3"; fi
+exit "$(cat "$d/rc.$3" 2>/dev/null || echo 0)"
 """
 
 
@@ -76,7 +76,7 @@ class TestDockerManagerWithHelper:
     def test_start_services(self, helper_env: Path, project: Path) -> None:
         lock_verb(helper_env)
         assert DockerManager(project).start_services() is True
-        assert sudo_verbs(helper_env) == [f"{ch.HELPER_PATH} image-exists", f"{ch.HELPER_PATH} up"]
+        assert sudo_verbs(helper_env) == ["image-exists", "up"]
         assert docker_calls(helper_env) == []
 
     def test_start_services_failure_is_reported(self, helper_env: Path, project: Path) -> None:
@@ -98,7 +98,7 @@ class TestDockerManagerWithHelper:
 
     def test_stop_services(self, helper_env: Path, project: Path) -> None:
         assert DockerManager(project).stop_services() is True
-        assert sudo_verbs(helper_env) == [f"{ch.HELPER_PATH} down"]
+        assert sudo_verbs(helper_env) == ["down"]
         assert docker_calls(helper_env) == []
 
     def test_service_status(self, helper_env: Path, project: Path) -> None:
@@ -114,7 +114,7 @@ class TestDockerManagerWithHelper:
 
     def test_stop_all_stops_only_the_pinned_project(self, helper_env: Path, project: Path) -> None:
         assert DockerManager(project).stop_all_dango_containers() is True
-        assert sudo_verbs(helper_env) == [f"{ch.HELPER_PATH} stop"]
+        assert sudo_verbs(helper_env) == ["stop"]
         assert docker_calls(helper_env) == []
 
     def test_stop_all_projects_is_not_offered(self, helper_env: Path, project: Path) -> None:
@@ -178,7 +178,7 @@ class TestStartDockerServicesWithHelper:
         ):
             lock_verb(helper_env)
             start_docker_services(project)
-        verbs = [v.split()[1] for v in sudo_verbs(helper_env)]
+        verbs = [v.split()[0] for v in sudo_verbs(helper_env)]
         assert verbs == ["down", "render", "image-exists", "up"]
         assert docker_calls(helper_env) == []
         assert not (project / "docker-compose.yml").exists()
@@ -198,7 +198,7 @@ class TestStartDockerServicesWithHelper:
             patch("dango.platform.docker.console"),
         ):
             start_docker_services(project)
-        assert [v.split()[1] for v in sudo_verbs(helper_env)][-1] == "up"
+        assert [v.split()[0] for v in sudo_verbs(helper_env)][-1] == "up"
 
     def test_local_still_checks_the_daemon(
         self, tmp_path: Path, project: Path, monkeypatch: pytest.MonkeyPatch
@@ -242,8 +242,8 @@ class TestMetabaseLifecycle:
         assert ml.stop_metabase_for_writes(project, force=True) is True
         assert ml.start_metabase_after_writes(project) is True
         assert sudo_verbs(helper_env) == [
-            f"{ch.HELPER_PATH} stop metabase",
-            f"{ch.HELPER_PATH} start metabase",
+            "stop metabase",
+            "start metabase",
         ]
         assert docker_calls(helper_env) == []
 

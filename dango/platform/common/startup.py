@@ -162,15 +162,17 @@ def start_docker_services(project_root: Path) -> None:
             start of the ``stop_services()``/``start_services()`` calls
             below). Never raised for Docker connectivity issues alone.
     """
-    from dango.platform import DockerManager
+    from dango.platform import DockerManager, compose_exec
 
     manager = DockerManager(project_root)
+    helper = compose_exec.uses_helper()
 
     # Stop any existing services to free ports and clean up zombie containers
     manager.stop_services()
 
-    # Pre-flight: Docker daemon must be running
-    if not manager.is_docker_daemon_running():
+    # Pre-flight: Docker daemon must be running (on a server the account cannot ask Docker;
+    # the helper reports its own failures)
+    if not helper and not manager.is_docker_daemon_running():
         raise RuntimeError("Docker daemon is not running. Start Docker Desktop and try again.")
 
     # Pre-flight: Required Docker ports must be free.
@@ -233,11 +235,14 @@ def start_docker_services(project_root: Path) -> None:
     # otherwise. See BUGS-FOUND.md for the incident this fixes.
     try:
         from dango.config.helpers import load_config
-        from dango.platform.docker import render_docker_compose
 
-        render_docker_compose(project_root, load_config(project_root))
+        compose_exec.render(project_root, load_config(project_root))
     except Exception:
-        pass  # Best-effort -- if config can't load, start_services() below will fail anyway
+        if helper:
+            from dango.logging import get_logger
+
+            get_logger(__name__).warning("compose_render_failed", exc_info=True)
+        # Best-effort -- if config can't load, start_services() below will fail anyway
 
     # Start Docker services (Metabase, dbt-docs)
     docker_success = manager.start_services()

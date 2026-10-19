@@ -137,11 +137,16 @@ lockdir() { mkdir -m 0700 "$L" 2>/dev/null || [ -d "$L" ] || die "$L unsafe"
 run() { t=$1; shift; rc=0; k=0; cp=
   trap 'k=1; [ -z "$cp" ] || kill -TERM "$cp" 2>/dev/null' HUP INT TERM
   timeout -k 10 "$t" "$@" </dev/null 9>&- & cp=$!
+  # A signal that arrived before the pid was known; repeated because the forked child can still
+  # be running the shell's own handler until it execs, which would swallow a single TERM.
+  [ "$k" = 0 ] || for _ in 1 2 3; do kill -TERM "$cp" 2>/dev/null; sleep 0.1; done
   while :; do k=0; wait $cp && rc=0 || rc=$?; [ "$k" = 1 ] || break; done
   trap - HUP INT TERM
   case $rc in
     124|137) printf 'dango-compose: %s exceeded its time budget (%ss)\n' "$verb" "$t" >&2;;
   esac; exit "$rc"; }
+# The lock lives on this sh's fd 9 (the workload does not inherit it): a SIGKILL of the sh releases
+# it while timeout/docker may run on for up to budget + 10 s. Accepted.
 locked() { lockdir; w=$ROOT_WAIT; ! via_sudo || w=$SUDO_WAIT
   exec 9>>"$L/lock"
   flock -w "$w" -E 75 9 || { rc=$?; [ "$rc" != 75 ] ||

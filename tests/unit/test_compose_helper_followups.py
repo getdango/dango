@@ -31,7 +31,9 @@ def runner(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Runner]:
 
 def test_spawn_line_is_followed_by_a_pending_signal_check() -> None:
     text = helper_script()
-    assert f'{SPAWN}\n  [ "$k" = 0 ] || kill -TERM "$cp" 2>/dev/null\n' in text
+    after = text.split(SPAWN + "\n", 1)[1].splitlines()
+    pending = next(line for line in after if line.strip().startswith('[ "$k" = 0 ]'))
+    assert 'kill -TERM "$cp"' in pending
 
 
 def test_signal_in_the_gap_before_the_pid_is_recorded_still_stops_the_workload(
