@@ -26,11 +26,30 @@ def test_readme_source_counts_match_registry():
     assert quoted == {doc_counts.source_count()}
 
 
-def test_claude_md_line_counts_match_files():
+def test_claude_md_line_counts_are_approximately_right():
     text = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     stated = {m.group(1): int(m.group(2)) for m in doc_counts._ROW.finditer(text)}
     assert stated
-    assert stated == doc_counts.line_counts()
+    actual = doc_counts.line_counts()
+    assert set(stated) == set(actual)
+    off = {
+        rel: (n, actual[rel])
+        for rel, n in stated.items()
+        if not doc_counts.within_tolerance(n, actual[rel])
+    }
+    assert not off, f"CLAUDE.md line counts drifted more than 10%: {off}"
+
+
+def test_line_count_tolerance_accepts_small_drift_and_rejects_large():
+    assert doc_counts.within_tolerance(1000, 1030)
+    assert doc_counts.within_tolerance(1030, 1000)
+    assert not doc_counts.within_tolerance(1000, 1300)
+    assert not doc_counts.within_tolerance(1300, 1000)
+
+
+def test_claude_md_table_header_says_approximate():
+    text = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "| File | Lines (approx.) |" in text
 
 
 def _registered_mcp_tools() -> set[str]:
