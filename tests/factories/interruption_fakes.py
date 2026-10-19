@@ -243,6 +243,11 @@ class FakeServer:
             for path in sorted(self.stale):
                 self.archives.pop(path, None)
             return self._ok()
+        if cmd.startswith("[ -e ") and "|| rm -f " in cmd:
+            archive, manifest = (t for t in shlex.split(cmd) if t.startswith(BACKUP_DIR))
+            if archive not in self.archives:
+                self.manifests.pop(manifest, None)
+            return self._ok()
         if "-mmin +15" in cmd and "-exec rm -rf" in cmd:
             self.staging -= self.stale  # root-owned backup/restore staging older than 15 min
             return self._ok()

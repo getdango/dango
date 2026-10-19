@@ -73,6 +73,7 @@ class FakeDO:
         if droplet_id in self.fail_delete:
             raise RuntimeError("DigitalOcean API unavailable")
         self.alive.discard(droplet_id)
+        self.firewall_droplets.discard(droplet_id)  # DigitalOcean detaches deleted droplets
         self.deleted.append(droplet_id)
 
 

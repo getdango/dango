@@ -544,6 +544,7 @@ def _create_archive(
     manifest_dest = f"{BACKUP_DIR}/{archive_name}.json"
     partial_path = f"{archive_path}.partial"
     private = ""
+    manifest_written = committed = False
 
     try:
         _run_checked(ssh, f"mkdir -p {shlex.quote(BACKUP_DIR)}", step="create_staging")
@@ -636,6 +637,14 @@ def _create_archive(
             step="create_archive",
             timeout=600,
         )
+        # The manifest goes in before the archive appears: the archive is the commit marker.
+        _run_checked(
+            ssh,
+            f"(set -C; umask 077; cat {shlex.quote(staging + '/manifest.json')}"
+            f" > {shlex.quote(manifest_dest)})",
+            step="copy_manifest",
+        )
+        manifest_written = True
         # ``-n``: never over an existing path (a planted link included); old coreutils skip
         # silently, so the partial file still being there means the rename did not happen.
         _run_checked(
@@ -644,14 +653,16 @@ def _create_archive(
             f" && ! [ -e {shlex.quote(partial_path)} ]",
             step="create_archive",
         )
-        _run_checked(
-            ssh,
-            f"(set -C; umask 077; cat {shlex.quote(staging + '/manifest.json')}"
-            f" > {shlex.quote(manifest_dest)})",
-            step="copy_manifest",
-        )
+        committed = True
     finally:
         _remove_leftovers(ssh, [p for p in (private, partial_path) if p])
+        if manifest_written and not committed:
+            # The rename may have happened just before an interruption: only drop a
+            # manifest whose archive does not exist.
+            with contextlib.suppress(Exception):
+                ssh.exec_command(
+                    f"[ -e {shlex.quote(archive_path)} ] || rm -f {shlex.quote(manifest_dest)}"
+                )
 
     return archive_path, manifest
 
@@ -696,6 +707,7 @@ def create_backup(
     warnings: list[str] = []
     timestamp = time.strftime("%Y%m%d-%H%M%S")
 
+    _sweep_stale_leftovers(ssh)  # first: leftovers of a dead run may be what filled the disk
     _notify(on_progress, "check_disk_space", "running")
     _check_disk_space(ssh)
     _notify(on_progress, "check_disk_space", "done")
@@ -806,10 +818,12 @@ def rollback(
     if backup_path is None:
         # The newest archive after a restore is its own pre-restore safety backup, which
         # holds the state the restore replaced: never the default to roll back to.
-        backups = [b for b in list_local_backups(ssh) if not _is_safety_backup(ssh, b["path"])]
-        if not backups:
+        chosen = next(
+            (b for b in list_local_backups(ssh) if not _is_safety_backup(ssh, b["path"])), None
+        )
+        if chosen is None:
             raise CloudProvisioningError("No backups found to restore from")
-        backup_path = backups[0]["path"]
+        backup_path = chosen["path"]
     else:
         if not ssh.exec_command(f"test -f {shlex.quote(backup_path)}").success:
             raise CloudProvisioningError(f"Backup archive not found: {backup_path}")
@@ -1044,16 +1058,28 @@ def _auth_config_refusal(ssh: SSHManager, staging: str) -> str | None:
     return AUTH_CONFIG_SKIPPED_WARNING
 
 
-def rotate_local_backups(ssh: SSHManager, keep: int = MAX_LOCAL_BACKUPS) -> int:
-    """Delete old backup archives beyond the retention limit.
+def _sweep_stale_leftovers(ssh: SSHManager) -> None:
+    """Remove what a backup or restore whose client died could not clean up.
 
-    Also removes ``*.partial`` files older than the longest ``tar`` (600 s) plus margin:
-    what an interrupted backup whose client could not clean up leaves behind.
+    ``*.partial`` archives and root-owned staging directories (project data) older than
+    15 minutes, longer than the slowest ``tar`` (600 s).  ``find`` never follows links.
     """
-    ssh.exec_command(  # cleanup: silent OK
-        f"find {shlex.quote(BACKUP_DIR)} -maxdepth 1 -type f"
-        f" -name {shlex.quote('backup-*.tar.gz.partial')} -mmin +15 -delete"
+    names = " -o ".join(
+        f"-name {shlex.quote(n)}" for n in ("dango-backup.*", "dango-restore-staging-*")
     )
+    for command in (
+        f"find {shlex.quote(BACKUP_DIR)} -maxdepth 1 -type f"
+        f" -name {shlex.quote('backup-*.tar.gz.partial')} -mmin +15 -delete",
+        f"find /tmp -maxdepth 1 -type d -user root \\( {names} \\) -mmin +15 -exec rm -rf {{}} +",
+    ):
+        try:
+            ssh.exec_command(command)
+        except Exception:
+            _logger.warning("stale_leftover_sweep_failed", exc_info=True)
+
+
+def rotate_local_backups(ssh: SSHManager, keep: int = MAX_LOCAL_BACKUPS) -> int:
+    """Delete old backup archives beyond the retention limit."""
     result = ssh.exec_command(f"ls -1t {BACKUP_DIR}/*.tar.gz 2>/dev/null || true")
     if not result.success or not result.stdout.strip():
         return 0

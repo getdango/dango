@@ -419,11 +419,6 @@ def migrate_server(
                 size=new_size,
             )
             committed = True
-            if old_config.firewall_id:
-                try:
-                    _update_firewall_droplets(client, old_config.firewall_id, old_droplet_id, None)
-                except Exception as exc:
-                    warnings.append(f"Firewall still lists the old droplet: {exc}")
             _notify(on_progress, "cleanup", "running")
             try:
                 client.delete_droplet(old_droplet_id)

@@ -98,8 +98,8 @@ class _ResourceTracker:
 
     def _restore_cloud_yml(self, errors: list[str]) -> None:
         """Put cloud.yml back, so it never names resources the cleanup just deleted."""
-        if self.cloud_yml is None:
-            return
+        if self.cloud_yml is None or errors:
+            return  # a failed delete: cloud.yml is the only record of what is still running
         try:
             if self.cloud_yml_before is None:
                 self.cloud_yml.unlink(missing_ok=True)
@@ -128,6 +128,7 @@ def _cleanup_and_report(tracker: _ResourceTracker) -> None:
         console.print("[yellow]Cleanup errors (delete these in the DigitalOcean console):[/yellow]")
         for err in errors:
             console.print(f"  - {err}")
+        console.print("Run [bold]dango deploy destroy[/bold] to finish the cleanup.")
     elif created:
         console.print("[green]All resources cleaned up.[/green]")
 
