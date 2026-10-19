@@ -17,7 +17,6 @@ Registered as a subgroup of ``remote`` in ``remote.py`` via
 
 from __future__ import annotations
 
-import re
 import shlex
 import uuid
 from pathlib import Path
@@ -27,9 +26,10 @@ import click
 
 from dango.cli import console
 from dango.cli.utils import safe_confirm
-from dango.exceptions import format_structured_error
+from dango.exceptions import CloudProvisioningError, format_structured_error
 from dango.platform.cloud.project_files import read_project_file
 from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
+from dango.utils.env_file import parse_env_file
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -255,8 +255,12 @@ def backup_enable(ctx: click.Context) -> None:
 
     try:
         # Verify Spaces credentials exist on server
-        env_text = read_project_file(ssh, "/srv/dango/project/.env")
-        if not re.search(r"^\s*(?:export\s+)?SPACES_ACCESS_KEY=", env_text, re.MULTILINE):
+        try:
+            env_text = read_project_file(ssh, "/srv/dango/project/.env")
+        except CloudProvisioningError as exc:
+            console.print(f"[red]Error:[/red] Could not read the server .env file: {exc}")
+            raise SystemExit(1) from exc
+        if not parse_env_file(env_text).get("SPACES_ACCESS_KEY"):
             console.print(
                 "[red]Error:[/red] SPACES_ACCESS_KEY not found in server .env file. "
                 "Add Spaces credentials before enabling scheduled backups."

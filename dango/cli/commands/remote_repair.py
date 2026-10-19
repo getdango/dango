@@ -16,7 +16,7 @@ import click
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
-from dango.cli.commands.remote_sync import _PROJECT_ROOT, _VENV_PYTHON
+from dango.cli.commands.remote_sync import _PROJECT_ROOT, _VENV_PYTHON, SERVICE_ENV
 
 # Server-side Dango code runs as the service user from /, never as root.
 _AS_SERVICE_USER = "cd / && runuser -u dango --"
@@ -412,7 +412,7 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         # the shortcut path that only applies roles.
         console.print("Re-syncing users to Metabase...")
         sync_result = ssh.exec_command(
-            f"{_AS_SERVICE_USER} env DANGO_CLOUD_MODE=true {_VENV_PYTHON} "
+            f"{_AS_SERVICE_USER} {SERVICE_ENV} {_VENV_PYTHON} "
             f"-c {shlex.quote(_USER_RESYNC_SCRIPT)} {shlex.quote(_PROJECT_ROOT)}",
             timeout=60,
         )

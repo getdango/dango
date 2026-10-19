@@ -190,6 +190,7 @@ def _handle_reconnect(project_root: Path, ip: str | None) -> None:
     """Reconnect to an existing Dango server and write cloud.yml."""
     from dango.config.loader import ConfigLoader
     from dango.config.models import CloudConfig
+    from dango.exceptions import CloudProvisioningError
     from dango.platform.cloud.project_files import read_project_file
     from dango.platform.cloud.ssh import SSHManager
 
@@ -211,9 +212,15 @@ def _handle_reconnect(project_root: Path, ip: str | None) -> None:
         raise SystemExit(1) from exc
 
     try:
-        head = "\n".join(
-            read_project_file(ssh, "/srv/dango/project/.dango/project.yml").splitlines()[:5]
-        )
+        try:
+            project_yml = read_project_file(ssh, "/srv/dango/project/.dango/project.yml")
+        except CloudProvisioningError as exc:
+            console.print(
+                "[red]Error:[/red] Server is not a Dango deployment or the project file "
+                f"is unreadable: {exc}"
+            )
+            raise SystemExit(1) from exc
+        head = "\n".join(project_yml.splitlines()[:5])
         if not head.strip():
             console.print("[red]Error:[/red] Server does not appear to be a Dango deployment.")
             raise SystemExit(1)

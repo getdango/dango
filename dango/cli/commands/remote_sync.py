@@ -20,6 +20,9 @@ from dango.cli.commands.remote import remote
 from dango.cli.commands.remote_mgmt import _VENV_PYTHON
 
 _PROJECT_ROOT = "/srv/dango/project"
+# Environment dango.service gives the web and scheduled syncs: dlt state under the project,
+# and logging/config rooted at the project even though SSH-launched commands start from /.
+SERVICE_ENV = f"env DANGO_CLOUD_MODE=true DANGO_PROJECT_ROOT={_PROJECT_ROOT} DLT_DATA_DIR={_PROJECT_ROOT}/.dlt"
 
 
 @remote.command("sync")
@@ -96,7 +99,7 @@ def remote_sync(
     # imports from the dango-owned project directory. DANGO_CLOUD_MODE makes
     # sync_trigger stop Metabase before writing; the project root is in the payload.
     sudo_cmd = (
-        f"runuser -u dango -- env DANGO_CLOUD_MODE=true"
+        f"runuser -u dango -- {SERVICE_ENV}"
         f" {_VENV_PYTHON} -m dango.platform.scheduling.sync_trigger {escaped_payload}"
     )
     cmd = f"cd / && {sudo_cmd}"

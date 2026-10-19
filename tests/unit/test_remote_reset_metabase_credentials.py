@@ -121,8 +121,8 @@ class TestResetMetabaseCredentials:
         resync = [c for c in commands if "sync_all_users_to_metabase" in c]
         assert len(resync) == 1
         assert (
-            "cd / && runuser -u dango -- env DANGO_CLOUD_MODE=true /srv/dango/venv/bin/python3 -I -c"
-            in (resync[0])
+            "cd / && runuser -u dango -- env DANGO_CLOUD_MODE=true DANGO_PROJECT_ROOT=/srv/dango/project"
+            " DLT_DATA_DIR=/srv/dango/project/.dlt /srv/dango/venv/bin/python3 -I -c" in (resync[0])
         )
         tokens = shlex.split(resync[0].split("&& ", 1)[1])
         assert tokens[:5] == ["runuser", "-u", "dango", "--", "env"]
