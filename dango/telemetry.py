@@ -310,7 +310,7 @@ def set_metabase_telemetry_intent(project_root: Path, enabled: bool) -> bool:
         state_file.parent.mkdir(parents=True, exist_ok=True)
         state_file.write_text("true" if enabled else "false")
         return True
-    except Exception:
+    except OSError:
         return False
 
 

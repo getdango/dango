@@ -95,3 +95,10 @@ class TestInitTelemetryAllProviders:
         assert text.endswith(
             "(yes/no)   You can change this any time: dango telemetry on|off --all"
         )
+
+    def test_unwritable_dango_dir_reports_metabase_failed(self, tmp_path: Path) -> None:
+        # A regular file where .dango should be makes mkdir fail for any user (even root).
+        (tmp_path / ".dango").write_text("not a directory")
+        results = telemetry.apply_all_providers(False, tmp_path)
+        assert results["metabase"] == "failed"
+        assert results["dango"] == results["dbt"] == results["dlt"] == "off"
