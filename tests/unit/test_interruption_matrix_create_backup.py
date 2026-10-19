@@ -10,8 +10,11 @@ from typing import Any, cast
 
 import pytest
 
+from dango.exceptions import CloudProvisioningError
 from dango.platform.cloud.backup import create_backup
 from tests.factories.interruption_fakes import (
+    BACKUP_DIR,
+    ConnectionLost,
     EventRecorder,
     FakeServer,
     Killed,
@@ -121,3 +124,69 @@ def test_services_stay_down_when_the_caller_asked_for_that() -> None:
     server = FakeServer()
     _backup(server, restart_services=False)
     assert not server.web_active
+
+
+ORPHAN = f"{BACKUP_DIR}/backup-20250101-000000.tar.gz.partial"
+
+
+def test_an_old_orphaned_partial_archive_is_removed_by_the_next_backup() -> None:
+    server = FakeServer()
+    server.archives[ORPHAN] = "partial"
+    server.stale.add(ORPHAN)
+    _backup(server)
+    assert ORPHAN not in server.archives
+    assert any("-mmin +" in c and "-delete" in c for c in server.commands)
+
+
+def test_a_recent_partial_archive_could_be_a_running_backup_and_is_left_alone() -> None:
+    server = FakeServer()
+    server.archives[ORPHAN] = "partial"
+    _backup(server)
+    assert ORPHAN in server.archives
+
+
+def test_the_archive_is_renamed_without_clobbering() -> None:
+    server = FakeServer()
+    _backup(server)
+    assert any("mv -T -n" in c for c in server.commands)
+
+
+def test_a_name_collision_fails_loudly_and_leaves_the_existing_archive_alone() -> None:
+    server = FakeServer()
+    planted = f"{BACKUP_DIR}/backup-20260101-000001.tar.gz"
+    server.archives[planted] = "complete"
+    server._order.append(planted)
+    with pytest.raises(CloudProvisioningError):
+        _backup(server)
+    assert server.archives[planted] == "complete"
+    assert server.partial_archives() == []
+    assert server.web_active
+
+
+@pytest.mark.parametrize(
+    ("label", "rule"),
+    [
+        ("dies before the copy", KillRule("tar -czf", when="before", drop_connection=True)),
+        ("dies during tar", KillRule("tar -czf", when="partial", drop_connection=True)),
+        ("dies after tar", KillRule("tar -czf", when="after", drop_connection=True)),
+    ],
+    ids=lambda v: v if isinstance(v, str) else "",
+)
+def test_a_lost_connection_leaves_nothing_that_stops_the_next_backup(
+    label: str, rule: KillRule
+) -> None:
+    """The client is gone, so nothing on the server is cleaned up; the rerun must still work."""
+    server = FakeServer()
+    server.kill = rule
+    with pytest.raises((Killed, ConnectionLost)):
+        _backup(server)
+    server.kill = None
+    server.stale.update(server.partial_archives())  # time passes: a dead run's partial is old
+    server.reconnect()
+
+    again = _backup(server)
+
+    assert again.archive_path in server.complete_archives()
+    assert again.archive_path.replace(".tar.gz", ".json") in server.manifests
+    assert server.web_active and server.metabase_up
+    assert server.partial_archives() == []

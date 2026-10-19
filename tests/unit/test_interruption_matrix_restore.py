@@ -10,7 +10,7 @@ from typing import Any, cast
 
 import pytest
 
-from dango.platform.cloud.backup import restore_from_archive
+from dango.platform.cloud.backup import restore_from_archive, rollback
 from tests.factories.interruption_fakes import (
     BACKUP_DIR,
     EventRecorder,
@@ -78,7 +78,7 @@ BEFORE_FILES = {
 
 def _server_with_manifest() -> FakeServer:
     server = _server()
-    server.manifests.add(ARCHIVE.replace(".tar.gz", ".json"))
+    server.manifests[ARCHIVE.replace(".tar.gz", ".json")] = '{"backup_type": "pre-deploy"}'
     return server
 
 
@@ -140,3 +140,47 @@ def test_killed_inside_a_command_then_restore_again(label: str, rule: KillRule) 
     result = _restore(server)
     assert result.health_check_passed
     assert server.live_data == "restored"
+
+
+_AFTER_SAFETY_BACKUP = EVENTS[EVENTS.index(("pre_restore_backup", "done")) :]
+
+
+@pytest.mark.parametrize(
+    "event", _AFTER_SAFETY_BACKUP, ids=[f"{s}:{st}" for s, st in _AFTER_SAFETY_BACKUP]
+)
+def test_rollback_without_a_path_never_picks_the_safety_backup(event: tuple[str, str]) -> None:
+    """After an interrupted restore the newest archive is the pre-restore safety backup."""
+    server = _server_with_manifest()
+    with pytest.raises(Killed):
+        _restore(server, EventRecorder(kill_at=event))
+    safety = [p for p in server.complete_archives() if p != ARCHIVE]
+    assert safety, "the matrix expects a safety backup to exist at this point"
+
+    result = rollback(cast(Any, server))
+
+    assert result.restored_from == ARCHIVE
+
+
+def test_rollback_without_a_path_after_a_finished_restore_uses_the_real_backup() -> None:
+    server = _server_with_manifest()
+    _restore(server)
+    assert rollback(cast(Any, server)).restored_from == ARCHIVE
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        ("restore_files", "done"),
+        ("restore_metabase", "running"),
+        ("restore_metabase", "done"),
+        ("fix_ownership", "running"),
+    ],
+    ids=lambda e: f"{e[0]}:{e[1]}",
+)
+def test_ownership_is_given_back_to_the_service_user_when_interrupted_mid_restore(
+    event: tuple[str, str],
+) -> None:
+    server = _server_with_manifest()
+    with pytest.raises(Killed):
+        _restore(server, EventRecorder(kill_at=event))
+    assert "chown -R dango:dango /srv/dango/project" in server.commands

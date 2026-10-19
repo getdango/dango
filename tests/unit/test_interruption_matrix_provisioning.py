@@ -94,14 +94,17 @@ class FakeSSH:
 class StatusLines:
     """Replaces ``_status``: records each line and raises :class:`Killed` at ``kill_at``."""
 
-    def __init__(self, kill_at: int | None = None) -> None:
+    def __init__(self, kill_at: int | None = None, error_at: int | None = None) -> None:
         self.lines: list[str] = []
         self.kill_at = kill_at
+        self.error_at = error_at
 
     def __call__(self, message: str) -> None:
         self.lines.append(message)
         if self.kill_at is not None and len(self.lines) - 1 == self.kill_at:
             raise Killed(f"killed at: {message}")
+        if self.error_at is not None and len(self.lines) - 1 == self.error_at:
+            raise RuntimeError("boom")
 
 
 def _wait_ready(client: Any, droplet_id: int, **kwargs: Any) -> dict[str, Any]:
@@ -167,7 +170,6 @@ def _provision(
             "_trigger_metabase_setup",
             "_wait_for_metabase",
             "_print_port_notice",
-            "_save_extra_metadata",
         ):
             enter(patch(f"{_MODULE}.{name}"))
         enter(patch(f"{_MODULE}._health_check", return_value=True))
@@ -221,6 +223,8 @@ def test_killed_at_status_line_cleans_everything_and_rerun_starts_clean(
         f"left behind: droplets={sorted(do.droplets)} firewalls={sorted(do.firewalls)} "
         f"ssh_keys={sorted(do.ssh_keys)}"
     )
+    # `dango deploy` refuses to run again while cloud.yml names a droplet.
+    assert not (project / ".dango" / "cloud.yml").exists(), "cloud.yml names deleted resources"
 
     result = _provision(project, do, StatusLines())
     assert do.droplets == {result.droplet_id}
@@ -273,3 +277,61 @@ def test_provision_droplet_deletes_a_droplet_it_created_when_interrupted_while_w
 def test_module_exposes_the_helpers_this_matrix_patches() -> None:
     for name in ("_status", "_fix_project_ownership", "_health_check", "_deployer_ip"):
         assert hasattr(deploy_provision, name)
+
+
+_EARLIER_CLOUD_YML = "provider: byos\nsome_setting: kept\n"
+
+
+@pytest.mark.parametrize("index", [9, 11, STEPS_EXPECTED - 1])
+def test_a_cloud_yml_from_before_the_run_is_restored_after_cleanup(
+    project: Path, index: int
+) -> None:
+    path = project / ".dango" / "cloud.yml"
+    path.write_text(_EARLIER_CLOUD_YML)
+    with pytest.raises(Killed):
+        _provision(project, FakeDO(), StatusLines(kill_at=index))
+    assert path.read_text() == _EARLIER_CLOUD_YML
+
+
+def test_a_failed_run_also_restores_cloud_yml(project: Path) -> None:
+    do = FakeDO()
+    with pytest.raises(Exception, match="boom"):
+        _provision(project, do, StatusLines(error_at=STEPS_EXPECTED - 2))
+    assert do.nothing_left()
+    assert not (project / ".dango" / "cloud.yml").exists()
+
+
+def _tracker_after_backup_setup(*, bucket_name: str | None, created: bool) -> Any:
+    from dango.cli.commands.deploy_provision import _ResourceTracker, _setup_backups
+
+    spaces = MagicMock()
+    spaces.create_bucket.return_value = created
+    config = _config()
+    config.spaces_bucket_name = bucket_name
+    config.spaces_access_key = "k"
+    config.spaces_secret_key = "s"
+    tracker = _ResourceTracker()
+    ssh = MagicMock()
+    ssh.exec_command.return_value = MagicMock(exit_code=0, stdout="", stderr="")
+    with (
+        patch("dango.platform.cloud.spaces.SpacesClient", return_value=spaces),
+        patch(f"{_MODULE}.read_project_file", return_value=""),
+        patch(f"{_MODULE}.write_project_file"),
+        patch(f"{_MODULE}.console"),
+    ):
+        _setup_backups(ssh, MagicMock(), Path("/tmp/x"), config, tracker)
+    tracker.spaces_client = spaces
+    return tracker, spaces
+
+
+def test_a_bucket_this_run_created_is_deleted_on_cleanup() -> None:
+    tracker, spaces = _tracker_after_backup_setup(bucket_name=None, created=True)
+    tracker.cleanup()
+    spaces.delete_bucket.assert_called_once()
+
+
+@pytest.mark.parametrize(("name", "created"), [("existing-bucket", False), (None, False)])
+def test_a_bucket_that_was_already_there_is_never_deleted(name: str | None, created: bool) -> None:
+    tracker, spaces = _tracker_after_backup_setup(bucket_name=name, created=created)
+    assert tracker.cleanup() == []
+    spaces.delete_bucket.assert_not_called()

@@ -39,6 +39,10 @@ def distinct_backup_names() -> Iterator[None]:
         yield
 
 
+class ConnectionLost(Exception):
+    """The SSH session is gone: every later command on it fails."""
+
+
 class Killed(BaseException):
     """Stands in for Ctrl-C / SIGTERM: not an ``Exception``, so ``except Exception`` misses it."""
 
@@ -56,13 +60,16 @@ def kill_on_event(target: Event | None) -> Callable[[str, str], None]:
 class EventRecorder:
     """``on_progress`` callback that records every ``(step, status)`` event, optionally killing."""
 
-    def __init__(self, kill_at: Event | None = None) -> None:
+    def __init__(self, kill_at: Event | None = None, drop: FakeServer | None = None) -> None:
         self.events: list[Event] = []
         self._kill_at = kill_at
+        self._drop = drop  # server whose connection dies with the client
 
     def __call__(self, step: str, status: str) -> None:
         self.events.append((step, status))
         if self._kill_at is not None and (step, status) == self._kill_at:
+            if self._drop is not None:
+                self._drop.lost = True
             raise Killed(f"killed at {step}:{status}")
 
 
@@ -84,6 +91,7 @@ class KillRule:
     pattern: str
     nth: int = 1
     when: Literal["before", "partial", "after"] = "after"
+    drop_connection: bool = False  # every later command then raises ConnectionLost
     seen: int = 0
 
 
@@ -99,7 +107,10 @@ class FakeServer:
     metabase_up: bool = True
     journal: list[str] = field(default_factory=list)
     archives: dict[str, str] = field(default_factory=dict)  # path -> "complete" | "partial"
-    manifests: set[str] = field(default_factory=set)
+    manifests: dict[str, str] = field(default_factory=dict)  # path -> manifest JSON
+    files: dict[str, str] = field(default_factory=dict)
+    stale: set[str] = field(default_factory=set)  # partial archives old enough to delete
+    lost: bool = False
     staging: set[str] = field(default_factory=set)
     lock_age_seconds: int | None = None
     live_data: str = "live"
@@ -110,18 +121,26 @@ class FakeServer:
     _order: list[str] = field(default_factory=list)
 
     # ---- SSHManager surface -------------------------------------------------------------
+    def reconnect(self) -> None:
+        self.lost = False
+
     def exec_command(self, command: str, timeout: int | None = None) -> CommandResult:
+        if self.lost:
+            raise ConnectionLost("SSH connection lost")
         self.commands.append(command)
         rule = self.kill
         hit = rule is not None and rule.pattern in command
         if hit and rule is not None:
             rule.seen += 1
             hit = rule.seen == rule.nth
+        if hit and rule is not None and rule.drop_connection:
+            self.lost = rule.when == "before" or self.lost
         if hit and rule is not None and rule.when == "before":
             raise Killed(f"killed before: {rule.pattern}")
         partial = hit and rule is not None and rule.when == "partial"
         result = self._apply(command, partial=partial)
         if hit and rule is not None:
+            self.lost = self.lost or rule.drop_connection
             raise Killed(f"killed during: {rule.pattern}")
         return result
 
@@ -142,7 +161,11 @@ class FakeServer:
                 return self._fail("injected failure")
         if cmd.startswith("cat ") and cmd.endswith(".json 2>/dev/null"):
             path = shlex.split(cmd)[1]
-            return self._ok("{}") if path in self.manifests else self._fail()
+            return self._ok(self.manifests[path]) if path in self.manifests else self._fail()
+        if cmd.startswith("cat > ") and "MANIFEST_EOF" in cmd:
+            target = shlex.split(cmd.split(" << ")[0])[2]
+            self.files[target] = cmd.split("\n", 1)[1].rsplit("\nMANIFEST_EOF", 1)[0]
+            return self._ok()
         if cmd.startswith(f"cat {LOCK_PATH}"):
             return self._ok(self.lock) if self.lock is not None else self._fail()
         if "stat -c %Y" in cmd and LOCK_PATH in cmd:
@@ -200,14 +223,24 @@ class FakeServer:
             self.archives[path] = "partial" if partial else "complete"
             self._order.append(path)
             return self._ok()
-        if "&& mv " in cmd and BACKUP_DIR in cmd:
-            src, dest = shlex.split(cmd)[-2:]
-            if src in self.archives:
-                self.archives[dest] = self.archives.pop(src)
-                self._order = [dest if p == src else p for p in self._order]
+        if "mv " in cmd and BACKUP_DIR in cmd:
+            paths = re.findall(rf"{re.escape(BACKUP_DIR)}/[^\s'\"]+", cmd)
+            src = next(p for p in paths if p.endswith(".partial"))
+            dest = next(p for p in paths if p.endswith(".tar.gz"))
+            if dest in self.archives or src not in self.archives:
+                return self._fail("destination exists")
+            self.archives[dest] = self.archives.pop(src)
+            self._order = [dest if p == src else p for p in self._order]
             return self._ok()
         if f"> {BACKUP_DIR}/" in cmd and cmd.rstrip(")").endswith(".json"):
-            self.manifests.add(cmd.rstrip(")").rsplit("> ", 1)[1])
+            source = cmd.split("cat ", 1)[1].split(" >", 1)[0]
+            self.manifests[cmd.rstrip(")").rsplit("> ", 1)[1]] = self.files.get(
+                source.strip("'"), "{}"
+            )
+            return self._ok()
+        if "-name 'backup-*.tar.gz.partial'" in cmd and "-delete" in cmd:
+            for path in sorted(self.stale):
+                self.archives.pop(path, None)
             return self._ok()
         if cmd.startswith(f"ls -1t {BACKUP_DIR}/*.tar.gz"):
             newest_first = [
@@ -219,7 +252,7 @@ class FakeServer:
         if cmd.startswith("rm -f ") and ".tar.gz" in cmd:
             for token in shlex.split(cmd)[2:]:
                 self.archives.pop(token, None)
-                self.manifests.discard(token)
+                self.manifests.pop(token, None)
             return self._ok()
         if cmd.startswith("rm -rf "):
             for token in shlex.split(cmd)[2:]:

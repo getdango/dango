@@ -45,7 +45,19 @@ class FakeDO:
         self.deleted: list[int] = []
         self.created: list[int] = []
         self.fail_delete = fail_delete or set()
+        self.firewall_droplets: set[int] = {OLD_ID}  # firewall "fw-1" protects the old server
         self._next = 99
+
+    def get_firewall(self, firewall_id: str) -> dict[str, Any]:
+        return {
+            "name": "dango-fw",
+            "droplet_ids": sorted(self.firewall_droplets),
+            "inbound_rules": [],
+            "outbound_rules": [],
+        }
+
+    def update_firewall(self, *, firewall_id: str, droplet_ids: list[int], **kwargs: Any) -> None:
+        self.firewall_droplets = set(droplet_ids)
 
     def create(self) -> dict[str, Any]:
         droplet_id = self._next
@@ -81,7 +93,7 @@ def _config(project: Path, spaces: Any) -> MagicMock:
     config.droplet_id = saved.droplet_id
     config.droplet_ip = saved.droplet_ip
     config.domain = None
-    config.firewall_id = None
+    config.firewall_id = "fw-1"
     config.ssh_key_path = ".dango/cloud_key"
     config.ssh_key_id = 100
     config.spaces = spaces
@@ -153,6 +165,8 @@ EVENTS = [
     ("download_spaces", "done"),
     ("restore", "running"),
     ("restore", "done"),
+    ("firewall", "running"),
+    ("firewall", "done"),
     ("verify_health", "running"),
     ("verify_health", "done"),
     ("cleanup", "running"),
@@ -194,6 +208,12 @@ def test_killed_at_boundary_then_migrate_again(project: Path, event: tuple[str, 
     for orphan in do.alive - {pointer}:
         assert f"doctl compute droplet delete {orphan}" in report, f"unreported droplet {orphan}"
 
+    # The server cloud.yml names is the one behind the firewall; the old one keeps its
+    # protection until the switch is recorded.
+    assert pointer in do.firewall_droplets, "the live server has no firewall"
+    if pointer == OLD_ID:
+        assert OLD_ID in do.firewall_droplets, "old server lost its firewall before the switch"
+
     reported = do.alive - {pointer}
     again = _migrate(project, do, old)
     assert again.new_droplet_id in do.alive
@@ -214,3 +234,31 @@ def test_a_failed_cleanup_names_the_orphaned_droplet(project: Path, event: tuple
     text = "\n".join([str(excinfo.value), *getattr(excinfo.value, "__notes__", [])])
     assert 99 in do.alive
     assert "99" in text and "doctl compute droplet delete 99" in text
+
+
+def test_an_unhealthy_new_server_leaves_the_old_one_behind_its_firewall(project: Path) -> None:
+    do, old = FakeDO(), FakeServer()
+    with patch("dango.platform.cloud.backup.verify_health", return_value=False):
+        result = _migrate(project, do, old)
+    assert result.old_droplet_destroyed is False
+    assert OLD_ID in do.alive
+    assert OLD_ID in do.firewall_droplets, "old server lost its firewall"
+    assert _recorded_pointer(project) == OLD_ID
+
+
+def test_after_the_switch_the_firewall_follows_the_new_server(project: Path) -> None:
+    do = FakeDO()
+    result = _migrate(project, do, FakeServer())
+    assert do.firewall_droplets == {result.new_droplet_id}
+
+
+def test_the_report_after_a_completed_switch_only_mentions_a_live_old_droplet(
+    project: Path,
+) -> None:
+    for event, old_alive in ((("cleanup", "running"), True), (("cleanup", "done"), False)):
+        do = FakeDO()
+        with pytest.raises(Killed) as excinfo:
+            _migrate(project, do, FakeServer(), EventRecorder(kill_at=event))
+        report = "\n".join([str(excinfo.value), *getattr(excinfo.value, "__notes__", [])])
+        assert (f"doctl compute droplet delete {OLD_ID}" in report) is old_alive
+        _project(project)  # reset cloud.yml for the next iteration

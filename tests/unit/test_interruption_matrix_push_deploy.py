@@ -17,6 +17,7 @@ from dango.platform.cloud.deployer import push_deploy
 from dango.platform.cloud.file_sync import SyncResult
 from tests.factories.interruption_fakes import (
     JOURNAL_PATH,
+    ConnectionLost,
     EventRecorder,
     FakeServer,
     Killed,
@@ -66,11 +67,14 @@ def _patched_edges() -> Iterator[None]:
         yield
 
 
-def _deploy(server: FakeServer, root: Path, recorder: EventRecorder | None = None) -> Any:
+def _deploy(
+    server: FakeServer, root: Path, recorder: EventRecorder | None = None, *, force: bool = False
+) -> Any:
     return push_deploy(
         cast(Any, server),
         root,
         "203.0.113.7",
+        force=force,
         on_progress=recorder or EventRecorder(),
     )
 
@@ -218,3 +222,53 @@ def test_a_held_lock_is_not_taken_by_the_second_run_and_survives_a_refused_deplo
     with pytest.raises(CloudProvisioningError, match="Deploy lock held"):
         _deploy(server, tmp_path)
     assert server.lock == foreign
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        ("create_backup", "running"),
+        ("sync_files", "running"),
+        ("dbt_compile", "running"),
+        ("dbt_run", "done"),
+    ],
+    ids=lambda e: f"{e[0]}:{e[1]}",
+)
+def test_a_lost_connection_is_recoverable_with_force(
+    tmp_path: Path, event: tuple[str, str]
+) -> None:
+    """The client dies with its SSH session: the server keeps the lock and stays stopped."""
+    from dango.exceptions import CloudProvisioningError
+
+    server = FakeServer()
+    with pytest.raises((Killed, ConnectionLost)):
+        _deploy(server, tmp_path, EventRecorder(kill_at=event, drop=server))
+    server.reconnect()
+    assert server.lock is not None, "a dead client cannot have released the lock"
+
+    with pytest.raises(CloudProvisioningError, match="Deploy lock held"):
+        _deploy(server, tmp_path)
+
+    result = _deploy(server, tmp_path, force=True)
+    assert result.models_rebuilt == ["stg_orders"]
+    assert server.lock is None
+    assert server.web_active
+    assert server.journal_records()[-1]["success"] is True
+    assert server.partial_archives() == []
+
+
+def test_a_lock_written_just_before_the_acquire_returns_is_still_released(tmp_path: Path) -> None:
+    """An interrupt between the lock write and push_deploy taking hold of the lock object."""
+    from dango.platform.cloud import deployer
+
+    real = deployer._acquire_lock
+
+    def interrupted(ssh: Any, **kwargs: Any) -> Any:
+        real(ssh, **kwargs)
+        raise Killed("interrupt after the lock file was written")
+
+    server = FakeServer()
+    with patch.object(deployer, "_acquire_lock", interrupted), pytest.raises(Killed):
+        _deploy(server, tmp_path)
+    assert server.lock is None
+    assert server.web_active
