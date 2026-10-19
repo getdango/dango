@@ -14,6 +14,7 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -747,8 +748,22 @@ def _write_health_status(success: bool, error: str | None = None) -> None:
     HEALTH_FILE.write_text(json.dumps(status, indent=2))
 
 
+def _raise_system_exit_on_sigterm(_signum: int, _frame: object) -> None:
+    """Turn SIGTERM into ``SystemExit`` so ``finally`` blocks restart services."""
+    raise SystemExit(128 + signal.SIGTERM)
+
+
 def run_scheduled_backup() -> ScheduledBackupResult:
     """Run a full scheduled backup: lock -> archive -> upload -> retention -> health."""
+    previous_handler = signal.signal(signal.SIGTERM, _raise_system_exit_on_sigterm)
+    try:
+        return _run_scheduled_backup()
+    finally:
+        signal.signal(signal.SIGTERM, previous_handler)
+
+
+def _run_scheduled_backup() -> ScheduledBackupResult:
+    """Body of :func:`run_scheduled_backup` (runs with SIGTERM converted to exit)."""
     start_time = time.monotonic()
     result = ScheduledBackupResult()
     lock_fd = None

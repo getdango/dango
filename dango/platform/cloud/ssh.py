@@ -851,6 +851,9 @@ class SSHManager:
                 if timeout is not None:
                     sftp.get_channel().settimeout(timeout)
                 with sftp.open(remote_path, "wb") as remote_file:
+                    # Pipelined writes avoid one round trip per block; a failed
+                    # write is raised when the file closes.
+                    remote_file.set_pipelined(True)
                     remote_file.write(data)
                 sftp.chmod(remote_path, mode)
             finally:

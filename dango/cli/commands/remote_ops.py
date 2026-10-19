@@ -13,6 +13,7 @@ import click
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
+from dango.cli.commands.remote_power import refuse_if_powered_off
 from dango.cli.utils import safe_confirm
 
 # ---------------------------------------------------------------------------
@@ -236,9 +237,8 @@ def remote_resize(ctx: click.Context, size: str | None, yes: bool) -> None:
         console.print(f"[red]Error:[/red] {exc}")
         raise SystemExit(1) from exc
 
-    # Show current vs new comparison
-    current_tier = get_size_tier(cloud_cfg.size)
-    new_tier = get_size_tier(size)
+    refuse_if_powered_off(cloud_cfg)  # an interrupted resize leaves the droplet off
+    current_tier, new_tier = get_size_tier(cloud_cfg.size), get_size_tier(size)
 
     console.print("[bold]Resize plan:[/bold]")
     if current_tier:

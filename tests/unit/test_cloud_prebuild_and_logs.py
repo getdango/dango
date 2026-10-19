@@ -61,7 +61,7 @@ class RecordingSSH:
 
     def exec_command(self, cmd: str, **kw: Any) -> SimpleNamespace:
         self.commands.append(cmd)
-        if cmd.startswith("cat ") and cmd.endswith("project.yml"):
+        if "cat" in cmd and "project.yml" in cmd:
             return _res(self.project_yml)
         if cmd.startswith("docker ps"):
             if "label=" in cmd and not self.label_hit:

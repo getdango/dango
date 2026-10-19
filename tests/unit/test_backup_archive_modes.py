@@ -104,6 +104,8 @@ def _enable(installed: str) -> tuple[MagicMock, str]:
     def _exec(command: str, *args: object, **kwargs: object) -> CommandResult:
         if "import dango" in command:
             return CommandResult(stdout=f"{installed}\n", stderr="", exit_code=0)
+        if "exec cat" in command:  # the service-user read of the server .env
+            return CommandResult(stdout="SPACES_ACCESS_KEY=k\n", stderr="", exit_code=0)
         return CommandResult(stdout="", stderr="", exit_code=0)
 
     ssh = MagicMock()

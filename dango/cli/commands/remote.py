@@ -295,6 +295,11 @@ def remote_rollback(ctx: click.Context, backup: str | None, yes: bool) -> None:
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
 @click.option("--allow-dirty", is_flag=True, help="Allow deployment with uncommitted changes.")
 @click.option("--allow-branch", is_flag=True, help="Allow deployment from any branch.")
+@click.option(
+    "--allow-empty",
+    is_flag=True,
+    help="Mirror an empty local directory over a non-empty server copy (erases the server files).",
+)
 @click.pass_context
 def remote_push(
     ctx: click.Context,
@@ -303,6 +308,7 @@ def remote_push(
     yes: bool,
     allow_dirty: bool,
     allow_branch: bool,
+    allow_empty: bool,
 ) -> None:
     """Push local project files to the remote server and rebuild.
 
@@ -389,6 +395,7 @@ def remote_push(
                 cloud_cfg.droplet_ip,
                 dry_run=dry_run,
                 force=force,
+                allow_empty=allow_empty,
                 on_progress=_on_progress,
                 git_info=git_info_param,
             )
@@ -743,6 +750,7 @@ import dango.cli.commands.remote_mgmt as _remote_mgmt  # noqa: E402, F401
 import dango.cli.commands.remote_ops as _remote_ops  # noqa: E402, F401
 import dango.cli.commands.remote_repair as _remote_repair  # noqa: E402, F401
 import dango.cli.commands.remote_sync as _remote_sync  # noqa: E402, F401
+import dango.cli.commands.remote_upload as _remote_upload  # noqa: E402, F401
 from dango.cli.commands.remote_auth import auth_group  # noqa: E402
 from dango.cli.commands.remote_backup import backup_group  # noqa: E402
 from dango.cli.commands.remote_env import env  # noqa: E402

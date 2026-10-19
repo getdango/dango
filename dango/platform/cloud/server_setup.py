@@ -29,6 +29,7 @@ from dango.platform.cloud._server_templates import (
     build_caddyfile,
     build_systemd_unit,
 )
+from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -315,14 +316,14 @@ def _setup_venv(
     )
     # Install spaCy model for PII scanning (best-effort, non-fatal)
     spacy_result = ssh.exec_command(
-        "/srv/dango/venv/bin/python -m spacy download en_core_web_sm -q",
+        f"{ROOT_PYTHON} -m spacy download en_core_web_sm -q",
         timeout=120,
     )
     if not spacy_result.success:
         result.warnings.append(
             "spaCy model 'en_core_web_sm' could not be installed. "
             "PII scanning will be unavailable until installed manually: "
-            "/srv/dango/venv/bin/python -m spacy download en_core_web_sm"
+            f"{ROOT_PYTHON} -m spacy download en_core_web_sm"
         )
     result.steps_completed.append(step)
     _notify(on_progress, step, "done")

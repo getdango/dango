@@ -253,7 +253,7 @@ class TestRemoteLogsCommand:
         mock_ssh_instance = MagicMock()
         mock_ssh_instance.exec_command.side_effect = lambda cmd, **kw: _make_command_result(
             stdout="project:\n  id: ab12cd34ef56\n"
-            if cmd.startswith("cat ")
+            if "project.yml" in cmd
             else "dango-ab12cd34-metabase-1"
         )
 

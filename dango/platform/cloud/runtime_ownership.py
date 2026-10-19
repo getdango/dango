@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 import shlex
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -305,20 +305,25 @@ def rebuild_venv(
     *,
     version: str | None,
     local_project_root: Path | None = None,
+    on_step: Callable[[], None] | None = None,
 ) -> str:
     """Replace the venv with a fresh root-owned one at the same path.
 
     The venv is rebuilt at its final path (console-script shebangs embed it): the
     old one is moved aside, a new one created and verified, then the old removed.
-    Call with services stopped. Returns a status line.
+    Call with services stopped. *on_step* is called after each step (the caller's
+    dead-man guard re-arms there). Returns a status line.
 
     Raises:
         VenvRebuildError: The rebuild failed; the previous venv was put back.
     """
     if not version or not VERSION_RE.fullmatch(version):
         raise VenvRebuildError(f"no valid getdango version to install ({version!r})")
+    tick = on_step or (lambda: None)
     aside = f"{VENV_DIR}.untrusted-{uuid.uuid4().hex[:12]}"
-    if not ssh.exec_command(f"mv {VENV_DIR} {aside}").success:
+    moved = ssh.exec_command(f"mv {VENV_DIR} {aside}").success
+    tick()
+    if not moved:
         raise VenvRebuildError("the current venv could not be moved aside")
     pip = f"{VENV_DIR}/bin/pip"
     steps = [
@@ -326,17 +331,23 @@ def rebuild_venv(
         (f"{pip} install --no-input --upgrade pip -q", 300),
         (f"{pip} install --no-input getdango=={version} -q", 600),
     ]
-    failed = next(
-        (cmd for cmd, timeout in steps if not ssh.exec_command(cmd, timeout=timeout).success), None
-    )
+    failed = None
+    for cmd, timeout in steps:
+        ok = ssh.exec_command(cmd, timeout=timeout).success
+        tick()
+        if not ok:
+            failed = cmd
+            break
     verified = (
         failed is None
         and ssh.exec_command(
             f'{ROOT_PYTHON} -c "import dango; print(dango.__version__)"', timeout=60
         ).success
     )
+    tick()
     if verified:
         ssh.exec_command(f"{ROOT_PYTHON} -m spacy download en_core_web_sm -q", timeout=180)
+        tick()
         if local_project_root is not None:
             install_pushed_requirements(ssh, local_project_root, pip, warnings)
         else:
@@ -344,16 +355,20 @@ def rebuild_venv(
                 "The venv was rebuilt without project packages; run `dango remote push` to "
                 "install requirements.txt."
             )
+        tick()
         # Trust the new venv only if nothing in it, or behind its links, is writable by others.
         findings = venv_trust_findings(ssh)
+        tick()
         if findings:
             failed = f"the post-rebuild check: {_remediation(ssh, findings)}"
             verified = False
     if not verified:
         restored = ssh.exec_command(f"rm -rf {VENV_DIR} && mv {aside} {VENV_DIR}").success
+        tick()
         where = "the previous venv was put back" if restored else f"the previous venv is at {aside}"
         raise VenvRebuildError(f"{failed or 'the import check'} failed; {where}")
     ssh.exec_command(f"rm -rf {aside}", timeout=300)
+    tick()
     return f"venv rebuilt as root (getdango=={version})"
 
 
@@ -363,6 +378,7 @@ def rebuild_untrusted_venv(
     *,
     version: str | None,
     local_project_root: Path | None = None,
+    on_step: Callable[[], None] | None = None,
 ) -> str | None:
     """Rebuild the venv at *version*, with services stopped, if a non-root user could write it.
 
@@ -389,7 +405,13 @@ def rebuild_untrusted_venv(
     stop_services(ssh)
     try:
         lock_srv_dango(ssh)
-        return rebuild_venv(ssh, warnings, version=version, local_project_root=local_project_root)
+        return rebuild_venv(
+            ssh,
+            warnings,
+            version=version,
+            local_project_root=local_project_root,
+            on_step=on_step,
+        )
     except VenvRebuildError:
         raise
     except Exception as exc:

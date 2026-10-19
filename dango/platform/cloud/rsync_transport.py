@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError, CloudSSHError
+from dango.platform.cloud.project_files import AS_DANGO
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -100,6 +101,7 @@ def _rsync_directory(
     legacy_known_hosts_paths: Sequence[Path] = (),
     delete: bool = True,
     dry_run: bool = False,
+    run_as_service_user: bool = True,
 ) -> str:
     """Sync *local_dir* to *remote_user_host_dir* (``user@host:path``) via rsync.
 
@@ -120,6 +122,10 @@ def _rsync_directory(
         "-e",
         _build_rsync_ssh_arg(ssh_key_path, known_hosts_path, port),
     ]
+    if run_as_service_user:
+        # The server-side rsync runs as dango, so it can only touch what dango can reach:
+        # a symlink planted in the project tree is replaced, never followed to a root-only file.
+        cmd.append(f"--rsync-path={AS_DANGO} rsync")
     if delete:
         cmd.append("--delete")
     if dry_run:
