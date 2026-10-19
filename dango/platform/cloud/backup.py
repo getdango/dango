@@ -257,9 +257,17 @@ def _read_config_nofollow(source: Path) -> str:
     fd = -1
     try:
         dir_fd = os.open(source.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        fd = os.open(source.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+        fd = os.open(
+            source.name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOCTTY,
+            dir_fd=dir_fd,
+        )
         info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_size > METABASE_CONFIG_MAX_BYTES:
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_size > METABASE_CONFIG_MAX_BYTES
+        ):
             raise ValueError("invalid Metabase config: not a regular file of reasonable size")
         with os.fdopen(fd, encoding="utf-8") as handle:
             fd = -1
@@ -297,9 +305,11 @@ import yaml
 source, destination = map(Path, sys.argv[1:3])
 try:
     dir_fd = os.open(source.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    fd = os.open(source.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    fd = os.open(
+        source.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOCTTY, dir_fd=dir_fd
+    )
     info = os.fstat(fd)
-    if not stat.S_ISREG(info.st_mode) or info.st_size > 1048576:
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 1048576:
         raise ValueError("not a regular file of reasonable size")
     with os.fdopen(fd, encoding="utf-8") as handle:
         config = yaml.safe_load(handle.read())
