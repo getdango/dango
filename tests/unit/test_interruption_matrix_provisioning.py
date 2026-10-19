@@ -33,10 +33,12 @@ class FakeDO:
         self.firewalls: set[str] = set()
         self.ssh_keys: set[int] = set()
         self.fail_delete = fail_delete
+        self.ever_created: list[str] = []
         self._next = 200
 
     def _id(self) -> int:
         self._next += 1
+        self.ever_created.append(str(self._next))
         return self._next
 
     def upload_ssh_key(self, name: str, public_key: str) -> dict[str, Any]:
@@ -234,11 +236,10 @@ def test_cleanup_names_every_resource_it_removed(project: Path, index: int) -> N
         _provision(project, do, StatusLines(kill_at=index), console=console)
     out = _printed(console)
     assert "Cleaning up" in out
-    created = {"droplet": do.droplets, "firewall": do.firewalls}
-    assert created["droplet"] == set() and created["firewall"] == set()
-    # Ids of what was removed appear in the report, so the user can check the console.
-    for resource in ("droplet", "firewall", "SSH key"):
-        assert resource in out
+    assert do.nothing_left()
+    # The ids of what was removed appear in the report, so the user can check the console.
+    for resource_id in do.ever_created:
+        assert resource_id in out
 
 
 def test_failed_deletes_name_each_orphaned_resource(project: Path) -> None:

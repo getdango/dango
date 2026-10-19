@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from dango.exceptions import CloudError, CloudProvisioningError
 from dango.logging import get_logger
-from dango.platform.cloud.droplet_cleanup import delete_droplet_or_annotate
+from dango.platform.cloud.droplet_cleanup import delete_droplet_or_annotate, note_old_droplet_left
 from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
 
 _logger = get_logger(__name__)
@@ -334,6 +334,7 @@ def migrate_server(
     warnings: list[str] = []
     new_droplet_id: int | None = None
     new_ssh: SSHManager | None = None
+    committed = False  # cloud.yml names the new droplet
 
     # 1. Validate
     validate_size_slug(new_size)
@@ -345,7 +346,6 @@ def migrate_server(
         )
 
     old_droplet_id = old_config.droplet_id
-
     try:
         # 2. Create backup on old server
         _notify(on_progress, "backup", "running")
@@ -434,15 +434,7 @@ def migrate_server(
         # 13. Destroy old or keep both
         old_destroyed = False
         if health_ok:
-            _notify(on_progress, "cleanup", "running")
-            try:
-                client.delete_droplet(old_droplet_id)
-                old_destroyed = True
-            except Exception as exc:
-                warnings.append(f"Failed to destroy old droplet: {exc}")
-            _notify(on_progress, "cleanup", "done")
-
-            # Update cloud.yml
+            # Record the new server first so cloud.yml never names a deleted droplet.
             save_provisioning_metadata(
                 project_root,
                 droplet_id=new_droplet_id,
@@ -450,6 +442,14 @@ def migrate_server(
                 region=new_region,
                 size=new_size,
             )
+            committed = True
+            _notify(on_progress, "cleanup", "running")
+            try:
+                client.delete_droplet(old_droplet_id)
+                old_destroyed = True
+            except Exception as exc:
+                warnings.append(f"Failed to destroy old droplet: {exc}")
+            _notify(on_progress, "cleanup", "done")
         else:
             warnings.append(
                 f"Health check failed on new server ({new_droplet_ip}). "
@@ -457,9 +457,11 @@ def migrate_server(
                 "Investigate both servers manually."
             )
 
-    except Exception as exc:
-        # Cleanup new droplet on failure (best effort; a failed delete is logged and noted)
-        if new_droplet_id is not None:
+    except BaseException as exc:
+        # Failure or Ctrl-C: delete the new droplet unless cloud.yml already names it.
+        if committed:
+            note_old_droplet_left(exc, new_droplet_id, old_droplet_id)
+        elif new_droplet_id is not None:
             delete_droplet_or_annotate(client, new_droplet_id, exc)
         if new_ssh is not None:
             try:

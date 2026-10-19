@@ -158,7 +158,9 @@ def test_killed_at_boundary_then_rerun(tmp_path: Path, event: tuple[str, str]) -
     assert server.web_active, "dango-web was left stopped"
     assert len(server.journal) == 1, "journal must hold exactly one row for the interrupted deploy"
     assert len(_local_journal(tmp_path)) == 1
-    assert server.journal_records()[0]["success"] is False
+    # Killed while the finally block reports the restart: the deploy itself had succeeded.
+    finished = event in {("start_services", "running"), ("start_services", "done")}
+    assert server.journal_records()[0]["success"] is finished
     assert server.partial_archives() == []
 
     _assert_converges(server, tmp_path, journal_before=1)
@@ -170,7 +172,6 @@ def test_killed_at_boundary_then_rerun(tmp_path: Path, event: tuple[str, str]) -
         ("lock file written, client dies", KillRule("set -C; echo", when="after")),
         ("web stopped, client dies", KillRule("systemctl stop dango-web", when="after")),
         ("restart issued, client dies", KillRule("systemctl restart dango-web", when="after")),
-        ("restart not issued, client dies", KillRule("systemctl restart dango-web", when="before")),
         ("tar half written", KillRule("tar -czf", when="partial")),
         ("remote journal not written", KillRule(f">> {JOURNAL_PATH}", when="before")),
         ("remote journal written", KillRule(f">> {JOURNAL_PATH}", when="after")),

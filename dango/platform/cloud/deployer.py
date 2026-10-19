@@ -9,6 +9,7 @@ always restarts services and releases the lock.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import platform
 import re
@@ -61,6 +62,8 @@ class DeployLock:
     deployer: str
     started_at: str
     expires_at: str
+    #: False when the lock file exists but could not be parsed (treated as held).
+    readable: bool = True
 
 
 @dataclass
@@ -112,20 +115,39 @@ def _check_existing_lock(ssh: SSHManager) -> DeployLock | None:
         return None
 
     try:
-        data: dict[str, Any] = json.loads(result.stdout.strip())
+        data = json.loads(result.stdout.strip())
+        if not isinstance(data, dict):
+            raise ValueError("lock file is not a JSON object")
         return DeployLock(
-            deployer=data.get("deployer", "unknown"),
-            started_at=data.get("started_at", ""),
-            expires_at=data.get("expires_at", ""),
+            deployer=str(data.get("deployer", "unknown")),
+            started_at=str(data.get("started_at", "")),
+            expires_at=str(data.get("expires_at", "")),
         )
-    except (json.JSONDecodeError, KeyError):
+    except ValueError:  # includes json.JSONDecodeError
+        # Fail safe: an unreadable lock file may belong to a running deploy.
+        logger.warning("deploy_lock_unreadable", path=DEPLOY_LOCK_PATH)
+        return DeployLock(deployer="unknown", started_at="", expires_at="", readable=False)
+
+
+def _lock_file_age_seconds(ssh: SSHManager) -> float | None:
+    """Age of the lock file by mtime, or ``None`` if it cannot be determined."""
+    result = ssh.exec_command(f"echo $(( $(date +%s) - $(stat -c %Y {DEPLOY_LOCK_PATH}) ))")
+    try:
+        return float(result.stdout.strip()) if result.success else None
+    except ValueError:
         return None
 
 
-def _is_lock_expired(lock: DeployLock) -> bool:
-    """Return True if the lock has passed its expiration time."""
+def _is_lock_expired(lock: DeployLock, file_age_seconds: float | None = None) -> bool:
+    """Return True if the lock has passed its expiration time.
+
+    A missing or unparseable expiry is not trusted: the lock then counts as expired only
+    when the lock file's own age (``file_age_seconds``) exceeds the maximum lock lifetime.
+    """
+    stale_by_mtime = file_age_seconds is not None and file_age_seconds > LOCK_TIMEOUT_MINUTES * 60
     if not lock.expires_at:
-        return True
+        logger.warning("deploy_lock_expiry_missing")
+        return stale_by_mtime
     try:
         expires_str = lock.expires_at
         # Python 3.10 fromisoformat does not parse timezone suffixes;
@@ -137,7 +159,8 @@ def _is_lock_expired(lock: DeployLock) -> bool:
         expires = datetime.fromisoformat(expires_str).replace(tzinfo=timezone.utc)
         return datetime.now(tz=timezone.utc) > expires
     except (ValueError, TypeError):
-        return True
+        logger.warning("deploy_lock_expiry_unparseable", expires_at=lock.expires_at)
+        return stale_by_mtime
 
 
 def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
@@ -159,7 +182,12 @@ def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
     """
     existing = _check_existing_lock(ssh)
     if existing is not None:
-        if not force and not _is_lock_expired(existing):
+        if not force and not existing.readable:
+            raise CloudProvisioningError(
+                f"Deploy lock file {DEPLOY_LOCK_PATH} is unreadable (corrupt), so another "
+                "deploy may be running. Use --force to override, or remove the file on the server."
+            )
+        if not force and not _is_lock_expired(existing, _lock_file_age_seconds(ssh)):
             raise CloudProvisioningError(
                 f"Deploy lock held by {existing.deployer} "
                 f"(started {existing.started_at}). "
@@ -192,9 +220,18 @@ def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
     # Atomic creation: noclobber (set -C) makes > fail if the file
     # already exists, preventing a concurrent deployer from silently
     # overwriting our lock.
-    result = ssh.exec_command(
-        f"(set -C; echo {shlex.quote(lock_json)} > {DEPLOY_LOCK_PATH}) 2>/dev/null"
-    )
+    try:
+        result = ssh.exec_command(
+            f"(set -C; echo {shlex.quote(lock_json)} > {DEPLOY_LOCK_PATH}) 2>/dev/null"
+        )
+    except BaseException:
+        # Interrupted while the file may have been written: drop it, but only if it is ours.
+        with contextlib.suppress(Exception):
+            ssh.exec_command(
+                f'[ "$(cat {DEPLOY_LOCK_PATH} 2>/dev/null)" = {shlex.quote(lock_json)} ]'
+                f" && rm -f {DEPLOY_LOCK_PATH}"
+            )
+        raise
     if not result.success:
         raise CloudProvisioningError(
             "Failed to acquire deploy lock — another deployment may have "
@@ -498,8 +535,8 @@ def push_deploy(
             # restart_services=False, services remain stopped throughout
             # the entire sync + dbt workflow.
             _notify(on_progress, "stop_web", "running")
+            services_stopped = True  # set first: an interruption inside the stop must restart
             _stop_web_service(ssh)
-            services_stopped = True
             _notify(on_progress, "stop_web", "done")
 
             # Step 3: Pre-deploy backup (services stay down after backup)
@@ -614,17 +651,24 @@ def push_deploy(
         except Exception as exc:
             deploy_error = str(exc)
             raise
+        except BaseException:
+            deploy_error = "Deploy interrupted"
+            raise
 
         finally:
-            # Always restart all services and release lock
-            if services_stopped:
-                _notify(on_progress, "start_services", "running")
-                docker_files_changed = bool(set(sync_result.synced_files) & _DOCKER_FILES)
-                _start_all_services(ssh, rebuild_docker=docker_files_changed)
-                _notify(on_progress, "start_services", "done")
-
-            if lock is not None:
-                _release_lock(ssh)
+            # Always restart all services and release lock; a failing progress
+            # callback or restart must not leave the lock behind.
+            try:
+                if services_stopped:
+                    try:
+                        _notify(on_progress, "start_services", "running")
+                    finally:
+                        docker_files_changed = bool(set(sync_result.synced_files) & _DOCKER_FILES)
+                        _start_all_services(ssh, rebuild_docker=docker_files_changed)
+                    _notify(on_progress, "start_services", "done")
+            finally:
+                if lock is not None:
+                    _release_lock(ssh)
 
     finally:
         # Write deployment journal (never-fail)

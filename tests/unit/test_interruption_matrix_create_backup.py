@@ -75,7 +75,10 @@ def test_killed_at_boundary_then_backup_again(event: tuple[str, str]) -> None:
     assert server.metabase_up, "Metabase was left stopped"
     assert server.partial_archives() == [], "a partial archive was left behind"
     assert server.staging == set(), "a staging directory with project data was left behind"
-    assert good in server.complete_archives(), "the earlier good backup was lost"
+    # Retention (keep=1) may drop the older backup only once the new one is complete.
+    assert server.complete_archives(), "no good backup is left"
+    if good not in server.complete_archives():
+        assert event[0] == "rotate_backups"
 
     second = _backup(server)
     assert second.archive_path in server.complete_archives()

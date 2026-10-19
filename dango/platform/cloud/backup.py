@@ -542,6 +542,7 @@ def _create_archive(
     archive_name = f"backup-{timestamp}"
     archive_path = f"{BACKUP_DIR}/{archive_name}.tar.gz"
     manifest_dest = f"{BACKUP_DIR}/{archive_name}.json"
+    partial_path = f"{archive_path}.partial"
     private = ""
 
     try:
@@ -626,12 +627,21 @@ def _create_archive(
             step="write_manifest",
         )
         # New 0600 files only (noclobber): never written through a planted path.
+        # Written under a name the backup listing ignores, then renamed: an interrupted
+        # tar never leaves a truncated ``*.tar.gz`` that retention or rollback would pick.
         _run_checked(
             ssh,
             f"(set -C; umask 077; tar -czf - -C {shlex.quote(private)} {archive_name}"
-            f" > {shlex.quote(archive_path)})",
+            f" > {shlex.quote(partial_path)})",
             step="create_archive",
             timeout=600,
+        )
+        _run_checked(
+            ssh,
+            # Never renamed over an existing path (a planted link included).
+            f"! [ -e {shlex.quote(archive_path)} ] && ! [ -L {shlex.quote(archive_path)} ]"
+            f" && mv {shlex.quote(partial_path)} {shlex.quote(archive_path)}",
+            step="create_archive",
         )
         _run_checked(
             ssh,
@@ -640,8 +650,7 @@ def _create_archive(
             step="copy_manifest",
         )
     finally:
-        if private:
-            _remove_leftovers(ssh, [private])
+        _remove_leftovers(ssh, [p for p in (private, partial_path) if p])
 
     return archive_path, manifest
 
@@ -690,11 +699,12 @@ def create_backup(
     _check_disk_space(ssh)
     _notify(on_progress, "check_disk_space", "done")
 
-    _notify(on_progress, "stop_services", "running")
-    stop_services(ssh)
-    _notify(on_progress, "stop_services", "done")
-
     try:
+        # Inside the try: an interruption after the stop must still restart the services.
+        _notify(on_progress, "stop_services", "running")
+        stop_services(ssh)
+        _notify(on_progress, "stop_services", "done")
+
         _notify(on_progress, "checkpoint_databases", "running")
         if not _checkpoint_duckdb(ssh):
             warnings.append("DuckDB warehouse not found — skipped checkpoint")
@@ -725,8 +735,10 @@ def create_backup(
         _notify(on_progress, "create_archive", "done")
     finally:
         if restart_services:
-            _notify(on_progress, "start_services", "running")
-            start_services(ssh)
+            try:
+                _notify(on_progress, "start_services", "running")
+            finally:
+                start_services(ssh)
             _notify(on_progress, "start_services", "done")
 
     _notify(on_progress, "rotate_backups", "running")
@@ -824,32 +836,40 @@ def restore_from_archive(
         staging,
         [METABASE_CONFIG_FILE, *BACKUP_FILES, *BACKUP_DIRS, "metabase"],
     )
-    _notify(on_progress, "extract_archive", "done")
-
-    # Pre-restore safety backup — covers all three restore paths
-    # (rollback(), _backup_restore_from_local(), and migrate.py all flow
-    # through restore_from_archive).  on_server_retention=999 is an
-    # intentionally large value to prevent rotation from deleting this
-    # safety backup before the restore completes.
-    _notify(on_progress, "pre_restore_backup", "running")
     try:
-        safety = create_backup(
-            ssh,
-            backup_type="pre-restore",
-            restart_services=False,
-            on_server_retention=999,
-        )
-        warnings.append(f"Pre-restore safety backup created: {safety.archive_path}")
-        safety_ok = True
-    except Exception as exc:
-        safety_ok = False
-        warnings.append(f"Pre-restore safety backup skipped (continuing): {exc}")
-        _logger.warning("pre_restore_backup_failed", error=str(exc))
-    _notify(on_progress, "pre_restore_backup", "done")
+        _notify(on_progress, "extract_archive", "done")
 
-    _notify(on_progress, "stop_services", "running")
-    stop_services(ssh)
-    _notify(on_progress, "stop_services", "done")
+        # Pre-restore safety backup — covers all three restore paths
+        # (rollback(), _backup_restore_from_local(), and migrate.py all flow
+        # through restore_from_archive).  on_server_retention=999 is an
+        # intentionally large value to prevent rotation from deleting this
+        # safety backup before the restore completes.
+        _notify(on_progress, "pre_restore_backup", "running")
+        try:
+            safety = create_backup(
+                ssh,
+                backup_type="pre-restore",
+                restart_services=False,
+                on_server_retention=999,
+            )
+            warnings.append(f"Pre-restore safety backup created: {safety.archive_path}")
+            safety_ok = True
+        except Exception as exc:
+            safety_ok = False
+            warnings.append(f"Pre-restore safety backup skipped (continuing): {exc}")
+            _logger.warning("pre_restore_backup_failed", error=str(exc))
+        _notify(on_progress, "pre_restore_backup", "done")
+
+        _notify(on_progress, "stop_services", "running")
+        stop_services(ssh)
+        _notify(on_progress, "stop_services", "done")
+    except BaseException:
+        # The safety backup stopped the services and the extracted archive holds project
+        # data: put the services back and drop the copy before the interruption propagates.
+        with contextlib.suppress(Exception):
+            start_services(ssh)
+        _remove_leftovers(ssh, [staging])
+        raise
 
     services_restarted = False
     copies_started = False
@@ -951,9 +971,11 @@ def restore_from_archive(
         finally:
             _remove_leftovers(ssh, [p for p in (staging, private_dir) if p])
     finally:
-        _notify(on_progress, "start_services", "running")
-        start_services(ssh)
-        services_restarted = True
+        try:
+            _notify(on_progress, "start_services", "running")
+        finally:
+            start_services(ssh)
+            services_restarted = True
         _notify(on_progress, "start_services", "done")
 
     _notify(on_progress, "verify_health", "running")

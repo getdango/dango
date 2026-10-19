@@ -200,7 +200,7 @@ class FakeServer:
             self.archives[path] = "partial" if partial else "complete"
             self._order.append(path)
             return self._ok()
-        if cmd.startswith("mv ") and BACKUP_DIR in cmd:
+        if "&& mv " in cmd and BACKUP_DIR in cmd:
             src, dest = shlex.split(cmd)[-2:]
             if src in self.archives:
                 self.archives[dest] = self.archives.pop(src)

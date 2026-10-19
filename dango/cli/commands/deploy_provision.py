@@ -88,6 +88,29 @@ class _ResourceTracker:
         return errors
 
 
+def _cleanup_and_report(tracker: _ResourceTracker) -> None:
+    """Delete everything the failed or interrupted run created, naming each resource."""
+    created = [
+        f"{label} {value}"
+        for label, value in (
+            ("droplet", tracker.droplet_id),
+            ("firewall", tracker.firewall_id),
+            ("SSH key", tracker.ssh_key_id),
+            ("Spaces bucket", tracker.spaces_bucket),
+        )
+        if value
+    ]
+    named = ", ".join(created)
+    console.print(f"Cleaning up resources: {named or 'none created yet'}...")
+    errors = tracker.cleanup()
+    if errors:
+        console.print("[yellow]Cleanup errors (delete these in the DigitalOcean console):[/yellow]")
+        for err in errors:
+            console.print(f"  - {err}")
+    elif created:
+        console.print("[green]All resources cleaned up.[/green]")
+
+
 # ---------------------------------------------------------------------------
 # Result dataclass
 # ---------------------------------------------------------------------------
@@ -421,15 +444,13 @@ def run_provisioning(
                 "\n[dim]This is usually a transient infrastructure issue (not a Dango bug)."
                 "\nRun [bold]dango deploy[/bold] to retry with a fresh server.[/dim]"
             )
-        console.print("Cleaning up resources...")
-        errors = tracker.cleanup()
-        if errors:
-            console.print("[yellow]Cleanup errors:[/yellow]")
-            for err in errors:
-                console.print(f"  - {err}")
-        else:
-            console.print("[green]All resources cleaned up.[/green]")
+        _cleanup_and_report(tracker)
         raise CloudProvisioningError(err_msg) from exc
+    except BaseException:
+        # Ctrl-C / SystemExit: the same cleanup, then the interruption propagates unchanged.
+        console.print("\n[yellow]Interrupted.[/yellow]")
+        _cleanup_and_report(tracker)
+        raise
 
 
 # ---------------------------------------------------------------------------

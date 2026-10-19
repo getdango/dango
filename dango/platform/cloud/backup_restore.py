@@ -359,7 +359,7 @@ def extract_checked_archive(
                 "Archive does not look like a Dango backup (unexpected layout): "
                 "nothing was restored"
             )
-    except Exception:
+    except BaseException:
         with contextlib.suppress(Exception):  # cleanup: best effort, keep the original error
             ssh.exec_command(f"rm -rf {q_staging}")
         raise
