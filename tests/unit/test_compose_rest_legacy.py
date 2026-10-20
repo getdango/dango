@@ -7,6 +7,7 @@ they always did (argv, env, cwd, timeouts), and never call ``sudo``.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -83,17 +84,26 @@ def test_service_check_uses_docker_ps() -> None:
     ]
 
 
-def test_h2_size_runs_compose_exec_in_the_project(tmp_path: Path) -> None:
+def test_h2_size_runs_compose_exec_in_the_named_project(tmp_path: Path) -> None:
     db_health._component_disk_cache = None
     db_health._component_disk_cache_time = 0
-    with patch.object(db_health.subprocess, "run") as run:
+    with (
+        patch("dango.platform.docker.get_compose_project_name", return_value="dango-test"),
+        patch.object(db_health.subprocess, "run") as run,
+    ):
         run.return_value = MagicMock(returncode=0, stdout="2097152\n")
         assert db_health.get_component_disk_usage(tmp_path)["metabase"]["size_mb"] == 2.0
     assert calls(run) == [
         (
             ["docker", "compose", "exec", "-T", "metabase"]
             + ["stat", "-c", "%s", "/metabase-data/metabase.db.mv.db"],
-            {"capture_output": True, "text": True, "timeout": 5, "cwd": tmp_path},
+            {
+                "capture_output": True,
+                "text": True,
+                "timeout": 5,
+                "cwd": tmp_path,
+                "env": {**os.environ, "COMPOSE_PROJECT_NAME": "dango-test"},
+            },
         )
     ]
 

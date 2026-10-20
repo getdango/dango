@@ -41,6 +41,8 @@ def test_valid_forms(tmp_path: Path, text: str) -> None:
         "ENV MB_VERSION=v0.59.1\nENV MB_VERSION=v0.60.0\n",
         "ENV MB_VERSION=v0.59.1\nENV MB_VERSION=v0.60.0 EXTRA=1\n",
         "ENV MB_VERSION=v0.59.1\nENV MB_VERSION=$X\n",
+        "ENV MB_VERSION=v0.59.1\n  ENV MB_VERSION=v0.60.0\n",
+        "ENV MB_VERSION=v0.59.1\nENV A=1 MB_VERSION=v0.60.0\n",
     ],
 )
 def test_ambiguous_or_unbalanced_is_refused(tmp_path: Path, text: str) -> None:

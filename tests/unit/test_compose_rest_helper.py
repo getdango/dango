@@ -259,3 +259,50 @@ class TestAdminRepair:
 
         assert result == {"status": "skipped", "reason": "metabase_not_running"}
         assert verbs(shim) == ["ps"]
+
+    def test_unsupported_email_is_skipped_before_anything_runs(
+        self, shim: Path, project: Path, repair_env: None
+    ) -> None:
+        with patch.object(
+            repair,
+            "load_metabase_metadata",
+            return_value={
+                "metabase_url": "http://localhost:3000",
+                "admin": {"email": "o'brien@x.io"},
+            },
+        ):
+            result = repair.repair_admin_credential(project)
+
+        assert result == {"status": "skipped", "reason": "unsupported_admin_email"}
+        assert verbs(shim) == []
+        assert "helper" in repair.describe_repair_outcome(result)
+
+    def test_failed_stop_is_a_cli_failure_not_busy(
+        self, shim: Path, project: Path, repair_env: None
+    ) -> None:
+        (shim / "out.ps").write_text(RUNNING)
+        (shim / "rc.stop").write_text("1")
+
+        result = repair.repair_admin_credential(project)
+
+        assert result == {"status": "failed", "reason": "reset_cli_failed"}
+        assert verbs(shim) == ["ps", "stop metabase", "up"]
+
+    def test_stop_timeout_is_a_cli_failure_not_busy(
+        self, shim: Path, project: Path, repair_env: None
+    ) -> None:
+        import subprocess
+
+        (shim / "out.ps").write_text(RUNNING)
+        real = ce.run_compose
+
+        def run(root: Path, verb: str, *a: str, **kw: Any) -> Any:
+            if verb == "stop":
+                raise subprocess.TimeoutExpired(verb, 1)
+            return real(root, verb, *a, **kw)
+
+        with patch.object(ce, "run_compose", run):
+            result = repair.repair_admin_credential(project)
+
+        assert result == {"status": "failed", "reason": "reset_cli_failed"}
+        assert verbs(shim) == ["ps", "up"]
