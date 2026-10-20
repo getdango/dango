@@ -142,7 +142,6 @@ def test_root_only_verbs_are_refused_through_sudo(tree: Tree, args: list[str]) -
         (["start", "dbt-docs"], ["start", "dbt-docs"]),
         (["restart", "metabase"], ["restart", "metabase"]),
         (["ps"], ["ps", "--format", "json"]),
-        (["image-exists"], ["images", "-q", "metabase"]),
         (
             ["h2-size"],
             ["exec", "-T", "metabase", "stat", "-c", "%s", "/metabase-data/metabase.db.mv.db"],
@@ -167,6 +166,13 @@ def test_allowed_verbs_pass_only_fixed_tokens_with_stdin_closed(
     assert (
         tree.logs("docker", "stdin")[0].read_text() == ""
     )  # the caller's input never reaches Compose
+
+
+def test_image_exists_asks_docker_for_the_project_image_reference(tree: Tree) -> None:
+    """``compose images`` lists only created containers, so it is empty after ``down``."""
+    result = tree.call("image-exists", sudo=True)
+    assert result.returncode == 0, result.stderr
+    assert tree.calls("docker") == [["image", "ls", "-q", "dango-abcd1234-metabase"]]
 
 
 @pytest.mark.parametrize(
