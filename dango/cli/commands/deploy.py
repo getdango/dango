@@ -571,16 +571,31 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
 
             # 2. Stop and remove Docker containers, volumes, images
             _server_project_dir = "/srv/dango/project"
-            from dango.platform.cloud.backup import get_remote_compose_project_name
+            from dango.platform.cloud.backup import (
+                DOCKER_BUSY_MESSAGE,
+                get_remote_compose_project_name,
+                root_helper_timeout,
+            )
+            from dango.platform.cloud.compose_helper import server_compose_cmd
+            from dango.platform.compose_exec import EXIT_BUSY
 
             _proj_name = get_remote_compose_project_name(ssh, _server_project_dir)
             console.print("Stopping Docker services...")
-            ssh.exec_command(
-                f"cd {_server_project_dir} && "
-                f"COMPOSE_PROJECT_NAME={_proj_name} docker compose down --volumes --rmi local "
-                "2>/dev/null || true",
-                timeout=120,
+            down = ssh.exec_command(
+                server_compose_cmd(
+                    "destroy",
+                    legacy=(
+                        f"cd {_server_project_dir} && "
+                        f"COMPOSE_PROJECT_NAME={_proj_name} docker compose down --volumes "
+                        "--rmi local 2>/dev/null || true"
+                    ),
+                ),
+                timeout=root_helper_timeout("destroy"),
             )
+            if down.exit_code == EXIT_BUSY:
+                # Compose has not run: leave the server files and the local config for a retry.
+                console.print(f"[red]Error:[/red] {DOCKER_BUSY_MESSAGE}")
+                raise click.Abort()
 
             # 3. Remove all Dango files
             console.print("Removing server files...")
@@ -596,6 +611,8 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
             )
 
             console.print("[green]Server cleaned up.[/green]")
+        except click.Abort:
+            raise
         except Exception as exc:
             console.print(
                 f"[yellow]Warning:[/yellow] Could not fully clean up remote server: {exc}"

@@ -26,6 +26,13 @@ from typing import Any
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.compose_helper import (
+    CALLER_MARGIN,
+    HELPER_PATH,
+    ROOT_LOCK_WAIT,
+    VERB_BUDGET,
+)
+from dango.platform.compose_exec import EXIT_BUSY, uses_helper
 from dango.platform.docker import get_compose_project_name
 from dango.utils.env_file import parse_env_file
 
@@ -139,18 +146,74 @@ def _metabase_compose(action: str) -> None:
     )
 
 
+#: Shown when the compose helper reports that another Docker operation holds its lock.
+DOCKER_BUSY_MESSAGE = (
+    "Another Docker operation is in progress on the server; the backup was not started "
+    "and will be retried on the next run."
+)
+
+
+def _helper_call(verb: str, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run a compose-helper verb as root (waits for the helper's lock up to ``ROOT_LOCK_WAIT``)."""
+    return subprocess.run(
+        [HELPER_PATH, verb, *args],
+        capture_output=True,
+        text=True,
+        timeout=ROOT_LOCK_WAIT + VERB_BUDGET[verb] + CALLER_MARGIN,
+        check=False,
+    )
+
+
+def _helper_stop_metabase() -> None:
+    """Stop Metabase through the helper; a busy helper aborts (``CloudProvisioningError``)."""
+    try:
+        result = _helper_call("stop", "metabase")
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        raise CloudProvisioningError(DOCKER_BUSY_MESSAGE) from exc
+    if result.returncode == EXIT_BUSY:
+        raise CloudProvisioningError(DOCKER_BUSY_MESSAGE)
+    if result.returncode != 0:
+        _logger.warning(
+            "backup_service_command_failed", program="stop", returncode=result.returncode
+        )
+
+
 def _stop_services() -> None:
     """Stop dango-web and Metabase.
 
-    Best-effort — does not raise if services are already stopped.
+    Best-effort — does not raise if services are already stopped.  With the compose
+    helper, Metabase is stopped first (a busy helper aborts with nothing stopped) and
+    again after dango-web, which could have started it in between.
     """
+    if not uses_helper():
+        _run_best_effort(["systemctl", "stop", "dango-web"], timeout=60)
+        _metabase_compose("stop")
+        return
+    _helper_stop_metabase()
     _run_best_effort(["systemctl", "stop", "dango-web"], timeout=60)
-    _metabase_compose("stop")
+    try:
+        _helper_stop_metabase()
+    except CloudProvisioningError:
+        _start_services()  # dango-web is already down: put everything back before aborting
+        raise
 
 
 def _start_services() -> None:
-    """Start Metabase then dango-web."""
-    _metabase_compose("start")
+    """Start Metabase then dango-web (a busy helper does not keep dango-web down)."""
+    if uses_helper():
+        try:
+            result = _helper_call("start", "metabase")
+            busy = result.returncode == EXIT_BUSY
+        except (subprocess.TimeoutExpired, OSError):
+            busy = True
+        if busy:
+            _logger.error(
+                "service_start_busy",
+                service="metabase",
+                hint="run `dango-compose start metabase` once the other operation finishes",
+            )
+    else:
+        _metabase_compose("start")
     _run_best_effort(["systemctl", "start", "dango-web"], timeout=60)
 
 
@@ -239,21 +302,24 @@ def _checkpoint_sqlite(db_path: Path) -> str | None:
 
 def _get_metabase_volume_path() -> str | None:
     """Discover the host path of the Metabase H2 Docker volume."""
-    compose_project = get_compose_project_name(PROJECT_DIR)
     try:
-        result = subprocess.run(
-            [
-                "docker",
-                "volume",
-                "inspect",
-                f"{compose_project}_metabase-data",
-                "--format",
-                "{{.Mountpoint}}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        if uses_helper():
+            result = _helper_call("volume-path")
+        else:
+            compose_project = get_compose_project_name(PROJECT_DIR)
+            result = subprocess.run(
+                [
+                    "docker",
+                    "volume",
+                    "inspect",
+                    f"{compose_project}_metabase-data",
+                    "--format",
+                    "{{.Mountpoint}}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
     except (subprocess.TimeoutExpired, OSError):
@@ -443,8 +509,13 @@ def _create_local_archive(
     warnings: list[str] = []
 
     staging: Path | None = None
+    nothing_stopped = False
     try:
-        _stop_services()
+        try:
+            _stop_services()
+        except CloudProvisioningError:
+            nothing_stopped = True  # a busy helper: the services are still (or again) running
+            raise
         warnings.extend(_checkpoint_databases())
         metabase_vol = _get_metabase_volume_path()
         # Fresh root-only (0700) directory with an unpredictable name.
@@ -557,7 +628,8 @@ def _create_local_archive(
     finally:
         if staging is not None:
             shutil.rmtree(staging, ignore_errors=True)
-        _start_services()
+        if not nothing_stopped:
+            _start_services()
 
     return archive_path, manifest, warnings
 
@@ -942,8 +1014,13 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         raise
 
     copies_started = False
+    nothing_stopped = False
     try:
-        _stop_services()
+        try:
+            _stop_services()
+        except CloudProvisioningError:
+            nothing_stopped = True  # a busy helper: the services are still (or again) running
+            raise
         # Sanitize Metabase metadata as root into a fresh private directory
         # (never into staging or the project tree), then let the service user read it.
         metabase_source = staging / METABASE_CONFIG_FILE
@@ -1040,7 +1117,8 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         for leftover in (staging, private_dir):
             if leftover is not None:
                 shutil.rmtree(leftover, ignore_errors=True)
-        _start_services()
+        if not nothing_stopped:
+            _start_services()
 
 
 def enable_scheduled_backup() -> bool:

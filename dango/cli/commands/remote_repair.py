@@ -206,17 +206,32 @@ def remote_repair(ctx: click.Context) -> None:
         console.print("[bold]Restarting services...[/bold]")
 
         _server_project_dir = "/srv/dango/project"
-        from dango.platform.cloud.backup import get_remote_compose_project_name
+        from dango.platform.cloud.backup import (
+            DOCKER_BUSY_MESSAGE,
+            get_remote_compose_project_name,
+            root_helper_timeout,
+        )
+        from dango.platform.cloud.compose_helper import server_compose_cmd
+        from dango.platform.compose_exec import EXIT_BUSY
 
         _proj_name = get_remote_compose_project_name(ssh, _server_project_dir)
 
-        # Start Docker containers
-        ssh.exec_command(
-            f"cd {_server_project_dir} && "
-            f"COMPOSE_PROJECT_NAME={_proj_name} docker compose start metabase "
-            "2>/dev/null || true",
-            timeout=120,
+        # Start Docker containers (through the compose helper when the server has one)
+        start_mb = ssh.exec_command(
+            server_compose_cmd(
+                "start",
+                "metabase",
+                legacy=(
+                    f"cd {_server_project_dir} && "
+                    f"COMPOSE_PROJECT_NAME={_proj_name} docker compose start metabase "
+                    "2>/dev/null || true"
+                ),
+            ),
+            timeout=root_helper_timeout("start"),
         )
+        if start_mb.exit_code == EXIT_BUSY:
+            console.print(f"  [red]Metabase was not started:[/red] {DOCKER_BUSY_MESSAGE}")
+            issues_found += 1
 
         # Restart dango-web
         result = ssh.exec_command("systemctl restart dango-web", timeout=30)
@@ -306,7 +321,13 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         ssh.connect(cloud_cfg.droplet_ip)
 
         _server_project_dir = "/srv/dango/project"
-        from dango.platform.cloud.backup import get_remote_compose_project_name
+        from dango.platform.cloud.backup import (
+            DOCKER_BUSY_MESSAGE,
+            get_remote_compose_project_name,
+            root_helper_timeout,
+        )
+        from dango.platform.cloud.compose_helper import server_compose_cmd
+        from dango.platform.compose_exec import EXIT_BUSY
 
         _proj_name = get_remote_compose_project_name(ssh, _server_project_dir)
 
@@ -337,12 +358,26 @@ def remote_reset_metabase(ctx: click.Context) -> None:
 
         # 2. Stop and remove Metabase container + volume
         console.print("Removing Metabase data...")
-        ssh.exec_command(
-            f"cd {_server_project_dir} && "
-            f"COMPOSE_PROJECT_NAME={_proj_name} docker compose down metabase --volumes "
-            "2>/dev/null || true",
-            timeout=60,
+        down_mb = ssh.exec_command(
+            server_compose_cmd(
+                "down-volumes",
+                "metabase",
+                legacy=(
+                    f"cd {_server_project_dir} && "
+                    f"COMPOSE_PROJECT_NAME={_proj_name} docker compose down metabase --volumes "
+                    "2>/dev/null || true"
+                ),
+            ),
+            timeout=root_helper_timeout("down-volumes"),
         )
+        if down_mb.exit_code == EXIT_BUSY:
+            # Compose has not run: nothing was removed. Put dango-web back and let the user retry.
+            ssh.exec_command("systemctl start dango-web", timeout=30)
+            console.print(
+                f"[red]Error:[/red] {DOCKER_BUSY_MESSAGE} Nothing was removed; "
+                "dango-web was started again."
+            )
+            raise click.Abort()
 
         # 3. Remove metabase.yml so setup re-runs
         console.print("Removing metabase.yml...")
