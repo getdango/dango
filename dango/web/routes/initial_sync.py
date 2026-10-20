@@ -365,6 +365,7 @@ async def start_initial_sync(request: Request, background_tasks: BackgroundTasks
     auth_header = request.headers.get("authorization", "")
 
     token_valid = False
+    actor = None
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
         token_valid = _validate_deploy_token(token)
@@ -375,6 +376,7 @@ async def start_initial_sync(request: Request, background_tasks: BackgroundTasks
         user = _get_admin_user_from_session(request)
         if user is None:
             raise HTTPException(status_code=401, detail="Unauthorized")
+        actor = user
 
     if _sync_state.phase == SyncPhase.SYNCING:
         raise HTTPException(status_code=409, detail="Sync already in progress")
@@ -395,6 +397,18 @@ async def start_initial_sync(request: Request, background_tasks: BackgroundTasks
     # Reset state and start
     _sync_state = InitialSyncState()
 
+    log_auth_event(
+        AuditEvent.SYNC_TRIGGERED,
+        user_id=actor.id if actor else None,
+        email=actor.email if actor else None,
+        ip=request.client.host if request.client else None,
+        details={
+            "initial_sync": True,
+            "auth": "session" if actor else "deploy_token",
+            "sources": len(sources),
+        },
+        log_dir=project_root / ".dango" / "logs",
+    )
     background_tasks.add_task(_run_initial_sync, project_root, sources)
     return {"status": "started", "message": f"Syncing {len(sources)} source(s)"}
 

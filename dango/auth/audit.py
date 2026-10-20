@@ -83,6 +83,10 @@ class AuditEvent(str, Enum):
     CSV_DELETED                 = "csv_deleted"
     CATALOG_PROFILE_TRIGGERED   = "catalog_profile_triggered"
     TELEMETRY_TOGGLED           = "telemetry_toggled"
+    DBT_MODEL_RUN               = "dbt_model_run"
+    NOTEBOOK_LOCKED             = "notebook_locked"
+    NOTEBOOK_RELEASED           = "notebook_released"
+    RECOVERY_CODES_REGENERATED  = "recovery_codes_regenerated"
     # fmt: on
 
 

@@ -375,4 +375,10 @@ async def regenerate_recovery(request: Request) -> JSONResponse:
         return JSONResponse(status_code=400, content={"message": "Invalid TOTP code"})
 
     codes = regenerate_recovery_codes(db_path, user.id)
+    log_auth_event(
+        AuditEvent.RECOVERY_CODES_REGENERATED,
+        user_id=user.id,
+        email=user.email,
+        ip=request.client.host if request.client else None,
+    )
     return JSONResponse(content={"recovery_codes": codes})
