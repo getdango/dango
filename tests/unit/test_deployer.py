@@ -119,7 +119,8 @@ class TestLockManagement:
     def test_check_corrupt_lock(self):
         ssh = make_ssh_mock()
         ssh.exec_command.return_value = CommandResult(stdout="not json", stderr="", exit_code=0)
-        assert _check_existing_lock(ssh) is None
+        lock = _check_existing_lock(ssh)
+        assert lock is not None and lock.readable is False
 
     def test_is_lock_expired_true(self):
         past = (datetime.now(tz=timezone.utc) - timedelta(hours=1)).isoformat()
@@ -133,7 +134,8 @@ class TestLockManagement:
 
     def test_is_lock_expired_empty_expiry(self):
         lock = DeployLock(deployer="x", started_at="", expires_at="")
-        assert _is_lock_expired(lock) is True
+        assert _is_lock_expired(lock) is False  # no trusted expiry: only the file age can expire it
+        assert _is_lock_expired(lock, file_age_seconds=10**6) is True
 
     def test_is_lock_expired_handles_utc_suffix(self):
         """Python 3.10 compat: +00:00 suffix is stripped before parsing."""

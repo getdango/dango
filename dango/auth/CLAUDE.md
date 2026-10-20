@@ -15,7 +15,7 @@ User authentication and access control for Dango. Handles password-based login w
 | `sessions.py` | 289 | High-level session + API key lifecycle | `create_session()`, `validate_session()`, `validate_partial_session()`, `create_api_key()`, `validate_api_key()` |
 | `permissions.py` | 212 | 29 permissions, 3 role mappings; `require_permission()` returns a synthetic local admin when `request.state.auth_disabled` is set, except for `users.manage` | `PERMISSIONS`, `ROLE_PERMISSIONS`, `has_permission()`, `require_permission()` |
 | `lockout.py` | 459 | Brute-force protection (5 attempts / 15-min, IP-based + user-based) | `record_failed_login()`, `check_account_locked()`, `unlock_account()`, `cleanup_expired_login_attempts()` |
-| `audit.py` | 238 | 45 event types + 1 deprecated alias to `.dango/logs/audit.jsonl` | `AuditEvent`, `log_auth_event()`, `query_audit_log()` |
+| `audit.py` | 238 | 57 event types + 1 deprecated alias to `.dango/logs/audit.jsonl` | `AuditEvent`, `log_auth_event()`, `query_audit_log()` |
 | `admin.py` | 139 | Bootstrap + path helpers | `ensure_admin(db_path, email, password=None)`, `SKIP_WIZARD_DEFAULT_ADMIN_EMAIL`, `is_auth_enabled()`, `get_auth_db_path()` |
 | `totp.py` | 220 | TOTP 2FA: setup/verify/enable/disable, recovery codes | `generate_totp_secret()`, `verify_totp_code()`, `setup_totp()`, `enable_totp()`, `consume_recovery_code()` |
 | `oauth_login.py` | 314 | OAuth provider ABC + Google/GitHub implementations | `OAuthLoginProvider`, `GoogleOAuthProvider`, `GitHubOAuthProvider`, `get_provider()` |
@@ -228,6 +228,7 @@ Session bridging syncs Dango auth state to Metabase so users get single sign-on.
 | Add a new OAuth provider | `oauth_login.py` (new provider class) + `web/routes/auth.py` (routes) | `pytest tests/unit/test_auth_oauth_login.py` |
 | Add a new permission | `permissions.py` (`PERMISSIONS` set + `ROLE_PERMISSIONS` mapping) | `pytest tests/unit/test_auth_permissions.py` |
 | Modify role permissions | `permissions.py` (`ROLE_PERMISSIONS` dict) | `pytest tests/unit/test_auth_permissions.py` |
+| Add a state-changing web route | Call `log_auth_event()` with an existing `AuditEvent` member (directly or via a helper such as `_audit`); `tests/unit/test_audit_coverage.py` fails otherwise unless the route has a reasoned ALLOWLIST entry | `pytest tests/unit/test_audit_coverage.py` |
 | Add a new audit event | `audit.py` (`AuditEvent` enum) | `pytest tests/unit/test_auth_audit.py` |
 | Debug session issues | `sessions.py` (`validate_session` / `validate_partial_session`) | `pytest tests/unit/test_auth_sessions.py` |
 | Change password policy | `security.py` (`check_password_strength`) | `pytest tests/unit/test_auth_security.py` |

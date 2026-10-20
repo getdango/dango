@@ -542,7 +542,9 @@ def _create_archive(
     archive_name = f"backup-{timestamp}"
     archive_path = f"{BACKUP_DIR}/{archive_name}.tar.gz"
     manifest_dest = f"{BACKUP_DIR}/{archive_name}.json"
+    partial_path = f"{archive_path}.partial"
     private = ""
+    manifest_written = committed = False
 
     try:
         _run_checked(ssh, f"mkdir -p {shlex.quote(BACKUP_DIR)}", step="create_staging")
@@ -626,22 +628,41 @@ def _create_archive(
             step="write_manifest",
         )
         # New 0600 files only (noclobber): never written through a planted path.
+        # Written under a name the backup listing ignores, then renamed: an interrupted
+        # tar never leaves a truncated ``*.tar.gz`` that retention or rollback would pick.
         _run_checked(
             ssh,
             f"(set -C; umask 077; tar -czf - -C {shlex.quote(private)} {archive_name}"
-            f" > {shlex.quote(archive_path)})",
+            f" > {shlex.quote(partial_path)})",
             step="create_archive",
             timeout=600,
         )
+        # The manifest goes in before the archive appears: the archive is the commit marker.
         _run_checked(
             ssh,
             f"(set -C; umask 077; cat {shlex.quote(staging + '/manifest.json')}"
             f" > {shlex.quote(manifest_dest)})",
             step="copy_manifest",
         )
+        manifest_written = True
+        # ``-n``: never over an existing path (a planted link included); old coreutils skip
+        # silently, so the partial file still being there means the rename did not happen.
+        _run_checked(
+            ssh,
+            f"mv -T -n {shlex.quote(partial_path)} {shlex.quote(archive_path)}"
+            f" && ! [ -e {shlex.quote(partial_path)} ]",
+            step="create_archive",
+        )
+        committed = True
     finally:
-        if private:
-            _remove_leftovers(ssh, [private])
+        _remove_leftovers(ssh, [p for p in (private, partial_path) if p])
+        if manifest_written and not committed:
+            # The rename may have happened just before an interruption: only drop a
+            # manifest whose archive does not exist.
+            with contextlib.suppress(Exception):
+                ssh.exec_command(
+                    f"[ -e {shlex.quote(archive_path)} ] || rm -f {shlex.quote(manifest_dest)}"
+                )
 
     return archive_path, manifest
 
@@ -686,15 +707,17 @@ def create_backup(
     warnings: list[str] = []
     timestamp = time.strftime("%Y%m%d-%H%M%S")
 
+    _sweep_stale_leftovers(ssh)  # first: leftovers of a dead run may be what filled the disk
     _notify(on_progress, "check_disk_space", "running")
     _check_disk_space(ssh)
     _notify(on_progress, "check_disk_space", "done")
 
-    _notify(on_progress, "stop_services", "running")
-    stop_services(ssh)
-    _notify(on_progress, "stop_services", "done")
-
     try:
+        # Inside the try: an interruption after the stop must still restart the services.
+        _notify(on_progress, "stop_services", "running")
+        stop_services(ssh)
+        _notify(on_progress, "stop_services", "done")
+
         _notify(on_progress, "checkpoint_databases", "running")
         if not _checkpoint_duckdb(ssh):
             warnings.append("DuckDB warehouse not found — skipped checkpoint")
@@ -725,8 +748,10 @@ def create_backup(
         _notify(on_progress, "create_archive", "done")
     finally:
         if restart_services:
-            _notify(on_progress, "start_services", "running")
-            start_services(ssh)
+            try:
+                _notify(on_progress, "start_services", "running")
+            finally:
+                start_services(ssh)
             _notify(on_progress, "start_services", "done")
 
     _notify(on_progress, "rotate_backups", "running")
@@ -764,6 +789,19 @@ def list_local_backups(ssh: SSHManager) -> list[dict[str, Any]]:
     return backups
 
 
+def _is_safety_backup(ssh: SSHManager, archive_path: str) -> bool:
+    """True if the archive's manifest says it is a pre-restore safety backup."""
+    manifest = ssh.exec_command(
+        f"cat {shlex.quote(archive_path.replace('.tar.gz', '.json'))} 2>/dev/null"
+    )
+    if not manifest.success:
+        return False
+    try:
+        return bool(json.loads(manifest.stdout).get("backup_type") == "pre-restore")
+    except (ValueError, AttributeError):
+        return False
+
+
 def rollback(
     ssh: SSHManager,
     *,
@@ -778,10 +816,14 @@ def rollback(
 
     _notify(on_progress, "find_backup", "running")
     if backup_path is None:
-        backups = list_local_backups(ssh)
-        if not backups:
+        # The newest archive after a restore is its own pre-restore safety backup, which
+        # holds the state the restore replaced: never the default to roll back to.
+        chosen = next(
+            (b for b in list_local_backups(ssh) if not _is_safety_backup(ssh, b["path"])), None
+        )
+        if chosen is None:
             raise CloudProvisioningError("No backups found to restore from")
-        backup_path = backups[0]["path"]
+        backup_path = chosen["path"]
     else:
         if not ssh.exec_command(f"test -f {shlex.quote(backup_path)}").success:
             raise CloudProvisioningError(f"Backup archive not found: {backup_path}")
@@ -824,32 +866,40 @@ def restore_from_archive(
         staging,
         [METABASE_CONFIG_FILE, *BACKUP_FILES, *BACKUP_DIRS, "metabase"],
     )
-    _notify(on_progress, "extract_archive", "done")
-
-    # Pre-restore safety backup — covers all three restore paths
-    # (rollback(), _backup_restore_from_local(), and migrate.py all flow
-    # through restore_from_archive).  on_server_retention=999 is an
-    # intentionally large value to prevent rotation from deleting this
-    # safety backup before the restore completes.
-    _notify(on_progress, "pre_restore_backup", "running")
     try:
-        safety = create_backup(
-            ssh,
-            backup_type="pre-restore",
-            restart_services=False,
-            on_server_retention=999,
-        )
-        warnings.append(f"Pre-restore safety backup created: {safety.archive_path}")
-        safety_ok = True
-    except Exception as exc:
-        safety_ok = False
-        warnings.append(f"Pre-restore safety backup skipped (continuing): {exc}")
-        _logger.warning("pre_restore_backup_failed", error=str(exc))
-    _notify(on_progress, "pre_restore_backup", "done")
+        _notify(on_progress, "extract_archive", "done")
 
-    _notify(on_progress, "stop_services", "running")
-    stop_services(ssh)
-    _notify(on_progress, "stop_services", "done")
+        # Pre-restore safety backup — covers all three restore paths
+        # (rollback(), _backup_restore_from_local(), and migrate.py all flow
+        # through restore_from_archive).  on_server_retention=999 is an
+        # intentionally large value to prevent rotation from deleting this
+        # safety backup before the restore completes.
+        _notify(on_progress, "pre_restore_backup", "running")
+        try:
+            safety = create_backup(
+                ssh,
+                backup_type="pre-restore",
+                restart_services=False,
+                on_server_retention=999,
+            )
+            warnings.append(f"Pre-restore safety backup created: {safety.archive_path}")
+            safety_ok = True
+        except Exception as exc:
+            safety_ok = False
+            warnings.append(f"Pre-restore safety backup skipped (continuing): {exc}")
+            _logger.warning("pre_restore_backup_failed", error=str(exc))
+        _notify(on_progress, "pre_restore_backup", "done")
+
+        _notify(on_progress, "stop_services", "running")
+        stop_services(ssh)
+        _notify(on_progress, "stop_services", "done")
+    except BaseException:
+        # The safety backup stopped the services and the extracted archive holds project
+        # data: put the services back and drop the copy before the interruption propagates.
+        with contextlib.suppress(Exception):
+            start_services(ssh)
+        _remove_leftovers(ssh, [staging])
+        raise
 
     services_restarted = False
     copies_started = False
@@ -941,7 +991,7 @@ def restore_from_archive(
             _notify(on_progress, "fix_ownership", "running")
             _run_checked(ssh, "chown -R dango:dango /srv/dango/project", step="fix_ownership")
             _notify(on_progress, "fix_ownership", "done")
-        except Exception:
+        except BaseException:
             if copies_started:
                 # A failed copy leaves a partial, root-owned restore; give it back
                 # to the service user before services restart on it.
@@ -951,9 +1001,11 @@ def restore_from_archive(
         finally:
             _remove_leftovers(ssh, [p for p in (staging, private_dir) if p])
     finally:
-        _notify(on_progress, "start_services", "running")
-        start_services(ssh)
-        services_restarted = True
+        try:
+            _notify(on_progress, "start_services", "running")
+        finally:
+            start_services(ssh)
+            services_restarted = True
         _notify(on_progress, "start_services", "done")
 
     _notify(on_progress, "verify_health", "running")
@@ -1004,6 +1056,42 @@ def _auth_config_refusal(ssh: SSHManager, staging: str) -> str | None:
     if result.success and auth_config_keeps_auth_on(result.stdout):
         return None
     return AUTH_CONFIG_SKIPPED_WARNING
+
+
+#: Minutes after which a ``*.partial`` archive or orphaned manifest is a dead run's leftover
+#: (longer than the slowest ``tar``, 600 s).
+_STALE_FILE_MINUTES = 15
+#: Staging directories: a directory's mtime only changes when children are added or removed,
+#: so a live tar or restore can look old, and restore/rollback/resize/migrate take no deploy
+#: lock. Far above any operation, including the scheduled backup's TimeoutStartSec=900.
+_STALE_STAGING_MINUTES = 360
+
+
+def _sweep_stale_leftovers(ssh: SSHManager) -> None:
+    """Remove what a backup or restore whose client died could not clean up.
+
+    ``find`` never follows links; only root-owned entries directly in ``/tmp`` and the
+    backup directory are touched.
+    """
+    names = " -o ".join(
+        f"-name {shlex.quote(n)}" for n in ("dango-backup.*", "dango-restore-staging-*")
+    )
+    backup_dir = shlex.quote(BACKUP_DIR)
+    orphan_manifests = (
+        'for f; do [ -e "${f%.json}.tar.gz" ] || rm -f "$f"; done'  # no sibling archive
+    )
+    for command in (
+        f"find {backup_dir} -maxdepth 1 -type f"
+        f" -name {shlex.quote('backup-*.tar.gz.partial')} -mmin +{_STALE_FILE_MINUTES} -delete",
+        f"find {backup_dir} -maxdepth 1 -type f -name {shlex.quote('backup-*.json')}"
+        f" -mmin +{_STALE_FILE_MINUTES} -exec sh -c {shlex.quote(orphan_manifests)} sh {{}} +",
+        f"find /tmp -maxdepth 1 -type d -user root \\( {names} \\)"
+        f" -mmin +{_STALE_STAGING_MINUTES} -exec rm -rf {{}} +",
+    ):
+        try:
+            ssh.exec_command(command)
+        except Exception:
+            _logger.warning("stale_leftover_sweep_failed", exc_info=True)
 
 
 def rotate_local_backups(ssh: SSHManager, keep: int = MAX_LOCAL_BACKUPS) -> int:

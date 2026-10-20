@@ -421,6 +421,8 @@ async def lock_notebook(
             },
         )
 
+    _audit(AuditEvent.NOTEBOOK_LOCKED, user, request, project_root, notebook_name=name)
+
     await asyncio.to_thread(ensure_marimo_protected, project_root)
     status = await asyncio.to_thread(get_marimo_status, project_root)
     already_running = status["running"]
@@ -575,6 +577,7 @@ async def heartbeat_notebook(
 @router.post("/api/notebooks/{name}/release")
 async def release_notebook_lock(
     name: str,
+    request: Request,
     user: User = Depends(require_permission("notebooks.execute")),
 ) -> JSONResponse:
     """Release editing lock on a notebook."""
@@ -589,6 +592,8 @@ async def release_notebook_lock(
                 "message": "Lock not held by you or already released.",
             },
         )
+
+    _audit(AuditEvent.NOTEBOOK_RELEASED, user, request, project_root, notebook_name=name)
 
     return JSONResponse(content={"released": True})
 
@@ -635,6 +640,7 @@ async def force_release_notebook_lock(
 @router.post("/api/notebooks/{name}/copy")
 async def copy_notebook(
     name: str,
+    request: Request,
     user: User = Depends(require_permission("notebooks.execute")),
 ) -> JSONResponse:
     """Copy a locked notebook for the current user."""
@@ -655,6 +661,15 @@ async def copy_notebook(
                 "message": f"Notebook file {name!r} not found.",
             },
         )
+
+    _audit(
+        AuditEvent.NOTEBOOK_CREATED,
+        user,
+        request,
+        project_root,
+        notebook_name=copy_name,
+        copied_from=name,
+    )
 
     return JSONResponse(
         status_code=201,
