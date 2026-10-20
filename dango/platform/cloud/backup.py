@@ -1117,6 +1117,13 @@ def restore_from_archive(
         try:
             _notify(on_progress, "start_services", "running")
         finally:
+            try:
+                # A server set up fresh (migrate) has the helper but no pinned project yet.
+                from dango.platform.cloud.compose_migrate import ensure_pinned
+
+                ensure_pinned(ssh, warnings)
+            except Exception as exc:
+                warnings.append(f"The compose helper could not be prepared: {exc}")
             start_services(ssh)
             services_restarted = True
         _notify(on_progress, "start_services", "done")

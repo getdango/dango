@@ -19,7 +19,7 @@ from dango.platform.cloud import compose_helper as ch
 from dango.platform.cloud import compose_migrate as cm
 from dango.platform.cloud import deployer, server_setup
 from dango.platform.cloud.file_sync import SyncResult
-from tests.factories.compose_switch_fakes import FakeServer
+from tests.factories.compose_switch_fakes import PROJECT_ID, FakeServer
 
 pytestmark = pytest.mark.unit
 
@@ -262,3 +262,48 @@ def test_push_is_silent_when_the_client_is_current(tmp_path: Path) -> None:
     srv.record = '{"dango": "1.0.14", "docker_access": "helper"}'
     result = push(srv, ["dbt/models/"], tmp_path)
     assert not any("upgraded by Dango" in w for w in result.warnings)
+
+
+# --- restore onto a fresh helper server (migrate) -------------------------------------------------
+
+
+def restore(srv: FakeServer) -> Any:
+    from dango.platform.cloud import backup
+
+    with (
+        patch("dango.platform.cloud.backup.extract_checked_archive"),
+        patch(
+            "dango.platform.cloud.backup.create_backup", return_value=MagicMock(archive_path="/s")
+        ),
+        patch("dango.platform.cloud.backup._remove_leftovers"),
+        patch("dango.platform.cloud.backup.verify_health", return_value=True),
+    ):
+        return backup.restore_from_archive(srv, "/srv/dango/backups/deploy/a.tar.gz")
+
+
+def test_restore_onto_a_fresh_helper_server_pins_and_renders_before_services_start() -> None:
+    srv = FakeServer(marker=True, in_group=False)
+    restore(srv)
+    ev = srv.events
+    assert ev.index("P1") < ev.index("pin-project") < ev.index("P2") < ev.index("P3")
+    assert ev.index("P3") < len(ev) - 1 - ev[::-1].index("web-start")
+
+
+def test_restore_on_a_pinned_server_does_not_pin_again() -> None:
+    srv = FakeServer(marker=True, in_group=False, pinned=PROJECT_ID)
+    restore(srv)
+    assert "P1" not in srv.events and "pin-project" not in srv.events
+
+
+def test_restore_pin_failure_falls_back_to_the_group_and_still_starts_services() -> None:
+    srv = FakeServer(marker=True, in_group=False, fail={"P2": 1})
+    result = restore(srv)
+    assert not srv.marker and srv.in_group
+    assert "web-start" in srv.events
+    assert any("docker group" in w for w in result.warnings)
+
+
+def test_restore_without_the_helper_does_nothing_extra() -> None:
+    srv = FakeServer(marker=False, in_group=True)
+    restore(srv)
+    assert "P1" not in srv.events and "FB" not in srv.events

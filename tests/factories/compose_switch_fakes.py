@@ -73,6 +73,8 @@ class FakeServer:
         tag = step_of(command)
         if tag is not None:
             return self._step(tag, command)
+        if command.startswith("test -s") and "project-id" in command:
+            return CommandResult("", "", 0 if self.pinned else 1)
         if command.startswith("test -f") and "project.yml" in command:
             return CommandResult("", "", 0 if self.project else 1)
         if command == f"{ch.HELPER_PATH} build":

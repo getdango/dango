@@ -54,6 +54,7 @@ __all__ = [
     "drop_group_script",
     "enable_fresh",
     "enter_fallback",
+    "ensure_pinned",
     "fallback_script",
     "helper_capable",
     "install_helper",
@@ -404,6 +405,23 @@ def prebuild_images(ssh: Any, warnings: list[str], *, legacy_command: str) -> No
     result = ssh.exec_command(legacy_command, timeout=900)
     if not result.success:
         raise CloudProvisioningError(f"Docker image build failed:\n{_detail(result)}")
+
+
+def ensure_pinned(ssh: Any, warnings: list[str]) -> None:
+    """After a restore onto a fresh helper server: pin and render, else fall back to the group.
+
+    Does nothing when the helper is not in use or the project name is already pinned.
+    """
+    from dango.platform.cloud.backup import helper_branch_active
+
+    if not helper_branch_active(ssh):
+        return
+    pinned = f"test -s {ch.COMPOSE_DIR}/project-id && test -s {ch.COMPOSE_DIR}/project"
+    if ssh.exec_command(pinned, timeout=30).success:
+        return
+    reason = _pin_and_render(ssh, warnings)
+    if reason is not None:
+        enter_fallback(ssh, warnings, server_version(ssh), reason)
 
 
 def restore_docker_access(ssh: Any, warnings: list[str], *, version: str) -> None:
