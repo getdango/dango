@@ -466,8 +466,11 @@ def _stop_failure(code: int) -> ComposeStopError:
     )
 
 
-def stop_services(ssh: SSHManager) -> None:
+def stop_services(ssh: SSHManager, on_first_stop: Callable[[], None] | None = None) -> None:
     """Stop dango-web and Metabase to ensure no concurrent writes.
+
+    *on_first_stop* is called once the first Metabase stop has succeeded, before dango-web is
+    stopped (``remote upgrade`` re-arms its guard there: each stop can wait for the helper lock).
 
     Best-effort — does not raise if services are already stopped.  With the compose
     helper, Metabase is stopped first (a busy or failed helper aborts with nothing
@@ -489,6 +492,8 @@ def stop_services(ssh: SSHManager) -> None:
         if first.exit_code != EXIT_BUSY:
             start_services(ssh)  # a timed-out stop may have completed
         raise _stop_failure(first.exit_code)
+    if on_first_stop is not None:
+        on_first_stop()
     result = ssh.exec_command("systemctl stop dango-web", timeout=60)
     if result.exit_code != 0:
         _logger.warning("service_stop_failed", service="dango-web", stderr=result.stderr)
@@ -996,6 +1001,11 @@ def restore_from_archive(
         _notify(on_progress, "stop_services", "running")
         stop_services(ssh)
         _notify(on_progress, "stop_services", "done")
+    except ComposeStopError:
+        # stop_services left the services running (or put them back): a second start would wait on
+        # the helper lock again for nothing.
+        _remove_leftovers(ssh, [staging])
+        raise
     except BaseException:
         # The safety backup stopped the services and the extracted archive holds project
         # data: put the services back and drop the copy before the interruption propagates.

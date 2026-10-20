@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudError, CloudProvisioningError
+from dango.platform.cloud import compose_migrate as cm
 from dango.platform.cloud.upgrade_caddy import has_ws_auth_endpoint, run_ws_migration
 from dango.platform.cloud.upgrade_guard import UpgradeGuard
 
@@ -36,6 +37,7 @@ PROGRESS_LABELS: dict[str, str] = {
     "pip_install": "Installing new version...",
     "migrations": "Running migrations...",
     "runtime_ownership": "Securing the server runtime...",
+    "docker_access": "Switching Docker access...",
     "docker_rebuild": "Rebuilding Docker images...",
     "start_services": "Starting services...",
     "verify_health": "Verifying health...",
@@ -57,6 +59,7 @@ class UpgradeResult:
     caddyfile_ws_migration: str | None = None
     runtime_ownership: str | None = None
     venv_rebuild: str | None = None
+    docker_access: str | None = None
 
 
 def validate_version_string(version: str) -> None:
@@ -119,6 +122,30 @@ def _notify(callback: Callable[[str, str], None] | None, step: str, status: str)
     """Call the progress callback if provided."""
     if callback is not None:
         callback(step, status)
+
+
+def _switch_at_target(
+    ssh: SSHManager, warnings: list[str], version: str | None, guard: UpgradeGuard
+) -> str | None:
+    """At the target version: finish the switch to the compose helper if it is not settled.
+
+    Only a server that is not yet settled on the helper has dango-web stopped (for the group
+    removal and process drop) and Metabase recreated; a settled server is not touched.
+    """
+    if not cm.helper_capable(version) or not cm.needs_migration(ssh):
+        return None
+    guard.arm()  # dango-web is stopped inside the migration
+    try:
+        return cm.migrate_docker_access(
+            ssh,
+            warnings,
+            version=version or "",
+            on_step=guard.rearm,
+            manage_web=True,
+            rebuild=True,
+        )
+    finally:
+        guard.disarm()
 
 
 def upgrade_dango(
@@ -207,6 +234,15 @@ def upgrade_dango(
             )
         target_version = latest
 
+    # 2b. Client/server version notices (an older client does not know the compose helper)
+    from dango.platform.cloud.server_status import local_client_version
+
+    local_version = local_client_version()
+    if line := cm.client_upgrade_line(local_version, target_version):
+        warnings.append(line)
+    if notice := cm.client_version_notice(ssh, local_version):
+        warnings.append(notice)
+
     # 3b. Downgrade guard
     if old_version is not None and _Version(target_version) < _Version(old_version) and not force:
         raise CloudError(
@@ -244,8 +280,13 @@ def upgrade_dango(
             else None
         )
         ownership_status = ro.secure_runtime(
-            ssh, at_target_warnings, installed_version=old_version, strict=not byos
+            ssh,
+            at_target_warnings,
+            installed_version=old_version,
+            strict=not byos,
+            extra_steps=cm.ownership_steps() if cm.helper_capable(old_version) else (),
         )
+        at_target_access = _switch_at_target(ssh, at_target_warnings, old_version, guard)
         return UpgradeResult(
             old_version=old_version,
             new_version=old_version,
@@ -258,6 +299,7 @@ def upgrade_dango(
             caddyfile_ws_migration=ws_status,
             runtime_ownership=ownership_status,
             venv_rebuild=venv_rebuild,
+            docker_access=at_target_access,
         )
 
     # 4. Pre-upgrade backup
@@ -275,6 +317,7 @@ def upgrade_dango(
     # 5. Stop services
     from dango.platform.cloud.backup import (
         get_remote_compose_project_name,
+        helper_branch_active,
         start_services,
         stop_services,
         verify_health,
@@ -282,7 +325,13 @@ def upgrade_dango(
 
     _notify(on_progress, "stop_services", "running")
     guard.arm()  # before the stop: a killed client leaves a timer that starts dango-web
-    stop_services(ssh)
+    try:
+        # Each helper stop can wait for the lock: the guard window restarts between the two.
+        stop_services(ssh, on_first_stop=guard.rearm)
+    except BaseException:
+        guard.disarm()  # nothing is left stopped (stop_services starts everything again)
+        raise
+    guard.rearm()
     _notify(on_progress, "stop_services", "done")
 
     try:
@@ -326,20 +375,39 @@ def upgrade_dango(
         # 8c. Root-owned runtime (the venv was already rebuilt in step 0 if needed)
         _notify(on_progress, "runtime_ownership", "running")
         runtime_ownership = ro.secure_runtime(
-            ssh, warnings, installed_version=new_version, strict=not byos
+            ssh,
+            warnings,
+            installed_version=new_version,
+            strict=not byos,
+            extra_steps=cm.ownership_steps() if cm.helper_capable(new_version) else (),
         )
         _notify(on_progress, "runtime_ownership", "done")
+        guard.rearm()
+
+        # 8d. Docker access: the compose helper from 1.0.14 on; a downgrade below it gets the
+        # docker group (and the Metabase data ownership) back
+        docker_access: str | None = None
+        if cm.helper_capable(new_version):
+            _notify(on_progress, "docker_access", "running")
+            cm.refresh_web_unit(ssh, warnings)
+            docker_access = cm.migrate_docker_access(
+                ssh, warnings, version=new_version or target_version, on_step=guard.rearm
+            )
+            _notify(on_progress, "docker_access", "done")
+        elif cm.helper_capable(old_version) and cm.below_helper_version(new_version):
+            _notify(on_progress, "docker_access", "running")
+            cm.restore_docker_access(ssh, warnings, version=new_version or target_version)
+            docker_access = cm.ACCESS_GROUP
+            _notify(on_progress, "docker_access", "done")
+        guard.rearm()
 
         # 9. Docker rebuild
         _notify(on_progress, "docker_rebuild", "running")
         docker_rebuilt = False
         compose_project = get_remote_compose_project_name(ssh, _PROJECT_DIR)
         docker_result = ssh.exec_command(
-            f"COMPOSE_PROJECT_NAME={compose_project} docker compose "
-            f"-f {_PROJECT_DIR}/docker-compose.yml pull "
-            f"&& COMPOSE_PROJECT_NAME={compose_project} docker compose "
-            f"-f {_PROJECT_DIR}/docker-compose.yml up -d --build metabase </dev/null",
-            timeout=600,
+            cm.rebuild_command(compose_project),
+            timeout=cm.rebuild_timeout(helper_branch_active(ssh)),
         )
         if docker_result.success:
             docker_rebuilt = True
@@ -378,4 +446,5 @@ def upgrade_dango(
         caddyfile_ws_migration=caddyfile_ws_migration,
         runtime_ownership=runtime_ownership,
         venv_rebuild=venv_rebuild,
+        docker_access=docker_access,
     )
