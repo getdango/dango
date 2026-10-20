@@ -390,7 +390,10 @@ def get_component_disk_usage(project_root: Path) -> dict[str, Any]:
     # Metabase H2 database size (inside Docker container)
     metabase_info: dict[str, Any] = {"size_mb": None}
     try:
+        import os
+
         from dango.platform import compose_exec
+        from dango.platform.docker import get_compose_project_name
 
         if compose_exec.uses_helper():
             proc = compose_exec.run_compose(project_root, "h2-size", timeout=5, text=True)
@@ -411,6 +414,7 @@ def get_component_disk_usage(project_root: Path) -> dict[str, Any]:
                 text=True,
                 timeout=5,
                 cwd=project_root,
+                env={**os.environ, "COMPOSE_PROJECT_NAME": get_compose_project_name(project_root)},
             )
         if proc.returncode == 0 and proc.stdout.strip().isdigit():
             metabase_info["size_mb"] = round(int(proc.stdout.strip()) / (1024**2), 2)

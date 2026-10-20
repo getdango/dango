@@ -38,6 +38,8 @@ _STATE_FILENAME = "metabase_admin_repair.json"
 _RETRY_AFTER_SECONDS = 3600
 _TOKEN_PATTERN = re.compile(r"OK \[\[\[(.+?)\]\]\]")
 _CLI_TIMEOUT_SECONDS = 300
+#: The characters the compose helper's ``reset-password`` accepts in an email address.
+_HELPER_EMAIL = re.compile(r"[A-Za-z0-9._%+@-]{1,254}")
 
 
 _OUTCOME_TEXT = {
@@ -48,6 +50,8 @@ _OUTCOME_TEXT = {
     "metabase_unreachable": "Metabase is not responding, so it was left untouched.",
     "metabase_not_running": "Metabase is not running; start the project first.",
     "compose_busy": "Another Dango Docker operation is running; try again shortly.",
+    "unsupported_admin_email": "The admin email has characters the server's Docker helper "
+    "does not accept, so the repair cannot run through the helper.",
     "reset_cli_failed": "Metabase's offline reset did not complete; Metabase was restarted.",
     "metabase_not_ready": "Metabase did not become ready again in time.",
     "token_not_accepted": "Metabase did not accept the reset token.",
@@ -98,6 +102,8 @@ def _repair(root: Path, ready_timeout: int, force: bool) -> dict[str, object]:
     if not isinstance(metabase_url, str) or not metabase_url:
         return {"status": "skipped", "reason": "missing_metabase_url"}
     metabase_url = metabase_url.rstrip("/")
+    if compose_exec.uses_helper() and not _HELPER_EMAIL.fullmatch(admin_email):
+        return {"status": "skipped", "reason": "unsupported_admin_email"}
     if not ((root / "docker-compose.yml").exists() or compose_exec.uses_helper()):
         return {"status": "skipped", "reason": "no_local_compose"}
     if not force and _attempted_recently(root):
@@ -133,15 +139,16 @@ def _repair(root: Path, ready_timeout: int, force: bool) -> dict[str, object]:
             return _failed(root, "candidate_staging_failed")
 
         token: str | None = None
-        stopped = False
+        busy = False
         try:
-            stopped = _compose(root, env, "stop", "metabase", timeout=90)
-            if stopped:
+            if _compose(root, env, "stop", "metabase", timeout=90):
                 token = _run_reset_cli(root, env, admin_email)
+        except compose_exec.ComposeBusy:
+            busy = True
         finally:
             # Always bring Metabase back, whatever happened above.
             _compose(root, env, "up", "-d", "metabase", timeout=120)
-        if not stopped:
+        if busy:
             _discard_pending(store)
             return {"status": "skipped", "reason": "compose_busy"}
         if token is None:
@@ -233,16 +240,20 @@ def _compose_prefix() -> list[str]:
 
 
 def _compose_via_helper(root: Path, args: tuple[str, ...], timeout: int) -> bool:
-    """``stop metabase`` / ``up -d metabase`` through the helper; False when it cannot run."""
+    """``stop metabase`` / ``up -d metabase`` through the helper; False when it did not succeed.
+
+    A busy lock raises ``ComposeBusy`` for ``stop`` (nothing was stopped); ``up`` retries it.
+    """
     verb = "stop" if args[0] == "stop" else "up"
     extra = ("metabase",) if verb == "stop" else ()
     for _attempt in range(3 if verb == "up" else 1):  # an `up` must not be lost to a busy lock
         try:
-            compose_exec.run_compose(root, verb, *extra, timeout=timeout)
-            return True
-        except (compose_exec.ComposeBusy, compose_exec.ComposeInterrupted):
-            continue
-        except (subprocess.TimeoutExpired, OSError):
+            done = compose_exec.run_compose(root, verb, *extra, timeout=timeout)
+            return done.returncode == 0
+        except compose_exec.ComposeBusy:
+            if verb == "stop":
+                raise
+        except (compose_exec.ComposeInterrupted, subprocess.TimeoutExpired, OSError):
             break
     _logger.warning("metabase_compose_helper_failed", verb=verb)
     return False

@@ -54,7 +54,7 @@ _LOCAL_TOKENS: dict[str, tuple[str, ...] | None] = {
 _VERSION_LINE = re.compile(
     r"^ENV MB_VERSION=(\"?)(v[0-9][0-9.]{0,18})\1[ \t]*\r?(?:\n|\Z)", re.MULTILINE
 )
-_VERSION_ANY = re.compile(r"^ENV[ \t]+MB_VERSION\b", re.MULTILINE | re.IGNORECASE)
+_VERSION_ANY = re.compile(r"^[ \t]*ENV\b[^\n]*\bMB_VERSION\b", re.MULTILINE | re.IGNORECASE)
 _BUDGET_LINE = re.compile(r"^dango-compose: .* exceeded its time budget.*\n?", re.MULTILINE)
 
 
