@@ -6,6 +6,9 @@ fallback, against a stateful fake server: order, idempotence and the marker/grou
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from unittest.mock import patch
+
 import pytest
 
 from dango.platform.cloud import compose_helper as ch
@@ -13,6 +16,13 @@ from dango.platform.cloud import compose_migrate as cm
 from tests.factories.compose_switch_fakes import PROJECT_ID, FakeServer
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def _trusted_venv() -> Iterator[None]:
+    with patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]):
+        yield
+
 
 ORDER = ["H1", "H2", "H3", "P1", "pin-project", "P2", "P3", "M", "G", "gpasswd", "T"]
 

@@ -383,3 +383,21 @@ def test_scripts_carry_step_tags() -> None:
     }
     for tag, text in tagged.items():
         assert text.startswith(f"# step:{tag}\n"), tag
+
+
+def test_self_test_failure_message_reaches_the_caller(box: Sandbox) -> None:
+    message = "dango-compose: container id 61000 is already used on this host"
+    box.tool("runuser", f'echo "{message}" >&2; exit 67\n')
+    done = box.run(cm.self_test_script())
+    assert done.returncode != 0
+    assert message in done.stderr
+
+
+def test_self_test_passes_when_ok_and_the_root_verb_is_refused(box: Sandbox) -> None:
+    box.tool("runuser", 'case "$*" in *self-test*) echo ok;; *) exit 64;; esac\n')
+    assert box.run(cm.self_test_script()).returncode == 0
+
+
+def test_self_test_fails_when_a_root_verb_is_not_refused(box: Sandbox) -> None:
+    box.tool("runuser", 'case "$*" in *self-test*) echo ok;; *) exit 0;; esac\n')
+    assert box.run(cm.self_test_script()).returncode != 0

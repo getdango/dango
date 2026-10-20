@@ -149,11 +149,11 @@ def test_at_target_unmigrated_server_is_switched_with_dango_web_stopped_for_the_
     assert ev.index("helper:up-build") < len(ev) - 1 - ev[::-1].index("web-start")
 
 
-def test_at_target_failure_leaves_dango_web_running_with_the_legacy_path() -> None:
+def test_at_target_failure_leaves_dango_web_running_on_the_old_path() -> None:
     srv = FakeServer(version="1.0.14", marker=False, in_group=True, fail={"P2": 1})
     result = run(srv, "1.0.14")
     assert not srv.marker and srv.in_group
-    assert srv.events[-1] != "web-stop" and "web-start" in srv.events
+    assert "web-stop" not in srv.events  # dango-web keeps running on the old path
     assert any("Already at target" in w for w in result.warnings)
 
 
