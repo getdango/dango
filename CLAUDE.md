@@ -367,7 +367,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/source.py` | 1139 | — (extracted from main.py by TASK-005; 1.0.8-Q7 added `inspect-state`) |
 | `cli/commands/remote.py` | 760 | — (remote group + push/rollback/firewall/domain) |
 | `cli/commands/remote_mgmt.py` | 645 | — (remote status/logs/ssh/query + deployment history) |
-| `platform/cloud/deployer.py` | 655 | — (push deploy workflow + deploy lock + journal) |
+| `platform/cloud/deployer.py` | 761 | — (push deploy workflow + deploy lock + journal) |
 | `cli/validate.py` | 1048 | — |
 | `config/models.py` | 662 | — (Pydantic config models) |
 | `cli/commands/deploy.py` | 979 | — (deploy group with DO + BYOS routing, destroy command) |

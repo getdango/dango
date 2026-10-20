@@ -154,13 +154,14 @@ def test_every_step_reports_to_on_step() -> None:
     assert len(seen) >= 5
 
 
-def test_install_refuses_an_untrusted_venv(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "dango.platform.cloud.runtime_ownership.venv_trust_findings", lambda _s: ["/srv/dango/venv"]
-    )
+def test_install_refuses_an_untrusted_venv() -> None:
     srv = FakeServer()
     warnings: list[str] = []
-    assert cm.install_helper(srv, warnings) is False
+    with patch(
+        "dango.platform.cloud.runtime_ownership.venv_trust_findings",
+        return_value=["/srv/dango/venv"],
+    ):
+        assert cm.install_helper(srv, warnings) is False
     assert "H2" not in srv.events and warnings
 
 

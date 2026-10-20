@@ -159,7 +159,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/cloud/deployer.py
-    lines: 655
+    lines: 761
     category: exempt
     reason: "P8-004: Push deployment workflow with deploy lock and journal writing. Added git_info passthrough, nested try/finally for journal write, _write_deploy_journal helper. R8-F added Docker rebuild detection. R12-I1 added logger + debug log lines."
     review_by: "v1.1"
