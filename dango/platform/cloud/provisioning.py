@@ -376,8 +376,8 @@ def provision_droplet(
 
         wait_for_ssh(ip_address)
 
-    except Exception as exc:
-        # Best-effort cleanup; a failed delete is logged and noted on the original error
+    except BaseException as exc:
+        # Best-effort cleanup (also on Ctrl-C); a failed delete is logged and noted on the original error
         delete_droplet_or_annotate(client, droplet_id, exc)
         raise
 

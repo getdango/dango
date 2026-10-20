@@ -46,3 +46,17 @@ def delete_droplet_or_annotate(client: Any, droplet_id: int, original: BaseExcep
             f"Delete it with: doctl compute droplet delete {droplet_id}  "
             "(or in the DigitalOcean console).",
         )
+
+
+def note_old_droplet_left(
+    original: BaseException, new_id: int | None, old_id: int, old_destroyed: bool = False
+) -> None:
+    """Tell the user an interrupted migration finished switching; name the old droplet if it remains."""
+    text = f"The new server (droplet {new_id}) is live and recorded in cloud.yml."
+    if not old_destroyed:
+        text += (
+            f" The old droplet {old_id} may still be running and billed."
+            f" Delete it with: doctl compute droplet delete {old_id}  "
+            "(or in the DigitalOcean console)."
+        )
+    _annotate(original, text)
