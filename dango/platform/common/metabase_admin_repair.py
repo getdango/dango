@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from dango.logging import get_logger
+from dango.platform import compose_exec
 from dango.platform.common import metabase_credential_migration as _migration
 from dango.security.metabase_config import load_metabase_metadata
 from dango.security.metabase_credentials import MetabaseCredentialStore
@@ -46,6 +47,7 @@ _OUTCOME_TEXT = {
     "no_local_compose": "This project has no local docker-compose.yml.",
     "metabase_unreachable": "Metabase is not responding, so it was left untouched.",
     "metabase_not_running": "Metabase is not running; start the project first.",
+    "compose_busy": "Another Dango Docker operation is running; try again shortly.",
     "reset_cli_failed": "Metabase's offline reset did not complete; Metabase was restarted.",
     "metabase_not_ready": "Metabase did not become ready again in time.",
     "token_not_accepted": "Metabase did not accept the reset token.",
@@ -96,7 +98,7 @@ def _repair(root: Path, ready_timeout: int, force: bool) -> dict[str, object]:
     if not isinstance(metabase_url, str) or not metabase_url:
         return {"status": "skipped", "reason": "missing_metabase_url"}
     metabase_url = metabase_url.rstrip("/")
-    if not (root / "docker-compose.yml").exists():
+    if not ((root / "docker-compose.yml").exists() or compose_exec.uses_helper()):
         return {"status": "skipped", "reason": "no_local_compose"}
     if not force and _attempted_recently(root):
         return {"status": "skipped", "reason": "attempted_recently"}
@@ -121,7 +123,7 @@ def _repair(root: Path, ready_timeout: int, force: bool) -> dict[str, object]:
             return {"status": "skipped", "reason": "metabase_unreachable"}
 
         env = {**os.environ, "COMPOSE_PROJECT_NAME": get_compose_project_name(root)}
-        if not _metabase_running(env):
+        if not _metabase_running(env, root):
             return {"status": "skipped", "reason": "metabase_not_running"}
 
         new_password = generate_metabase_password()
@@ -131,12 +133,17 @@ def _repair(root: Path, ready_timeout: int, force: bool) -> dict[str, object]:
             return _failed(root, "candidate_staging_failed")
 
         token: str | None = None
+        stopped = False
         try:
-            _compose(root, env, "stop", "metabase", timeout=90)
-            token = _run_reset_cli(root, env, admin_email)
+            stopped = _compose(root, env, "stop", "metabase", timeout=90)
+            if stopped:
+                token = _run_reset_cli(root, env, admin_email)
         finally:
             # Always bring Metabase back, whatever happened above.
             _compose(root, env, "up", "-d", "metabase", timeout=120)
+        if not stopped:
+            _discard_pending(store)
+            return {"status": "skipped", "reason": "compose_busy"}
         if token is None:
             _discard_pending(store)
             return _failed(root, "reset_cli_failed")
@@ -188,9 +195,14 @@ def _metabase_healthy(metabase_url: str) -> bool:
         return False
 
 
-def _metabase_running(env: dict[str, str]) -> bool:
+def _metabase_running(env: dict[str, str], root: Path | None = None) -> bool:
     """True when this project's Metabase container is running (plain ``docker ps`` + labels,
-    which behaves the same under Compose v1 and v2)."""
+    which behaves the same under Compose v1 and v2; the helper's ``ps`` on a server)."""
+    if compose_exec.uses_helper():
+        from dango.platform.docker import DockerManager, ServiceStatus
+
+        status = DockerManager(root or Path.cwd()).get_service_status().get("metabase")
+        return status in (ServiceStatus.RUNNING, ServiceStatus.STARTING, ServiceStatus.UNHEALTHY)
     project = env["COMPOSE_PROJECT_NAME"]
     try:
         proc = subprocess.run(
@@ -220,7 +232,26 @@ def _compose_prefix() -> list[str]:
     return ["docker-compose"]
 
 
-def _compose(root: Path, env: dict[str, str], *args: str, timeout: int) -> None:
+def _compose_via_helper(root: Path, args: tuple[str, ...], timeout: int) -> bool:
+    """``stop metabase`` / ``up -d metabase`` through the helper; False when it cannot run."""
+    verb = "stop" if args[0] == "stop" else "up"
+    extra = ("metabase",) if verb == "stop" else ()
+    for _attempt in range(3 if verb == "up" else 1):  # an `up` must not be lost to a busy lock
+        try:
+            compose_exec.run_compose(root, verb, *extra, timeout=timeout)
+            return True
+        except (compose_exec.ComposeBusy, compose_exec.ComposeInterrupted):
+            continue
+        except (subprocess.TimeoutExpired, OSError):
+            break
+    _logger.warning("metabase_compose_helper_failed", verb=verb)
+    return False
+
+
+def _compose(root: Path, env: dict[str, str], *args: str, timeout: int) -> bool:
+    """Run one compose operation; True unless the helper could not run it."""
+    if compose_exec.uses_helper():
+        return _compose_via_helper(root, args, timeout)
     subprocess.run(
         [*_compose_prefix(), *args],
         cwd=root,
@@ -229,22 +260,33 @@ def _compose(root: Path, env: dict[str, str], *args: str, timeout: int) -> None:
         timeout=timeout,
         check=False,
     )
+    return True
 
 
 def _run_reset_cli(root: Path, env: dict[str, str], admin_email: str) -> str | None:
     """Run Metabase's offline ``reset-password`` and return its one-time token."""
     try:
-        proc = subprocess.run(
-            [*_compose_prefix(), "run", "--rm", "--no-deps", "-T", "metabase"]
-            + ["reset-password", admin_email],
-            cwd=root,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=_CLI_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (subprocess.TimeoutExpired, OSError):
+        if compose_exec.uses_helper():
+            proc = compose_exec.run_compose(
+                root, "reset-password", admin_email, timeout=_CLI_TIMEOUT_SECONDS, text=True
+            )
+        else:
+            proc = subprocess.run(
+                [*_compose_prefix(), "run", "--rm", "--no-deps", "-T", "metabase"]
+                + ["reset-password", admin_email],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=_CLI_TIMEOUT_SECONDS,
+                check=False,
+            )
+    except (
+        subprocess.TimeoutExpired,
+        OSError,
+        compose_exec.ComposeBusy,
+        compose_exec.ComposeInterrupted,
+    ):
         return None
     if proc.returncode != 0:
         return None

@@ -390,27 +390,32 @@ def get_component_disk_usage(project_root: Path) -> dict[str, Any]:
     # Metabase H2 database size (inside Docker container)
     metabase_info: dict[str, Any] = {"size_mb": None}
     try:
-        proc = subprocess.run(  # noqa: S603
-            [
-                "docker",
-                "compose",
-                "exec",
-                "-T",
-                "metabase",
-                "stat",
-                "-c",
-                "%s",
-                "/metabase-data/metabase.db.mv.db",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=project_root,
-        )
+        from dango.platform import compose_exec
+
+        if compose_exec.uses_helper():
+            proc = compose_exec.run_compose(project_root, "h2-size", timeout=5, text=True)
+        else:
+            proc = subprocess.run(  # noqa: S603
+                [
+                    "docker",
+                    "compose",
+                    "exec",
+                    "-T",
+                    "metabase",
+                    "stat",
+                    "-c",
+                    "%s",
+                    "/metabase-data/metabase.db.mv.db",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                cwd=project_root,
+            )
         if proc.returncode == 0 and proc.stdout.strip().isdigit():
             metabase_info["size_mb"] = round(int(proc.stdout.strip()) / (1024**2), 2)
     except Exception:  # noqa: BLE001
-        pass  # Container not running or Docker unavailable
+        pass  # Container not running, Docker unavailable, or the helper busy
     result["metabase"] = metabase_info
 
     # CSV uploads — per source subdirectory

@@ -509,6 +509,7 @@ def _wait_for_metabase_log_ready(
     since: str,
     max_wait_seconds: int = 90,
     poll_interval: int = 2,
+    project_root: Path | None = None,
 ) -> bool:
     """Poll ``docker logs <container_name> --since <since>`` for Metabase's own
     startup-complete banner line, instead of attempting a real login -- see
@@ -542,20 +543,38 @@ def _wait_for_metabase_log_ready(
     as "readiness not confirmed" and fall back accordingly, matching this module's
     existing best-effort contract for restart-readiness checks.
     """
+    from dango.platform import compose_exec
+
     deadline = time.monotonic() + max_wait_seconds
     while time.monotonic() < deadline:
         try:
-            result = subprocess.run(
-                ["docker", "logs", "--since", since, container_name],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
+            if compose_exec.uses_helper():  # server: the root-owned helper reads the logs
+                result = compose_exec.run_compose(
+                    project_root or Path.cwd(),
+                    "logs",
+                    "metabase",
+                    "--since",
+                    since,
+                    timeout=5,
+                    text=True,
+                )
+            else:
+                result = subprocess.run(
+                    ["docker", "logs", "--since", since, container_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
             if "Metabase Initialization COMPLETE" in result.stdout:
                 return True
             if "Metabase Initialization COMPLETE" in result.stderr:
                 return True
-        except (subprocess.SubprocessError, OSError):
+        except (
+            subprocess.SubprocessError,
+            OSError,
+            compose_exec.ComposeBusy,
+            compose_exec.ComposeInterrupted,
+        ):
             pass
         time.sleep(poll_interval)
 
@@ -1102,7 +1121,9 @@ def setup_metabase(
     since = datetime.now(timezone.utc).isoformat()
     print("  ⏳ Waiting for Metabase to be ready...")
     if not (
-        _wait_for_metabase_log_ready(container_name, since, max_wait_seconds=ready_timeout)
+        _wait_for_metabase_log_ready(
+            container_name, since, max_wait_seconds=ready_timeout, project_root=project_root
+        )
         or wait_for_metabase_ready(metabase_url, timeout=ready_timeout)
     ):
         summary["errors"].append(f"Metabase not ready after {ready_timeout} seconds")
@@ -2026,15 +2047,28 @@ def refresh_metabase_connection(
         dm = DockerManager(project_root)
         container_name = f"{dm.compose_project_name}-metabase-1"
 
-        # Check if container exists and is running
-        check_result = subprocess.run(
-            ["docker", "ps", "--filter", f"name={container_name}", "--format", "{{.Names}}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
+        from dango.platform import compose_exec
 
-        if container_name not in check_result.stdout:
+        helper = compose_exec.uses_helper()
+        # Check if container exists and is running
+        if helper:
+            from dango.platform.docker import ServiceStatus
+
+            running = dm.get_service_status().get("metabase") in (
+                ServiceStatus.RUNNING,
+                ServiceStatus.STARTING,
+                ServiceStatus.UNHEALTHY,
+            )
+        else:
+            check_result = subprocess.run(
+                ["docker", "ps", "--filter", f"name={container_name}", "--format", "{{.Names}}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            running = container_name in check_result.stdout
+
+        if not running:
             # Container not running
             return (False, "Metabase container not running", None)
 
@@ -2045,9 +2079,20 @@ def refresh_metabase_connection(
         restart_time = datetime.now(timezone.utc).isoformat()
 
         # Restart Metabase container to force reconnection
-        restart_result = subprocess.run(
-            ["docker", "restart", container_name], capture_output=True, text=True, timeout=30
-        )
+        try:
+            if helper:
+                restart_result = compose_exec.run_compose(
+                    project_root, "restart", "metabase", timeout=30, text=True
+                )
+            else:
+                restart_result = subprocess.run(
+                    ["docker", "restart", container_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+        except (compose_exec.ComposeBusy, compose_exec.ComposeInterrupted) as exc:
+            return (False, f"Docker restart failed: {exc}"[:200], None)
 
         if restart_result.returncode != 0:
             return (False, f"Docker restart failed: {restart_result.stderr[:200]}", None)
@@ -2078,7 +2123,10 @@ def refresh_metabase_connection(
         # guessed round number.
         max_wait_seconds = 60
         log_ready = _wait_for_metabase_log_ready(
-            container_name, restart_time, max_wait_seconds=max_wait_seconds
+            container_name,
+            restart_time,
+            max_wait_seconds=max_wait_seconds,
+            project_root=project_root,
         )
         health_ready = False
         if not log_ready:

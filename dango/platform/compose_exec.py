@@ -52,8 +52,9 @@ _LOCAL_TOKENS: dict[str, tuple[str, ...] | None] = {
     "image-exists": None,
 }
 _VERSION_LINE = re.compile(
-    r"^ENV MB_VERSION=\"?(v[0-9][0-9.]{0,18})\"?[ \t]*\r?(?:\n|\Z)", re.MULTILINE
+    r"^ENV MB_VERSION=(\"?)(v[0-9][0-9.]{0,18})\1[ \t]*\r?(?:\n|\Z)", re.MULTILINE
 )
+_VERSION_ANY = re.compile(r"^ENV[ \t]+MB_VERSION\b", re.MULTILINE | re.IGNORECASE)
 _BUDGET_LINE = re.compile(r"^dango-compose: .* exceeded its time budget.*\n?", re.MULTILINE)
 
 
@@ -240,10 +241,23 @@ def _project_mb_version(path: Path) -> str | None:
         data = os.read(fd, _DOCKERFILE_MAX)
     finally:
         os.close(fd)
-    match = _VERSION_LINE.search(data.decode("utf-8", errors="replace"))
-    if match is None:
+    version = _mb_version(data.decode("utf-8", errors="replace"))
+    if version is None:
         raise ComposeRenderError(f"{path.name} has no usable ENV MB_VERSION line")
-    return match.group(1)
+    return version
+
+
+def _mb_version(text: str) -> str | None:
+    """The one MB_VERSION a Dockerfile text sets; ``None`` when it sets none.
+
+    Docker uses the last ``ENV MB_VERSION``, so any line this reader cannot parse, or two
+    lines that disagree, make the answer ambiguous and are refused.
+    """
+    found = {m.group(2) for m in _VERSION_LINE.finditer(text)}
+    lines = len(_VERSION_ANY.findall(text))
+    if len(found) > 1 or (found and lines != len(list(_VERSION_LINE.finditer(text)))):
+        raise ComposeRenderError("Dockerfile.metabase has conflicting ENV MB_VERSION lines")
+    return next(iter(found), None)
 
 
 def render_args(project_root: Path, config: Any) -> list[str]:
@@ -253,10 +267,9 @@ def render_args(project_root: Path, config: Any) -> list[str]:
     version = _project_mb_version(project_root / "Dockerfile.metabase")
     if version is None:
         packaged = Path(__file__).parents[1] / "templates" / "Dockerfile.metabase"
-        match = _VERSION_LINE.search(packaged.read_text(encoding="utf-8"))
-        if match is None:
+        version = _mb_version(packaged.read_text(encoding="utf-8"))
+        if version is None:
             raise ComposeRenderError("packaged Dockerfile.metabase has no MB_VERSION")
-        version = match.group(1)
     name = config.project.name.lower().replace(" ", "-")
     return [str(config.platform.metabase_port), str(config.platform.dbt_docs_port), version, name]
 
