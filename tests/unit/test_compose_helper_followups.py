@@ -130,9 +130,10 @@ def test_signal_while_the_workload_runs_exits_with_a_signal_status_not_1(
         reap(tree)
 
 
-def test_trap_only_records_the_signal() -> None:
+def test_trap_only_records_the_signal_and_forwards_term_to_the_child() -> None:
     trap = next(line for line in helper_script().splitlines() if line.strip().startswith("trap '"))
-    assert "kill" not in trap
+    assert trap.count("kill") == 1 and 'kill -TERM "$cp"' in trap
+    assert "exit" not in trap
 
 
 def test_lock_comment_states_the_sigkill_caveat() -> None:
