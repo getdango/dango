@@ -87,6 +87,7 @@ class TestResourceTracker:
             firewall_id="fw-456",
             ssh_key_id=789,
             spaces_bucket="bucket",
+            spaces_created=True,
             spaces_client=spaces,
         )
         errors = tracker.cleanup()

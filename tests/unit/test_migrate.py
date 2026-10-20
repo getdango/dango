@@ -434,4 +434,6 @@ class TestMigrateServer:
                 project_root=tmp_path,
             )
 
+        # Add only: DigitalOcean detaches the old droplet when it is deleted.
         client.update_firewall.assert_called_once()
+        assert set(client.update_firewall.call_args[1]["droplet_ids"]) == {42, 99}
