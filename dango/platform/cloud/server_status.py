@@ -119,19 +119,22 @@ def collect_server_status(ssh: Any, cloud_config: Any) -> ServerStatus:
     )
 
 
-_SERVER_VERSION_FILE = "/srv/dango/server-version.json"
 _VERSION_RE = re.compile(r"[0-9][0-9A-Za-z.+!_-]{0,31}")
 _RECORD_MAX_BYTES = 4096
 
-# One call: marker (root-owned regular file, as ``uses_helper()`` requires), the dango
-# account's groups, then the root-owned version record. The record is only ever read as
-# bytes and parsed here by the client.
+# One call, run as root: marker (same test as ``uses_helper()``: regular file, uid 0, not
+# group/other-writable), the dango account's groups, then the version record. On servers
+# not yet migrated ``dango`` owns /srv/dango, so the record is only read when /srv/dango and
+# the file are root-owned, not group/other-writable and the file is a regular file (never a
+# FIFO or symlink), and the read is time-limited. The client parses it as data.
 _DOCKER_ACCESS_CMD = (
-    "M=/srv/dango/compose/active; "
-    'if [ -f "$M" ] && [ ! -L "$M" ] && [ "$(stat -c %u "$M" 2>/dev/null)" = 0 ]; '
-    "then echo marker=1; else echo marker=0; fi; "
+    "ROOT=0; S=/srv/dango; M=$S/compose/active; V=$S/server-version.json; "
+    'safe() { [ -n "$(find "$2" -maxdepth 0 -type "$1" -uid "$ROOT" ! -perm /022 '
+    '2>/dev/null)" ]; }; '
+    'if safe f "$M"; then echo marker=1; else echo marker=0; fi; '
     'g=$(id -nG dango 2>/dev/null) && echo "groups=$g"; echo ---; '
-    f"head -c {_RECORD_MAX_BYTES} {_SERVER_VERSION_FILE} 2>/dev/null; true"
+    f'if safe d "$S" && safe f "$V"; then timeout 5 head -c {_RECORD_MAX_BYTES} "$V" '
+    "2>/dev/null; fi; true"
 )
 
 
@@ -146,6 +149,7 @@ def _parse_docker_access(stdout: str) -> tuple[str, str | None]:
         elif line.startswith("groups="):
             groups = line[len("groups=") :].split()
     version: str | None = None
+    recorded_group = False
     try:
         data = json.loads(record)
         raw = data.get("dango") if isinstance(data, dict) else None
@@ -154,19 +158,27 @@ def _parse_docker_access(stdout: str) -> tuple[str, str | None]:
 
             Version(raw)
             version = raw
-    except ValueError:  # includes JSONDecodeError and InvalidVersion
+            recorded_group = data.get("docker_access") == "group"
+    except (ValueError, RecursionError):  # includes JSONDecodeError and InvalidVersion
         version = None
     if marker not in ("0", "1") or not groups:
         return "unknown", version
     in_group = "docker" in groups
     if marker == "1":
         return ("migrating" if in_group else "helper"), version
-    return ("group (fallback)" if in_group else "none"), version
+    if in_group:
+        return ("group (fallback)" if recorded_group else "group (legacy)"), version
+    return "none", version
 
 
 def _get_docker_access(ssh: Any) -> tuple[str, str | None]:
     """Docker access mode and recorded server version, ``unknown`` when unreadable."""
-    result = ssh.exec_command(_DOCKER_ACCESS_CMD)
+    from dango.exceptions import CloudSSHError
+
+    try:
+        result = ssh.exec_command(_DOCKER_ACCESS_CMD)
+    except CloudSSHError:
+        return "unknown", None
     if not result.success or not isinstance(result.stdout, str):
         return "unknown", None
     return _parse_docker_access(result.stdout)

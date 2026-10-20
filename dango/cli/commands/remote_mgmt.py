@@ -102,6 +102,7 @@ def remote_status(ctx: click.Context) -> None:
     from rich.panel import Panel
     from rich.table import Table
 
+    from dango.exceptions import CloudSSHError
     from dango.platform.cloud.provisioning import SIZE_TIERS
     from dango.platform.cloud.server_status import (
         check_latest_pypi_version,
@@ -129,6 +130,9 @@ def remote_status(ctx: click.Context) -> None:
 
     try:
         status = collect_server_status(ssh, cloud_cfg)
+    except CloudSSHError as exc:
+        console.print(f"[red]Error:[/red] Could not read server status: {exc}")
+        raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
 
@@ -211,6 +215,16 @@ def remote_status(ctx: click.Context) -> None:
         if status.dango_version and status.dango_version != latest_version:
             version_lines.append("  [yellow]Update available[/yellow]")
     console.print(Panel("\n".join(version_lines), title="Versions", border_style="blue"))
+    if status.docker_access == "group (fallback)":
+        console.print(
+            "[yellow]Warning:[/yellow] This server could not enable the Docker helper and is "
+            "using group access, which is less isolated. Run `dango remote upgrade` to retry."
+        )
+    elif status.docker_access == "none":
+        console.print(
+            "[red]Error:[/red] The dango service cannot reach Docker. "
+            "Run `dango remote upgrade` to repair it."
+        )
     client_warning = client_version_warning(status.server_recorded_version, local_client_version())
     if client_warning:
         console.print(f"[yellow]Warning:[/yellow] {client_warning}")

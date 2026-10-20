@@ -99,7 +99,7 @@ exemptions:
 
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
-    lines: 1391
+    lines: 1395
     category: exempt
     reason: "Platform lifecycle commands (start/stop/status) + port helpers. Extracted from cli/main.py by TASK-005. Further splitting would scatter tightly coupled startup/shutdown logic. R12-I2 added cloud systemd status check."
     review_by: "v1.1"
@@ -135,7 +135,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/remote_mgmt.py
-    lines: 645
+    lines: 666
     category: exempt
     reason: "P8-004: Added deployment panel to remote status + remote history command. Marginally over limit."
     review_by: "v1.1"
