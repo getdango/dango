@@ -381,14 +381,7 @@ def run_provisioning(
         _status("Building Docker images (this may take a few minutes)...")
         ssh.connect(droplet_ip, username="root")
         try:
-            from dango.platform.cloud.backup import get_remote_compose_project_name
-
-            compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
-            result = ssh.exec_command(_prebuild_command(compose_proj), timeout=900)
-            if result.exit_code != 0:
-                raise CloudProvisioningError(
-                    f"Docker image build failed:\n{result.stderr.strip() or result.stdout.strip()}"
-                )
+            _prebuild_images(ssh, warnings)
         finally:
             ssh.disconnect()
 
@@ -611,14 +604,7 @@ def run_byos_setup(
         _status("Building Docker images (this may take a few minutes)...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            from dango.platform.cloud.backup import get_remote_compose_project_name
-
-            compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
-            result = ssh.exec_command(_prebuild_command(compose_proj), timeout=900)
-            if result.exit_code != 0:
-                raise CloudProvisioningError(
-                    f"Docker image build failed:\n{result.stderr.strip() or result.stdout.strip()}"
-                )
+            _prebuild_images(ssh, warnings)
         finally:
             ssh.disconnect()
 
@@ -758,6 +744,19 @@ def _prebuild_command(compose_proj: str) -> str:
         "cd /srv/dango/project && sudo -u dango env "
         f"COMPOSE_PROJECT_NAME={shlex.quote(compose_proj)} docker compose build"
     )
+
+
+def _prebuild_images(ssh: Any, warnings: list[str]) -> None:
+    """Pre-build the Docker images: through the compose helper when it is installed, else legacy.
+
+    A helper that cannot pin, render or build falls back to the docker group with a loud warning
+    (added to *warnings*); an ordinary build failure raises.
+    """
+    from dango.platform.cloud.backup import get_remote_compose_project_name
+    from dango.platform.cloud.compose_migrate import prebuild_images
+
+    compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
+    prebuild_images(ssh, warnings, legacy_command=_prebuild_command(compose_proj))
 
 
 def _status(msg: str) -> None:
