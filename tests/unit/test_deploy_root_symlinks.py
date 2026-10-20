@@ -49,7 +49,8 @@ class SymlinkAwareSSH:
         for part in re.split(r"&&|\|\||;|\|", command):
             self._check_part(part.strip())
         result = MagicMock()
-        result.stdout = ""
+        # Remote scripts are staged in a directory the server makes (mktemp -d).
+        result.stdout = "/tmp/dango-admin.AbCd1234" if "mktemp -d" in command else ""
         result.stderr = ""
         result.exit_code = 0
         result.success = True

@@ -12,10 +12,11 @@ that were created (no orphans).
 
 from __future__ import annotations
 
-import base64
 import re
 import shlex
+import ssl
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ from dango.platform.cloud.project_files import (
     read_project_file,
     write_project_file,
 )
+from dango.platform.cloud.ssh import CommandResult
 
 _logger = get_logger(__name__)
 
@@ -927,6 +929,55 @@ def _validate_admin_email(email: str) -> None:
         raise ValueError(f"Invalid email format: {email!r}")
 
 
+_SERVER_PYTHON = "/srv/dango/venv/bin/python"
+
+
+def _run_remote_script(
+    ssh: Any, script: str, *, purpose: str, timeout: int, python: str = _SERVER_PYTHON
+) -> Any:
+    """Upload *script* to a root-owned private directory, run it as ``dango``, then remove it.
+
+    The server creates the directory (``mktemp -d``, ignoring root's ``TMPDIR``), so no
+    path is predictable or plantable by the ``dango`` user; the directory is checked to
+    be a real directory owned by root with mode 0700 before it is opened up to group
+    ``dango`` (read-only), so root never writes into a location ``dango`` controls. The
+    script may hold a password hash, hence no access for others. Removed even on failure.
+    Any staging problem returns a failing result (the script is not run).
+    """
+    made = ssh.exec_command(f"env -u TMPDIR mktemp -d -t dango-{purpose}.XXXXXXXX", timeout=30)
+    lines = (made.stdout or "").strip().splitlines()
+    directory = lines[0].strip() if lines else ""
+    # Only a directory shaped like the one asked for is ever removed.
+    ours = re.fullmatch(rf"/[^\s]*/dango-{re.escape(purpose)}\.[A-Za-z0-9]{{8}}", directory)
+    if made.exit_code != 0 or len(lines) != 1 or not ours:
+        if ours:
+            ssh.exec_command(f"rm -rf {shlex.quote(directory)}", timeout=30)
+        if made.exit_code != 0:
+            return made
+        return CommandResult(
+            stdout="",
+            stderr=f"Could not stage script: unexpected mktemp output {(made.stdout or '')[:200]!r}",
+            exit_code=1,
+        )
+    path = f"{directory}/{uuid.uuid4().hex}.py"
+    q_dir, q_path = shlex.quote(directory), shlex.quote(path)
+    try:
+        for step in (
+            f'test ! -L {q_dir} && [ "$(stat -c %u:%a {q_dir})" = 0:700 ]',
+            f"chgrp dango {q_dir} && chmod 750 {q_dir}",
+        ):
+            prep = ssh.exec_command(step, timeout=30)
+            if prep.exit_code != 0:
+                return prep
+        ssh.write_remote_file(path, script, mode=0o640)
+        grant = ssh.exec_command(f"chgrp -h dango {q_path}", timeout=30)
+        if grant.exit_code != 0:
+            return grant
+        return ssh.exec_command(f"sudo -u dango {python} {q_path}", timeout=timeout)
+    finally:
+        ssh.exec_command(f"rm -rf {q_dir}", timeout=30)
+
+
 def _create_admin_and_enable_auth(
     ssh: Any,
     email: str,
@@ -940,14 +991,14 @@ def _create_admin_and_enable_auth(
 
     pw_hash = hash_password(password)
 
-    # Build Python script and base64-encode it (avoids shell injection)
+    # Upload the script as a file instead of passing its text on a command line
     script = _build_admin_script(email, pw_hash)
-    encoded = base64.b64encode(script.encode()).decode()
-
-    result = ssh.exec_command(
-        f"sudo -u dango /srv/dango/venv/bin/python3 -c "
-        f"\"import base64; exec(base64.b64decode('{encoded}'))\"",
+    result = _run_remote_script(
+        ssh,
+        script,
+        purpose="admin",
         timeout=_ADMIN_SCRIPT_SSH_TIMEOUT,
+        python="/srv/dango/venv/bin/python3",
     )
     if result.exit_code != 0:
         raise AdminCreationError(
@@ -964,12 +1015,7 @@ def _create_admin_and_enable_auth(
 
     # Write cloud-specific auth timeouts (30-day session, 60-min idle)
     timeout_script = _build_auth_timeout_script()
-    encoded_timeout = base64.b64encode(timeout_script.encode()).decode()
-    result = ssh.exec_command(
-        f"sudo -u dango /srv/dango/venv/bin/python -c "
-        f"\"import base64; exec(base64.b64decode('{encoded_timeout}'))\"",
-        timeout=15,
-    )
+    result = _run_remote_script(ssh, timeout_script, purpose="auth-timeout", timeout=15)
     if result.exit_code != 0:
         _logger.warning("auth_timeout_config_failed", stderr=result.stderr)
 
@@ -1215,12 +1261,25 @@ def _health_check(url: str, timeout: int = 60, interval: int = 5) -> bool:
     """
     import httpx
 
+    is_https = url.startswith("https://")
+    tls_notice_shown = False
     attempts = timeout // interval
     for _ in range(attempts):
         try:
-            resp = httpx.get(f"{url}/api/health", timeout=5, verify=False)
+            resp = httpx.get(f"{url}/api/health", timeout=5)
             if resp.status_code == 200:
                 return True
+        except (httpx.ConnectError, ssl.SSLError):
+            if is_https:
+                _logger.info("health_check_https_not_ready", url=url)
+                if not tls_notice_shown:
+                    console.print(
+                        "    [dim]HTTPS is not ready yet (certificate may still be "
+                        "issuing); retry in a minute[/dim]"
+                    )
+                    tls_notice_shown = True
+            else:
+                _logger.debug("health_check_poll_error", url=url)
         except Exception:
             _logger.debug("health_check_poll_error", url=url)
         time.sleep(interval)

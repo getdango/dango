@@ -272,21 +272,28 @@ def run_spaces_restore(
         local_path.parent.mkdir(parents=True, exist_ok=True)
         local_path.write_bytes(archive.read_bytes())
 
-    def run_local(command: str, **_kw: object) -> str:
+    def run_local(command: list[str], **_kw: object) -> str:
+        import shlex
+
         from dango.exceptions import CloudProvisioningError
 
-        events.append(f"run: {command}")
-        if command.startswith("chown"):
+        # Builder scripts run as ``sh -c <script>``; record the script text itself.
+        is_script = command[:2] == ["sh", "-c"]
+        events.append(f"run: {command[2] if is_script else shlex.join(command)}")
+        if command[0] == "chown":
             return ""
-        proc = real_run(command, shell=True, capture_output=True, text=True, env=env)
+        proc = real_run(command, capture_output=True, text=True, env=env)
         if proc.returncode != 0:
             raise CloudProvisioningError(f"Step failed (exit {proc.returncode}): {proc.stderr}")
         return proc.stdout
 
     def shell(cmd: object, **_kw: object) -> None:
-        events.append(f"sh: {cmd}")
-        if str(cmd).startswith("rm -rf"):
-            real_run(str(cmd), shell=True, check=False)
+        import shlex
+
+        text = shlex.join(cmd) if isinstance(cmd, list) else str(cmd)
+        events.append(f"sh: {text}")
+        if text.startswith("rm -rf") and isinstance(cmd, list):
+            real_run(cmd, check=False)
 
     with (
         patch(f"{sb}.PROJECT_DIR", project),

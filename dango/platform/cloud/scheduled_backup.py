@@ -12,7 +12,6 @@ import contextlib
 import fcntl
 import json
 import os
-import shlex
 import shutil
 import signal
 import stat
@@ -81,12 +80,10 @@ def _acquire_backup_lock() -> Any:
     return lock_fd
 
 
-def _run_local(command: str, *, step: str, timeout: int = 120) -> str:
-    """Run a shell command locally, raising on failure. Returns stdout."""
+def _run_local(args: list[str], *, step: str, timeout: int = 120) -> str:
+    """Run a command (argument list, no shell) locally, raising on failure. Returns stdout."""
     try:
-        result = subprocess.run(
-            command, shell=True, capture_output=True, text=True, timeout=timeout
-        )
+        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         raise CloudProvisioningError(f"Step '{step}' timed out after {timeout}s") from exc
     if result.returncode != 0:
@@ -97,35 +94,64 @@ def _run_local(command: str, *, step: str, timeout: int = 120) -> str:
     return result.stdout
 
 
+def _run_builder_script(script: str, *, step: str, timeout: int = 120) -> str:
+    """Run a script built by :mod:`backup_restore` under ``sh -c``, raising on failure.
+
+    Those builders are shared with the SSH restore path, which needs one string, and
+    quote every interpolated value with :func:`shlex.quote`. Only the script text is
+    interpreted by the shell; nothing is passed with ``shell=True``.
+    """
+    # Deliberate: the builders also feed the SSH restore path (one string per command);
+    # every value in *script* is shlex-quoted or a constant, so this is not injectable.
+    return _run_local(["sh", "-c", script], step=step, timeout=timeout)
+
+
+def _run_best_effort(args: list[str], *, timeout: int, env: dict[str, str] | None = None) -> None:
+    """Run *args* tolerating failure: a non-zero exit or missing program is logged, not raised."""
+    try:
+        result = subprocess.run(
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+            check=False,
+            env=env,
+        )
+        if result.returncode != 0:
+            _logger.warning(
+                "backup_service_command_failed", program=args[0], returncode=result.returncode
+            )
+    except OSError:
+        _logger.warning("backup_service_command_unavailable", program=args[0])
+
+
+def _compose_env() -> dict[str, str]:
+    """Environment for ``docker compose`` with this project's compose project name."""
+    return {**os.environ, "COMPOSE_PROJECT_NAME": get_compose_project_name(PROJECT_DIR)}
+
+
+def _metabase_compose(action: str) -> None:
+    """Run ``docker compose <action> metabase`` for the project (best effort)."""
+    _run_best_effort(
+        ["docker", "compose", "-f", f"{PROJECT_DIR}/docker-compose.yml", action, "metabase"],
+        timeout=120,
+        env=_compose_env(),
+    )
+
+
 def _stop_services() -> None:
     """Stop dango-web and Metabase.
 
     Best-effort — does not raise if services are already stopped.
     """
-    subprocess.run(
-        "systemctl stop dango-web || true",
-        shell=True,
-        timeout=60,
-    )
-    compose_project = get_compose_project_name(PROJECT_DIR)
-    subprocess.run(
-        f"COMPOSE_PROJECT_NAME={shlex.quote(compose_project)} docker compose -f "
-        f"{PROJECT_DIR}/docker-compose.yml stop metabase 2>/dev/null || true",
-        shell=True,
-        timeout=120,
-    )
+    _run_best_effort(["systemctl", "stop", "dango-web"], timeout=60)
+    _metabase_compose("stop")
 
 
 def _start_services() -> None:
     """Start Metabase then dango-web."""
-    compose_project = get_compose_project_name(PROJECT_DIR)
-    subprocess.run(
-        f"COMPOSE_PROJECT_NAME={shlex.quote(compose_project)} docker compose -f "
-        f"{PROJECT_DIR}/docker-compose.yml start metabase 2>/dev/null || true",
-        shell=True,
-        timeout=120,
-    )
-    subprocess.run("systemctl start dango-web || true", shell=True, timeout=60)
+    _metabase_compose("start")
+    _run_best_effort(["systemctl", "start", "dango-web"], timeout=60)
 
 
 _CHECKPOINT_SCRIPTS = {
@@ -216,17 +242,22 @@ def _get_metabase_volume_path() -> str | None:
     compose_project = get_compose_project_name(PROJECT_DIR)
     try:
         result = subprocess.run(
-            f"docker volume inspect {shlex.quote(compose_project + '_metabase-data')} "
-            "--format '{{.Mountpoint}}' 2>/dev/null",
-            shell=True,
+            [
+                "docker",
+                "volume",
+                "inspect",
+                f"{compose_project}_metabase-data",
+                "--format",
+                "{{.Mountpoint}}",
+            ],
             capture_output=True,
             text=True,
             timeout=30,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
-    except subprocess.TimeoutExpired:  # noqa: BLE001
-        pass
+    except (subprocess.TimeoutExpired, OSError):
+        _logger.warning("metabase_volume_lookup_failed")
     return None
 
 
@@ -412,8 +443,8 @@ def _create_local_archive(
     warnings: list[str] = []
 
     staging: Path | None = None
-    _stop_services()
     try:
+        _stop_services()
         warnings.extend(_checkpoint_databases())
         metabase_vol = _get_metabase_volume_path()
         # Fresh root-only (0700) directory with an unpredictable name.
@@ -549,6 +580,7 @@ def _verify_upload(spaces_config: dict[str, Any], key: str, local_size: int) -> 
         remote_size: int = response.get("ContentLength", 0)
         return remote_size == local_size
     except Exception:
+        _logger.warning("backup_upload_verification_failed", key=key, exc_info=True)
         return False
 
 
@@ -873,7 +905,6 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         _write_sanitized_metabase_yaml,
     )
     from dango.platform.cloud.backup_restore import (
-        AS_SERVICE_USER,
         AUTH_CONFIG_FILE,
         AUTH_CONFIG_MAX_BYTES,
         SAFE_EXTRACT_OPTIONS,
@@ -899,8 +930,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
     private_dir: Path | None = None
     try:
         _run_local(
-            f"tar -xzf {shlex.quote(str(local_path))} -C {shlex.quote(str(staging))}"
-            f" {SAFE_EXTRACT_OPTIONS}",
+            ["tar", "-xzf", str(local_path), "-C", str(staging), *SAFE_EXTRACT_OPTIONS.split()],
             step="extract",
         )
         # Re-check what was extracted (the archive file could change after the check).
@@ -926,7 +956,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                 )
                 sanitized = private_dir / SANITIZED_METABASE_NAME
                 _run_local(
-                    f"chown {SERVICE_USER}:{SERVICE_USER} {shlex.quote(str(sanitized))}",
+                    ["chown", f"{SERVICE_USER}:{SERVICE_USER}", str(sanitized)],
                     step="restore_files",
                 )
                 private_dir.chmod(0o711)
@@ -936,7 +966,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         # Project files are written as the service user, which owns the project tree.
         copies_started = True
         staging.chmod(0o755)
-        _run_local(hand_staging_to_service_user_cmd(str(staging)), step="restore_files")
+        _run_builder_script(hand_staging_to_service_user_cmd(str(staging)), step="restore_files")
         stamp = time.strftime("%Y%m%d-%H%M%S")
         for db_path in DATABASE_FILES:
             if not (staging / db_path).exists():
@@ -948,11 +978,11 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                 if live.exists() or live.is_symlink():
                     kept = f"{live}.pre-restore-{stamp}"
                     _run_local(
-                        f"{AS_SERVICE_USER} mv -f {shlex.quote(str(live))} {shlex.quote(kept)}",
+                        ["runuser", "-u", SERVICE_USER, "--", "mv", "-f", str(live), kept],
                         step="restore_files",
                     )
                     _logger.warning("restore_wal_kept", path=kept)
-        _run_local(
+        _run_builder_script(
             set_aside_pipeline_state_cmd(str(staging), str(PROJECT_DIR), stamp),
             step="restore_files",
         )
@@ -971,17 +1001,17 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         for fpath in BACKUP_FILES:
             src = staging / fpath
             if src.exists() and not (fpath == AUTH_CONFIG_FILE and skip_auth_config):
-                _run_local(
+                _run_builder_script(
                     restore_file_cmd(str(src), str(PROJECT_DIR / fpath)),
                     step="restore_files",
                 )
         if sanitized is not None:
-            _run_local(
+            _run_builder_script(
                 restore_file_cmd(str(sanitized), str(PROJECT_DIR / METABASE_CONFIG_FILE)),
                 step="restore_files",
             )
         for dpath in BACKUP_DIRS:
-            _run_local(
+            _run_builder_script(
                 restore_dir_cmd(str(staging / dpath), str(PROJECT_DIR / dpath)),
                 step="restore_dirs",
             )
@@ -997,17 +1027,14 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                         raise CloudProvisioningError(
                             f"Refusing to write through a symlink: {vol / h2}"
                         )
-                    _run_local(
-                        f"cp {shlex.quote(str(src))} {shlex.quote(metabase_vol + '/')}",
-                        step="restore_metabase",
-                    )
-        _run_local("chown -R dango:dango /srv/dango/project", step="fix_ownership")
+                    _run_local(["cp", str(src), metabase_vol + "/"], step="restore_metabase")
+        _run_local(["chown", "-R", "dango:dango", "/srv/dango/project"], step="fix_ownership")
     except Exception:
         if copies_started:
             # A failed copy leaves a partial, root-owned restore; give it back to
             # the service user before services restart on it.
             with contextlib.suppress(Exception):  # best effort; keep the original error
-                subprocess.run("chown -R dango:dango /srv/dango/project", shell=True, timeout=120)
+                subprocess.run(["chown", "-R", "dango:dango", "/srv/dango/project"], timeout=120)
         raise
     finally:
         for leftover in (staging, private_dir):
@@ -1019,8 +1046,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
 def enable_scheduled_backup() -> bool:
     """Enable the systemd backup timer. Returns True on success."""
     r = subprocess.run(
-        "systemctl enable --now dango-backup.timer",
-        shell=True,
+        ["systemctl", "enable", "--now", "dango-backup.timer"],
         capture_output=True,
         timeout=30,
     )
@@ -1030,8 +1056,7 @@ def enable_scheduled_backup() -> bool:
 def disable_scheduled_backup() -> bool:
     """Disable the systemd backup timer. Returns True on success."""
     r = subprocess.run(
-        "systemctl disable --now dango-backup.timer",
-        shell=True,
+        ["systemctl", "disable", "--now", "dango-backup.timer"],
         capture_output=True,
         timeout=30,
     )
@@ -1041,8 +1066,7 @@ def disable_scheduled_backup() -> bool:
 def is_scheduled_backup_enabled() -> bool:
     """Check if the backup timer is active."""
     r = subprocess.run(
-        "systemctl is-active dango-backup.timer",
-        shell=True,
+        ["systemctl", "is-active", "dango-backup.timer"],
         capture_output=True,
         text=True,
         timeout=10,
