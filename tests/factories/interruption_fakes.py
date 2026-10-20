@@ -18,7 +18,7 @@ from typing import Literal
 from unittest.mock import patch
 
 from dango.platform.cloud.ssh import CommandResult
-from tests.factories.root_compose_fakes import split_wrapper
+from tests.factories.root_compose_fakes import is_marker_probe, split_wrapper
 
 LOCK_PATH = "/srv/dango/deploy.lock"
 JOURNAL_PATH = "/srv/dango/project/.dango/state/deployments.jsonl"
@@ -159,6 +159,8 @@ class FakeServer:
         return shlex.split(head[: head.rindex(f" {redirect}")])[0]
 
     def _apply(self, cmd: str, *, partial: bool) -> CommandResult:
+        if is_marker_probe(cmd):
+            return self._fail()  # no compose helper on this server
         # A server without the compose helper runs only the legacy branch of a wrapped command.
         wrapped = split_wrapper(cmd)
         if wrapped is not None:

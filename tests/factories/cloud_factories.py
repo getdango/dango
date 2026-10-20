@@ -47,6 +47,12 @@ def make_ssh_mock_configurable(
     results = exec_results or {}
 
     def _exec_side_effect(command: str, **kwargs: object) -> CommandResult:
+        if command.startswith('[ -n "$(find ') and "-user root" in command:
+            # The compose-helper marker probe: absent unless a test says otherwise.
+            for substr, (stdout, stderr, exit_code) in results.items():
+                if substr in command:
+                    return CommandResult(stdout=stdout, stderr=stderr, exit_code=exit_code)
+            return CommandResult(stdout="", stderr="", exit_code=1)
         for substr, (stdout, stderr, exit_code) in results.items():
             if substr in command:
                 return CommandResult(stdout=stdout, stderr=stderr, exit_code=exit_code)

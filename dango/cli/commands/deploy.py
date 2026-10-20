@@ -560,20 +560,17 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
         try:
             ssh.connect(cloud_cfg.droplet_ip)
 
-            # 1. Stop dango-web systemd service
+            # 1. Stop dango-web (the unit is only removed once the Docker teardown succeeded,
+            #    so a failed teardown can be undone by starting it again)
             console.print("Stopping dango-web service...")
             ssh.exec_command("systemctl stop dango-web 2>/dev/null || true", timeout=15)
-            ssh.exec_command("systemctl disable dango-web 2>/dev/null || true", timeout=10)
-            ssh.exec_command(
-                "rm -f /etc/systemd/system/dango-web.service && systemctl daemon-reload",
-                timeout=10,
-            )
 
             # 2. Stop and remove Docker containers, volumes, images
             _server_project_dir = "/srv/dango/project"
             from dango.platform.cloud.backup import (
                 DOCKER_BUSY_MESSAGE,
                 get_remote_compose_project_name,
+                helper_branch_active,
                 root_helper_timeout,
             )
             from dango.platform.cloud.compose_helper import server_compose_cmd
@@ -590,12 +587,26 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
                         "--rmi local 2>/dev/null || true"
                     ),
                 ),
-                timeout=root_helper_timeout("destroy"),
+                timeout=root_helper_timeout("destroy") if helper_branch_active(ssh) else 120,
             )
-            if down.exit_code == EXIT_BUSY:
-                # Compose has not run: leave the server files and the local config for a retry.
-                console.print(f"[red]Error:[/red] {DOCKER_BUSY_MESSAGE}")
+            if down.exit_code != 0:
+                # Compose did not finish: leave the server files and the local config for a
+                # retry, and start dango-web again (its unit is still installed).
+                ssh.exec_command("systemctl start dango-web 2>/dev/null || true", timeout=15)
+                detail = (
+                    DOCKER_BUSY_MESSAGE
+                    if down.exit_code == EXIT_BUSY
+                    else f"The Docker teardown failed (exit {down.exit_code}); retry later."
+                )
+                console.print(f"[red]Error:[/red] {detail} dango-web was started again.")
                 raise click.Abort()
+
+            # 2b. Remove the dango-web unit
+            ssh.exec_command("systemctl disable dango-web 2>/dev/null || true", timeout=10)
+            ssh.exec_command(
+                "rm -f /etc/systemd/system/dango-web.service && systemctl daemon-reload",
+                timeout=10,
+            )
 
             # 3. Remove all Dango files
             console.print("Removing server files...")

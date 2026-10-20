@@ -89,7 +89,7 @@ def test_every_verb_has_a_budget_and_callers_get_a_longer_timeout() -> None:
 def test_server_compose_cmd_uses_the_helper_only_with_the_marker() -> None:
     cmd = ch.server_compose_cmd("stop", "metabase", legacy="docker compose stop metabase")
     assert cmd == (
-        f"if [ -f {ch.MARKER} ] && [ ! -L {ch.MARKER} ]; then {ch.HELPER_PATH} stop metabase;"
+        f"if {ch.MARKER_TEST}; then {ch.HELPER_PATH} stop metabase;"
         " else docker compose stop metabase; fi"
     )
     with pytest.raises(ValueError):

@@ -118,7 +118,7 @@ class TestCreateBackupBusy:
         ):
             result = backup.create_backup(ssh)
         assert any("dango-compose start metabase" in w for w in result.warnings)
-        assert ssh.events[-1] == "web:start"
+        assert "web:start" in ssh.events
 
 
 class TestVolumePath:

@@ -51,6 +51,7 @@ from dango.platform.cloud.backup_restore import (
 )
 from dango.platform.cloud.compose_helper import (
     CALLER_MARGIN,
+    MARKER_TEST,
     ROOT_LOCK_WAIT,
     VERB_BUDGET,
     server_compose_cmd,
@@ -80,7 +81,11 @@ DOCKER_BUSY_MESSAGE = (
 )
 
 
-class DockerBusyError(CloudProvisioningError):
+class ComposeStopError(CloudProvisioningError):
+    """Metabase could not be stopped through the helper; the services are running again."""
+
+
+class DockerBusyError(ComposeStopError):
     """The compose helper was busy; the services were left (or put back) running."""
 
 
@@ -448,12 +453,26 @@ def _check_disk_space(ssh: SSHManager, required_mb: int = 500) -> None:
             _logger.warning("disk_usage_warning_skipped", reason="unparseable df output")
 
 
+def helper_branch_active(ssh: SSHManager) -> bool:
+    """True when the compose helper is installed and trusted (same test as the command wrapper)."""
+    return ssh.exec_command(MARKER_TEST, timeout=15).success
+
+
+def _stop_failure(code: int) -> ComposeStopError:
+    if code == EXIT_BUSY:
+        return DockerBusyError(DOCKER_BUSY_MESSAGE)
+    return ComposeStopError(
+        f"Metabase could not be stopped (compose helper exit {code}); the services were left running."
+    )
+
+
 def stop_services(ssh: SSHManager) -> None:
     """Stop dango-web and Metabase to ensure no concurrent writes.
 
     Best-effort — does not raise if services are already stopped.  With the compose
-    helper, Metabase is stopped first (a busy helper aborts with nothing stopped) and
-    again after dango-web, which could have started it in between.
+    helper, Metabase is stopped first (a busy or failed helper aborts with nothing
+    stopped) and again after dango-web, which could have started it in between; any
+    non-zero helper exit is a failure.
     """
     compose_project = get_remote_compose_project_name(ssh)
     compose_dir = f"{PROJECT_DIR}/docker-compose.yml"
@@ -461,54 +480,70 @@ def stop_services(ssh: SSHManager) -> None:
         f"COMPOSE_PROJECT_NAME={compose_project} docker compose -f {compose_dir} "
         "stop metabase 2>/dev/null || true"
     )
-    timeout = root_helper_timeout("stop")
+    helper = helper_branch_active(ssh)
     first = ssh.exec_command(
         server_compose_cmd("stop", "metabase", legacy="true"),
-        timeout=timeout,
+        timeout=root_helper_timeout("stop") if helper else 60,
     )
-    if first.exit_code == EXIT_BUSY:
-        raise DockerBusyError(DOCKER_BUSY_MESSAGE)
+    if first.exit_code != 0:
+        if first.exit_code != EXIT_BUSY:
+            start_services(ssh)  # a timed-out stop may have completed
+        raise _stop_failure(first.exit_code)
     result = ssh.exec_command("systemctl stop dango-web", timeout=60)
     if result.exit_code != 0:
         _logger.warning("service_stop_failed", service="dango-web", stderr=result.stderr)
     result = ssh.exec_command(
         server_compose_cmd("stop", "metabase", legacy=legacy_stop),
-        timeout=timeout,
+        timeout=root_helper_timeout("stop") if helper else 120,
     )
-    if result.exit_code == EXIT_BUSY:
-        start_services(ssh)  # dango-web is already down: put everything back before aborting
-        raise DockerBusyError(DOCKER_BUSY_MESSAGE)
     if result.exit_code != 0:
-        _logger.warning("service_stop_failed", service="metabase", stderr=result.stderr)
+        if not helper:
+            _logger.warning("service_stop_failed", service="metabase", stderr=result.stderr)
+            return
+        start_services(ssh)  # dango-web is already down: put everything back before aborting
+        raise _stop_failure(result.exit_code)
 
 
 def start_services(ssh: SSHManager) -> str | None:
     """Start Metabase then dango-web (reverse order of stop).
 
-    A busy compose helper does not keep dango-web down (its own start brings Metabase
-    up); the returned message tells the caller that Metabase was not started here.
+    With the compose helper dango-web is started first, whatever the helper does: its own
+    start brings Metabase up, so a busy or failing helper never keeps the service down.
+    Returns a message when Metabase was not started here.
     """
     compose_project = get_remote_compose_project_name(ssh)
     legacy_start = (
         f"COMPOSE_PROJECT_NAME={compose_project} docker compose -f {PROJECT_DIR}/docker-compose.yml "
         "start metabase 2>/dev/null || true"
     )
-    message: str | None = None
+    helper = helper_branch_active(ssh)
+
+    def _web() -> None:
+        result = ssh.exec_command("systemctl start dango-web", timeout=60)
+        if result.exit_code != 0:
+            _logger.warning("service_start_failed", service="dango-web", stderr=result.stderr)
+
+    if helper:
+        _web()
     result = ssh.exec_command(
         server_compose_cmd("start", "metabase", legacy=legacy_start),
-        timeout=root_helper_timeout("start"),
+        timeout=root_helper_timeout("start") if helper else 120,
     )
-    if result.exit_code == EXIT_BUSY:
-        message = (
-            "Metabase was not started: another Docker operation was in progress. "
-            "Run `dango-compose start metabase` on the server once it finishes."
-        )
-        _logger.error("service_start_busy", service="metabase")
-    elif result.exit_code != 0:
-        _logger.warning("service_start_failed", service="metabase", stderr=result.stderr)
-    result = ssh.exec_command("systemctl start dango-web", timeout=60)
+    message: str | None = None
     if result.exit_code != 0:
-        _logger.warning("service_start_failed", service="dango-web", stderr=result.stderr)
+        _logger.warning("service_start_failed", service="metabase", stderr=result.stderr)
+        if helper:
+            reason = (
+                "another Docker operation was in progress"
+                if result.exit_code == EXIT_BUSY
+                else (f"the compose helper exited {result.exit_code}")
+            )
+            message = (
+                f"Metabase was not started: {reason}. "
+                "Run `dango-compose start metabase` on the server once it is free."
+            )
+    if not helper:
+        _web()
     return message
 
 
@@ -573,10 +608,11 @@ def _get_metabase_volume_path(ssh: SSHManager) -> str | None:
         f"docker volume inspect {compose_project}_metabase-data "
         "--format '{{.Mountpoint}}' 2>/dev/null"
     )
-    result = ssh.exec_command(
-        server_compose_cmd("volume-path", legacy=legacy),
-        timeout=root_helper_timeout("volume-path"),
-    )
+    command = server_compose_cmd("volume-path", legacy=legacy)
+    if helper_branch_active(ssh):
+        result = ssh.exec_command(command, timeout=root_helper_timeout("volume-path"))
+    else:
+        result = ssh.exec_command(command)
     return result.stdout.strip() if result.success and result.stdout.strip() else None
 
 
@@ -778,7 +814,7 @@ def create_backup(
         _notify(on_progress, "stop_services", "running")
         try:
             stop_services(ssh)
-        except DockerBusyError:
+        except ComposeStopError:
             nothing_stopped = True  # the services are still (or again) running
             raise
         _notify(on_progress, "stop_services", "done")

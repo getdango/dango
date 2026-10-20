@@ -209,6 +209,7 @@ def remote_repair(ctx: click.Context) -> None:
         from dango.platform.cloud.backup import (
             DOCKER_BUSY_MESSAGE,
             get_remote_compose_project_name,
+            helper_branch_active,
             root_helper_timeout,
         )
         from dango.platform.cloud.compose_helper import server_compose_cmd
@@ -217,6 +218,7 @@ def remote_repair(ctx: click.Context) -> None:
         _proj_name = get_remote_compose_project_name(ssh, _server_project_dir)
 
         # Start Docker containers (through the compose helper when the server has one)
+        helper_on = helper_branch_active(ssh)
         start_mb = ssh.exec_command(
             server_compose_cmd(
                 "start",
@@ -227,10 +229,15 @@ def remote_repair(ctx: click.Context) -> None:
                     "2>/dev/null || true"
                 ),
             ),
-            timeout=root_helper_timeout("start"),
+            timeout=root_helper_timeout("start") if helper_on else 120,
         )
-        if start_mb.exit_code == EXIT_BUSY:
-            console.print(f"  [red]Metabase was not started:[/red] {DOCKER_BUSY_MESSAGE}")
+        if start_mb.exit_code != 0:
+            detail = (
+                DOCKER_BUSY_MESSAGE
+                if start_mb.exit_code == EXIT_BUSY
+                else f"the compose helper exited {start_mb.exit_code}."
+            )
+            console.print(f"  [red]Metabase was not started:[/red] {detail}")
             issues_found += 1
 
         # Restart dango-web
@@ -324,6 +331,7 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         from dango.platform.cloud.backup import (
             DOCKER_BUSY_MESSAGE,
             get_remote_compose_project_name,
+            helper_branch_active,
             root_helper_timeout,
         )
         from dango.platform.cloud.compose_helper import server_compose_cmd
@@ -368,14 +376,19 @@ def remote_reset_metabase(ctx: click.Context) -> None:
                     "2>/dev/null || true"
                 ),
             ),
-            timeout=root_helper_timeout("down-volumes"),
+            timeout=root_helper_timeout("down-volumes") if helper_branch_active(ssh) else 60,
         )
-        if down_mb.exit_code == EXIT_BUSY:
-            # Compose has not run: nothing was removed. Put dango-web back and let the user retry.
+        if down_mb.exit_code != 0:
+            # The volume was not removed (busy or failed): nothing else is deleted. Put
+            # dango-web back and let the user retry.
             ssh.exec_command("systemctl start dango-web", timeout=30)
+            detail = (
+                DOCKER_BUSY_MESSAGE
+                if down_mb.exit_code == EXIT_BUSY
+                else f"The Metabase volume could not be removed (exit {down_mb.exit_code}); retry later."
+            )
             console.print(
-                f"[red]Error:[/red] {DOCKER_BUSY_MESSAGE} Nothing was removed; "
-                "dango-web was started again."
+                f"[red]Error:[/red] {detail} Nothing was removed; dango-web was started again."
             )
             raise click.Abort()
 

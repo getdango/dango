@@ -202,6 +202,7 @@ User=root
 WorkingDirectory=/srv/dango
 ExecStart=/srv/dango/venv/bin/python -I -m dango.platform.cloud.scheduled_backup
 TimeoutStartSec=900
+TimeoutStopSec=300
 
 [Install]
 WantedBy=multi-user.target

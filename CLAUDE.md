@@ -385,7 +385,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/schedule.py` | 1162 | — (schedule wizard + time customization) |
 | `cli/model_wizard.py` | 510 | — |
 | `cli/commands/remote_backup.py` | 805 | — (R2-D10: --from-local flag) |
-| `platform/cloud/scheduled_backup.py` | 1061 | — (server-side scheduled backup) |
+| `platform/cloud/scheduled_backup.py` | 1226 | — (server-side scheduled backup) |
 | `governance/schema_drift.py` | 654 | — (R9-D: breaking drift protection + accept flow) |
 | `governance/pii_detector.py` | 632 | — (BUG-027/BUG-133/BUG-139/BUG-185: spaCy fallback + PERSON threshold + override application + structured data heuristic) |
 | `platform/scheduling/scheduler.py` | 514 | — (1.0.8-Q: `_setup_telemetry_heartbeat()`, a fourth fixed internal scheduler job) |

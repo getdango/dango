@@ -102,6 +102,7 @@ class TestRemoteResetMetabaseCredentials:
         ssh.exec_command.side_effect = [
             self._result(project_id_output, success=lookup_success),
             self._result(),  # stop dango-web (only after the id validated)
+            self._result(success=False),  # compose-helper marker probe (legacy server)
             self._result(),  # compose down
             self._result(),  # remove metabase.yml
             self._result(success=delete_success),  # remove protected credential
