@@ -26,6 +26,8 @@ from typing import Any
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.compose_helper import COMPOSE_DIR, HELPER_PATH, SRV_DIR
+from dango.platform.compose_exec import EXIT_BUSY, uses_helper
 from dango.platform.docker import get_compose_project_name
 from dango.utils.env_file import parse_env_file
 
@@ -139,19 +141,143 @@ def _metabase_compose(action: str) -> None:
     )
 
 
+#: Shown when the compose helper reports that another Docker operation holds its lock.
+DOCKER_BUSY_MESSAGE = (
+    "Another Docker operation is in progress on the server; the backup was not started "
+    "and will be retried on the next run."
+)
+
+
+#: A helper call may take at most this long: the timer's unit has 900 s in all, and a
+#: stop, a start and the dango-web commands must fit inside it (and in ``TimeoutStopSec``).
+_HELPER_CALL_LIMIT = 120
+#: Grace after SIGTERM (the helper forwards it to Docker) before the call is killed.
+_HELPER_TERM_GRACE = 15
+#: The helper is used only when these are root-owned and not group/other-writable too.
+_HELPER_PARENT_DIRS = (SRV_DIR, COMPOSE_DIR)
+_TRUSTED_UID = 0
+
+
+def _helper_enabled() -> bool:
+    """The trusted marker exists and its parent directories are root-owned and not writable by others."""
+    if not uses_helper():
+        return False
+    try:
+        for path in _HELPER_PARENT_DIRS:
+            info = os.lstat(path)
+            if (
+                not stat.S_ISDIR(info.st_mode)
+                or info.st_uid != _TRUSTED_UID
+                or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+            ):
+                return False
+    except OSError:
+        return False
+    return True
+
+
+def _helper_call(verb: str, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run a compose-helper verb as root for at most ``_HELPER_CALL_LIMIT`` seconds.
+
+    On timeout the helper gets SIGTERM (it stops its Docker child), then SIGKILL, and
+    ``TimeoutExpired`` is raised: a call that gave up never leaves a queued helper behind.
+    """
+    argv = [HELPER_PATH, verb, *args]
+    proc = subprocess.Popen(
+        argv,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        out, err = proc.communicate(timeout=_HELPER_CALL_LIMIT)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:
+            proc.wait(timeout=_HELPER_TERM_GRACE)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        raise
+    return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+
+
+def _helper_stop_metabase() -> None:
+    """Stop Metabase through the helper; busy, timeout or any non-zero exit aborts.
+
+    A busy helper means nothing was stopped; for any other failure (a timed-out stop may
+    have completed) the caller's restart path must run, so the error says so.
+    """
+    try:
+        result = _helper_call("stop", "metabase")
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        raise _HelperStopFailed(f"{DOCKER_BUSY_MESSAGE} (stop timed out)", restart=True) from exc
+    if result.returncode == EXIT_BUSY:
+        raise _HelperStopFailed(DOCKER_BUSY_MESSAGE, restart=False)
+    if result.returncode != 0:
+        raise _HelperStopFailed(
+            f"Metabase could not be stopped (compose helper exit {result.returncode}).",
+            restart=True,
+        )
+
+
+class _HelperStopFailed(CloudProvisioningError):
+    """A helper stop failed; ``restart`` says whether the restart path must run."""
+
+    def __init__(self, message: str, *, restart: bool) -> None:
+        super().__init__(message)
+        self.restart = restart
+
+
 def _stop_services() -> None:
     """Stop dango-web and Metabase.
 
-    Best-effort — does not raise if services are already stopped.
+    Best-effort — does not raise if services are already stopped.  With the compose
+    helper, Metabase is stopped first (a busy or failed helper aborts with nothing
+    stopped) and again after dango-web, which could have started it in between.
     """
+    if not _helper_enabled():
+        _run_best_effort(["systemctl", "stop", "dango-web"], timeout=60)
+        _metabase_compose("stop")
+        return
+    try:
+        _helper_stop_metabase()
+    except _HelperStopFailed as exc:
+        if exc.restart:
+            _start_services()
+        raise
     _run_best_effort(["systemctl", "stop", "dango-web"], timeout=60)
-    _metabase_compose("stop")
+    try:
+        _helper_stop_metabase()
+    except _HelperStopFailed:
+        _start_services()  # dango-web is already down: put everything back before aborting
+        raise
 
 
 def _start_services() -> None:
-    """Start Metabase then dango-web."""
-    _metabase_compose("start")
+    """Start Metabase then dango-web.
+
+    With the helper dango-web is started first, whatever the helper does: its own start
+    brings Metabase up, so a busy, hung or failing helper never keeps the service down.
+    """
+    if not _helper_enabled():
+        _metabase_compose("start")
+        _run_best_effort(["systemctl", "start", "dango-web"], timeout=60)
+        return
     _run_best_effort(["systemctl", "start", "dango-web"], timeout=60)
+    try:
+        result = _helper_call("start", "metabase")
+        failed = result.returncode
+    except (subprocess.TimeoutExpired, OSError):
+        failed = -1
+    if failed != 0:
+        _logger.error(
+            "service_start_failed",
+            service="metabase",
+            returncode=failed,
+            hint="run `dango-compose start metabase` once the other operation finishes",
+        )
 
 
 _CHECKPOINT_SCRIPTS = {
@@ -239,21 +365,24 @@ def _checkpoint_sqlite(db_path: Path) -> str | None:
 
 def _get_metabase_volume_path() -> str | None:
     """Discover the host path of the Metabase H2 Docker volume."""
-    compose_project = get_compose_project_name(PROJECT_DIR)
     try:
-        result = subprocess.run(
-            [
-                "docker",
-                "volume",
-                "inspect",
-                f"{compose_project}_metabase-data",
-                "--format",
-                "{{.Mountpoint}}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        if _helper_enabled():
+            result = _helper_call("volume-path")
+        else:
+            compose_project = get_compose_project_name(PROJECT_DIR)
+            result = subprocess.run(
+                [
+                    "docker",
+                    "volume",
+                    "inspect",
+                    f"{compose_project}_metabase-data",
+                    "--format",
+                    "{{.Mountpoint}}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
     except (subprocess.TimeoutExpired, OSError):
@@ -443,8 +572,13 @@ def _create_local_archive(
     warnings: list[str] = []
 
     staging: Path | None = None
+    nothing_stopped = False
     try:
-        _stop_services()
+        try:
+            _stop_services()
+        except CloudProvisioningError:
+            nothing_stopped = True  # a busy helper: the services are still (or again) running
+            raise
         warnings.extend(_checkpoint_databases())
         metabase_vol = _get_metabase_volume_path()
         # Fresh root-only (0700) directory with an unpredictable name.
@@ -557,7 +691,8 @@ def _create_local_archive(
     finally:
         if staging is not None:
             shutil.rmtree(staging, ignore_errors=True)
-        _start_services()
+        if not nothing_stopped:
+            _start_services()
 
     return archive_path, manifest, warnings
 
@@ -942,8 +1077,13 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         raise
 
     copies_started = False
+    nothing_stopped = False
     try:
-        _stop_services()
+        try:
+            _stop_services()
+        except CloudProvisioningError:
+            nothing_stopped = True  # a busy helper: the services are still (or again) running
+            raise
         # Sanitize Metabase metadata as root into a fresh private directory
         # (never into staging or the project tree), then let the service user read it.
         metabase_source = staging / METABASE_CONFIG_FILE
@@ -1040,7 +1180,8 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         for leftover in (staging, private_dir):
             if leftover is not None:
                 shutil.rmtree(leftover, ignore_errors=True)
-        _start_services()
+        if not nothing_stopped:
+            _start_services()
 
 
 def enable_scheduled_backup() -> bool:

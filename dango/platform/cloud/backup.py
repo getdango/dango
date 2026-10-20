@@ -49,7 +49,15 @@ from dango.platform.cloud.backup_restore import (
     skipped_warning,
     wal_sidecar_names,
 )
+from dango.platform.cloud.compose_helper import (
+    CALLER_MARGIN,
+    MARKER_TEST,
+    ROOT_LOCK_WAIT,
+    VERB_BUDGET,
+    server_compose_cmd,
+)
 from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
+from dango.platform.compose_exec import EXIT_BUSY
 from dango.platform.docker import _legacy_path_hash
 
 _logger = get_logger(__name__)
@@ -67,6 +75,25 @@ MAX_LOCAL_BACKUPS = 1
 RESTORE_STAGING_ROOT = "/tmp"
 #: Parent of the private (``mktemp -d``, 0700) per-backup staging directories.
 BACKUP_STAGING_ROOT = "/tmp"
+#: Shown when the compose helper reports that another Docker operation holds its lock.
+DOCKER_BUSY_MESSAGE = (
+    "Another Docker operation is in progress on the server; wait a few minutes and retry."
+)
+
+
+class ComposeStopError(CloudProvisioningError):
+    """Metabase could not be stopped through the helper; the services are running again."""
+
+
+class DockerBusyError(ComposeStopError):
+    """The compose helper was busy; the services were left (or put back) running."""
+
+
+def root_helper_timeout(verb: str) -> int:
+    """SSH timeout for a root-side helper call: lock wait + verb budget + margin."""
+    return ROOT_LOCK_WAIT + VERB_BUDGET[verb] + CALLER_MARGIN
+
+
 # A project id is uuid4().hex; only the first 8 characters become the compose project name,
 # and that name is interpolated into remote shell commands, so its shape is enforced here.
 _COMPOSE_ID_PREFIX_RE = re.compile(r"[a-f0-9]{8}")
@@ -426,35 +453,98 @@ def _check_disk_space(ssh: SSHManager, required_mb: int = 500) -> None:
             _logger.warning("disk_usage_warning_skipped", reason="unparseable df output")
 
 
+def helper_branch_active(ssh: SSHManager) -> bool:
+    """True when the compose helper is installed and trusted (same test as the command wrapper)."""
+    return ssh.exec_command(MARKER_TEST, timeout=15).success
+
+
+def _stop_failure(code: int) -> ComposeStopError:
+    if code == EXIT_BUSY:
+        return DockerBusyError(DOCKER_BUSY_MESSAGE)
+    return ComposeStopError(
+        f"Metabase could not be stopped (compose helper exit {code}); the services were left running."
+    )
+
+
 def stop_services(ssh: SSHManager) -> None:
     """Stop dango-web and Metabase to ensure no concurrent writes.
 
-    Best-effort — does not raise if services are already stopped.
+    Best-effort — does not raise if services are already stopped.  With the compose
+    helper, Metabase is stopped first (a busy or failed helper aborts with nothing
+    stopped) and again after dango-web, which could have started it in between; any
+    non-zero helper exit is a failure.
     """
     compose_project = get_remote_compose_project_name(ssh)
+    compose_dir = f"{PROJECT_DIR}/docker-compose.yml"
+    legacy_stop = (
+        f"COMPOSE_PROJECT_NAME={compose_project} docker compose -f {compose_dir} "
+        "stop metabase 2>/dev/null || true"
+    )
+    helper = helper_branch_active(ssh)
+    first = ssh.exec_command(
+        server_compose_cmd("stop", "metabase", legacy="true"),
+        timeout=root_helper_timeout("stop") if helper else 60,
+    )
+    if first.exit_code != 0:
+        if first.exit_code != EXIT_BUSY:
+            start_services(ssh)  # a timed-out stop may have completed
+        raise _stop_failure(first.exit_code)
     result = ssh.exec_command("systemctl stop dango-web", timeout=60)
     if result.exit_code != 0:
         _logger.warning("service_stop_failed", service="dango-web", stderr=result.stderr)
     result = ssh.exec_command(
-        f"COMPOSE_PROJECT_NAME={compose_project} docker compose -f {PROJECT_DIR}/docker-compose.yml stop metabase 2>/dev/null || true",
-        timeout=120,
+        server_compose_cmd("stop", "metabase", legacy=legacy_stop),
+        timeout=root_helper_timeout("stop") if helper else 120,
     )
     if result.exit_code != 0:
-        _logger.warning("service_stop_failed", service="metabase", stderr=result.stderr)
+        if not helper:
+            _logger.warning("service_stop_failed", service="metabase", stderr=result.stderr)
+            return
+        start_services(ssh)  # dango-web is already down: put everything back before aborting
+        raise _stop_failure(result.exit_code)
 
 
-def start_services(ssh: SSHManager) -> None:
-    """Start Metabase then dango-web (reverse order of stop)."""
+def start_services(ssh: SSHManager) -> str | None:
+    """Start Metabase then dango-web (reverse order of stop).
+
+    With the compose helper dango-web is started first, whatever the helper does: its own
+    start brings Metabase up, so a busy or failing helper never keeps the service down.
+    Returns a message when Metabase was not started here.
+    """
     compose_project = get_remote_compose_project_name(ssh)
-    result = ssh.exec_command(
-        f"COMPOSE_PROJECT_NAME={compose_project} docker compose -f {PROJECT_DIR}/docker-compose.yml start metabase 2>/dev/null || true",
-        timeout=120,
+    legacy_start = (
+        f"COMPOSE_PROJECT_NAME={compose_project} docker compose -f {PROJECT_DIR}/docker-compose.yml "
+        "start metabase 2>/dev/null || true"
     )
+    helper = helper_branch_active(ssh)
+
+    def _web() -> None:
+        result = ssh.exec_command("systemctl start dango-web", timeout=60)
+        if result.exit_code != 0:
+            _logger.warning("service_start_failed", service="dango-web", stderr=result.stderr)
+
+    if helper:
+        _web()
+    result = ssh.exec_command(
+        server_compose_cmd("start", "metabase", legacy=legacy_start),
+        timeout=root_helper_timeout("start") if helper else 120,
+    )
+    message: str | None = None
     if result.exit_code != 0:
         _logger.warning("service_start_failed", service="metabase", stderr=result.stderr)
-    result = ssh.exec_command("systemctl start dango-web", timeout=60)
-    if result.exit_code != 0:
-        _logger.warning("service_start_failed", service="dango-web", stderr=result.stderr)
+        if helper:
+            reason = (
+                "another Docker operation was in progress"
+                if result.exit_code == EXIT_BUSY
+                else (f"the compose helper exited {result.exit_code}")
+            )
+            message = (
+                f"Metabase was not started: {reason}. "
+                "Run `dango-compose start metabase` on the server once it is free."
+            )
+    if not helper:
+        _web()
+    return message
 
 
 def _checkpoint_duckdb(ssh: SSHManager) -> bool:
@@ -514,10 +604,15 @@ def _checkpoint_sqlite(ssh: SSHManager, rel_path: str) -> str | None:
 def _get_metabase_volume_path(ssh: SSHManager) -> str | None:
     """Discover the host path of the project's Metabase H2 Docker volume."""
     compose_project = get_remote_compose_project_name(ssh)
-    result = ssh.exec_command(
+    legacy = (
         f"docker volume inspect {compose_project}_metabase-data "
         "--format '{{.Mountpoint}}' 2>/dev/null"
     )
+    command = server_compose_cmd("volume-path", legacy=legacy)
+    if helper_branch_active(ssh):
+        result = ssh.exec_command(command, timeout=root_helper_timeout("volume-path"))
+    else:
+        result = ssh.exec_command(command)
     return result.stdout.strip() if result.success and result.stdout.strip() else None
 
 
@@ -712,10 +807,16 @@ def create_backup(
     _check_disk_space(ssh)
     _notify(on_progress, "check_disk_space", "done")
 
+    nothing_stopped = False
+    start_warning: str | None = None
     try:
         # Inside the try: an interruption after the stop must still restart the services.
         _notify(on_progress, "stop_services", "running")
-        stop_services(ssh)
+        try:
+            stop_services(ssh)
+        except ComposeStopError:
+            nothing_stopped = True  # the services are still (or again) running
+            raise
         _notify(on_progress, "stop_services", "done")
 
         _notify(on_progress, "checkpoint_databases", "running")
@@ -747,12 +848,14 @@ def create_backup(
         )
         _notify(on_progress, "create_archive", "done")
     finally:
-        if restart_services:
+        if restart_services and not nothing_stopped:
             try:
                 _notify(on_progress, "start_services", "running")
             finally:
-                start_services(ssh)
+                start_warning = start_services(ssh)
             _notify(on_progress, "start_services", "done")
+    if start_warning:
+        warnings.append(start_warning)
 
     _notify(on_progress, "rotate_backups", "running")
     rotate_local_backups(ssh, keep=on_server_retention)

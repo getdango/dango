@@ -298,9 +298,26 @@ def self_test_command() -> str:
     return f"runuser -u dango -- sudo -n {HELPER_PATH} self-test"
 
 
+def _trusted(path: str, kind: str) -> str:
+    return f'[ -n "$(find {path} -maxdepth 0 -type {kind} -user root ! -perm /022 2>/dev/null)" ]'
+
+
+#: Shell test for "the helper is installed and in use": the marker is a root-owned regular
+#: file nobody else can write (``find`` without ``-L`` rejects symlinks), inside root-owned,
+#: non-writable ``/srv/dango`` and ``compose/``.  On a server whose ``/srv/dango`` the service
+#: user still owns, the service user can create a marker, but never one that passes this test.
+MARKER_TEST = " && ".join(
+    (_trusted(MARKER, "f"), _trusted(SRV_DIR, "d"), _trusted(COMPOSE_DIR, "d"))
+)
+
+
 def server_compose_cmd(verb: str, *args: str, legacy: str) -> str:
-    """Root-side command: the helper when the marker is present, else *legacy* unchanged."""
+    """Root-side command: the helper when the trusted marker exists, else *legacy* unchanged.
+
+    The helper branch returns the helper's real exit status (callers treat any non-zero as a
+    failure, 75 meaning busy); only the legacy string carries ``|| true``.
+    """
     if verb not in VERB_BUDGET:
         raise ValueError(f"unknown helper verb: {verb}")
     helper = " ".join(shlex.quote(p) for p in (HELPER_PATH, verb, *args))
-    return f"if [ -f {MARKER} ] && [ ! -L {MARKER} ]; then {helper}; else {legacy}; fi"
+    return f"if {MARKER_TEST}; then {helper}; else {legacy}; fi"
