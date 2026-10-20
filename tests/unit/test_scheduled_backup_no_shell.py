@@ -87,7 +87,6 @@ def test_staging_path_with_quote_is_safe(tmp_path: Path) -> None:
     staging = tmp_path / "it's a dir"
     staging.mkdir()
     (staging / "f").write_text("x")
-    scheduled_backup._run_local(["ls", str(staging)], step="t")
     out = scheduled_backup._run_local(["ls", str(staging)], step="t")
     assert out.strip() == "f"
     with patch(f"{_MODULE}.subprocess.run") as run:
@@ -119,3 +118,16 @@ def test_services_restart_when_stop_is_interrupted(tmp_path: Path) -> None:
     ):
         scheduled_backup._create_local_archive("daily")
     start.assert_called_once()
+
+
+@pytest.mark.unit
+def test_best_effort_logs_nonzero_exit() -> None:
+    with (
+        patch(f"{_MODULE}.subprocess.run") as run,
+        patch(f"{_MODULE}._logger") as logger,
+    ):
+        run.return_value = MagicMock(returncode=5)
+        scheduled_backup._run_best_effort(["systemctl", "stop", "dango-web"], timeout=5)
+    logger.warning.assert_called_once()
+    assert logger.warning.call_args.kwargs["program"] == "systemctl"
+    assert logger.warning.call_args.kwargs["returncode"] == 5
