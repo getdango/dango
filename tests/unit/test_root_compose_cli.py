@@ -76,6 +76,17 @@ class TestRepairStart:
         assert "Docker operation" in result.output
         assert ssh.events[-1] == "web:start"
 
+    def test_failed_start_is_reported(self) -> None:
+        ssh = _CliSSH(helper=True, rc={"start metabase": 127})
+        result = _invoke(remote_repair, ssh)
+        assert "not started" in result.output
+        assert ssh.events[-1] == "web:start"
+
+    def test_legacy_timeout_is_unchanged(self) -> None:
+        ssh = _CliSSH(helper=False)
+        _invoke(remote_repair, ssh)
+        assert ssh.timeout_of("start metabase") == 120
+
     def test_legacy_command_unchanged(self) -> None:
         ssh = _CliSSH(helper=False)
         _invoke(remote_repair, ssh)
@@ -102,6 +113,20 @@ class TestResetMetabase:
         assert "retry" in result.output.lower()
         assert ssh.events[-1] == "web:start"
         assert not any("metabase.yml" in c or "rm -f /srv/dango/secrets" in c for c in ssh.commands)
+
+    @pytest.mark.parametrize("code", [1, 64, 124, 127])
+    def test_failed_volume_removal_deletes_nothing_else(self, code: int) -> None:
+        ssh = _CliSSH(helper=True, rc={"down-volumes metabase": code})
+        result = _invoke(remote_reset_metabase, ssh, input="reset\n")
+        assert result.exit_code != 0
+        assert ssh.events[-1] == "web:start"
+        assert not any("metabase.yml" in c and "rm" in c for c in ssh.commands)
+        assert not any("rm -f /srv/dango/secrets" in c for c in ssh.commands)
+
+    def test_legacy_timeout_is_unchanged(self) -> None:
+        ssh = _CliSSH(helper=False)
+        _invoke(remote_reset_metabase, ssh, input="reset\n")
+        assert ssh.timeout_of("down metabase --volumes") == 60
 
     def test_legacy_command_unchanged(self) -> None:
         ssh = _CliSSH(helper=False)
@@ -147,6 +172,35 @@ class TestDestroy:
         assert "retry" in result.output.lower()
         assert not any(c.startswith("rm -rf /srv/dango") for c in ssh.commands)
         assert cloud_yml.exists()
+
+    @pytest.mark.parametrize("code", [1, 64, 124, 127])
+    def test_failed_destroy_aborts_before_removing_anything(
+        self, tmp_path: Path, code: int
+    ) -> None:
+        ssh = FakeRootSSH(helper=True, rc={"destroy": code})
+        result, cloud_yml = _destroy(ssh, tmp_path)
+        assert result.exit_code != 0
+        assert not any(c.startswith("rm -rf /srv/dango") for c in ssh.commands)
+        assert cloud_yml.exists()
+
+    def test_compose_destroy_runs_before_the_systemd_teardown(self, tmp_path: Path) -> None:
+        ssh = FakeRootSSH(helper=True)
+        _destroy(ssh, tmp_path)
+        destroy = next(i for i, c in enumerate(ssh.commands) if "dango-compose destroy" in c)
+        teardown = next(i for i, c in enumerate(ssh.commands) if "rm -f /etc/systemd" in c)
+        assert destroy < teardown
+
+    def test_busy_leaves_dango_web_installed_and_running(self, tmp_path: Path) -> None:
+        ssh = FakeRootSSH(helper=True, rc={"destroy": 75})
+        _destroy(ssh, tmp_path)
+        assert not any("rm -f /etc/systemd" in c for c in ssh.commands)
+        assert not any("systemctl disable" in c for c in ssh.commands)
+        assert ssh.events[-1] == "web:start"
+
+    def test_legacy_timeout_is_unchanged(self, tmp_path: Path) -> None:
+        ssh = FakeRootSSH(helper=False)
+        _destroy(ssh, tmp_path)
+        assert ssh.timeout_of("down --volumes") == 120
 
     def test_legacy_command_unchanged(self, tmp_path: Path) -> None:
         ssh = FakeRootSSH(helper=False)

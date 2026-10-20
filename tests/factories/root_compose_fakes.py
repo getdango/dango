@@ -13,9 +13,16 @@ from dango.platform.cloud import compose_helper as ch
 from dango.platform.cloud.ssh import CommandResult
 
 _WRAPPER = re.compile(
-    r"^if \[ -f (?P<marker>\S+) \] && \[ ! -L \S+ \]; then (?P<helper>.*?); else (?P<legacy>.*); fi$",
+    r"^if (?P<test>.+?); then (?P<helper>.*?); else (?P<legacy>.*); fi$",
     re.DOTALL,
 )
+#: The marker probe the callers run once per operation (exit 0 = helper branch is active).
+_PROBE_PREFIX = '[ -n "$(find '
+
+
+def is_marker_probe(command: str) -> bool:
+    """True for the standalone marker/ownership test (not a wrapped command)."""
+    return command.startswith(_PROBE_PREFIX) and split_wrapper(command) is None
 
 
 def split_wrapper(command: str) -> tuple[str, str] | None:
@@ -44,6 +51,7 @@ class FakeRootSSH:
         self.commands: list[str] = []
         self.timeouts: list[int | None] = []
         self.events: list[str] = []
+        self.probes = 0
 
     # --- SSHManager surface used by the callers -------------------------------------
     def connect(self, _ip: str, **_kw: Any) -> None:
@@ -55,6 +63,9 @@ class FakeRootSSH:
     def exec_command(self, command: str, timeout: int | None = None, **_kw: Any) -> CommandResult:
         self.commands.append(command)
         self.timeouts.append(timeout)
+        if is_marker_probe(command):
+            self.probes += 1
+            return CommandResult("", "", 0 if self.helper else 1)
         branches = split_wrapper(command)
         if branches is not None:
             helper_cmd, legacy_cmd = branches
@@ -91,6 +102,10 @@ class FakeRootSSH:
         return CommandResult(stdout="", stderr="", exit_code=0)
 
     # --- assertions helpers ---------------------------------------------------------
+    def timeout_of(self, needle: str) -> int | None:
+        """Timeout of the first command containing *needle*."""
+        return next(t for c, t in zip(self.commands, self.timeouts, strict=True) if needle in c)
+
     def helper_branches(self) -> list[str]:
         """The helper branch of every wrapped command."""
         return [b[0] for c in self.commands if (b := split_wrapper(c)) is not None]
