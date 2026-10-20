@@ -7,14 +7,17 @@ the compose helper when the marker exists; a busy helper stops with a retry hint
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import click
 import pytest
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
 from dango.cli.commands.deploy import deploy
 from dango.cli.commands.remote_repair import remote_repair, remote_reset_metabase
 from dango.platform.cloud import compose_helper as ch
+from dango.platform.cloud.ssh import CommandResult
 from tests.factories.root_compose_fakes import (
     FakeRootSSH,
     assert_no_project_compose_on_helper_branch,
@@ -27,16 +30,14 @@ _PROJECT = "dango-ab12cd34"
 
 
 class _CliSSH(FakeRootSSH):
-    def exec_command(self, command, timeout=None, **kw):  # type: ignore[no-untyped-def]
+    def exec_command(self, command: str, timeout: int | None = None, **kw: Any) -> CommandResult:
         result = super().exec_command(command, timeout=timeout, **kw)
         if "MetabaseCredentialStore" in command:
-            from dango.platform.cloud.ssh import CommandResult
-
             return CommandResult(_ID + "\n", "", 0)
         return result
 
 
-def _patches(ssh: FakeRootSSH):
+def _patches(ssh: FakeRootSSH) -> tuple[Any, Any, Any, Any]:
     cfg = MagicMock(droplet_ip="203.0.113.1")
     return (
         patch(
@@ -49,7 +50,7 @@ def _patches(ssh: FakeRootSSH):
     )
 
 
-def _invoke(command, ssh: FakeRootSSH, **kwargs):  # type: ignore[no-untyped-def]
+def _invoke(command: click.BaseCommand, ssh: FakeRootSSH, **kwargs: Any) -> Result:
     p = _patches(ssh)
     with p[0], p[1], p[2], p[3]:
         return CliRunner().invoke(command, **kwargs)
@@ -138,7 +139,7 @@ class TestResetMetabase:
         ) in ssh.events
 
 
-def _destroy(ssh: FakeRootSSH, tmp_path: Path):  # type: ignore[no-untyped-def]
+def _destroy(ssh: FakeRootSSH, tmp_path: Path) -> tuple[Result, Path]:
     cfg = MagicMock(provider="byos", droplet_ip="1.2.3.4", domain=None, ssh_key_path="k")
     (tmp_path / ".dango").mkdir()
     cloud_yml = tmp_path / ".dango" / "cloud.yml"
