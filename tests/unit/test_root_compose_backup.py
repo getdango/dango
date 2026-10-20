@@ -6,6 +6,7 @@ marker exists (busy handling, order, timeouts), the unchanged legacy commands ot
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -13,6 +14,7 @@ import pytest
 from dango.exceptions import CloudProvisioningError
 from dango.platform.cloud import backup
 from dango.platform.cloud import compose_helper as ch
+from dango.platform.cloud.ssh import CommandResult
 from tests.factories.root_compose_fakes import (
     FakeRootSSH,
     assert_no_project_compose_on_helper_branch,
@@ -191,7 +193,9 @@ class TestHelperFailuresAreFailures:
 class TestStartOrderAndInterrupts:
     def test_second_stop_interrupt_still_starts_dango_web(self) -> None:
         class _Interrupting(FakeRootSSH):
-            def exec_command(self, command, timeout=None, **kw):  # type: ignore[no-untyped-def]
+            def exec_command(
+                self, command: str, timeout: int | None = None, **kw: Any
+            ) -> CommandResult:
                 if "dango-compose start" in command and "web:stop" in self.events:
                     self.events.append("start-blocked")
                     raise SystemExit(1)
