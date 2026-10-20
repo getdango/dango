@@ -7,6 +7,7 @@ warns when the local client is older than that version. Parsing is tolerant of g
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -119,11 +120,11 @@ class TestClientWarning:
             assert server in message and local in message
 
 
-def _run_status(**status_kwargs: object):
+def _run_status(tmp_path: Path, **status_kwargs: object):
     defaults = {"dango_version": "1.0.14", "docker_access": "helper"}
     defaults.update(status_kwargs)
     with (
-        patch("dango.cli.utils.require_project_context", return_value=None),
+        patch("dango.cli.utils.require_project_context", return_value=tmp_path),
         patch("dango.config.loader.ConfigLoader", return_value=_make_loader()),
         patch("dango.platform.cloud.ssh.SSHManager", return_value=MagicMock()),
         patch(
@@ -133,7 +134,7 @@ def _run_status(**status_kwargs: object):
         patch("dango.platform.cloud.server_status.check_latest_pypi_version", return_value=None),
         patch("dango.platform.cloud.server_status.local_client_version", return_value="1.0.13"),
     ):
-        return CliRunner().invoke(remote, ["status"], obj={"project_root": None})
+        return CliRunner().invoke(remote, ["status"], obj={"project_root": tmp_path})
 
 
 @pytest.mark.unit
@@ -141,24 +142,24 @@ class TestStatusDisplay:
     @pytest.mark.parametrize(
         "state", ["helper", "group (fallback)", "migrating", "none", "unknown"]
     )
-    def test_shows_docker_access(self, state: str) -> None:
-        result = _run_status(docker_access=state)
+    def test_shows_docker_access(self, tmp_path: Path, state: str) -> None:
+        result = _run_status(tmp_path, docker_access=state)
         assert result.exit_code == 0, result.output
         assert "Docker access" in result.output
         assert state in result.output
 
-    def test_shows_recorded_version(self) -> None:
-        result = _run_status(server_recorded_version="1.0.14")
+    def test_shows_recorded_version(self, tmp_path: Path) -> None:
+        result = _run_status(tmp_path, server_recorded_version="1.0.14")
         assert "Recorded: 1.0.14" in result.output
 
-    def test_missing_record_shows_unknown(self) -> None:
-        result = _run_status(server_recorded_version=None)
+    def test_missing_record_shows_unknown(self, tmp_path: Path) -> None:
+        result = _run_status(tmp_path, server_recorded_version=None)
         assert "Recorded: unknown" in result.output
 
-    def test_old_client_warning(self) -> None:
-        result = _run_status(server_recorded_version="1.0.14")
+    def test_old_client_warning(self, tmp_path: Path) -> None:
+        result = _run_status(tmp_path, server_recorded_version="1.0.14")
         assert "pip install -U getdango" in result.output
 
-    def test_no_warning_without_record(self) -> None:
-        result = _run_status(server_recorded_version=None)
+    def test_no_warning_without_record(self, tmp_path: Path) -> None:
+        result = _run_status(tmp_path, server_recorded_version=None)
         assert "pip install -U getdango" not in result.output

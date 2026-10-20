@@ -105,7 +105,9 @@ def remote_status(ctx: click.Context) -> None:
     from dango.platform.cloud.provisioning import SIZE_TIERS
     from dango.platform.cloud.server_status import (
         check_latest_pypi_version,
+        client_version_warning,
         collect_server_status,
+        local_client_version,
     )
 
     cloud_cfg, project_root = _load_cloud_config_with_ip(ctx)
@@ -202,11 +204,16 @@ def remote_status(ctx: click.Context) -> None:
     version_lines = []
     installed = status.dango_version or "N/A"
     version_lines.append(f"  Installed: {installed}")
+    version_lines.append(f"  Recorded: {status.server_recorded_version or 'unknown'}")
+    version_lines.append(f"  Docker access: {status.docker_access}")
     if latest_version:
         version_lines.append(f"  Latest (PyPI): {latest_version}")
         if status.dango_version and status.dango_version != latest_version:
             version_lines.append("  [yellow]Update available[/yellow]")
     console.print(Panel("\n".join(version_lines), title="Versions", border_style="blue"))
+    client_warning = client_version_warning(status.server_recorded_version, local_client_version())
+    if client_warning:
+        console.print(f"[yellow]Warning:[/yellow] {client_warning}")
 
     # --- Last Deployment ---
     if status.deployed_git_commit or status.deployed_at:

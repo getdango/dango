@@ -474,36 +474,40 @@ def start(ctx: click.Context, yes: bool) -> None:
         _check_duplicate_ports(platform_config)
 
         # Auto-clean orphaned Docker containers from previous Dango session
-        try:
-            from dango.platform.docker import get_compose_project_name
+        # (skipped with the compose helper: dango-web is systemd-managed and `up` is idempotent)
+        from dango.platform import compose_exec
 
-            compose_project = get_compose_project_name(project_root)
-            result = subprocess.run(
-                [
-                    "docker",
-                    "ps",
-                    "-q",
-                    "--filter",
-                    f"label=com.docker.compose.project={compose_project}",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                container_ids = [c for c in result.stdout.strip().split("\n") if c]
-                console.print(
-                    f"[yellow]⚠[/yellow]  Found {len(container_ids)} orphaned Docker "
-                    f"container(s) from a previous session of this project, cleaning up..."
+        if not compose_exec.uses_helper():
+            try:
+                from dango.platform.docker import get_compose_project_name
+
+                compose_project = get_compose_project_name(project_root)
+                result = subprocess.run(
+                    [
+                        "docker",
+                        "ps",
+                        "-q",
+                        "--filter",
+                        f"label=com.docker.compose.project={compose_project}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
-                from dango.platform import DockerManager
+                if result.returncode == 0 and result.stdout.strip():
+                    container_ids = [c for c in result.stdout.strip().split("\n") if c]
+                    console.print(
+                        f"[yellow]⚠[/yellow]  Found {len(container_ids)} orphaned Docker "
+                        f"container(s) from a previous session of this project, cleaning up..."
+                    )
+                    from dango.platform import DockerManager
 
-                manager = DockerManager(project_root)
-                manager.stop_services()
-                manager.stop_all_dango_containers()
-                console.print()
-        except Exception:
-            logger.debug("orphan_docker_cleanup_failed")
+                    manager = DockerManager(project_root)
+                    manager.stop_services()
+                    manager.stop_all_dango_containers()
+                    console.print()
+            except Exception:
+                logger.debug("orphan_docker_cleanup_failed")
 
         # Check Docker service ports (Metabase and dbt-docs)
         _check_docker_ports(platform_config)
