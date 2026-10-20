@@ -136,7 +136,7 @@ lockdir() { mkdir -m 0700 "$L" 2>/dev/null || [ -d "$L" ] || die "$L unsafe"
   [ -n "$(find "$L/lock" -maxdepth 0 -type f -user root -perm 0600 2>/dev/null)" ] || die "$L/lock unsafe"; }
 alive() { st=$(cut -d' ' -f3 "/proc/$1/stat" 2>/dev/null) || return 1; [ "$st" != Z ]; }
 run() { t=$1; shift; rc=0; k=0; sg=0; cp=
-  trap 'k=1; [ -z "$cp" ] || kill -TERM "$cp" 2>/dev/null || :' HUP INT TERM
+  trap 'k=1; sg=1; [ -z "$cp" ] || kill -TERM "$cp" 2>/dev/null || :' HUP INT TERM
   timeout -k 10 "$t" "$@" </dev/null 9>&- & cp=$!
   while :; do
     if [ "$k" = 1 ]; then

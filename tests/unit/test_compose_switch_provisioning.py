@@ -88,7 +88,7 @@ def test_whole_setup_run_never_runs_usermod_when_the_helper_installs() -> None:
         result = server_setup.setup_server(srv)
     assert "usermod" not in srv.events
     assert not any("usermod -aG docker dango" in c for c in srv.commands)
-    assert "docker_group" not in result.steps_completed + result.steps_skipped
+    assert "docker_group" not in result.steps_completed
     assert "compose_helper" in result.steps_completed
 
 

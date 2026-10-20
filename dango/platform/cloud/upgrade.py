@@ -132,7 +132,10 @@ def _switch_at_target(
     Only a server that is not yet settled on the helper has dango-web stopped (for the group
     removal and process drop) and Metabase recreated; a settled server is not touched.
     """
-    if not cm.helper_capable(version) or not cm.needs_migration(ssh):
+    if not cm.helper_capable(version):
+        return None
+    cm.refresh_web_unit(ssh, warnings)  # takes effect at the next restart; never stops dango-web
+    if not cm.needs_migration(ssh):
         return None
     guard.arm()  # dango-web is stopped inside the migration
     try:
@@ -382,7 +385,6 @@ def upgrade_dango(
             extra_steps=cm.ownership_steps() if cm.helper_capable(new_version) else (),
         )
         _notify(on_progress, "runtime_ownership", "done")
-        guard.rearm()
 
         # 8d. Docker access: the compose helper from 1.0.14 on; a downgrade below it gets the
         # docker group (and the Metabase data ownership) back
@@ -398,8 +400,8 @@ def upgrade_dango(
             _notify(on_progress, "docker_access", "running")
             cm.restore_docker_access(ssh, warnings, version=new_version or target_version)
             docker_access = cm.ACCESS_GROUP
+            guard.rearm()
             _notify(on_progress, "docker_access", "done")
-        guard.rearm()
 
         # 9. Docker rebuild
         _notify(on_progress, "docker_rebuild", "running")

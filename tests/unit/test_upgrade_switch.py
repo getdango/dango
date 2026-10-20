@@ -204,3 +204,12 @@ def test_client_older_than_the_recorded_server_version_is_warned() -> None:
     srv.record = '{"dango": "1.0.20", "docker_access": "helper"}'
     result = run(srv, "1.0.20")
     assert any("upgraded by Dango 1.0.20" in w for w in result.warnings)
+
+
+def test_at_target_refreshes_an_old_web_unit_without_stopping_dango_web() -> None:
+    srv = FakeServer(version="1.0.14", marker=True, in_group=False)
+    srv.record = '{"dango": "1.0.14", "docker_access": "helper"}'
+    srv.web_unit = "[Service]\nExecStart=/srv/dango/venv/bin/dango serve --host 127.0.0.1\n"
+    run(srv, "1.0.14")
+    assert "TimeoutStopSec=" in srv.written[WEB_UNIT]
+    assert "web-stop" not in srv.events
