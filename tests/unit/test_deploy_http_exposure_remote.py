@@ -70,6 +70,8 @@ def _provision(project_root: Path, config, ssh_client: str):
     def _exec(command: str, *args, **kwargs):
         if "SSH_CLIENT" in command:
             return _cmd_result(ssh_client + "\n")
+        if "mktemp -d" in command:  # remote scripts are staged in a server-made directory
+            return _cmd_result("/tmp/dango-admin.AbCd1234\n")
         return _cmd_result()
 
     ssh.exec_command.side_effect = _exec
