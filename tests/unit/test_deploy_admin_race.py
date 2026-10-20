@@ -192,7 +192,7 @@ class TestAdminStepErrorHandling:
             return MagicMock(
                 exit_code=exit_code if failing else 0,
                 stderr=stderr if failing else "",
-                stdout="/tmp/dango-x.AbCd1234" if command.startswith("mktemp") else "",
+                stdout="/tmp/dango-admin.AbCd1234" if "mktemp -d" in command else "",
             )
 
         ssh.exec_command.side_effect = run

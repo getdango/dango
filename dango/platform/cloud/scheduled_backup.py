@@ -101,13 +101,15 @@ def _run_builder_script(script: str, *, step: str, timeout: int = 120) -> str:
     quote every interpolated value with :func:`shlex.quote`. Only the script text is
     interpreted by the shell; nothing is passed with ``shell=True``.
     """
+    # Deliberate: the builders also feed the SSH restore path (one string per command);
+    # every value in *script* is shlex-quoted or a constant, so this is not injectable.
     return _run_local(["sh", "-c", script], step=step, timeout=timeout)
 
 
 def _run_best_effort(args: list[str], *, timeout: int, env: dict[str, str] | None = None) -> None:
-    """Run *args* ignoring a non-zero exit, a missing program and all output."""
+    """Run *args* tolerating failure: a non-zero exit or missing program is logged, not raised."""
     try:
-        subprocess.run(
+        result = subprocess.run(
             args,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -115,6 +117,10 @@ def _run_best_effort(args: list[str], *, timeout: int, env: dict[str, str] | Non
             check=False,
             env=env,
         )
+        if result.returncode != 0:
+            _logger.warning(
+                "backup_service_command_failed", program=args[0], returncode=result.returncode
+            )
     except OSError:
         _logger.warning("backup_service_command_unavailable", program=args[0])
 

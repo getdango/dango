@@ -19,7 +19,9 @@ def _ssh(fail_run: bool = False) -> MagicMock:
 
     def run(cmd: str, **_kw: object) -> MagicMock:
         failing = fail_run and cmd.startswith("sudo -u dango")
-        stdout = "/tmp/dango-x.AbCd1234" if cmd.startswith("mktemp") else ""
+        stdout = (
+            "/tmp/" + cmd.split()[-1].replace("XXXXXXXX", "AbCd1234") if "mktemp -d" in cmd else ""
+        )
         return MagicMock(exit_code=1 if failing else 0, stdout=stdout, stderr="err")
 
     ssh.exec_command.side_effect = run
@@ -71,23 +73,23 @@ def test_remote_script_uploaded_not_exec_base64() -> None:
     for call in writes:
         path = call.args[0]
         # Inside a directory the server made; mode leaves it unreadable to others.
-        assert path.startswith("/tmp/dango-x.AbCd1234/")
+        assert path.startswith("/tmp/dango-") and ".AbCd1234/" in path
         assert call.kwargs["mode"] == 0o640
         assert any(c.startswith("sudo -u dango") and path in c for c in _commands(ssh))
-        assert "rm -rf /tmp/dango-x.AbCd1234" in _commands(ssh)
+        assert f"rm -rf {path.rsplit('/', 1)[0]}" in _commands(ssh)
 
 
 @pytest.mark.unit
 def test_remote_script_removed_even_on_failure() -> None:
     ssh = _ssh(fail_run=True)
-    result = deploy_provision._run_remote_script(ssh, "print(1)", purpose="t", timeout=5)
+    result = deploy_provision._run_remote_script(ssh, "print(1)", purpose="x", timeout=5)
     assert result.exit_code == 1
     assert "rm -rf /tmp/dango-x.AbCd1234" in _commands(ssh)
 
     ssh = _ssh()
     ssh.write_remote_file.side_effect = OSError("sftp down")
     with pytest.raises(OSError):
-        deploy_provision._run_remote_script(ssh, "print(1)", purpose="t", timeout=5)
+        deploy_provision._run_remote_script(ssh, "print(1)", purpose="x", timeout=5)
     assert "rm -rf /tmp/dango-x.AbCd1234" in _commands(ssh)
 
 

@@ -48,12 +48,17 @@ def _written(mock_write, suffix):
 
 def _make_mock_ssh():
     ssh = MagicMock()
-    result = MagicMock()
-    result.success = True
-    result.stdout = ""
-    result.stderr = ""
-    result.exit_code = 0
-    ssh.exec_command.return_value = result
+
+    def run(command, **_kw):
+        result = MagicMock()
+        result.success = True
+        # A remote script is staged in a directory the server makes (mktemp -d).
+        result.stdout = "/tmp/dango-admin.AbCd1234" if "mktemp -d" in command else ""
+        result.stderr = ""
+        result.exit_code = 0
+        return result
+
+    ssh.exec_command.side_effect = run
     return ssh
 
 
@@ -313,7 +318,7 @@ class TestProvisionSequence:
         mock_result.stdout = ""
         mock_result.stderr = ""
         mock_result.exit_code = 0
-        mock_ssh.exec_command.return_value = mock_result
+        mock_ssh.exec_command.side_effect = _make_mock_ssh().exec_command.side_effect
 
         droplet_dict = {
             "id": 222,
@@ -740,7 +745,7 @@ class TestProjectRootResolved:
         mock_result.stdout = ""
         mock_result.stderr = ""
         mock_result.exit_code = 0
-        mock_ssh.exec_command.return_value = mock_result
+        mock_ssh.exec_command.side_effect = _make_mock_ssh().exec_command.side_effect
         mock_ssh.generate_key_pair.return_value = "ssh-ed25519 AAAA..."
 
         droplet_dict = {
@@ -802,7 +807,7 @@ class TestProjectRootResolved:
         mock_result.stdout = ""
         mock_result.stderr = ""
         mock_result.exit_code = 0
-        mock_ssh.exec_command.return_value = mock_result
+        mock_ssh.exec_command.side_effect = _make_mock_ssh().exec_command.side_effect
 
         config = BYOSConfig(
             server_ip="10.0.0.1",
