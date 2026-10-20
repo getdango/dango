@@ -446,6 +446,7 @@ def metabase_repair_admin(ctx: click.Context) -> None:
     Examples:
       dango metabase repair-admin
     """
+    from dango.platform import compose_exec
     from dango.platform.common.metabase_admin_repair import (
         describe_repair_outcome,
         repair_admin_credential,
@@ -454,7 +455,7 @@ def metabase_repair_admin(ctx: click.Context) -> None:
     from ..utils import require_project_context
 
     project_root = require_project_context(ctx)
-    if not (project_root / "docker-compose.yml").exists():
+    if not ((project_root / "docker-compose.yml").exists() or compose_exec.uses_helper()):
         console.print(
             "[red]✗[/red] This command is for local projects (no docker-compose.yml here)."
         )

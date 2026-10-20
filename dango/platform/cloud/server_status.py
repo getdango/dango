@@ -11,6 +11,7 @@ never raises.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from dataclasses import dataclass, field
 from typing import Any
@@ -62,6 +63,11 @@ class ServerStatus:
     deployed_at: str | None = None
     deployed_by: str | None = None
 
+    # Docker access: "helper", "group (fallback)", "migrating", "none" or "unknown"
+    docker_access: str = "unknown"
+    # Version recorded by the server (root-owned server-version.json); None when unknown
+    server_recorded_version: str | None = None
+
 
 # ---------------------------------------------------------------------------
 # SSH-based collection
@@ -90,6 +96,7 @@ def collect_server_status(ssh: Any, cloud_config: Any) -> ServerStatus:
         ``ServerStatus`` snapshot with available metrics.
     """
     deploy_info = _get_deployment_info(ssh)
+    docker_access, recorded_version = _get_docker_access(ssh)
     return ServerStatus(
         cpu_usage_pct=_get_cpu_usage(ssh),
         ram_total_mb=_get_ram(ssh, "total"),
@@ -107,6 +114,98 @@ def collect_server_status(ssh: Any, cloud_config: Any) -> ServerStatus:
         deployed_git_branch=deploy_info.get("git_branch"),
         deployed_at=deploy_info.get("deployed_at"),
         deployed_by=deploy_info.get("deployed_by"),
+        docker_access=docker_access,
+        server_recorded_version=recorded_version,
+    )
+
+
+_VERSION_RE = re.compile(r"[0-9][0-9A-Za-z.+!_-]{0,31}")
+_RECORD_MAX_BYTES = 4096
+
+# One call, run as root: marker (same test as ``uses_helper()``: regular file, uid 0, not
+# group/other-writable), the dango account's groups, then the version record. On servers
+# not yet migrated ``dango`` owns /srv/dango, so the record is only read when /srv/dango and
+# the file are root-owned, not group/other-writable and the file is a regular file (never a
+# FIFO or symlink), and the read is time-limited. The client parses it as data.
+_DOCKER_ACCESS_CMD = (
+    "ROOT=0; S=/srv/dango; M=$S/compose/active; V=$S/server-version.json; "
+    'safe() { [ -n "$(find "$2" -maxdepth 0 -type "$1" -uid "$ROOT" ! -perm /022 '
+    '2>/dev/null)" ]; }; '
+    'if safe f "$M"; then echo marker=1; else echo marker=0; fi; '
+    'g=$(id -nG dango 2>/dev/null) && echo "groups=$g"; echo ---; '
+    f'if safe d "$S" && safe f "$V"; then timeout 5 head -c {_RECORD_MAX_BYTES} "$V" '
+    "2>/dev/null; fi; true"
+)
+
+
+def _parse_docker_access(stdout: str) -> tuple[str, str | None]:
+    """Parse the probe output; anything missing or garbled yields ``unknown``."""
+    head, _, record = stdout.partition("\n---\n")
+    marker: str | None = None
+    groups: list[str] | None = None
+    for line in head.splitlines():
+        if line.startswith("marker="):
+            marker = line[len("marker=") :].strip()
+        elif line.startswith("groups="):
+            groups = line[len("groups=") :].split()
+    version: str | None = None
+    recorded_group = False
+    try:
+        data = json.loads(record)
+        raw = data.get("dango") if isinstance(data, dict) else None
+        if isinstance(raw, str) and _VERSION_RE.fullmatch(raw):
+            from packaging.version import Version
+
+            Version(raw)
+            version = raw
+            recorded_group = data.get("docker_access") == "group"
+    except (ValueError, RecursionError):  # includes JSONDecodeError and InvalidVersion
+        version = None
+    if marker not in ("0", "1") or not groups:
+        return "unknown", version
+    in_group = "docker" in groups
+    if marker == "1":
+        return ("migrating" if in_group else "helper"), version
+    if in_group:
+        return ("group (fallback)" if recorded_group else "group (legacy)"), version
+    return "none", version
+
+
+def _get_docker_access(ssh: Any) -> tuple[str, str | None]:
+    """Docker access mode and recorded server version, ``unknown`` when unreadable."""
+    from dango.exceptions import CloudSSHError
+
+    try:
+        result = ssh.exec_command(_DOCKER_ACCESS_CMD)
+    except CloudSSHError:
+        return "unknown", None
+    if not result.success or not isinstance(result.stdout, str):
+        return "unknown", None
+    return _parse_docker_access(result.stdout)
+
+
+def local_client_version() -> str:
+    """Version of the Dango client running this command."""
+    from dango import __version__
+
+    return str(__version__)
+
+
+def client_version_warning(server_version: str | None, local_version: str) -> str | None:
+    """Warning text when the local client is older than the recorded server version."""
+    if not server_version:
+        return None
+    from packaging.version import InvalidVersion, Version
+
+    try:
+        if Version(local_version) >= Version(server_version):
+            return None
+    except InvalidVersion:
+        return None
+    return (
+        f"This server was upgraded by Dango {server_version}; you are running "
+        f"{local_version}. Upgrade your local Dango (pip install -U getdango) "
+        "before managing this server."
     )
 
 
