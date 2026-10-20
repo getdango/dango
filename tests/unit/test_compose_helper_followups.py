@@ -63,7 +63,12 @@ def reap(tree: Tree) -> None:
     pid = tree.root / "dpid"
     if pid.exists():
         tree.runner.run(
-            ["sh", "-c", 'kill -KILL -- -"$0" "$0" 2>/dev/null; true', pid.read_text().strip()]
+            [
+                "sh",
+                "-c",
+                'kill -KILL "-$0" 2>/dev/null; kill -KILL "$0" 2>/dev/null; true',
+                pid.read_text().strip(),
+            ]
         )
 
 

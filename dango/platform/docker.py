@@ -290,6 +290,7 @@ class DockerManager:
                 )
             except (subprocess.TimeoutExpired, compose_exec.ComposeBusy, OSError):
                 return False
+            # ComposeInterrupted propagates; start_services() reports it.
             return result.returncode == 0 and bool(result.stdout.strip())
         image_name = f"{self.compose_project_name}-metabase"
         try:
@@ -415,7 +416,11 @@ class DockerManager:
 
         cmd_prefix = None if helper else self.get_compose_command()
 
-        first_run = not self._metabase_image_exists()
+        try:
+            first_run = not self._metabase_image_exists()
+        except compose_exec.ComposeInterrupted as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return False
         if first_run:
             console.print(
                 "[cyan]Building Metabase image (first run, may take 5-10 minutes)...[/cyan]"
@@ -683,7 +688,12 @@ class DockerManager:
             return False
         try:
             result = compose_exec.run_compose(self.project_root, "stop", timeout=60, text=True)
-        except (subprocess.TimeoutExpired, compose_exec.ComposeBusy, OSError) as e:
+        except (
+            subprocess.TimeoutExpired,
+            compose_exec.ComposeBusy,
+            compose_exec.ComposeInterrupted,
+            OSError,
+        ) as e:
             console.print(f"[yellow]⚠[/yellow]  Error stopping containers: {e}")
             return False
         return result.returncode == 0

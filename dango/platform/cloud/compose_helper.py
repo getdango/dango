@@ -134,14 +134,26 @@ lockdir() { mkdir -m 0700 "$L" 2>/dev/null || [ -d "$L" ] || die "$L unsafe"
   [ -n "$(find "$L" -maxdepth 0 -type d -user root -perm 0700 2>/dev/null)" ] || die "$L unsafe"
   [ -e "$L/lock" ] || { umask 077; : >"$L/lock"; umask 022; }
   [ -n "$(find "$L/lock" -maxdepth 0 -type f -user root -perm 0600 2>/dev/null)" ] || die "$L/lock unsafe"; }
-run() { t=$1; shift; rc=0; k=0; cp=
-  trap 'k=1; [ -z "$cp" ] || kill -TERM "$cp" 2>/dev/null' HUP INT TERM
+alive() { st=$(cut -d' ' -f3 "/proc/$1/stat" 2>/dev/null) || return 1; [ "$st" != Z ]; }
+run() { t=$1; shift; rc=0; k=0; sg=0; cp=
+  trap 'k=1 || :' HUP INT TERM
   timeout -k 10 "$t" "$@" </dev/null 9>&- & cp=$!
-  # A signal that arrived before the pid was known; repeated because the forked child can still
-  # be running the shell's own handler until it execs, which would swallow a single TERM.
-  [ "$k" = 0 ] || for _ in 1 2 3; do kill -TERM "$cp" 2>/dev/null; sleep 0.1; done
-  while :; do k=0; wait $cp && rc=0 || rc=$?; [ "$k" = 1 ] || break; done
+  while :; do
+    if [ "$k" = 1 ]; then
+      # Signalled (possibly before the pid was known): keep sending TERM until the child is gone,
+      # because a TERM sent before the forked child has exec'd is swallowed by this shell's own
+      # handler. Bounded by the -k grace; a failing kill never ends the script.
+      k=0; sg=1; n=0
+      while alive "$cp" && [ "$n" -lt 100 ]; do
+        kill -TERM "$cp" 2>/dev/null || break; sleep 0.2; n=$((n + 1)); done
+    fi
+    wait "$cp" && rc=0 || rc=$?
+    [ "$k" = 1 ] || break
+  done
   trap - HUP INT TERM
+  # timeout leads its own process group; if our TERM caught it before it had set up its handlers it
+  # died without stopping the workload, so after a signal end whatever is left in that group.
+  [ "$sg" = 0 ] || kill -KILL "-$cp" 2>/dev/null || :
   case $rc in
     124|137) printf 'dango-compose: %s exceeded its time budget (%ss)\n' "$verb" "$t" >&2;;
   esac; exit "$rc"; }
@@ -174,7 +186,8 @@ case "$verb" in
   stop|start)    [ $# -le 1 ] || die "usage: $verb"; [ $# -eq 0 ] || svc "$1"; dc lock "$verb" "$@" ;;
   restart)       argc $# 1; svc "$1"; dc lock restart "$1" ;;
   ps)            argc $# 0; dc nolock ps --format json ;;
-  image-exists)  argc $# 0; dc nolock images -q metabase ;;
+  image-exists)  argc $# 0; base; name
+                 run "$b" $GENV docker image ls -q "${n}-metabase" ;;
   h2-size)       argc $# 0; dc nolock exec -T metabase stat -c %s /metabase-data/metabase.db.mv.db ;;
   logs)          [ $# -ge 1 ] || die "usage: logs"; svc "$1"; s=$1; shift; since=; lines=
                  while [ $# -gt 0 ]; do case "$1" in

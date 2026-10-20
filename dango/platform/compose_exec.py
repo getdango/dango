@@ -33,6 +33,9 @@ HELPER = "/usr/local/sbin/dango-compose"
 MARKER = "/srv/dango/compose/active"
 PROJECT_ID_FILE = "/srv/dango/compose/project-id"
 _ROOT_UID = 0
+#: Seconds sudo gets to stop the helper after a forwarded signal before it is killed.
+SIGNAL_GRACE = 15
+_DOCKERFILE_MAX = 64 * 1024
 
 #: Helper exit codes: busy lock; budget expired (124); killed (137, 143).
 EXIT_BUSY = 75
@@ -48,7 +51,9 @@ _LOCAL_TOKENS: dict[str, tuple[str, ...] | None] = {
     "restart": ("restart",),
     "image-exists": None,
 }
-_VERSION_LINE = re.compile(r"^ENV MB_VERSION=(v[0-9][0-9.]{0,18})(?:\n|\Z)", re.MULTILINE)
+_VERSION_LINE = re.compile(
+    r"^ENV MB_VERSION=\"?(v[0-9][0-9.]{0,18})\"?[ \t]*\r?(?:\n|\Z)", re.MULTILINE
+)
 _BUDGET_LINE = re.compile(r"^dango-compose: .* exceeded its time budget.*\n?", re.MULTILINE)
 
 
@@ -171,8 +176,13 @@ def _helper_run(
             proc.communicate()
             raise
         except BaseException:
-            proc.kill()
-            proc.wait()
+            if not watch.hit and proc.poll() is None:
+                proc.terminate()
+            try:
+                proc.wait(timeout=SIGNAL_GRACE)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
             raise
     rc = proc.returncode
     killed = rc in _KILLED or rc < 0
@@ -212,17 +222,35 @@ def run_compose(
     return _local_run(project_root, verb, args, timeout, opts)
 
 
+def _project_mb_version(path: Path) -> str | None:
+    """MB_VERSION from the project's Dockerfile.metabase; ``None`` when the file is absent.
+
+    The file is dango-writable, so it is opened without following links or blocking, must
+    be a regular file, and at most 64 KiB are read.  Present but unusable is an error.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ComposeRenderError(f"cannot read {path.name}: {exc.strerror}") from exc
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ComposeRenderError(f"{path.name} is not a regular file")
+        data = os.read(fd, _DOCKERFILE_MAX)
+    finally:
+        os.close(fd)
+    match = _VERSION_LINE.search(data.decode("utf-8", errors="replace"))
+    if match is None:
+        raise ComposeRenderError(f"{path.name} has no usable ENV MB_VERSION line")
+    return match.group(1)
+
+
 def render_args(project_root: Path, config: Any) -> list[str]:
     """Arguments for the helper's ``render``; creates the bind sources dango owns."""
     (project_root / "data").mkdir(exist_ok=True)
     (project_root / "dbt" / "target").mkdir(parents=True, exist_ok=True)
-    version = None
-    try:
-        text = (project_root / "Dockerfile.metabase").read_text(encoding="utf-8")
-        match = _VERSION_LINE.search(text)
-        version = match.group(1) if match else None
-    except OSError:
-        pass
+    version = _project_mb_version(project_root / "Dockerfile.metabase")
     if version is None:
         packaged = Path(__file__).parents[1] / "templates" / "Dockerfile.metabase"
         match = _VERSION_LINE.search(packaged.read_text(encoding="utf-8"))

@@ -279,10 +279,10 @@ class TestRender:
         (tmp_path / "Dockerfile.metabase").write_text("FROM x\nENV MB_VERSION=v0.99.1\nRUN y\n")
         assert ce.render_args(tmp_path, make_config())[2] == "v0.99.1"
 
-    def test_unparsable_project_version_falls_back(self, tmp_path: Path) -> None:
+    def test_unparsable_project_version_is_an_error(self, tmp_path: Path) -> None:
         (tmp_path / "Dockerfile.metabase").write_text("ENV MB_VERSION=$(evil)\n")
-        assert ce.render_args(tmp_path, make_config())[2].startswith("v")
-        assert "evil" not in ce.render_args(tmp_path, make_config())[2]
+        with pytest.raises(ce.ComposeRenderError, match="Dockerfile.metabase"):
+            ce.render_args(tmp_path, make_config())
 
     def test_helper_render_call(self, shim: Path, tmp_path: Path) -> None:
         ce.render(tmp_path, make_config())
