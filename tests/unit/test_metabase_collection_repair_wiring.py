@@ -199,3 +199,17 @@ class TestStartAndServeWiring:
         with patch("dango.visualization.dashboard_manager.logger") as log:
             manager.load_from_files()
         assert log.info.called or log.warning.called
+
+    def test_dry_run_message_lists_planned_actions(self):
+        from dango.cli.commands.platform import print_collection_repair
+
+        console = Console(record=True, width=200)
+        print_collection_repair(
+            console,
+            {
+                "collection_repair": {
+                    "planned": ["archive empty duplicate collection 7 at 'Shared'"]
+                }
+            },
+        )
+        assert "Would archive empty duplicate collection 7" in console.export_text()

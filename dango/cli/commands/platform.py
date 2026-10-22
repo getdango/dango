@@ -133,6 +133,8 @@ def _check_docker_ports(platform_config: object) -> None:
 def print_collection_repair(console_out: Any, import_result: dict[str, Any] | None) -> None:
     """State what collection import/repair did; silent when nothing needed doing."""
     repair = (import_result or {}).get("collection_repair") or {}
+    for action in repair.get("planned") or []:
+        console_out.print(f"[dim]Would {action}[/dim]")
     archived = repair.get("archived", 0)
     if archived:
         report = repair.get("report_path") or ".dango/state/metabase_collection_repair.json"
