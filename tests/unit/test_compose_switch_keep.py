@@ -162,7 +162,7 @@ def test_at_target_downgrade_converges_even_when_the_strict_runtime_check_raises
 # --- needs_restore (N5) -------------------------------------------------------------------------------
 
 
-def test_an_unreadable_probe_restores_instead_of_skipping() -> None:
+def test_an_unreadable_probe_still_restores() -> None:
     assert cm.needs_restore(FakeServer(blind=True)) is True
 
 

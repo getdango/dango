@@ -161,7 +161,8 @@ def _leave_helper_lines() -> str:
 
     Containers made through the helper carry the compose directory as their working dir, which the
     legacy code's collision guard refuses; the legacy commands recreate them under the project.
-    Any container that is left is removed by its label.
+    Any container that is left is stopped (60 s grace, so Metabase can close its database) and
+    removed by its labels.
     """
     label = f"label=com.docker.compose.project.working_dir={ch.COMPOSE_DIR}"
     return (
@@ -169,9 +170,15 @@ def _leave_helper_lines() -> str:
         f'  {ch.HELPER_PATH} down >/dev/null 2>&1 || echo "RESTORE_WARN:the helper could not take its '
         'containers down"\n'
         "fi\n"
-        f"ids=$(docker ps -aq --filter {label} 2>/dev/null || true)\n"
-        'if [ -n "$ids" ]; then docker rm -f $ids >/dev/null 2>&1 || '
-        'echo "RESTORE_WARN:containers made through the helper could not be removed"; fi\n'
+        f"lp=$(cat {ch.COMPOSE_DIR}/project 2>/dev/null || true)\n"
+        'pf=; [ -z "$lp" ] || pf="--filter label=com.docker.compose.project=$lp"\n'
+        f"ids=$(docker ps -aq --filter {label} $pf 2>/dev/null || true)\n"
+        'if [ -n "$ids" ]; then\n'
+        '  docker stop -t 60 $ids >/dev/null 2>&1 || echo "RESTORE_WARN:containers made through the '
+        'helper could not be stopped"\n'
+        "  docker rm $ids >/dev/null 2>&1 || "
+        'echo "RESTORE_WARN:containers made through the helper could not be removed"\n'
+        "fi\n"
     )
 
 

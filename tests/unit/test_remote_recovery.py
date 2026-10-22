@@ -136,12 +136,14 @@ class TestUpgradeGuard:
         _upgrade(ssh)
         c = ssh.cmds
         units = _arm_units(c)
-        assert len(units) == 6 and len(set(units)) == 6  # arm, 2 stops, pip, migrations, rebuild
+        # arm, 2 stops, pip, restore (this server's access state cannot be read), migrations, rebuild
+        assert len(units) == 7 and len(set(units)) == 7
         arms = [i for i, x in enumerate(c) if _is_arm(x)]
         pip = _idx(c, lambda x: _PIP in x and not x.startswith("systemd-run"))
         migrate = _idx(c, lambda x: "apply_all_pending" in x and not x.startswith("systemd-run"))
         docker = _idx(c, lambda x: "up -d --build" in x and not x.startswith("systemd-run"))
-        assert arms[0] < arms[1] < arms[2] < pip < arms[3] < migrate < arms[4] < docker < arms[5]
+        assert arms[0] < arms[1] < arms[2] < pip < arms[3] < arms[4] < migrate < arms[5]
+        assert arms[5] < docker < arms[6]
         for i, a in enumerate(arms[1:], start=1):
             stops = [x for x in c[a + 1 :] if f"stop '{units[i - 1]}.timer'" in x]
             assert stops, f"previous timer {units[i - 1]} not stopped after re-arm {i}"

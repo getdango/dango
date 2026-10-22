@@ -296,6 +296,14 @@ def upgrade_dango(
             if has_ws_auth_endpoint(old_version)
             else None
         )
+        # an interrupted downgrade is finished first: a strict runtime check that raises must not
+        # keep the old state (helper on under the old code) from converging
+        restore_first = cm.below_helper_version(old_version)
+        at_target_access = (
+            _switch_at_target(ssh, at_target_warnings, old_version, guard)
+            if restore_first
+            else None
+        )
         ownership_status = ro.secure_runtime(
             ssh,
             at_target_warnings,
@@ -303,7 +311,8 @@ def upgrade_dango(
             strict=not byos,
             extra_steps=cm.ownership_steps() if cm.helper_capable(old_version) else (),
         )
-        at_target_access = _switch_at_target(ssh, at_target_warnings, old_version, guard)
+        if not restore_first:
+            at_target_access = _switch_at_target(ssh, at_target_warnings, old_version, guard)
         return UpgradeResult(
             old_version=old_version,
             new_version=old_version,

@@ -289,6 +289,7 @@ def run_provisioning(
                 for w in setup_result.warnings:
                     console.print(f"  [yellow]Warning:[/yellow] {w}")
             setup_notes = list(setup_result.warnings)
+            helper_created = setup_result.helper_created
         finally:
             ssh.disconnect()
 
@@ -383,7 +384,7 @@ def run_provisioning(
         _status("Building Docker images (this may take a few minutes)...")
         ssh.connect(droplet_ip, username="root")
         try:
-            _prebuild_images(ssh, warnings)
+            _prebuild_images(ssh, warnings, own_marker=helper_created)
         finally:
             ssh.disconnect()
 
@@ -543,6 +544,7 @@ def run_byos_setup(
                 for w in setup_result.warnings:
                     console.print(f"  [yellow]Warning:[/yellow] {w}")
             _carry_fallback_warnings(setup_result.warnings, warnings)
+            helper_created = setup_result.helper_created
         finally:
             ssh.disconnect()
 
@@ -607,7 +609,7 @@ def run_byos_setup(
         _status("Building Docker images (this may take a few minutes)...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            _prebuild_images(ssh, warnings)
+            _prebuild_images(ssh, warnings, own_marker=helper_created)
         finally:
             ssh.disconnect()
 
@@ -756,17 +758,21 @@ def _carry_fallback_warnings(setup_warnings: list[str], warnings: list[str]) -> 
     warnings.extend(w for w in setup_warnings if w.startswith(FALLBACK_MARK))
 
 
-def _prebuild_images(ssh: Any, warnings: list[str]) -> None:
+def _prebuild_images(ssh: Any, warnings: list[str], *, own_marker: bool = False) -> None:
     """Pre-build the Docker images: through the compose helper when it is installed, else legacy.
 
     A helper that cannot pin, render or build falls back to the docker group with a loud warning
-    (added to *warnings*); an ordinary build failure raises.
+    (added to *warnings*) only when this deploy's own setup wrote the marker (*own_marker*); on a
+    server that was already switched the switch is kept and the deploy stops. An ordinary build
+    failure raises.
     """
     from dango.platform.cloud.backup import get_remote_compose_project_name
     from dango.platform.cloud.compose_migrate import prebuild_images
 
     compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
-    prebuild_images(ssh, warnings, legacy_command=_prebuild_command(compose_proj))
+    prebuild_images(
+        ssh, warnings, legacy_command=_prebuild_command(compose_proj), own_marker=own_marker
+    )
 
 
 def _status(msg: str) -> None:

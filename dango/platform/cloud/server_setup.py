@@ -51,6 +51,8 @@ class SetupResult:
     steps_completed: list[str] = field(default_factory=list)
     steps_skipped: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    #: True when this run's own ``enable_fresh`` wrote the compose helper marker (none before).
+    helper_created: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -535,7 +537,11 @@ def _setup_compose_helper(
         )
         guard.disarm()
     else:
-        cm.enable_fresh(ssh, result.warnings, version)
+        from dango.platform.cloud.backup import helper_branch_active
+
+        had_marker = helper_branch_active(ssh)
+        access = cm.enable_fresh(ssh, result.warnings, version)
+        result.helper_created = not had_marker and access != cm.ACCESS_GROUP
     result.steps_completed.append(step)
     _notify(on_progress, step, "done")
 

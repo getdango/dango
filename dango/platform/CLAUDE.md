@@ -68,6 +68,7 @@ platform/
 │   ├── runtime_ownership.py  # Root-owned /srv/dango + venv, trust probe, venv rebuild (1.0.14)
 │   ├── compose_helper.py # Root-owned compose helper text + install scripts (1.0.14)
 │   ├── compose_migrate.py # Switch Docker access from the docker group to the helper (migration, fallback, downgrade restore)
+│   ├── compose_steps.py   # Shared steps of the switch (run a script as root, dango-web stop/start, Metabase rebuild, version record)
 │   ├── compose_versions.py # Version checks + client/server notices for the switch
 │   ├── compose_scripts.py # Shell scripts + constants for that switch (tagged `# step:XX`)
 │   ├── server_compose.py # Server render run by the helper (1.0.14)
@@ -127,7 +128,7 @@ platform/
 | `cloud/upgrade.py` | Remote Dango version upgrade (pip install, migrations, Docker rebuild) | `upgrade_dango`, `UpgradeResult`, `validate_version_string`, `check_versions` |
 | `cloud/upgrade_guard.py` | Server-side systemd timer that starts `dango-web` if the upgrading client dies (re-armed per step, waits while a step runs) | `UpgradeGuard` |
 | `cloud/compose_helper.py` | Root-owned compose helper (POSIX sh text, sudoers rule, install scripts, per-verb budgets, `server_compose_cmd`) | `helper_script`, `install_script`, `server_compose_cmd`, `VERB_BUDGET`, `min_caller_timeout` |
-| `cloud/compose_migrate.py` | Switch to the helper: install + self-test, pin + render, marker last, remove the `docker` group, end processes that hold the gid (T), fallback to the group with a warning, downgrade restore (group back, Metabase volume to uid 999), first-deploy build, version record + client notices | `migrate_docker_access`, `enable_fresh`, `prebuild_images`, `restore_docker_access`, `enter_fallback`, `needs_migration`, `rebuild_command`, `refresh_web_unit`, `ownership_steps`, `client_version_notice` |
+| `cloud/compose_migrate.py` (+ `compose_steps.py`) | Switch to the helper: install + self-test, pin + render, marker last, remove the `docker` group, end processes that hold the gid (T), fallback to the group with a warning (only when the marker did not exist before the command; otherwise the switch is kept), downgrade restore (group back, Metabase volume to uid 999), first-deploy build, version record + client notices | `migrate_docker_access`, `enable_fresh`, `prebuild_images`, `restore_docker_access`, `enter_fallback`, `needs_migration`, `rebuild_command`, `refresh_web_unit`, `ownership_steps`, `client_version_notice` |
 | `cloud/compose_scripts.py` | Shell scripts for the switch (prechecks, self-test, render/verify, consistency check, group removal, process drop, fallback, downgrade restore, marker + version record, ownership step) | `marker_script`, `terminate_script`, `restore_script`, `ownership_steps`, `release_of` |
 | `cloud/server_compose.py` | Server-side compose/Dockerfile render and bounded plugin-jar staging, run by the helper's `render` verb | `main`, `Layout`, `acquire_lock`, `quote_name` |
 | `cloud/upgrade_caddy.py` | Caddyfile WebSocket-route migration run by `upgrade_dango` | `run_ws_migration`, `has_ws_auth_endpoint` |

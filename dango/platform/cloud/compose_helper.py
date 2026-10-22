@@ -154,6 +154,8 @@ run() { t=$1; shift; rc=0; k=0; sg=0; cp=
   # timeout leads its own process group; if our TERM caught it before it had set up its handlers it
   # died without stopping the workload, so after a signal end whatever is left in that group.
   [ "$sg" = 0 ] || kill -KILL "-$cp" 2>/dev/null || :
+  # a TERM the workload outlived (it exited 0 or an ordinary code) still reads as a signal exit
+  [ "$sg" = 0 ] || [ "$rc" -ge 128 ] || rc=143
   case $rc in
     124|137) printf 'dango-compose: %s exceeded its time budget (%ss)\n' "$verb" "$t" >&2;;
   esac; exit "$rc"; }
