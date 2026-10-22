@@ -216,13 +216,13 @@ def _parent_from_location(location: Any) -> tuple[int | None, bool]:
 
 
 def index_live(raw: Sequence[Mapping[str, Any]]) -> LiveTree:
-    """Index active collections by full path. Anything malformed or unreachable is skipped."""
+    """Index active collections by full path. Anything malformed or unreachable is left out."""
     nodes: dict[int, tuple[str, int | None]] = {}
     for item in raw:
         cid = item.get("id")
         name = item.get("name")
         if not _is_int(cid) or not isinstance(name, str):
-            continue  # also skips the virtual "root" entry
+            continue  # also drops the virtual "root" entry
         if item.get("archived") is True or item.get("personal_owner_id") is not None:
             continue
         parent_id, valid = _parent_from_location(item.get("location"))
