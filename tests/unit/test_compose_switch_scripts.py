@@ -434,12 +434,14 @@ def test_downgrade_takes_the_helper_containers_down_while_the_marker_is_still_th
 def test_downgrade_removes_leftover_helper_labelled_containers(box: Sandbox) -> None:
     restore_tools(box, member=True)
     helper_shim(box)
-    box.tool("xargs", f'echo "xargs $*" >>"{box.log}"; cat >/dev/null\n')
+    box.tool("docker", f'echo "docker $*" >>"{box.log}"; case "$1" in ps) echo c1;; esac\n')
     box.run(cm.restore_script("1.0.13"))
-    ps = [
-        c for c in box.calls() if "compose.project.working_dir=" in c and c.endswith("/srv/compose")
-    ]
-    assert ps, box.calls()
+    calls = box.calls()
+    ps = next(c for c in calls if c.startswith("docker ps"))
+    assert "compose.project.working_dir=" in ps and "compose.project=dango-ab12cd34" in ps
+    # stopped with a grace period (Metabase closes its database), then removed: never `rm -f`
+    assert calls.index("docker stop -t 60 c1") < calls.index("docker rm c1")
+    assert "docker rm -f c1" not in calls
 
 
 def test_downgrade_continues_when_the_helper_down_fails(box: Sandbox) -> None:

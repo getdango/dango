@@ -37,6 +37,8 @@ class FakeServer:
     project: bool = True
     fail: dict[str, int] = field(default_factory=dict)
     remain: bool = False
+    sudoers: bool = False
+    blind: bool = False
     record: str | None = None
     web_unit: str = ""
     events: list[str] = field(default_factory=list)
@@ -80,6 +82,8 @@ class FakeServer:
             return self._step(tag, command)
         if command.startswith("test -s") and "project-id" in command:
             return CommandResult("", "", 0 if self.pinned else 1)
+        if command.startswith("test -e") and ch.SUDOERS_PATH in command:
+            return CommandResult("", "", 0 if self.sudoers else 1)
         if command.startswith("test -f") and "project.yml" in command:
             return CommandResult("", "", 0 if self.project else 1)
         if command == f"{ch.HELPER_PATH} build":
@@ -124,6 +128,8 @@ class FakeServer:
         return self._ok()
 
     def _access_probe(self) -> str:
+        if self.blind:
+            return "garbled"
         groups = "dango docker" if self.in_group else "dango"
         rec = self.record or ""
         return f"marker={int(self.marker)}\ngroups={groups}\n---\n{rec}"
@@ -177,6 +183,7 @@ class FakeServer:
             self.in_group = True
             self.record = _record_of(command)
         elif tag == "R":
+            self.sudoers = False
             self.in_group = True
             self.marker = False
             self.record = _record_of(command)

@@ -55,7 +55,7 @@ def test_fresh_setup_installs_the_helper_and_never_adds_the_group() -> None:
     assert srv.marker and not srv.in_group
     assert "usermod" not in srv.events and "FB" not in srv.events
     assert "P1" not in srv.events and "G" not in srv.events and "T" not in srv.events
-    assert "compose_helper" in result.steps_completed
+    assert "compose_helper" in result.steps_completed and result.helper_created
     assert srv.record == '{"dango": "1.0.14", "docker_access": "helper"}'
     assert srv.events.index("H3") < srv.events.index("M")
 
@@ -68,6 +68,7 @@ def test_fresh_setup_falls_back_to_the_group_with_a_loud_warning(failing: str) -
     assert not srv.marker and srv.in_group
     assert "FB" in srv.events
     assert result.warnings and "docker group" in result.warnings[0]
+    assert not result.helper_created
     assert "dango remote upgrade" in result.warnings[0]
     assert "compose_helper" in result.steps_completed
 
@@ -124,7 +125,7 @@ def test_first_deploy_pins_renders_and_builds_through_the_helper() -> None:
 def test_helper_build_refusal_falls_back_to_the_group_and_legacy_build(code: int) -> None:
     srv = FakeServer(marker=True, in_group=False, fail={"build": code})
     warnings: list[str] = []
-    cm.prebuild_images(srv, warnings, legacy_command=LEGACY)
+    cm.prebuild_images(srv, warnings, legacy_command=LEGACY, own_marker=True)
     assert not srv.marker and srv.in_group
     assert srv.commands[-1] == LEGACY
     assert warnings and "docker group" in warnings[0]
@@ -134,7 +135,7 @@ def test_helper_build_refusal_falls_back_to_the_group_and_legacy_build(code: int
 def test_pin_or_render_failure_falls_back_before_building(failing: str) -> None:
     srv = FakeServer(marker=True, in_group=False, fail={failing: 1})
     warnings: list[str] = []
-    cm.prebuild_images(srv, warnings, legacy_command=LEGACY)
+    cm.prebuild_images(srv, warnings, legacy_command=LEGACY, own_marker=True)
     assert "build" not in srv.events
     assert not srv.marker and srv.in_group and srv.commands[-1] == LEGACY
     assert warnings
@@ -295,12 +296,12 @@ def test_restore_on_a_pinned_server_does_not_pin_again() -> None:
     assert "P1" not in srv.events and "pin-project" not in srv.events
 
 
-def test_restore_pin_failure_falls_back_to_the_group_and_still_starts_services() -> None:
+def test_restore_pin_failure_keeps_the_switch_and_still_starts_services() -> None:
     srv = FakeServer(marker=True, in_group=False, fail={"P2": 1})
     result = restore(srv)
-    assert not srv.marker and srv.in_group
+    assert srv.marker and not srv.in_group and "FB" not in srv.events
     assert "web-start" in srv.events
-    assert any("docker group" in w for w in result.warnings)
+    assert any("marker is kept" in w for w in result.warnings)
 
 
 def test_restore_without_the_helper_does_nothing_extra() -> None:

@@ -160,3 +160,14 @@ def test_signal_between_the_flag_check_and_the_wait_still_reaches_the_workload(
     assert done.returncode == 143, done.stderr
     assert time.monotonic() - start < 25
     assert no_leftover(tree)
+
+
+def test_a_term_the_workload_survives_still_ends_with_status_143(
+    runner: Runner, tmp_path: Path
+) -> None:
+    tree = slow_docker_tree(runner, tmp_path)
+    shim = tmp_path / "shim" / "docker"
+    shim.write_text("#!/bin/sh\ntrap 'exit 0' TERM\nsleep 71 &\nwait\nexit 0\n")
+    for i in range(ITERATIONS):
+        code, _took = signalled_run(tree, tmp_path, delay=0.05 + 0.02 * i)
+        assert code == 143, (i, code)

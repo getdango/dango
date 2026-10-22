@@ -234,7 +234,7 @@ def test_consistency_check_refuses_odd_volumes_and_foreign_containers() -> None:
 def test_fallback_restores_group_and_records_it() -> None:
     srv = FakeServer(marker=True, in_group=False)
     warnings: list[str] = []
-    cm.enter_fallback(srv, warnings, "1.0.14", "the sudoers rule was rejected")
+    cm.enter_fallback(srv, warnings, "1.0.14", "the sudoers rule was rejected", switched=False)
     assert not srv.marker and srv.in_group
     assert any("sudoers rule was rejected" in w for w in warnings)
     assert srv.record == '{"dango": "1.0.14", "docker_access": "group"}'
