@@ -136,7 +136,7 @@ lockdir() { mkdir -m 0700 "$L" 2>/dev/null || [ -d "$L" ] || die "$L unsafe"
   [ -n "$(find "$L/lock" -maxdepth 0 -type f -user root -perm 0600 2>/dev/null)" ] || die "$L/lock unsafe"; }
 alive() { st=$(cut -d' ' -f3 "/proc/$1/stat" 2>/dev/null) || return 1; [ "$st" != Z ]; }
 run() { t=$1; shift; rc=0; k=0; sg=0; cp=
-  trap 'k=1 || :' HUP INT TERM
+  trap 'k=1; sg=1; [ -z "$cp" ] || kill -TERM "$cp" 2>/dev/null || :' HUP INT TERM
   timeout -k 10 "$t" "$@" </dev/null 9>&- & cp=$!
   while :; do
     if [ "$k" = 1 ]; then
@@ -148,12 +148,14 @@ run() { t=$1; shift; rc=0; k=0; sg=0; cp=
         kill -TERM "$cp" 2>/dev/null || break; sleep 0.2; n=$((n + 1)); done
     fi
     wait "$cp" && rc=0 || rc=$?
-    [ "$k" = 1 ] || break
+    [ "$k" = 1 ] && [ -e "/proc/$cp" ] || break
   done
   trap - HUP INT TERM
   # timeout leads its own process group; if our TERM caught it before it had set up its handlers it
   # died without stopping the workload, so after a signal end whatever is left in that group.
   [ "$sg" = 0 ] || kill -KILL "-$cp" 2>/dev/null || :
+  # a TERM the workload outlived (it exited 0 or an ordinary code) still reads as a signal exit
+  [ "$sg" = 0 ] || [ "$rc" -ge 128 ] || rc=143
   case $rc in
     124|137) printf 'dango-compose: %s exceeded its time budget (%ss)\n' "$verb" "$t" >&2;;
   esac; exit "$rc"; }

@@ -367,7 +367,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/source.py` | 1139 | — (extracted from main.py by TASK-005; 1.0.8-Q7 added `inspect-state`) |
 | `cli/commands/remote.py` | 760 | — (remote group + push/rollback/firewall/domain) |
 | `cli/commands/remote_mgmt.py` | 645 | — (remote status/logs/ssh/query + deployment history) |
-| `platform/cloud/deployer.py` | 655 | — (push deploy workflow + deploy lock + journal) |
+| `platform/cloud/deployer.py` | 761 | — (push deploy workflow + deploy lock + journal) |
 | `cli/validate.py` | 1048 | — |
 | `config/models.py` | 662 | — (Pydantic config models) |
 | `cli/commands/deploy.py` | 979 | — (deploy group with DO + BYOS routing, destroy command) |
@@ -375,9 +375,9 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `transformation/generator.py` | 781 | — |
 | `web/routes/catalog.py` | 564 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
 | `web/templates/catalog.html` | 1133 | — (Alpine.js data catalog page) |
-| `cli/commands/deploy_provision.py` | 1180 | — (provisioning orchestration + BYOS) |
+| `cli/commands/deploy_provision.py` | 1295 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 595 | — (DO REST API v2 client) |
-| `platform/cloud/server_setup.py` | 780 | — (server setup + install source detection) |
+| `platform/cloud/server_setup.py` | 803 | — (server setup + install source detection) |
 | `cli/commands/auth.py` | 920 | — (13 auth subcommands) |
 | `auth/database.py` | 531 | — (SQLite CRUD) |
 | `web/routes/users.py` | 535 | — (admin user CRUD + invite) |

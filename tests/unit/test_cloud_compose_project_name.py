@@ -60,7 +60,7 @@ def test_upgrade_compose_commands_carry_remote_project_name() -> None:
 
     cmd = _pull_command(commands)
     assert cmd.count("COMPOSE_PROJECT_NAME=dango-abcdef12 docker compose") == 2
-    assert cmd.endswith("up -d --build metabase </dev/null")
+    assert cmd.endswith("up -d --build metabase </dev/null; fi")  # legacy branch of the wrapper
 
 
 @pytest.mark.unit

@@ -97,7 +97,7 @@ def test_trap_is_installed_before_the_job_starts_and_wait_has_no_pid_probe() -> 
     trap_at, job_at = run_fn.index("trap '"), run_fn.index("& cp=$!")
     assert trap_at < job_at
     assert "kill -0" not in run_fn
-    assert "k=1" in run_fn and '[ "$k" = 1 ] || break' in run_fn
+    assert "k=1" in run_fn and '[ "$k" = 1 ] && [ -e "/proc/$cp" ] || break' in run_fn
 
 
 def test_rendered_entrypoint_chowns_the_metabase_volume_before_dropping_privileges() -> None:

@@ -122,6 +122,8 @@ Environment=DANGO_SKIP_ENSURE_ADMIN=true
 ExecStart={exec_start}
 Restart=on-failure
 RestartSec=5
+# Stopping dango-web runs the helper's `down` (lock wait + budget, up to ~165 s).
+TimeoutStopSec=180
 
 [Install]
 WantedBy=multi-user.target

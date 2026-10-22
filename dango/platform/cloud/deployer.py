@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud import compose_helper as ch
 from dango.platform.cloud.project_files import read_project_file
 
 logger = get_logger(__name__)
@@ -48,6 +49,14 @@ _SAFE_DBT_NAME = re.compile(r"[a-zA-Z0-9_]+")
 
 #: Docker files that require ``docker compose up --build`` when changed.
 _DOCKER_FILES = {"docker-compose.yml", "Dockerfile.metabase", "entrypoint.sh"}
+
+
+def _render_needed(synced_files: list[str]) -> bool:
+    """True when a synced file feeds the server compose render (Docker files, plugins, project.yml)."""
+    return any(
+        f in _DOCKER_FILES or f == ".dango/project.yml" or f.startswith("metabase-plugins")
+        for f in synced_files
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +262,7 @@ def _release_lock_if_ours(ssh: SSHManager, lock_json: str) -> None:
 
 def _stop_web_service(ssh: SSHManager) -> None:
     """Stop the dango-web systemd service."""
-    result = ssh.exec_command("systemctl stop dango-web", timeout=60)
+    result = ssh.exec_command("systemctl stop dango-web", timeout=190)
     if result.exit_code != 0:
         logger.warning("service_stop_failed", service="dango-web", stderr=result.stderr)
 
@@ -265,7 +274,13 @@ def _start_web_service(ssh: SSHManager) -> None:
         logger.warning("service_start_failed", service="dango-web", stderr=result.stderr)
 
 
-def _start_all_services(ssh: SSHManager, *, rebuild_docker: bool = False) -> None:
+def _start_all_services(
+    ssh: SSHManager,
+    *,
+    rebuild_docker: bool = False,
+    render: bool = False,
+    warnings: list[str] | None = None,
+) -> None:
     """Start dango-web (systemd), which starts Docker services via DockerManager.
 
     Docker services (Metabase, dbt-docs) are started by the dango-web lifespan
@@ -276,19 +291,44 @@ def _start_all_services(ssh: SSHManager, *, rebuild_docker: bool = False) -> Non
         ssh: Connected SSHManager.
         rebuild_docker: If True, force Docker image rebuild on next service start
             by removing the existing image before restarting the service.
+        render: If True, re-render the compose file first (with the compose helper in use;
+            dango-web renders it itself on start, but image removal needs the new file).
+        warnings: Collects problems with the helper steps (never raises for them).
     """
+    from dango.platform.cloud import compose_migrate as cm
+    from dango.platform.cloud.backup import helper_branch_active, root_helper_timeout
+
+    sink = warnings if warnings is not None else []
+    helper = (rebuild_docker or render) and helper_branch_active(ssh)
+    if helper:
+        rendered = ssh.exec_command(
+            f"bash -c {shlex.quote(cm.render_script())}", timeout=cm.RENDER_TIMEOUT
+        )
+        if not rendered.success:
+            sink.append(
+                "The server compose file could not be re-rendered "
+                f"({(rendered.stderr or rendered.stdout).strip()}); Docker keeps the previous one."
+            )
     if rebuild_docker:
         from dango.platform.cloud.backup import get_remote_compose_project_name
 
         compose_project = get_remote_compose_project_name(ssh, REMOTE_PROJECT_DIR)
         # Remove existing images so DockerManager rebuilds them on startup. The variable is passed
         # through `env` *after* sudo so sudo's env_reset cannot drop it.
-        ssh.exec_command(
+        legacy = (
             f"cd {REMOTE_PROJECT_DIR} && sudo -u dango env COMPOSE_PROJECT_NAME={compose_project} "
-            "docker compose down --rmi local 2>/dev/null || true",
-            timeout=120,
+            "docker compose down --rmi local 2>/dev/null || true"
         )
-    result = ssh.exec_command("systemctl restart dango-web", timeout=60)
+        removed = ssh.exec_command(
+            ch.server_compose_cmd("down-rmi", legacy=legacy),
+            timeout=root_helper_timeout("down-rmi") if helper else 120,
+        )
+        if helper and not removed.success:
+            sink.append(
+                "The old Docker images could not be removed through the compose helper "
+                f"(exit {removed.exit_code}); Metabase is rebuilt on a later start."
+            )
+    result = ssh.exec_command("systemctl restart dango-web", timeout=190)
     if result.exit_code != 0:
         logger.warning("service_start_failed", service="dango-web", stderr=result.stderr)
 
@@ -535,6 +575,13 @@ def push_deploy(
             lock = _acquire_lock(ssh, force=force, lock_json_out=attempted_lock_json)
             _notify(on_progress, "acquire_lock", "done")
 
+            # An older client does not know the compose helper: say so before it changes anything.
+            from dango.platform.cloud.compose_migrate import client_version_notice
+            from dango.platform.cloud.server_status import local_client_version
+
+            if notice := client_version_notice(ssh, local_client_version()):
+                warnings.append(notice)
+
             # Step 2: Stop dango-web BEFORE backup (DuckDB single-writer).
             # Backup will also stop services (web already stopped = noop,
             # Metabase stopped for consistent H2 backup).  With
@@ -670,7 +717,12 @@ def push_deploy(
                         _notify(on_progress, "start_services", "running")
                     finally:
                         docker_files_changed = bool(set(sync_result.synced_files) & _DOCKER_FILES)
-                        _start_all_services(ssh, rebuild_docker=docker_files_changed)
+                        _start_all_services(
+                            ssh,
+                            rebuild_docker=docker_files_changed,
+                            render=_render_needed(sync_result.synced_files),
+                            warnings=warnings,
+                        )
                     _notify(on_progress, "start_services", "done")
             finally:
                 if lock is not None:

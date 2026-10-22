@@ -212,7 +212,7 @@ class TestLegacyTimeouts:
     def test_stop_uses_the_legacy_timeouts(self) -> None:
         ssh = FakeRootSSH(helper=False)
         backup.stop_services(ssh)
-        assert [t for t in ssh.timeouts if t is not None and t != 15] == [60, 60, 120]
+        assert [t for t in ssh.timeouts if t is not None and t != 15] == [60, 190, 120]
 
     def test_start_uses_the_legacy_timeouts(self) -> None:
         ssh = FakeRootSSH(helper=False)

@@ -66,8 +66,12 @@ platform/
 │   ├── migrate.py       # Server migration (new droplet via Spaces) (TASK-105)
 │   ├── upgrade.py       # Remote Dango version upgrade (TASK-106)
 │   ├── runtime_ownership.py  # Root-owned /srv/dango + venv, trust probe, venv rebuild (1.0.14)
-│   ├── compose_helper.py # Root-owned compose helper text + install scripts (1.0.14, not yet enabled)
-│   ├── server_compose.py # Server render run by the helper (1.0.14, not yet enabled)
+│   ├── compose_helper.py # Root-owned compose helper text + install scripts (1.0.14)
+│   ├── compose_migrate.py # Switch Docker access from the docker group to the helper (migration, fallback, downgrade restore)
+│   ├── compose_steps.py   # Shared steps of the switch (run a script as root, dango-web stop/start, Metabase rebuild, version record)
+│   ├── compose_versions.py # Version checks + client/server notices for the switch
+│   ├── compose_scripts.py # Shell scripts + constants for that switch (tagged `# step:XX`)
+│   ├── server_compose.py # Server render run by the helper (1.0.14)
 │   ├── pushed_requirements.py # Root installs requirements only from the pusher's local files (1.0.14)
 │   └── _server_templates.py  # Config file templates (incl. build_caddyfile(), backup timer)
 │
@@ -83,7 +87,7 @@ platform/
 | File | Purpose | Key Symbols |
 |------|---------|-------------|
 | `docker.py` | Docker Compose lifecycle + persisted project-identity (1.0.8-Q9) + collision guard (1.0.8-Q8) | `DockerManager`, `ServiceStatus`, `get_compose_project_name()`, `render_docker_compose()`, `_get_existing_container_working_dirs()`, `_legacy_path_hash()` |
-| `compose_exec.py` | Dango-side compose wrapper. With the marker file (`/srv/dango/compose/active`, root-owned) compose runs through `sudo -n dango-compose <verb>` (caller timeouts raised above helper lock wait + budget; exit 75 -> `ComposeBusy`, 124/137/143 -> `TimeoutExpired`, signalled wrapper -> `ComposeInterrupted`); without it the legacy direct argv is unchanged. Nothing writes the marker yet | `uses_helper`, `run_compose`, `render`, `render_args`, `effective_timeout`, `ComposeBusy`, `ComposeInterrupted`, `ComposeRenderError` |
+| `compose_exec.py` | Dango-side compose wrapper. With the marker file (`/srv/dango/compose/active`, root-owned) compose runs through `sudo -n dango-compose <verb>` (caller timeouts raised above helper lock wait + budget; exit 75 -> `ComposeBusy`, 124/137/143 -> `TimeoutExpired`, signalled wrapper -> `ComposeInterrupted`); without it the legacy direct argv is unchanged. The marker is written by `cloud/compose_migrate.py` (setup, `remote upgrade`) | `uses_helper`, `run_compose`, `render`, `render_args`, `effective_timeout`, `ComposeBusy`, `ComposeInterrupted`, `ComposeRenderError` |
 | `common/startup.py` | Shared startup helpers | `run_pending_migrations`, `ensure_dbt_schemas`, `check_duckdb_version_alignment`, `ensure_duckdb_driver`, `start_docker_services`, `setup_metabase_if_needed`, `metabase_startup_work_pending`, `wait_for_metabase_if_needed`, `import_dashboards` |
 | `common/metabase_credential_state.py` | Read-only Metabase admin credential classification for `serve` (no repair; at most one health GET + one login) and the server-side repair command | `metabase_admin_credential_state`, `cloud_repair_admin_command` |
 | `common/metabase_credential_migration.py` | Legacy Metabase credential state machine | `prepare_metabase_credential_migration`, `migration_pending`, `complete_metabase_credential_migration` |
@@ -123,7 +127,9 @@ platform/
 | `cloud/migrate.py` | Server migration via Spaces (new droplet, transfer data, destroy old) | `migrate_server`, `MigrateResult` |
 | `cloud/upgrade.py` | Remote Dango version upgrade (pip install, migrations, Docker rebuild) | `upgrade_dango`, `UpgradeResult`, `validate_version_string`, `check_versions` |
 | `cloud/upgrade_guard.py` | Server-side systemd timer that starts `dango-web` if the upgrading client dies (re-armed per step, waits while a step runs) | `UpgradeGuard` |
-| `cloud/compose_helper.py` | Root-owned compose helper (POSIX sh text, sudoers rule, install scripts, per-verb budgets, `server_compose_cmd`); not yet enabled on servers | `helper_script`, `install_script`, `server_compose_cmd`, `VERB_BUDGET`, `min_caller_timeout` |
+| `cloud/compose_helper.py` | Root-owned compose helper (POSIX sh text, sudoers rule, install scripts, per-verb budgets, `server_compose_cmd`) | `helper_script`, `install_script`, `server_compose_cmd`, `VERB_BUDGET`, `min_caller_timeout` |
+| `cloud/compose_migrate.py` (+ `compose_steps.py`) | Switch to the helper: install + self-test, pin + render, marker last, remove the `docker` group, end processes that hold the gid (T), fallback to the group with a warning (only when the marker did not exist before the command; otherwise the switch is kept), downgrade restore (group back, Metabase volume to uid 999), first-deploy build, version record + client notices | `migrate_docker_access`, `enable_fresh`, `prebuild_images`, `restore_docker_access`, `enter_fallback`, `needs_migration`, `rebuild_command`, `refresh_web_unit`, `ownership_steps`, `client_version_notice` |
+| `cloud/compose_scripts.py` | Shell scripts for the switch (prechecks, self-test, render/verify, consistency check, group removal, process drop, fallback, downgrade restore, marker + version record, ownership step) | `marker_script`, `terminate_script`, `restore_script`, `ownership_steps`, `release_of` |
 | `cloud/server_compose.py` | Server-side compose/Dockerfile render and bounded plugin-jar staging, run by the helper's `render` verb | `main`, `Layout`, `acquire_lock`, `quote_name` |
 | `cloud/upgrade_caddy.py` | Caddyfile WebSocket-route migration run by `upgrade_dango` | `run_ws_migration`, `has_ws_auth_endpoint` |
 | `cloud/runtime_ownership.py` | Root-owned runtime: composable ownership steps (`OwnershipStep`) + verify script, root installs of pushed requirements only (`check_requirements`), in-place rebuild of a venv a non-root user could write (fails closed: `VenvRebuildError` aborts upgrade/setup) | `ownership_steps`, `build_ownership_script`, `build_verify_script`, `apply_ownership`, `secure_runtime`, `rebuild_untrusted_venv`, `at_target_restart_plan`, `venv_trust_findings`, `VenvRebuildError`, `ROOT_PYTHON` |

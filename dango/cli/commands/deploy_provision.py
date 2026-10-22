@@ -288,6 +288,8 @@ def run_provisioning(
             if setup_result.warnings:
                 for w in setup_result.warnings:
                     console.print(f"  [yellow]Warning:[/yellow] {w}")
+            setup_notes = list(setup_result.warnings)
+            helper_created = setup_result.helper_created
         finally:
             ssh.disconnect()
 
@@ -326,6 +328,7 @@ def run_provisioning(
 
         # --- Sub-step 7: Push secrets ---
         warnings: list[str] = []
+        _carry_fallback_warnings(setup_notes, warnings)
         # Secrets confirmation moved to wizard (push_secrets field).
         if config.push_secrets:
             _status("Pushing secrets to server...")
@@ -381,14 +384,7 @@ def run_provisioning(
         _status("Building Docker images (this may take a few minutes)...")
         ssh.connect(droplet_ip, username="root")
         try:
-            from dango.platform.cloud.backup import get_remote_compose_project_name
-
-            compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
-            result = ssh.exec_command(_prebuild_command(compose_proj), timeout=900)
-            if result.exit_code != 0:
-                raise CloudProvisioningError(
-                    f"Docker image build failed:\n{result.stderr.strip() or result.stdout.strip()}"
-                )
+            _prebuild_images(ssh, warnings, own_marker=helper_created)
         finally:
             ssh.disconnect()
 
@@ -547,6 +543,8 @@ def run_byos_setup(
             if setup_result.warnings:
                 for w in setup_result.warnings:
                     console.print(f"  [yellow]Warning:[/yellow] {w}")
+            _carry_fallback_warnings(setup_result.warnings, warnings)
+            helper_created = setup_result.helper_created
         finally:
             ssh.disconnect()
 
@@ -611,14 +609,7 @@ def run_byos_setup(
         _status("Building Docker images (this may take a few minutes)...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            from dango.platform.cloud.backup import get_remote_compose_project_name
-
-            compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
-            result = ssh.exec_command(_prebuild_command(compose_proj), timeout=900)
-            if result.exit_code != 0:
-                raise CloudProvisioningError(
-                    f"Docker image build failed:\n{result.stderr.strip() or result.stdout.strip()}"
-                )
+            _prebuild_images(ssh, warnings, own_marker=helper_created)
         finally:
             ssh.disconnect()
 
@@ -757,6 +748,30 @@ def _prebuild_command(compose_proj: str) -> str:
     return (
         "cd /srv/dango/project && sudo -u dango env "
         f"COMPOSE_PROJECT_NAME={shlex.quote(compose_proj)} docker compose build"
+    )
+
+
+def _carry_fallback_warnings(setup_warnings: list[str], warnings: list[str]) -> None:
+    """Repeat the setup's loud compose-helper fallback warning at the end of the deploy."""
+    from dango.platform.cloud.compose_migrate import FALLBACK_MARK
+
+    warnings.extend(w for w in setup_warnings if w.startswith(FALLBACK_MARK))
+
+
+def _prebuild_images(ssh: Any, warnings: list[str], *, own_marker: bool = False) -> None:
+    """Pre-build the Docker images: through the compose helper when it is installed, else legacy.
+
+    A helper that cannot pin, render or build falls back to the docker group with a loud warning
+    (added to *warnings*) only when this deploy's own setup wrote the marker (*own_marker*); on a
+    server that was already switched the switch is kept and the deploy stops. An ordinary build
+    failure raises.
+    """
+    from dango.platform.cloud.backup import get_remote_compose_project_name
+    from dango.platform.cloud.compose_migrate import prebuild_images
+
+    compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
+    prebuild_images(
+        ssh, warnings, legacy_command=_prebuild_command(compose_proj), own_marker=own_marker
     )
 
 
@@ -1044,7 +1059,7 @@ def _trigger_metabase_setup(ssh: Any, admin_email: str) -> None:
         _logger.warning("persist_metabase_email_failed", stderr=result.stderr)
 
     # Restart dango-web so lifespan re-runs setup_metabase_if_needed
-    result = ssh.exec_command("systemctl restart dango-web", timeout=120)
+    result = ssh.exec_command("systemctl restart dango-web", timeout=190)
     if result.exit_code != 0:
         _logger.warning(
             "metabase_setup_restart_failed",

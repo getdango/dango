@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud import compose_migrate as cm
 from dango.platform.cloud._server_templates import (
     DOCKER_DAEMON_JSON,
     FAIL2BAN_JAIL,
@@ -30,6 +31,7 @@ from dango.platform.cloud._server_templates import (
     build_systemd_unit,
 )
 from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
+from dango.platform.cloud.upgrade_guard import UpgradeGuard
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -49,6 +51,8 @@ class SetupResult:
     steps_completed: list[str] = field(default_factory=list)
     steps_skipped: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    #: True when this run's own ``enable_fresh`` wrote the compose helper marker (none before).
+    helper_created: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -208,19 +212,6 @@ def _setup_docker(
         step=step,
         timeout=300,
     )
-    result.steps_completed.append(step)
-    _notify(on_progress, step, "done")
-
-
-def _setup_docker_group(
-    ssh: SSHManager,
-    result: SetupResult,
-    on_progress: Callable[[str, str], None] | None,
-) -> None:
-    """Step 4: Add dango user to docker group."""
-    step = "docker_group"
-    _notify(on_progress, step, "running")
-    _run_checked(ssh, "usermod -aG docker dango", step=step)
     result.steps_completed.append(step)
     _notify(on_progress, step, "done")
 
@@ -494,7 +485,7 @@ def _setup_runtime_ownership(
     *,
     byos: bool = False,
 ) -> None:
-    """Step 17: Root-owned /srv/dango and venv, verified.
+    """Step 16: Root-owned /srv/dango and venv, verified.
 
     On a re-run over an older server, a venv another user could write is rebuilt
     first, at this client's Dango version (never re-owned as it is). A failed check
@@ -512,7 +503,45 @@ def _setup_runtime_ownership(
             f"Server setup step '{step}' failed: the venv could not be rebuilt as "
             f"root-owned ({exc}). Setup stopped; re-run it or see the server logs."
         ) from exc
-    ro.apply_ownership(ssh, result.warnings, strict=not byos)
+    ro.apply_ownership(ssh, result.warnings, cm.ownership_steps(), strict=not byos)
+    result.steps_completed.append(step)
+    _notify(on_progress, step, "done")
+
+
+def _setup_compose_helper(
+    ssh: SSHManager,
+    result: SetupResult,
+    on_progress: Callable[[str, str], None] | None,
+) -> None:
+    """Step 17: Docker access for the service account through the root-owned compose helper.
+
+    Installs and self-tests the helper, then writes the marker.  A server that already has a
+    project (a setup re-run) runs the full switch instead.  If the helper cannot be installed
+    or verified, the account joins the ``docker`` group and a loud warning is recorded; the next
+    ``remote upgrade`` retries.  The service account is never added to the group otherwise.
+    """
+    step = "compose_helper"
+    _notify(on_progress, step, "running")
+    version = cm.server_version(ssh)
+    if ssh.exec_command(f"test -f {cm.PROJECT_DIR}/.dango/project.yml").success:
+        # dango-web is stopped inside the switch: the guard brings it back if this client dies
+        guard = UpgradeGuard(ssh, result.warnings)
+        guard.arm()
+        cm.migrate_docker_access(
+            ssh,
+            result.warnings,
+            version=version,
+            on_step=guard.rearm,
+            manage_web=True,
+            rebuild=True,
+        )
+        guard.disarm()
+    else:
+        from dango.platform.cloud.backup import helper_branch_active
+
+        had_marker = helper_branch_active(ssh)
+        access = cm.enable_fresh(ssh, result.warnings, version)
+        result.helper_created = not had_marker and access != cm.ACCESS_GROUP
     result.steps_completed.append(step)
     _notify(on_progress, step, "done")
 
@@ -700,7 +729,6 @@ _SETUP_STEPS: list[
     _setup_apt_packages,
     _setup_dango_user,
     _setup_docker,
-    _setup_docker_group,
     _setup_caddy,
     _setup_directories,
     _setup_venv,
@@ -714,6 +742,7 @@ _SETUP_STEPS: list[
     _setup_fail2ban,
     _setup_unattended_upgrades,
     _setup_runtime_ownership,
+    _setup_compose_helper,
 ]
 
 

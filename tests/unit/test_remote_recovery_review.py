@@ -37,6 +37,9 @@ class _SSH:
         code = 1 if any(f in command for f in self.fail) else 0
         return CommandResult(stdout="", stderr="", exit_code=code)
 
+    def write_remote_file(self, *args: Any, **kwargs: Any) -> None:
+        self.cmds.append("write_remote_file")
+
     def connect(self, *args: Any, **kwargs: Any) -> None:
         return None
 
@@ -157,7 +160,14 @@ class TestRebuildCoverage:
         with (
             patch(
                 "dango.platform.cloud.runtime_ownership.venv_is_untrusted",
-                side_effect=[True, False, False, False],
+                side_effect=[
+                    True,
+                    False,
+                    False,
+                    False,
+                    False,
+                    False,
+                ],  # one more probe: the helper install
             ),
             patch(
                 "dango.platform.cloud.runtime_ownership.trusted_metadata_version",

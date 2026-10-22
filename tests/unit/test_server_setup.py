@@ -34,7 +34,6 @@ _ALL_STEP_NAMES = [
     "apt_packages",
     "create_user",
     "install_docker",
-    "docker_group",
     "install_caddy",
     "directories",
     "python_venv",
@@ -48,6 +47,7 @@ _ALL_STEP_NAMES = [
     "fail2ban",
     "unattended_upgrades",
     "runtime_ownership",
+    "compose_helper",
 ]
 
 

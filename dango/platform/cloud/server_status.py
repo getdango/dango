@@ -150,6 +150,7 @@ def _parse_docker_access(stdout: str) -> tuple[str, str | None]:
             groups = line[len("groups=") :].split()
     version: str | None = None
     recorded_group = False
+    recorded_migrating = False
     try:
         data = json.loads(record)
         raw = data.get("dango") if isinstance(data, dict) else None
@@ -159,13 +160,14 @@ def _parse_docker_access(stdout: str) -> tuple[str, str | None]:
             Version(raw)
             version = raw
             recorded_group = data.get("docker_access") == "group"
+            recorded_migrating = data.get("docker_access") == "migrating"
     except (ValueError, RecursionError):  # includes JSONDecodeError and InvalidVersion
         version = None
     if marker not in ("0", "1") or not groups:
         return "unknown", version
     in_group = "docker" in groups
     if marker == "1":
-        return ("migrating" if in_group else "helper"), version
+        return ("migrating" if in_group or recorded_migrating else "helper"), version
     if in_group:
         return ("group (fallback)" if recorded_group else "group (legacy)"), version
     return "none", version

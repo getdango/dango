@@ -61,6 +61,8 @@ class RecordingSSH:
 
     def exec_command(self, cmd: str, **kw: Any) -> SimpleNamespace:
         self.commands.append(cmd)
+        if cmd.startswith('[ -n "$(find ') and "-user root" in cmd:
+            return _res("", "", 1)  # the compose-helper marker is absent: legacy build
         if "cat" in cmd and "project.yml" in cmd:
             return _res(self.project_yml)
         if cmd.startswith("docker ps"):
