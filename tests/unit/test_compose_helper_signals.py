@@ -83,6 +83,17 @@ def wait_status(rcfile: Path, limit: float = 25) -> int:
     raise AssertionError("the helper did not exit")
 
 
+def no_leftover(tree: Tree, limit: float = 8) -> bool:
+    """True once no fake-docker sleep is alive (a killed group needs a moment to disappear; a real
+    orphan would live for the full 60 s)."""
+    deadline = time.monotonic() + limit
+    while time.monotonic() < deadline:
+        if tree.runner.run(["sh", "-c", LEFTOVER]).stdout.strip() == "":
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def signalled_run(
     tree: Tree, tmp_path: Path, delay: float, signals: tuple[str, ...] = ("TERM",)
 ) -> tuple[int, float]:
@@ -95,7 +106,7 @@ def signalled_run(
             tree.runner.run(["sh", "-c", f'kill -{sig} "$0" 2>/dev/null; true', pid])
         code = wait_status(rcfile)
         took = time.monotonic() - start
-        assert tree.runner.run(["sh", "-c", LEFTOVER]).stdout.strip() == "", "workload left behind"
+        assert no_leftover(tree), "workload left behind"
         return code, took
     finally:
         proc.kill()
