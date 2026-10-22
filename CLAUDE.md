@@ -375,9 +375,9 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `transformation/generator.py` | 781 | — |
 | `web/routes/catalog.py` | 564 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
 | `web/templates/catalog.html` | 1133 | — (Alpine.js data catalog page) |
-| `cli/commands/deploy_provision.py` | 1180 | — (provisioning orchestration + BYOS) |
+| `cli/commands/deploy_provision.py` | 1295 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 595 | — (DO REST API v2 client) |
-| `platform/cloud/server_setup.py` | 780 | — (server setup + install source detection) |
+| `platform/cloud/server_setup.py` | 803 | — (server setup + install source detection) |
 | `cli/commands/auth.py` | 920 | — (13 auth subcommands) |
 | `auth/database.py` | 531 | — (SQLite CRUD) |
 | `web/routes/users.py` | 535 | — (admin user CRUD + invite) |

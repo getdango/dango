@@ -32,15 +32,22 @@ from dango.platform.cloud.compose_scripts import (
     drop_group_script,
     fallback_script,
     marker_script,
+    member_script,
     ownership_steps,
     prechecks_script,
     record_script,
-    release_of,
     render_script,
     restore_script,
     self_test_script,
     terminate_script,
     verify_script,
+)
+from dango.platform.cloud.compose_versions import (
+    below_helper_version,
+    client_upgrade_line,
+    client_version_notice,
+    helper_capable,
+    server_version,
 )
 
 __all__ = [
@@ -55,6 +62,7 @@ __all__ = [
     "enable_fresh",
     "enter_fallback",
     "ensure_pinned",
+    "needs_restore",
     "fallback_script",
     "helper_capable",
     "install_helper",
@@ -78,8 +86,6 @@ __all__ = [
 
 _logger = get_logger(__name__)
 
-#: First release that serves and understands the compose helper.
-MIN_RELEASE = (1, 0, 14)
 WEB_UNIT_PATH = "/etc/systemd/system/dango-web.service"
 #: Helper exits that mean "the helper refused or is unusable", as opposed to an ordinary failure.
 HELPER_REFUSALS = frozenset({64, 65, 66, 67, 75})
@@ -87,59 +93,6 @@ HELPER_REFUSALS = frozenset({64, 65, 66, 67, 75})
 RENDER_TIMEOUT = ch.SUDO_LOCK_WAIT + ch.VERB_BUDGET["render"] + 2 * ch.CALLER_MARGIN
 
 _RETRY_HINT = "Run `dango remote upgrade` to retry once the cause is fixed."
-
-
-# ---------------------------------------------------------------------------
-# Versions
-# ---------------------------------------------------------------------------
-
-
-def helper_capable(version: str | None) -> bool:
-    """True when *version* (a pre-release of 1.0.14 included) ships the compose helper."""
-    release = release_of(version)
-    return release is not None and release >= MIN_RELEASE
-
-
-def below_helper_version(version: str | None) -> bool:
-    """True when *version* predates the compose helper (a downgrade target that needs the group)."""
-    release = release_of(version)
-    return release is not None and release < MIN_RELEASE
-
-
-def client_upgrade_line(local_version: str, target_version: str) -> str | None:
-    """The line shown before a server upgrade when the local client is older than the target."""
-    from packaging.version import InvalidVersion, Version
-
-    try:
-        if Version(local_version) >= Version(target_version):
-            return None
-    except InvalidVersion:
-        return None
-    return (
-        "Upgrade your local Dango (pip install -U getdango) before upgrading the server; "
-        f"this client is {local_version}, the target is {target_version}."
-    )
-
-
-def client_version_notice(ssh: Any, local_version: str) -> str | None:
-    """Warning when the server records a newer Dango than this client (never raises)."""
-    from dango.platform.cloud.server_status import _get_docker_access, client_version_warning
-
-    try:
-        _access, recorded = _get_docker_access(ssh)
-        return client_version_warning(recorded, local_version)
-    except Exception:
-        _logger.warning("client_version_notice_failed", exc_info=True)
-        return None
-
-
-def server_version(ssh: Any) -> str:
-    """The Dango version installed on the server (this client's, if it cannot be read)."""
-    from dango import __version__
-    from dango.platform.cloud import runtime_ownership as ro
-    from dango.platform.cloud.server_status import _get_dango_version
-
-    return ro.valid_version(_get_dango_version(ssh)) or str(__version__)
 
 
 # ---------------------------------------------------------------------------
@@ -155,9 +108,15 @@ def _detail(result: Any) -> str:
     return str((result.stderr or result.stdout or "").strip()) or f"exit {result.exit_code}"
 
 
+#: Start of the loud fallback warning (the deploy carries lines starting with it to its end).
+FALLBACK_MARK = "The compose helper could not be enabled"
+#: SSH timeout for `systemctl stop|restart dango-web`: above the unit's TimeoutStopSec=180.
+WEB_SERVICE_TIMEOUT = 190
+
+
 def _fallback_text(reason: str) -> str:
     return (
-        f"The compose helper could not be enabled ({reason}). Docker access stays on the docker "
+        f"{FALLBACK_MARK} ({reason}). Docker access stays on the docker "
         f"group, which is less isolated. {_RETRY_HINT}"
     )
 
@@ -241,14 +200,25 @@ def pin_and_render(ssh: Any, warnings: list[str]) -> bool:
 
 def enter_fallback(ssh: Any, warnings: list[str], version: str, reason: str) -> None:
     """Group access again: no marker, the account in the docker group, ``group`` recorded."""
-    result = _run(ssh, fallback_script(version), 60)
+    result = _run(ssh, fallback_script(version), _LEAVE_TIMEOUT)
     if not result.success:
         warnings.append(
             f"Docker group access could not be restored automatically ({_detail(result)}). "
             "Run `usermod -aG docker dango` on the server and remove the marker "
             f"{ch.MARKER} if it exists."
         )
+    _relay_warnings(result, warnings)
     warnings.append(_fallback_text(reason))
+
+
+#: SSH timeout for scripts that take the helper's containers down (lock wait + budget + margin).
+_LEAVE_TIMEOUT = ch.ROOT_LOCK_WAIT + ch.VERB_BUDGET["down"] + 300
+
+
+def _relay_warnings(result: Any, warnings: list[str]) -> None:
+    for line in result.stdout.splitlines():
+        if line.startswith("RESTORE_WARN:"):
+            warnings.append(line[len("RESTORE_WARN:") :])
 
 
 def _write_record(ssh: Any, version: str, access: str) -> None:
@@ -294,8 +264,19 @@ def needs_migration(ssh: Any) -> bool:
     return access != ACCESS_HELPER
 
 
+def needs_restore(ssh: Any) -> bool:
+    """True when the server still runs through the helper (or has no Docker access at all).
+
+    Decided from the server's state, so an interrupted downgrade is finished by the next run.
+    """
+    from dango.platform.cloud.server_status import _get_docker_access
+
+    access, _recorded = _get_docker_access(ssh)
+    return access in (ACCESS_HELPER, ACCESS_MIGRATING, "none")
+
+
 def _web(ssh: Any, action: str) -> None:
-    result = ssh.exec_command(f"systemctl {action} dango-web", timeout=120)
+    result = ssh.exec_command(f"systemctl {action} dango-web", timeout=WEB_SERVICE_TIMEOUT)
     if not result.success:
         _logger.warning("dango_web_service_failed", action=action, detail=_detail(result))
 
@@ -315,7 +296,10 @@ def migrate_docker_access(
     the end; *rebuild* recreates Metabase through the helper before that start.  Steps before the
     marker never touch dango-web.
     """
+    from dango.platform.cloud.backup import helper_branch_active
+
     tick = on_step or (lambda: None)
+    switched = helper_branch_active(ssh)
     reason = _install_helper(ssh)
     tick()
     if reason is None:
@@ -326,11 +310,14 @@ def migrate_docker_access(
         reason = None if result.success else _detail(result)
         tick()
     if reason is not None:
+        if switched:
+            return _keep_switched(ssh, warnings, reason)
         enter_fallback(ssh, warnings, version, reason)
         return ACCESS_GROUP
-    if manage_web:
-        _web(ssh, "stop")
+    state = ACCESS_MIGRATING
     try:
+        if manage_web:
+            _web(ssh, "stop")
         state = _switch_group(ssh, warnings, version, tick)
         if rebuild:
             _rebuild(ssh, warnings)
@@ -339,6 +326,20 @@ def migrate_docker_access(
         if manage_web:
             _web(ssh, "start")
     return state
+
+
+def _keep_switched(ssh: Any, warnings: list[str], reason: str) -> str:
+    """A re-run failed on a server that already uses the helper: keep it, warn, never add the group.
+
+    The inputs of the failing steps (project.yml, plugins) are controlled by the service account, so
+    root must not answer a failure by giving the account Docker access again.
+    """
+    warnings.append(
+        f"The compose helper could not be refreshed ({reason}). The helper stays enabled (the "
+        "marker is kept) and the service account is not added to the docker group. "
+        f"{_RETRY_HINT}"
+    )
+    return ACCESS_MIGRATING if _run(ssh, member_script(), 30).success else ACCESS_HELPER
 
 
 def _switch_group(ssh: Any, warnings: list[str], version: str, tick: Callable[[], None]) -> str:
@@ -371,14 +372,22 @@ def _switch_group(ssh: Any, warnings: list[str], version: str, tick: Callable[[]
 
 
 def enable_fresh(ssh: Any, warnings: list[str], version: str) -> str:
-    """Fresh server: install and verify the helper, then write the marker (no project yet)."""
+    """Fresh server: install and verify the helper, then write the marker (no project yet).
+
+    A server an older release set up has the service account in the docker group: it is removed.
+    """
     reason = _install_helper(ssh)
+    member = False
     if reason is None:
-        result = _run(ssh, marker_script(version, ACCESS_HELPER), 60)
+        member = _run(ssh, member_script(), 30).success
+        access = ACCESS_MIGRATING if member else ACCESS_HELPER
+        result = _run(ssh, marker_script(version, access), 60)
         reason = None if result.success else _detail(result)
     if reason is not None:
         enter_fallback(ssh, warnings, version, reason)
         return ACCESS_GROUP
+    if member:
+        return _switch_group(ssh, warnings, version, lambda: None)
     return ACCESS_HELPER
 
 
@@ -424,14 +433,35 @@ def ensure_pinned(ssh: Any, warnings: list[str]) -> None:
         enter_fallback(ssh, warnings, server_version(ssh), reason)
 
 
-def restore_docker_access(ssh: Any, warnings: list[str], *, version: str) -> None:
-    """Downgrade below the helper release: group access back, volume ownership back, helper off."""
-    result = _run(ssh, restore_script(version), 600)
-    if not result.success:
-        raise CloudProvisioningError(f"Could not restore Docker group access: {_detail(result)}")
-    for line in result.stdout.splitlines():
-        if line.startswith("RESTORE_WARN:"):
-            warnings.append(line[len("RESTORE_WARN:") :])
+def restore_docker_access(
+    ssh: Any,
+    warnings: list[str],
+    *,
+    version: str,
+    manage_web: bool = False,
+    rebuild: bool = False,
+    on_step: Callable[[], None] | None = None,
+) -> None:
+    """Downgrade below the helper release: group access back, helper containers down, volume
+    ownership back, helper off.  With *manage_web*, dango-web is stopped around it (and started
+    again, also on failure); *rebuild* recreates Metabase the legacy way before that start."""
+    tick = on_step or (lambda: None)
+    try:
+        if manage_web:
+            _web(ssh, "stop")
+        result = _run(ssh, restore_script(version), _LEAVE_TIMEOUT)
+        tick()
+        if not result.success:
+            raise CloudProvisioningError(
+                f"Could not restore Docker group access: {_detail(result)}"
+            )
+        _relay_warnings(result, warnings)
+        if rebuild:
+            _rebuild(ssh, warnings)
+            tick()
+    finally:
+        if manage_web:
+            _web(ssh, "start")
 
 
 def refresh_web_unit(ssh: Any, warnings: list[str]) -> None:

@@ -132,23 +132,37 @@ def _switch_at_target(
     Only a server that is not yet settled on the helper has dango-web stopped (for the group
     removal and process drop) and Metabase recreated; a settled server is not touched.
     """
+    if cm.below_helper_version(version):
+        # An interrupted downgrade left the helper on under the old code: finish it.
+        if not cm.needs_restore(ssh):
+            return None
+        guard.arm()
+        cm.restore_docker_access(
+            ssh,
+            warnings,
+            version=version or "",
+            manage_web=True,
+            rebuild=True,
+            on_step=guard.rearm,
+        )
+        guard.disarm()  # dango-web was started again; an exception leaves the guard armed
+        return cm.ACCESS_GROUP
     if not cm.helper_capable(version):
         return None
     cm.refresh_web_unit(ssh, warnings)  # takes effect at the next restart; never stops dango-web
     if not cm.needs_migration(ssh):
         return None
     guard.arm()  # dango-web is stopped inside the migration
-    try:
-        return cm.migrate_docker_access(
-            ssh,
-            warnings,
-            version=version or "",
-            on_step=guard.rearm,
-            manage_web=True,
-            rebuild=True,
-        )
-    finally:
-        guard.disarm()
+    state = cm.migrate_docker_access(
+        ssh,
+        warnings,
+        version=version or "",
+        on_step=guard.rearm,
+        manage_web=True,
+        rebuild=True,
+    )
+    guard.disarm()  # dango-web was started again; an exception leaves the guard armed
+    return state
 
 
 def upgrade_dango(
@@ -319,6 +333,7 @@ def upgrade_dango(
 
     # 5. Stop services
     from dango.platform.cloud.backup import (
+        ComposeStopError,
         get_remote_compose_project_name,
         helper_branch_active,
         start_services,
@@ -331,8 +346,8 @@ def upgrade_dango(
     try:
         # Each helper stop can wait for the lock: the guard window restarts between the two.
         stop_services(ssh, on_first_stop=guard.rearm)
-    except BaseException:
-        guard.disarm()  # nothing is left stopped (stop_services starts everything again)
+    except ComposeStopError:
+        guard.disarm()  # stop_services started everything again
         raise
     guard.rearm()
     _notify(on_progress, "stop_services", "done")
@@ -351,6 +366,16 @@ def upgrade_dango(
 
         # 7. Verify new version (validated before it is used anywhere)
         new_version = ro.valid_version(_get_dango_version(ssh))
+
+        # 7b. A downgrade below the helper release gives the docker group (and the Metabase data
+        # ownership) back first: decided from the server's state, so an interrupted run converges.
+        docker_access: str | None = None
+        if cm.below_helper_version(new_version) and cm.needs_restore(ssh):
+            _notify(on_progress, "docker_access", "running")
+            cm.restore_docker_access(ssh, warnings, version=new_version or target_version)
+            docker_access = cm.ACCESS_GROUP
+            guard.rearm()
+            _notify(on_progress, "docker_access", "done")
 
         # 8. Run migrations
         _notify(on_progress, "migrations", "running")
@@ -386,21 +411,13 @@ def upgrade_dango(
         )
         _notify(on_progress, "runtime_ownership", "done")
 
-        # 8d. Docker access: the compose helper from 1.0.14 on; a downgrade below it gets the
-        # docker group (and the Metabase data ownership) back
-        docker_access: str | None = None
+        # 8d. Docker access: the compose helper from 1.0.14 on
         if cm.helper_capable(new_version):
             _notify(on_progress, "docker_access", "running")
             cm.refresh_web_unit(ssh, warnings)
             docker_access = cm.migrate_docker_access(
                 ssh, warnings, version=new_version or target_version, on_step=guard.rearm
             )
-            _notify(on_progress, "docker_access", "done")
-        elif cm.helper_capable(old_version) and cm.below_helper_version(new_version):
-            _notify(on_progress, "docker_access", "running")
-            cm.restore_docker_access(ssh, warnings, version=new_version or target_version)
-            docker_access = cm.ACCESS_GROUP
-            guard.rearm()
             _notify(on_progress, "docker_access", "done")
 
         # 9. Docker rebuild

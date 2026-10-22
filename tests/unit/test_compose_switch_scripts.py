@@ -455,6 +455,7 @@ def test_fallback_takes_the_helper_containers_down_while_the_marker_is_still_the
 ) -> None:
     (box.root / "srv" / "compose" / "active").write_text("")
     box.tool("id", "echo dango\n")
+    box.tool("docker", "exit 0\n")
     helper_shim(box)
     assert box.run(cm.fallback_script("1.0.14")).returncode == 0
     assert helper_down_calls(box) == ["dango-compose down marker-present"]
@@ -463,6 +464,7 @@ def test_fallback_takes_the_helper_containers_down_while_the_marker_is_still_the
 
 def test_fallback_without_a_marker_does_not_call_the_helper(box: Sandbox) -> None:
     box.tool("id", "echo dango docker\n")
+    box.tool("docker", "exit 0\n")
     helper_shim(box)
     assert box.run(cm.fallback_script("1.0.14")).returncode == 0
     assert helper_down_calls(box) == []

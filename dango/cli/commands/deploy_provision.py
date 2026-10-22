@@ -288,6 +288,7 @@ def run_provisioning(
             if setup_result.warnings:
                 for w in setup_result.warnings:
                     console.print(f"  [yellow]Warning:[/yellow] {w}")
+            setup_notes = list(setup_result.warnings)
         finally:
             ssh.disconnect()
 
@@ -326,6 +327,7 @@ def run_provisioning(
 
         # --- Sub-step 7: Push secrets ---
         warnings: list[str] = []
+        _carry_fallback_warnings(setup_notes, warnings)
         # Secrets confirmation moved to wizard (push_secrets field).
         if config.push_secrets:
             _status("Pushing secrets to server...")
@@ -540,6 +542,7 @@ def run_byos_setup(
             if setup_result.warnings:
                 for w in setup_result.warnings:
                     console.print(f"  [yellow]Warning:[/yellow] {w}")
+            _carry_fallback_warnings(setup_result.warnings, warnings)
         finally:
             ssh.disconnect()
 
@@ -744,6 +747,13 @@ def _prebuild_command(compose_proj: str) -> str:
         "cd /srv/dango/project && sudo -u dango env "
         f"COMPOSE_PROJECT_NAME={shlex.quote(compose_proj)} docker compose build"
     )
+
+
+def _carry_fallback_warnings(setup_warnings: list[str], warnings: list[str]) -> None:
+    """Repeat the setup's loud compose-helper fallback warning at the end of the deploy."""
+    from dango.platform.cloud.compose_migrate import FALLBACK_MARK
+
+    warnings.extend(w for w in setup_warnings if w.startswith(FALLBACK_MARK))
 
 
 def _prebuild_images(ssh: Any, warnings: list[str]) -> None:
@@ -1043,7 +1053,7 @@ def _trigger_metabase_setup(ssh: Any, admin_email: str) -> None:
         _logger.warning("persist_metabase_email_failed", stderr=result.stderr)
 
     # Restart dango-web so lifespan re-runs setup_metabase_if_needed
-    result = ssh.exec_command("systemctl restart dango-web", timeout=120)
+    result = ssh.exec_command("systemctl restart dango-web", timeout=190)
     if result.exit_code != 0:
         _logger.warning(
             "metabase_setup_restart_failed",

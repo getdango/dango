@@ -241,7 +241,7 @@ def remote_repair(ctx: click.Context) -> None:
             issues_found += 1
 
         # Restart dango-web
-        result = ssh.exec_command("systemctl restart dango-web", timeout=30)
+        result = ssh.exec_command("systemctl restart dango-web", timeout=190)
         if result.success:
             console.print("  [green]OK[/green] — dango-web restarted")
         else:

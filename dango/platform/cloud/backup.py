@@ -494,7 +494,7 @@ def stop_services(ssh: SSHManager, on_first_stop: Callable[[], None] | None = No
         raise _stop_failure(first.exit_code)
     if on_first_stop is not None:
         on_first_stop()
-    result = ssh.exec_command("systemctl stop dango-web", timeout=60)
+    result = ssh.exec_command("systemctl stop dango-web", timeout=190)
     if result.exit_code != 0:
         _logger.warning("service_stop_failed", service="dango-web", stderr=result.stderr)
     result = ssh.exec_command(

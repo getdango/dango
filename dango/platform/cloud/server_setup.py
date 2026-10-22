@@ -31,6 +31,7 @@ from dango.platform.cloud._server_templates import (
     build_systemd_unit,
 )
 from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
+from dango.platform.cloud.upgrade_guard import UpgradeGuard
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -521,9 +522,18 @@ def _setup_compose_helper(
     _notify(on_progress, step, "running")
     version = cm.server_version(ssh)
     if ssh.exec_command(f"test -f {cm.PROJECT_DIR}/.dango/project.yml").success:
+        # dango-web is stopped inside the switch: the guard brings it back if this client dies
+        guard = UpgradeGuard(ssh, result.warnings)
+        guard.arm()
         cm.migrate_docker_access(
-            ssh, result.warnings, version=version, manage_web=True, rebuild=True
+            ssh,
+            result.warnings,
+            version=version,
+            on_step=guard.rearm,
+            manage_web=True,
+            rebuild=True,
         )
+        guard.disarm()
     else:
         cm.enable_fresh(ssh, result.warnings, version)
     result.steps_completed.append(step)

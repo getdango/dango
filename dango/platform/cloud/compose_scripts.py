@@ -151,6 +151,30 @@ def consistency_script(project_id: str) -> str:
     )
 
 
+def member_script() -> str:
+    """Exit 0 when the service account is in the docker group."""
+    return "# step:GM\nid -nG dango | tr ' ' '\\n' | grep -qx docker\n"
+
+
+def _leave_helper_lines() -> str:
+    """Take the helper's containers down while the marker still exists (volumes are kept).
+
+    Containers made through the helper carry the compose directory as their working dir, which the
+    legacy code's collision guard refuses; the legacy commands recreate them under the project.
+    Any container that is left is removed by its label.
+    """
+    label = f"label=com.docker.compose.project.working_dir={ch.COMPOSE_DIR}"
+    return (
+        f"if [ -f {ch.MARKER} ]; then\n"
+        f'  {ch.HELPER_PATH} down >/dev/null 2>&1 || echo "RESTORE_WARN:the helper could not take its '
+        'containers down"\n'
+        "fi\n"
+        f"ids=$(docker ps -aq --filter {label} 2>/dev/null || true)\n"
+        'if [ -n "$ids" ]; then docker rm -f $ids >/dev/null 2>&1 || '
+        'echo "RESTORE_WARN:containers made through the helper could not be removed"; fi\n'
+    )
+
+
 def drop_group_script() -> str:
     """Remove the service account from the docker group; fail if it is still a member."""
     member = "id -nG dango | tr ' ' '\\n' | grep -qx docker"
@@ -164,9 +188,10 @@ def drop_group_script() -> str:
 def terminate_script() -> str:
     """End dango processes that still hold the docker gid (groups are fixed at process start).
 
-    Waits up to 120 s for other dango processes (such as a manual sync), then up to three rounds of
-    ``loginctl terminate-user``, TERM, a 10 s wait, STOP and KILL.  Succeeds (``T_OK``) only when no
-    live process of the account has the docker gid in its ``/proc/<pid>/status`` Groups line.
+    Does nothing (``T_OK``) when no live process of the account has the docker gid in its
+    ``/proc/<pid>/status`` Groups line.  Otherwise waits up to 120 s for the account's processes to
+    finish (such as a manual sync), names what is left (``T_LEFT``) and runs up to three rounds of
+    ``loginctl terminate-user``, TERM, a 10 s wait, STOP and KILL.
     """
     awk = (
         '/^State:/{if($2=="Z")z=1} /^Uid:/{if($2==u)m=1} '
@@ -176,11 +201,6 @@ def terminate_script() -> str:
         "# step:T\n"
         "dg=$(getent group docker | cut -d: -f3)\n"
         "du=$(id -u dango) || { echo T_OK; exit 0; }\n"
-        "w=0\n"
-        'while pgrep -u dango >/dev/null 2>&1 && [ "$w" -lt 120 ]; do sleep 2; w=$((w + 2)); done\n'
-        "if pgrep -u dango >/dev/null 2>&1; then\n"
-        "  echo \"T_LEFT:$(ps -u dango -o args= 2>/dev/null | head -5 | tr '\\n' ';')\"\n"
-        "fi\n"
         "has_gid() {\n"
         "  for s in /proc/[0-9]*/status; do\n"
         '    [ -r "$s" ] || continue\n'
@@ -188,6 +208,11 @@ def terminate_script() -> str:
         "  done\n"
         "  return 1\n"
         "}\n"
+        "has_gid || { echo T_OK; exit 0; }\n"
+        "w=0\n"
+        'while pgrep -u dango >/dev/null 2>&1 && [ "$w" -lt 120 ]; do sleep 2; w=$((w + 2)); done\n'
+        "has_gid || { echo T_OK; exit 0; }\n"
+        "echo \"T_LEFT:$(ps -u dango -o args= 2>/dev/null | head -5 | tr '\\n' ';')\"\n"
         "r=0\n"
         'while [ "$r" -lt 3 ] && has_gid; do\n'
         "  r=$((r + 1))\n"
@@ -205,25 +230,26 @@ def terminate_script() -> str:
 
 
 def fallback_script(version: str) -> str:
-    """Back to group access: remove the marker, then add the group if the account lacks it."""
+    """Back to group access: helper containers down, remove the marker, then add the group."""
     return (
-        "# step:FB\nset -e\numask 022\n"
-        f"rm -f {ch.MARKER}\n"
+        "# step:FB\nset -e\numask 022\n" + _leave_helper_lines() + f"rm -f {ch.MARKER}\n"
         "if ! id -nG dango | tr ' ' '\\n' | grep -qx docker; then usermod -aG docker dango; fi\n"
         + _record_lines(version, ACCESS_GROUP)
     )
 
 
 def restore_script(version: str) -> str:
-    """Downgrade below 1.0.14: group access first, the Metabase volume back to the old uid, then
-    remove the marker and the sudoers rule, then record the target version with ``group``."""
+    """Downgrade below 1.0.14: group access first, the helper's containers down (marker still
+    there), the Metabase volume back to the old uid, then remove the marker and the sudoers rule,
+    then record the target version with ``group``."""
     sudoers = ch.SUDOERS_PATH
     return (
         "# step:R\nset -e\numask 022\n"
         "if ! id -nG dango | tr ' ' '\\n' | grep -qx docker; then\n"
         '  usermod -aG docker dango || { echo "could not add dango to the docker group" >&2; exit 1; }\n'
         "fi\n"
-        f"proj=$(cat {ch.COMPOSE_DIR}/project 2>/dev/null || true)\n"
+        + _leave_helper_lines()
+        + f"proj=$(cat {ch.COMPOSE_DIR}/project 2>/dev/null || true)\n"
         'if [ -n "$proj" ]; then\n'
         '  vol="${proj}_metabase-data"\n'
         '  if docker volume inspect "$vol" >/dev/null 2>&1; then\n'

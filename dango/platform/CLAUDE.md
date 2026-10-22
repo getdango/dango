@@ -68,6 +68,7 @@ platform/
 │   ├── runtime_ownership.py  # Root-owned /srv/dango + venv, trust probe, venv rebuild (1.0.14)
 │   ├── compose_helper.py # Root-owned compose helper text + install scripts (1.0.14)
 │   ├── compose_migrate.py # Switch Docker access from the docker group to the helper (migration, fallback, downgrade restore)
+│   ├── compose_versions.py # Version checks + client/server notices for the switch
 │   ├── compose_scripts.py # Shell scripts + constants for that switch (tagged `# step:XX`)
 │   ├── server_compose.py # Server render run by the helper (1.0.14)
 │   ├── pushed_requirements.py # Root installs requirements only from the pusher's local files (1.0.14)

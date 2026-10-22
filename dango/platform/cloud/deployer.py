@@ -262,7 +262,7 @@ def _release_lock_if_ours(ssh: SSHManager, lock_json: str) -> None:
 
 def _stop_web_service(ssh: SSHManager) -> None:
     """Stop the dango-web systemd service."""
-    result = ssh.exec_command("systemctl stop dango-web", timeout=60)
+    result = ssh.exec_command("systemctl stop dango-web", timeout=190)
     if result.exit_code != 0:
         logger.warning("service_stop_failed", service="dango-web", stderr=result.stderr)
 
@@ -328,7 +328,7 @@ def _start_all_services(
                 "The old Docker images could not be removed through the compose helper "
                 f"(exit {removed.exit_code}); Metabase is rebuilt on a later start."
             )
-    result = ssh.exec_command("systemctl restart dango-web", timeout=60)
+    result = ssh.exec_command("systemctl restart dango-web", timeout=190)
     if result.exit_code != 0:
         logger.warning("service_start_failed", service="dango-web", stderr=result.stderr)
 

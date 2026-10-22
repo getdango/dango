@@ -86,7 +86,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy_provision.py
-    lines: 1180
+    lines: 1295
     category: exempt
     reason: "TASK-029+075e: DO provisioning + BYOS setup with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery. R8-F added _generate_cloud_profiles + DANGO_ADMIN_EMAIL persistence. R9-C added _confirm_secrets_push, install source detection, empty error handling. R12-N1 added non_interactive param, project_root resolve. Deploy reliability: extracted script builders, added exit code checks."
     review_by: "v1.1"
@@ -303,13 +303,13 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/cloud/server_setup.py
-    lines: 780
+    lines: 803
     category: exempt
     reason: "TASK-075e+R9-C: 17 idempotent setup steps + optional UFW. R9-C added resolve_install_source() and system-wide apt lock timeout config. R12-N1 added _normalize_git_url, fuser wait loop, logging."
     review_by: "v1.1"
 
   - file: dango/platform/cloud/backup.py
-    lines: 742
+    lines: 1235
     category: exempt
     reason: "TASK-035+R12-M2: SSH-based backup and rollback. R12-M2 added logging import and service control warning logs."
     review_by: "v1.1"
