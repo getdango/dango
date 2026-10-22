@@ -153,7 +153,8 @@ def test_signal_between_the_flag_check_and_the_wait_still_reaches_the_workload(
     text = tree.script.read_text()
     wait = '    wait "$cp" && rc=0 || rc=$?\n'
     assert text.count(wait) == 1
-    tree.script.write_text(text.replace(wait, "    kill -TERM $$\n" + wait))
+    once = '    [ -n "${once:-}" ] || { once=1; sleep 1; kill -TERM $$; }\n'
+    tree.script.write_text(text.replace(wait, once + wait))
     start = time.monotonic()
     done = tree.call("up", sudo=True, timeout=40)
     assert done.returncode == 143, done.stderr
