@@ -45,6 +45,7 @@ class FakeServer:
     written: dict[str, str] = field(default_factory=dict)
     stop_rc: list[int] = field(default_factory=list)
     target: str | None = None
+    raise_on: dict[str, Exception] = field(default_factory=dict)
 
     # --- SSHManager surface ----------------------------------------------------------
     def connect(self, *_a: Any, **_k: Any) -> None:
@@ -70,6 +71,10 @@ class FakeServer:
         return CommandResult("", f"{tag} failed", self.fail[tag])
 
     def _answer(self, command: str) -> CommandResult:
+        for needle, exc in self.raise_on.items():
+            if needle in command:
+                self.events.append(f"raised:{needle}")
+                raise exc
         tag = step_of(command)
         if tag is not None:
             return self._step(tag, command)
@@ -157,6 +162,8 @@ class FakeServer:
             self.record = _record_of(command)
         elif tag == "REC":
             self.record = _record_of(command)
+        elif tag == "GM":
+            return CommandResult("", "", 0 if self.in_group else 1)
         elif tag == "G":
             if self.in_group:
                 self.events.append("gpasswd")

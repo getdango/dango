@@ -51,6 +51,7 @@ class Sandbox:
         shim(self.bin, name, body)
 
     def adapt(self, script: str) -> str:
+        script = script.replace(ch.HELPER_PATH, str(self.bin / "dango-compose"))
         script = script.replace(ch.SRV_DIR, str(self.root / "srv"))
         script = script.replace(
             ch.SUDOERS_PATH, str(self.root / "etc" / "sudoers.d" / "dango-compose")
@@ -380,6 +381,7 @@ def test_scripts_carry_step_tags() -> None:
         "REC": cm.record_script("1.0.14", "helper"),
         "FB": cm.fallback_script("1.0.14"),
         "R": cm.restore_script("1.0.13"),
+        "GM": cm.member_script(),
     }
     for tag, text in tagged.items():
         assert text.startswith(f"# step:{tag}\n"), tag
@@ -401,3 +403,92 @@ def test_self_test_passes_when_ok_and_the_root_verb_is_refused(box: Sandbox) -> 
 def test_self_test_fails_when_a_root_verb_is_not_refused(box: Sandbox) -> None:
     box.tool("runuser", 'case "$*" in *self-test*) echo ok;; *) exit 0;; esac\n')
     assert box.run(cm.self_test_script()).returncode != 0
+
+
+# --- containers made by the helper go before the marker does (H2) ---------------------------------
+
+
+def helper_shim(box: Sandbox) -> None:
+    marker = box.root / "srv" / "compose" / "active"
+    box.tool(
+        "dango-compose",
+        f'if [ -e "{marker}" ]; then m=marker-present; else m=marker-gone; fi; '
+        f'echo "dango-compose $* $m" >>"{box.log}"\n',
+    )
+
+
+def helper_down_calls(box: Sandbox) -> list[str]:
+    return [c for c in box.calls() if c.startswith("dango-compose down")]
+
+
+def test_downgrade_takes_the_helper_containers_down_while_the_marker_is_still_there(
+    box: Sandbox,
+) -> None:
+    restore_tools(box, member=True)
+    helper_shim(box)
+    assert box.run(cm.restore_script("1.0.13")).returncode == 0
+    assert helper_down_calls(box) == ["dango-compose down marker-present"]
+    assert not (box.root / "srv" / "compose" / "active").exists()
+
+
+def test_downgrade_removes_leftover_helper_labelled_containers(box: Sandbox) -> None:
+    restore_tools(box, member=True)
+    helper_shim(box)
+    box.tool("xargs", f'echo "xargs $*" >>"{box.log}"; cat >/dev/null\n')
+    box.run(cm.restore_script("1.0.13"))
+    ps = [
+        c for c in box.calls() if "compose.project.working_dir=" in c and c.endswith("/srv/compose")
+    ]
+    assert ps, box.calls()
+
+
+def test_downgrade_continues_when_the_helper_down_fails(box: Sandbox) -> None:
+    restore_tools(box, member=True)
+    box.tool("dango-compose", "exit 1\n")
+    done = box.run(cm.restore_script("1.0.13"))
+    assert done.returncode == 0 and "RESTORE_WARN" in done.stdout
+    assert not (box.root / "srv" / "compose" / "active").exists()
+
+
+def test_fallback_takes_the_helper_containers_down_while_the_marker_is_still_there(
+    box: Sandbox,
+) -> None:
+    (box.root / "srv" / "compose" / "active").write_text("")
+    box.tool("id", "echo dango\n")
+    helper_shim(box)
+    assert box.run(cm.fallback_script("1.0.14")).returncode == 0
+    assert helper_down_calls(box) == ["dango-compose down marker-present"]
+    assert not (box.root / "srv" / "compose" / "active").exists()
+
+
+def test_fallback_without_a_marker_does_not_call_the_helper(box: Sandbox) -> None:
+    box.tool("id", "echo dango docker\n")
+    helper_shim(box)
+    assert box.run(cm.fallback_script("1.0.14")).returncode == 0
+    assert helper_down_calls(box) == []
+
+
+# --- process drop only when a process holds the group (L2) -------------------------------------------
+
+
+def test_terminate_does_not_wait_or_report_when_no_process_holds_the_group(box: Sandbox) -> None:
+    term_tools(box, running=True)  # other dango processes exist, none with the docker gid
+    fake_proc(box, 50, uid=1001, groups="1001 27")
+    done = box.run(cm.terminate_script())
+    assert done.returncode == 0 and "T_OK" in done.stdout and "T_LEFT" not in done.stdout
+    assert not [c for c in box.calls() if c.startswith(("sleep", "pkill", "loginctl"))]
+
+
+def test_terminate_reports_ended_processes_only_when_a_kill_round_runs(box: Sandbox) -> None:
+    term_tools(box, running=True)
+    fake_proc(box, 51, uid=1001, groups="1001 998")
+    done = box.run(cm.terminate_script())
+    assert "T_LEFT" in done.stdout
+    assert done.stdout.index("T_LEFT") < done.stdout.index("T_REMAIN")
+
+
+def test_group_member_probe_script_reports_membership(box: Sandbox) -> None:
+    box.tool("id", "echo dango docker\n")
+    assert box.run(cm.member_script()).returncode == 0
+    box.tool("id", "echo dango\n")
+    assert box.run(cm.member_script()).returncode != 0

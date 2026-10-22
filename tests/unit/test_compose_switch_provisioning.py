@@ -307,3 +307,65 @@ def test_restore_without_the_helper_does_nothing_extra() -> None:
     srv = FakeServer(marker=False, in_group=True)
     restore(srv)
     assert "P1" not in srv.events and "FB" not in srv.events
+
+
+# --- review round 1 ---------------------------------------------------------------------------------
+
+
+def test_setup_rerun_over_an_existing_project_is_covered_by_the_upgrade_guard() -> None:
+    srv = FakeServer(project=True, in_group=True)
+    server_setup._setup_compose_helper(srv, setup_result(), None)
+    ev = srv.events
+    assert ev.index("guard-arm") < ev.index("web-stop")
+    assert ev.index("web-start") < len(ev) - 1 - ev[::-1].index("guard-disarm")
+
+
+def test_fresh_setup_over_a_server_with_the_group_drops_the_group() -> None:
+    srv = FakeServer(project=False, in_group=True)
+    server_setup._setup_compose_helper(srv, setup_result(), None)
+    assert srv.marker and not srv.in_group
+    assert srv.events.index("M") < srv.events.index("G") < srv.events.index("T")
+    assert srv.record == '{"dango": "1.0.14", "docker_access": "helper"}'
+
+
+def test_fresh_setup_group_removal_failure_records_migrating() -> None:
+    srv = FakeServer(project=False, in_group=True, fail={"G": 1})
+    server_setup._setup_compose_helper(srv, setup_result(), None)
+    assert srv.record == '{"dango": "1.0.14", "docker_access": "migrating"}'
+
+
+def test_setup_fallback_warning_is_carried_to_the_end_of_the_deploy() -> None:
+    from dango.cli.commands import deploy_provision as dp
+
+    setup_warnings = [
+        "Low RAM: 2000 MB detected",
+        cm._fallback_text("flock is missing"),
+    ]
+    end: list[str] = []
+    dp._carry_fallback_warnings(setup_warnings, end)
+    assert end == [setup_warnings[1]]
+
+
+def test_deployer_restart_and_stop_timeouts_cover_the_unit_stop_timeout(tmp_path: Path) -> None:
+    srv = FakeServer(marker=True, in_group=False)
+    deployer._stop_web_service(srv)
+    deployer._start_all_services(srv)
+    timeouts = [
+        t
+        for c, t in zip(srv.commands, srv.timeouts, strict=True)
+        if c in ("systemctl stop dango-web", "systemctl restart dango-web")
+    ]
+    assert len(timeouts) == 2 and all((t or 0) >= 190 for t in timeouts)
+
+
+def test_metabase_setup_restart_timeout_covers_the_unit_stop_timeout() -> None:
+    from dango.cli.commands import deploy_provision as dp
+
+    srv = FakeServer()
+    dp._trigger_metabase_setup(srv, "a@example.com")
+    timeouts = [
+        t
+        for c, t in zip(srv.commands, srv.timeouts, strict=True)
+        if c == "systemctl restart dango-web"
+    ]
+    assert timeouts and all((t or 0) >= 190 for t in timeouts)

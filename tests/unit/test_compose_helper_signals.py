@@ -137,11 +137,25 @@ def test_a_second_signal_does_not_replace_the_real_status_with_127(
     tree = slow_docker_tree(runner, tmp_path)
     for i in range(ITERATIONS):
         code, _took = signalled_run(tree, tmp_path, delay=0.01 * i, signals=("TERM", "TERM"))
-        assert code in (143, 0), (i, code)
-        assert code != 127
+        assert code == 143, (i, code)
 
 
 def test_budget_expiry_keeps_status_124_or_137(runner: Runner, tmp_path: Path) -> None:
     tree = make_tree(tmp_path, runner, budgets={"up": 1})
     tree.set_tool("docker", sleep=30)
     assert tree.call("up", sudo=True, timeout=60).returncode in (124, 137)
+
+
+def test_signal_between_the_flag_check_and_the_wait_still_reaches_the_workload(
+    runner: Runner, tmp_path: Path
+) -> None:
+    tree = slow_docker_tree(runner, tmp_path)
+    text = tree.script.read_text()
+    wait = '    wait "$cp" && rc=0 || rc=$?\n'
+    assert text.count(wait) == 1
+    tree.script.write_text(text.replace(wait, "    kill -TERM $$\n" + wait))
+    start = time.monotonic()
+    done = tree.call("up", sudo=True, timeout=40)
+    assert done.returncode == 143, done.stderr
+    assert time.monotonic() - start < 25
+    assert no_leftover(tree)

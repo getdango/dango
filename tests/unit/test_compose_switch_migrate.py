@@ -78,10 +78,31 @@ def test_failing_step_is_named_in_the_warning() -> None:
     assert any("H3 failed" in w for w in warnings)
 
 
-def test_failure_on_a_migrated_server_gives_access_back() -> None:
-    srv = FakeServer(marker=True, in_group=False, pinned=PROJECT_ID, fail={"P2": 1})
-    assert cm.migrate_docker_access(srv, [], version="1.0.14") == "group"
-    assert not srv.marker and srv.in_group
+@pytest.mark.parametrize("failing", ["H1", "H2", "H3", "P1", "P2", "P3"])
+def test_failure_on_a_switched_server_never_gives_the_group_back(failing: str) -> None:
+    srv = FakeServer(marker=True, in_group=False, pinned=PROJECT_ID, fail={failing: 1})
+    srv.record = '{"dango": "1.0.14", "docker_access": "helper"}'
+    warnings: list[str] = []
+    state = cm.migrate_docker_access(srv, warnings, version="1.0.14")
+    assert state == "helper"
+    assert srv.marker and not srv.in_group
+    assert "FB" not in srv.events and "usermod" not in srv.events
+    assert "G" not in srv.events and "T" not in srv.events
+    assert warnings and "marker is kept" in " ".join(warnings)
+    assert srv.record == '{"dango": "1.0.14", "docker_access": "helper"}'
+
+
+def test_unreadable_project_on_a_switched_server_never_gives_the_group_back() -> None:
+    srv = FakeServer(marker=True, in_group=False, pinned=PROJECT_ID, project=False)
+    warnings: list[str] = []
+    cm.migrate_docker_access(srv, warnings, version="1.0.14")
+    assert srv.marker and not srv.in_group and "FB" not in srv.events and warnings
+
+
+def test_pin_mismatch_on_a_switched_server_never_gives_the_group_back() -> None:
+    srv = FakeServer(marker=True, in_group=False, pinned="f" * 32)
+    cm.migrate_docker_access(srv, [], version="1.0.14")
+    assert srv.marker and not srv.in_group and "FB" not in srv.events
 
 
 def test_group_removal_failure_leaves_both_paths_working() -> None:

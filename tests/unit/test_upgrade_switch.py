@@ -213,3 +213,89 @@ def test_at_target_refreshes_an_old_web_unit_without_stopping_dango_web() -> Non
     run(srv, "1.0.14")
     assert "TimeoutStopSec=" in srv.written[WEB_UNIT]
     assert "web-stop" not in srv.events
+
+
+# --- review round 1 ---------------------------------------------------------------------------------
+
+
+def switched(version: str = "1.0.14", **kw: Any) -> FakeServer:
+    srv = FakeServer(version=version, marker=True, in_group=False, **kw)
+    srv.record = f'{{"dango": "{version}", "docker_access": "helper"}}'
+    return srv
+
+
+def test_a_failed_rerun_on_a_switched_server_never_adds_the_group() -> None:
+    srv = switched("1.0.13", pinned="0123456789abcdef0123456789abcdef", fail={"P2": 65})
+    result = run(srv, "1.0.14")
+    assert srv.marker and not srv.in_group
+    assert "FB" not in srv.events and "usermod" not in srv.events
+    assert any("marker is kept" in w for w in result.warnings)
+
+
+def test_ssh_error_while_stopping_leaves_the_guard_armed() -> None:
+    from dango.exceptions import CloudSSHError
+
+    srv = switched("1.0.15", raise_on={"systemctl stop dango-web": CloudSSHError("timed out")})
+    with pytest.raises(CloudSSHError):
+        run(srv, "1.0.16")
+    assert srv.events[-1] != "guard-disarm"
+    assert "guard-arm" in srv.events
+
+
+def test_ssh_error_stopping_dango_web_in_the_at_target_switch_leaves_the_guard_armed() -> None:
+    from dango.exceptions import CloudSSHError
+
+    srv = FakeServer(
+        version="1.0.14",
+        marker=False,
+        in_group=True,
+        raise_on={"systemctl stop dango-web": CloudSSHError("timed out")},
+    )
+    with pytest.raises(CloudSSHError):
+        run(srv, "1.0.14")
+    assert srv.events[-1] != "guard-disarm"
+    assert "web-start" in srv.events  # the migration still tries to bring dango-web back
+
+
+def test_an_interrupted_downgrade_converges_on_the_next_run() -> None:
+    srv = switched("1.0.13")  # old code installed, the restore never ran
+    run(srv, "1.0.13", force=True)
+    assert "R" in srv.events and srv.in_group and not srv.marker
+    assert srv.record == '{"dango": "1.0.13", "docker_access": "group"}'
+
+
+def test_at_target_restore_stops_dango_web_and_starts_it_again() -> None:
+    srv = switched("1.0.13")
+    run(srv, "1.0.13", force=True)
+    ev = srv.events
+    assert ev.index("web-stop") < ev.index("R") < len(ev) - 1 - ev[::-1].index("web-start")
+
+
+def test_the_restore_runs_right_after_pip_before_the_steps_that_can_fail() -> None:
+    srv = switched("1.0.14")
+    with patch(
+        "dango.platform.cloud.runtime_ownership.secure_runtime", side_effect=RuntimeError("boom")
+    ):
+        with pytest.raises(RuntimeError):
+            run(srv, "1.0.13", force=True)
+    assert srv.in_group and not srv.marker and "R" in srv.events
+    migrations = next(i for i, c in enumerate(srv.commands) if "apply_all_pending" in c)
+    restore = next(i for i, c in enumerate(srv.commands) if "# step:R" in c)
+    assert restore < migrations
+
+
+def test_a_server_that_never_had_the_helper_is_not_restored() -> None:
+    srv = FakeServer(version="1.0.13", marker=False, in_group=True)
+    run(srv, "1.0.13", force=True)
+    assert "R" not in srv.events
+
+
+def test_stop_and_restart_of_dango_web_get_an_ssh_timeout_above_the_unit_stop_timeout() -> None:
+    srv = FakeServer(version="1.0.13")
+    run(srv, "1.0.14")
+    stops = [
+        t
+        for c, t in zip(srv.commands, srv.timeouts, strict=True)
+        if c == "systemctl stop dango-web"
+    ]
+    assert stops and all((t or 0) >= 190 for t in stops)
