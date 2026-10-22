@@ -130,6 +130,29 @@ def _check_docker_ports(platform_config: object) -> None:
         raise click.Abort()
 
 
+def print_collection_repair(console_out: Any, import_result: dict[str, Any] | None) -> None:
+    """State what collection import/repair did; silent when nothing needed doing."""
+    repair = (import_result or {}).get("collection_repair") or {}
+    archived = repair.get("archived", 0)
+    if archived:
+        report = repair.get("report_path") or ".dango/state/metabase_collection_repair.json"
+        console_out.print(
+            f"[green]✓[/green] Archived {archived} empty duplicate Metabase collection(s) "
+            f"(nothing deleted; report: {report})"
+        )
+    ambiguous = repair.get("ambiguous_ids") or []
+    if ambiguous:
+        console_out.print(
+            f"[yellow]⚠[/yellow]  Duplicate Metabase collections with content were left "
+            f"untouched (IDs {ambiguous}); see .dango/state/metabase_collection_repair.json"
+        )
+    elif repair.get("errors"):
+        console_out.print(
+            "[yellow]⚠[/yellow]  Metabase collection repair is incomplete and will retry on the "
+            "next start (details in .dango/state/metabase_collection_repair.json)"
+        )
+
+
 def _print_metabase_skipped(setup_result: dict[str, Any]) -> None:
     """Tell the user Metabase setup was skipped, why, and the verified way to fix it."""
     console.print("[yellow]⚠[/yellow] Metabase was not set up")
@@ -725,6 +748,12 @@ def start(ctx: click.Context, yes: bool) -> None:
                     )
                 elif import_result.get("skipped"):
                     console.print("[dim]✓ All dashboards already imported[/dim]")
+                print_collection_repair(console, import_result)
+                if import_result.get("errors"):
+                    console.print(
+                        f"[yellow]⚠[/yellow]  Dashboard import incomplete: "
+                        f"{import_result['errors'][0]}"
+                    )
         except Exception as e:
             console.print(f"[yellow]⚠[/yellow]  Dashboard import failed: {e}")
 

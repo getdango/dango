@@ -91,7 +91,8 @@ class FakeMetabase:
                 return _response(200, {"unexpected": True})
             rows = [{"model": "dashboard"}] * self.item_counts.get(cid, 0)
             rows += [{"model": "collection"}] * len(self._children(cid))
-            return _response(200, {"data": rows, "total": len(rows)})
+            # Real Metabase v0.62 answers an empty collection with {"total": null, "data": []}.
+            return _response(200, {"data": rows, "total": len(rows) or None})
         if method == "GET" and path == "/api/timeline":
             return _response(200, self.timelines)
         if method == "GET" and path in ("/api/dashboard", "/api/card"):

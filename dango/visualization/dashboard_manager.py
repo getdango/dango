@@ -12,12 +12,22 @@ import requests
 import yaml
 from rich.console import Console
 
+from dango.logging import get_logger
 from dango.security.metabase_config import (
     load_metabase_admin_credentials,
     resolve_metabase_url,
 )
+from dango.visualization.collection_repair import (
+    CollectionApiError,
+    RepairResult,
+    index_live,
+    repair_and_map,
+    select_canonical,
+)
+from dango.visualization.collection_repair_api import RequestsCollectionApi, write_report
 
 console = Console()
+logger = get_logger(__name__)
 
 
 class DashboardManager:
@@ -42,6 +52,7 @@ class DashboardManager:
         self.project_root = project_root
         self.metabase_url = (metabase_url or resolve_metabase_url(project_root)).rstrip("/")
         self.state_file = project_root / ".dango" / "state" / "dashboard_sync.json"
+        self.last_collection_result: RepairResult | None = None
 
         self.session_token = session_token
         if not self.session_token:
@@ -96,7 +107,11 @@ class DashboardManager:
 
     def get_collection_id(self, collection_name: str) -> int | None:
         """
-        Get collection ID by name
+        Get collection ID by name.
+
+        Not path-safe: it returns the first collection with this name wherever it lives, so
+        it must not drive import decisions (use ``_import_collections``, which matches the
+        full sibling path).
 
         Args:
             collection_name: Name of collection
@@ -133,95 +148,60 @@ class DashboardManager:
         except (ValueError, IndexError):
             return None
 
-    def _import_collections(self, collections: list[dict]) -> dict[int, int]:
-        """
-        Re-create collection hierarchy on target instance.
+    def _collection_api(self) -> RequestsCollectionApi:
+        return RequestsCollectionApi(self.metabase_url, self._get_headers())
 
-        Uses BFS topological sort to process root collections before children,
-        ensuring all parent IDs exist when child collections are created.
+    def _import_collections(self, collections: list[dict], dry_run: bool = False) -> dict[int, int]:
+        """
+        Map exported collections onto the live tree by full sibling path.
+
+        Reuses an existing collection at the exact path, creates it only when absent, and
+        archives (never deletes) empty duplicate siblings. Details and outcome are kept in
+        ``self.last_collection_result``.
 
         Args:
             collections: List of collection dicts from YAML with 'id', 'name', 'parent_id'
+            dry_run: Plan only; make no Metabase mutation
 
         Returns:
-            Mapping of old collection IDs (source) to new IDs (target)
+            Mapping of old collection IDs (source) to live IDs (target)
+
+        Raises:
+            CollectionExportError: the export is invalid (broken or cyclic parents)
+            CollectionApiError: Metabase could not be queried (nothing was changed)
         """
-        # Validate input structure
-        for col in collections:
-            if not isinstance(col.get("id"), int):
-                raise ValueError(f"Collection missing or invalid 'id' (expected int): {col}")
-            if not isinstance(col.get("name"), str):
-                raise ValueError(f"Collection missing or invalid 'name' (expected str): {col}")
-            parent_id = col.get("parent_id")
-            if parent_id is not None and not isinstance(parent_id, int):
-                raise ValueError(
-                    f"Collection '{col['name']}' has invalid 'parent_id' "
-                    f"(expected int or None, got {type(parent_id).__name__}): {col}"
-                )
+        result = RepairResult()
+        self.last_collection_result = result
+        repair_and_map(self._collection_api(), collections, dry_run=dry_run, result=result)
+        if not dry_run:
+            self._finish_collection_repair(result)
+        return result.id_mapping
 
-        # BFS topological sort: roots first, then children in wave order
-        queue = [c for c in collections if not c.get("parent_id")]
-        processed: set[int] = {c["id"] for c in queue}
-        ordered: list[dict] = list(queue)
-        remaining = [c for c in collections if c.get("parent_id")]
+    def _finish_collection_repair(self, result: RepairResult) -> None:
+        """Write the report and log the outcome (visible in cloud logs as well as locally)."""
+        from dango import __version__
 
-        while remaining:
-            ready = [c for c in remaining if c["parent_id"] in processed]
-            if not ready:
-                # broken refs — append as-is and let API handle (fallback to root)
-                ordered.extend(remaining)
-                break
-            for c in ready:
-                ordered.append(c)
-                processed.add(c["id"])
-                remaining.remove(c)
-
-        id_mapping: dict[int, int] = {}
-        for col in ordered:
-            old_id = col["id"]
-            parent_old_id = col.get("parent_id")
-            parent_new_id = id_mapping.get(parent_old_id) if parent_old_id else None
-
-            payload = {"name": col["name"], "parent_id": parent_new_id}
-            try:
-                resp = requests.post(
-                    f"{self.metabase_url}/api/collection",
-                    json=payload,
-                    headers=self._get_headers(),
-                    timeout=10,
-                )
-                if resp.status_code in (200, 201):
-                    new_id = resp.json().get("id")
-                    if new_id is None:
-                        raise ValueError(
-                            f"Metabase API returned {resp.status_code} "
-                            f"but response missing 'id' key: {resp.json()}"
-                        )
-                    id_mapping[old_id] = new_id
-                else:
-                    # Fallback: check if collection already exists by name
-                    existing = self.get_collection_id(col["name"])
-                    if existing:
-                        id_mapping[old_id] = existing
-                    else:
-                        # Still add mapping to avoid downstream silent failures
-                        # If parent exists, assign to parent; otherwise assign to root (id 1)
-                        fallback_id = parent_new_id if parent_new_id else 1
-                        id_mapping[old_id] = fallback_id
-                        console.print(
-                            f"[yellow]Warning: Failed to create collection '{col['name']}' "
-                            f"(HTTP {resp.status_code}), assigning to collection {fallback_id}[/yellow]"
-                        )
-            except Exception as e:
-                console.print(
-                    f"[yellow]Warning: Failed to create collection '{col['name']}': {e}[/yellow]"
-                )
-                # Still add mapping to prevent downstream silent failures
-                # If parent exists, assign to parent; otherwise assign to root (id 1)
-                fallback_id = parent_new_id if parent_new_id else 1
-                id_mapping[old_id] = fallback_id
-
-        return id_mapping
+        try:
+            report = write_report(self.project_root, result, __version__)
+            if report is not None:
+                result.report_path = str(report.relative_to(self.project_root))
+        except OSError as exc:
+            result.errors.append(f"Could not write collection repair report: {exc}")
+        if result.archived_ids or result.created_ids:
+            logger.info(
+                "metabase_collection_import",
+                created=len(result.created_ids),
+                archived=len(result.archived_ids),
+                archived_ids=result.archived_ids,
+                report=result.report_path,
+            )
+        if result.errors or result.ambiguous_ids:
+            logger.warning(
+                "metabase_collection_repair_incomplete",
+                errors=result.errors,
+                ambiguous_ids=result.ambiguous_ids,
+                report=result.report_path,
+            )
 
     def get_dashboards(self, collection_id: int | None = None) -> list[dict[str, Any]]:
         """
@@ -710,6 +690,50 @@ class DashboardManager:
             )
             return None
 
+    def _collapse_duplicate_collections(
+        self, selected: list[dict[str, Any]], all_collections: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Keep one source row per live collection path; refuse when duplicates hold data.
+
+        Read-only. Empty duplicates are left out of the export (the next start archives them); duplicates
+        that contain items, or cannot be inspected, fail the save instead of guessing.
+        """
+        tree = index_live(all_collections)
+        path_of = {c.id: c.path for group in tree.by_path.values() for c in group}
+        groups: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+        for col in selected:
+            known = path_of.get(col["id"]) if isinstance(col.get("id"), int) else None
+            groups.setdefault(known or (f"#{col.get('id')}",), []).append(col)
+        if all(len(group) == 1 for group in groups.values()):
+            return selected, []
+
+        api = self._collection_api()
+        keep: set[int] = set()
+        errors: list[str] = []
+        for path, group in groups.items():
+            ids = [c["id"] for c in group]
+            if len(group) == 1:
+                keep.add(ids[0])
+                continue
+            counts = {}
+            for cid in ids:
+                try:
+                    counts[cid] = api.count_items(cid)
+                except Exception:
+                    counts[cid] = None
+            choice = select_canonical(tree.by_path[path], (), counts, tree.child_counts)
+            if choice.ambiguous or choice.error:
+                errors.append(
+                    f"Duplicate collections named '{'/'.join(path)}' (IDs {sorted(ids)}) "
+                    "contain items or could not be inspected, so the export was not written. "
+                    "Upgrade Dango and restart (empty duplicates are archived automatically), "
+                    "or merge the populated duplicates in Metabase, then run save again."
+                )
+            else:
+                keep.add(choice.canonical)
+        kept = [c for c in selected if c.get("id") not in path_of or c["id"] in keep]
+        return kept, errors
+
     def save_to_files(
         self, include_personal: bool = False, collections: list[str] | None = None
     ) -> dict[str, Any]:
@@ -766,6 +790,13 @@ class DashboardManager:
             collections_to_export = [
                 c for c in all_collections if c.get("name", "").lower() == "shared"
             ]
+
+        collections_to_export, duplicate_errors = self._collapse_duplicate_collections(
+            collections_to_export, all_collections
+        )
+        if duplicate_errors:
+            summary["errors"].extend(duplicate_errors)
+            return summary
 
         if not collections_to_export:
             if collections:
@@ -1006,15 +1037,26 @@ class DashboardManager:
 
         # Build collection ID mapping (old instance IDs → new instance IDs)
         id_mapping: dict[int, int] = {}
+        created_collections: list[int] = []  # collections created by THIS run (rollback scope)
+        self.last_collection_result = None
         try:
-            if not dry_run:
-                collections_file = metabase_dir / "collections.yml"
-                if collections_file.exists():
-                    with open(collections_file) as f:
-                        collections_data = yaml.safe_load(f) or {}
-                    cols = collections_data.get("collections", [])
-                    if cols:
-                        id_mapping = self._import_collections(cols)
+            collections_file = metabase_dir / "collections.yml"
+            if collections_file.exists():
+                with open(collections_file) as f:
+                    collections_data = yaml.safe_load(f) or {}
+                cols = collections_data.get("collections", [])
+                if cols:
+                    try:
+                        id_mapping = self._import_collections(cols, dry_run=dry_run)
+                    except CollectionApiError as api_error:
+                        if not dry_run:
+                            raise
+                        # A preview must not abort on a transient Metabase problem.
+                        failed = self.last_collection_result or RepairResult(dry_run=True)
+                        failed.errors.append(str(api_error))
+                    if self.last_collection_result is not None:
+                        created_collections = self.last_collection_result.created_ids
+                        summary["collection_repair"] = self.last_collection_result.as_summary()
 
             # Import dashboards
             dashboards_dir = metabase_dir / "dashboards"
@@ -1193,7 +1235,7 @@ class DashboardManager:
 
         except Exception as e:
             # ROLLBACK: Something failed, revert all changes
-            if not dry_run and (created_items or backups):
+            if not dry_run and (created_items or backups or created_collections):
                 console.print(f"\n[red]✗ Import failed: {e}[/red]")
                 console.print("[yellow]Rolling back changes...[/yellow]\n")
 
@@ -1219,8 +1261,23 @@ class DashboardManager:
                             f"  [yellow]Warning: Could not delete {item['name']}: {rollback_error}[/yellow]"
                         )
 
+                # Archive only collections this run created; reused/repaired ones stay put.
+                for collection_id in reversed(created_collections):
+                    try:
+                        self._collection_api().archive(collection_id)
+                        console.print(
+                            f"  [dim]✓ Archived created collection: {collection_id}[/dim]"
+                        )
+                    except Exception as rollback_error:
+                        console.print(
+                            f"  [yellow]Warning: Could not archive collection "
+                            f"{collection_id}: {rollback_error}[/yellow]"
+                        )
+
                 console.print("\n[green]✓ Rollback complete - no changes applied[/green]")
 
+            if isinstance(e, CollectionApiError):
+                logger.warning("metabase_collection_import_deferred", error=str(e))
             summary["errors"].append(str(e))
             summary["success"] = False
 
@@ -1274,6 +1331,7 @@ def import_dashboards(project_root: Path, overwrite: bool = False) -> dict[str, 
             ),
             "skipped": result.get("skipped", []),
             "errors": result.get("errors", []),
+            "collection_repair": result.get("collection_repair"),
         }
     except Exception as e:
         return {"success": False, "imported": [], "skipped": [], "errors": [str(e)]}
