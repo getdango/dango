@@ -49,14 +49,14 @@ def runner(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Runner]:
 
 def slow_docker_tree(runner: Runner, tmp_path: Path) -> Tree:
     tree = make_tree(tmp_path, runner)
-    tree.set_tool("docker", sleep=60)
+    tree.set_tool("docker", sleep=71)
     return tree
 
 
-# The fake docker sleeps 60 s as a child of its shell; nothing may be left of it once the helper is gone.
+# The fake docker sleeps 71 s (a duration no other test uses, the host is shared) as a child of its shell; nothing may be left of it once the helper is gone.
 LEFTOVER = (
     'for p in /proc/[0-9]*; do c=$(tr "\\0" " " <$p/cmdline 2>/dev/null) || continue; '
-    'case "$c" in "sleep 60 ") echo "$p";; esac; done'
+    'case "$c" in "sleep 71 ") echo "$p";; esac; done'
 )
 
 
@@ -85,7 +85,7 @@ def wait_status(rcfile: Path, limit: float = 25) -> int:
 
 def no_leftover(tree: Tree, limit: float = 8) -> bool:
     """True once no fake-docker sleep is alive (a killed group needs a moment to disappear; a real
-    orphan would live for the full 60 s)."""
+    orphan would live for the full 71 s)."""
     deadline = time.monotonic() + limit
     while time.monotonic() < deadline:
         if tree.runner.run(["sh", "-c", LEFTOVER]).stdout.strip() == "":
