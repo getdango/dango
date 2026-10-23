@@ -1452,6 +1452,7 @@ def setup_metabase(
             pass  # Not critical
 
         # Remove example dashboards and collections
+        live_collections: list[Any] | None = None
         try:
             # Get all collections
             collections_response = session.get(
@@ -1460,6 +1461,7 @@ def setup_metabase(
 
             if collections_response.status_code == 200:
                 collections = collections_response.json()
+                live_collections = collections if isinstance(collections, list) else None
                 for collection in collections:
                     collection_id = collection.get("id")
                     collection_name = collection.get("name", "").lower()
@@ -1484,11 +1486,21 @@ def setup_metabase(
             pass  # Not critical
 
         # Create "Shared" and "Personal" collections
+        # A retried first setup must reuse root collections that already exist (K-34).
+        from dango.visualization.collection_repair import index_live
+
+        existing_paths = (
+            index_live([c for c in live_collections if isinstance(c, dict)]).by_path
+            if live_collections is not None
+            else {}
+        )
         collections_created = []
         for collection_name, description in [
             ("Shared", "Dashboards shared with the team (exported to git)"),
             ("Personal", "Personal dashboards and experiments (not exported)"),
         ]:
+            if (collection_name,) in existing_paths:
+                continue
             try:
                 collection_data = {
                     "name": collection_name,
