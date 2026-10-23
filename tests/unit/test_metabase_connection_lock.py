@@ -27,9 +27,10 @@ BASE_DETAILS: dict[str, Any] = {
 _SYNC_REQUESTS = "dango.auth.metabase_sync.requests"
 
 
-def _project(root: Path, db_id: int | None = 5) -> Path:
-    """Write the non-secret Metabase metadata of a set-up project (legacy password, no keychain)."""
-    meta: dict[str, Any] = {"metabase_url": MB_URL, "admin": {"email": "a@b.co", "password": "pw"}}
+def _project(root: Path, db_id: int | None = 5, legacy_password: bool = True) -> Path:
+    """Write the Metabase metadata of a set-up project (a legacy password avoids the keychain)."""
+    admin = {"email": "a@b.co", **({"password": "pw"} if legacy_password else {})}
+    meta: dict[str, Any] = {"metabase_url": MB_URL, "admin": admin}
     if db_id is not None:
         meta["database"] = {"id": db_id, "name": "Analytics"}
     (root / ".dango").mkdir(exist_ok=True)
@@ -245,9 +246,9 @@ class TestStartCatchup:
         from dango.platform.common.startup import metabase_startup_work_pending
 
         assert metabase_startup_work_pending(tmp_path) is False  # no metadata at all
-        _project(tmp_path, db_id=None)
+        _project(tmp_path, db_id=None, legacy_password=False)
         assert metabase_startup_work_pending(tmp_path) is False  # no connection recorded yet
-        _project(tmp_path, db_id=5)
+        _project(tmp_path, db_id=5, legacy_password=False)
         assert metabase_startup_work_pending(tmp_path) is True  # positive control
         _marker(tmp_path).parent.mkdir(parents=True, exist_ok=True)
         _marker(tmp_path).write_text("done\n")
@@ -256,7 +257,7 @@ class TestStartCatchup:
     def test_start_stops_waiting_after_three_failed_attempts(self, tmp_path: Path) -> None:
         from dango.platform.common.startup import metabase_startup_work_pending
 
-        _project(tmp_path)
+        _project(tmp_path, legacy_password=False)
         _attempts(tmp_path).parent.mkdir(parents=True, exist_ok=True)
         _attempts(tmp_path).write_text("2\n")
         assert metabase_startup_work_pending(tmp_path) is True

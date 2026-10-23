@@ -51,6 +51,7 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
         complete_metabase_credential_migration,
     )
     from dango.platform.common.startup import (
+        apply_metabase_duckdb_lock_if_needed,
         check_duckdb_version_alignment,
         cleanup_stale_dbt_lock,
         ensure_dbt_schemas,
@@ -246,6 +247,13 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
             "Continuing without Metabase — retry on next restart.",
             file=sys.stderr,
         )
+
+    # 5b. Restrict Metabase's DuckDB connection to the warehouse file (once; non-fatal).
+    # After the credential migration above: its login must not use a stale credential.
+    try:
+        apply_metabase_duckdb_lock_if_needed(project_root)
+    except Exception:
+        pass
 
     # 6. Dashboard import (non-critical)
     try:

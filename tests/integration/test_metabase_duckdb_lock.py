@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import shutil
 import socket
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -39,8 +40,28 @@ def _free_port() -> int:
 class _Stack:
     """Handle on one real Dango project's Metabase container and its API sessions."""
 
-    def __init__(self, root: Path, url: str, db_id: int, admin: tuple[str, str]) -> None:
+    def __init__(
+        self, root: Path, url: str, db_id: int, admin: tuple[str, str], container: str
+    ) -> None:
         self.root, self.url, self.db_id, self.admin = root, url, db_id, admin
+        self.container = container
+
+    def restart_metabase(self) -> None:
+        """Restart the container (a fresh JVM, as after an upgrade) and wait for its boot to finish."""
+        from datetime import datetime, timezone
+
+        from dango.visualization.metabase import (
+            _wait_for_metabase_log_ready,
+            wait_for_metabase_ready,
+        )
+
+        since = datetime.now(timezone.utc).isoformat()
+        restart = subprocess.run(
+            ["docker", "restart", self.container], capture_output=True, text=True, timeout=180
+        )
+        assert restart.returncode == 0, restart.stderr
+        assert _wait_for_metabase_log_ready(self.container, since, max_wait_seconds=180)
+        assert wait_for_metabase_ready(self.url, timeout=60)
 
     def admin_headers(self) -> dict[str, str]:
         # The per-test keyring isolation hides the stored credential; log in with the cached one.
@@ -128,7 +149,11 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Stack]:
         admin_credentials = load_metabase_admin_credentials(root)
         assert admin_credentials is not None
         handle = _Stack(
-            root, str(metadata["metabase_url"]), int(metadata["database"]["id"]), admin_credentials
+            root,
+            str(metadata["metabase_url"]),
+            int(metadata["database"]["id"]),
+            admin_credentials,
+            f"{manager.compose_project_name}-metabase-1",
         )
 
         # A native-query user shaped like the SSO Editor mapping.
@@ -248,13 +273,14 @@ def test_startup_catchup_locks_an_existing_unlocked_connection(stack: _Stack) ->
 
     admin = stack.admin_headers()
     row = requests.get(f"{stack.url}/api/database/{stack.db_id}", headers=admin, timeout=30).json()
-    unlocked = {k: v for k, v in row["details"].items() if k != "init_sql"}
+    unlocked = {**row["details"], "init_sql": ""}  # stands in for an install that never had one
     row["details"] = unlocked
     put = requests.put(
         f"{stack.url}/api/database/{stack.db_id}", headers=admin, json=row, timeout=60
     )
     assert put.status_code == 200, put.text
-    assert "init_sql" not in stack.details()
+    assert not stack.details().get("init_sql")
+    stack.restart_metabase()  # a fresh JVM that has never applied the lock, like an upgraded install
     editor = stack.editor_headers()
     assert stack.native(editor, _FILE_READS[0])["status"] == "completed"  # positive control
 

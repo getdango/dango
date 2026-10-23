@@ -410,12 +410,14 @@ def _link_metabase_admin(project_root: Path, admin_email: str) -> None:
 def metabase_startup_work_pending(project_root: Path) -> bool:
     """True when startup must authenticate to Metabase.
 
-    That is the case while a legacy admin-password migration is pending or when
-    dashboard exports exist to import. Read-only; makes no HTTP request.
+    That is the case while a legacy admin-password migration is pending, when the one-time
+    connection restriction has not been applied yet (Metabase set up, fewer than 3 failed
+    attempts), or when dashboard exports exist to import. Read-only; makes no HTTP request.
     """
     from dango.platform.common.metabase_credential_migration import migration_pending
+    from dango.visualization.metabase_connection_lock import catchup_pending
 
-    if migration_pending(project_root):
+    if migration_pending(project_root) or catchup_pending(project_root):
         return True
     legacy_dir = project_root / "dashboards"
     metabase_dir = project_root / "metabase"
@@ -440,6 +442,31 @@ def wait_for_metabase_if_needed(project_root: Path, timeout: int = 120) -> bool 
     metadata = load_metabase_metadata(project_root) or {}
     url = str(metadata.get("metabase_url") or "http://localhost:3000").rstrip("/")
     return wait_for_metabase_ready(url, timeout=timeout)
+
+
+def apply_metabase_duckdb_lock_if_needed(project_root: Path) -> None:
+    """Restrict an existing Metabase DuckDB connection to the warehouse file, once.
+
+    Runs after Metabase setup and the credential migration. Never raises and never retries:
+    on failure it prints one warning and the next start tries again (at most 3 starts wait for
+    Metabase because of it). A marker under ``.dango/state`` makes later starts a no-op.
+    """
+    import sys
+
+    from dango.security.metabase_config import load_metabase_metadata
+    from dango.visualization.metabase_connection_lock import apply_lock_catchup
+
+    try:
+        metadata = load_metabase_metadata(project_root) or {}
+        url = str(metadata.get("metabase_url") or "http://localhost:3000").rstrip("/")
+        if apply_lock_catchup(project_root, url) is False:
+            print(
+                "WARNING: Could not restrict Metabase's DuckDB connection to the warehouse "
+                "file; it will be tried again on the next start.",
+                file=sys.stderr,
+            )
+    except Exception:
+        pass
 
 
 def import_dashboards(project_root: Path) -> dict[str, Any] | None:
