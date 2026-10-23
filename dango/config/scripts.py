@@ -34,7 +34,7 @@ __all__ = [
 DEFAULT_SCRIPT_TIMEOUT_SECONDS = 300
 
 #: Environment variable names a script may declare in ``env:``.
-ENV_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,127}$")
+ENV_NAME_RE = re.compile(r"[A-Z_][A-Z0-9_]{0,127}")
 #: Names and prefixes the launcher owns or that change how a process loads code.
 RESERVED_ENV_NAMES = frozenset({"PATH", "HOME", "USER", "SHELL", "DLT_DATA_DIR"})
 RESERVED_ENV_PREFIXES = ("DANGO_", "PYTHON", "LD_", "DYLD_")
@@ -42,7 +42,7 @@ RESERVED_ENV_PREFIXES = ("DANGO_", "PYTHON", "LD_", "DYLD_")
 
 def check_env_name(name: str) -> str:
     """Return *name* if a script may declare it, else raise ``ValueError``."""
-    if not ENV_NAME_RE.match(name):
+    if not ENV_NAME_RE.fullmatch(name):
         raise ValueError(f"Invalid environment variable name: {name!r} (use A-Z, 0-9, _)")
     if name in RESERVED_ENV_NAMES or name.startswith(RESERVED_ENV_PREFIXES):
         raise ValueError(f"Environment variable name is reserved: {name!r}")

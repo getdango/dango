@@ -57,7 +57,7 @@ _UID_MIN = 1000
 _UID_MAX = 60000  # Debian ``UID_MAX``; ``useradd`` allocates below it.
 
 _BASE_PATH = "/srv/dango/venv/bin:/usr/bin:/bin"
-_ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_ENV_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _POLL = 0.1
 
 
@@ -178,7 +178,7 @@ def build_command(
     """
     keys = sorted(env_keys)
     for key in keys:
-        if not _ENV_KEY.match(key):
+        if not _ENV_KEY.fullmatch(key):
             raise ValueError(f"invalid environment variable name: {key!r}")
     return [
         SUDO,

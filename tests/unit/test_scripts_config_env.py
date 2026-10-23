@@ -60,6 +60,7 @@ class TestRejected:
             "A B",
             "",
             "A" * 129,
+            "TRAILING\n",
             "DANGO_TOKEN",
             "PYTHONPATH",
             "PYTHON",

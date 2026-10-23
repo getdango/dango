@@ -121,7 +121,9 @@ class TestResolveDeclared:
         values, _ = run_as.resolve_declared(tmp_path, ["A_TOKEN"], env_text="A_TOKEN=zz\n")
         assert values == {"A_TOKEN": "zz"}
 
-    @pytest.mark.parametrize("name", ["PATH", "DANGO_X", "lower", "LD_PRELOAD", "PYTHONPATH"])
+    @pytest.mark.parametrize(
+        "name", ["PATH", "DANGO_X", "lower", "LD_PRELOAD", "PYTHONPATH", "A_TOKEN\n"]
+    )
     def test_reserved_or_invalid_names_rejected(self, project: Path, name: str) -> None:
         with pytest.raises(ValueError):
             run_as.resolve_declared(project, [name])
@@ -223,6 +225,8 @@ class TestBuildCommand:
     def test_rejects_option_like_env_key(self, project: Path) -> None:
         with pytest.raises(ValueError):
             run_as.build_command("script", ["x"], env_keys={"A,B": "1"}, cwd=project)
+        with pytest.raises(ValueError):
+            run_as.build_command("script", ["x"], env_keys={"OK\n": "1"}, cwd=project)
 
 
 class TestBuildLaunch:
