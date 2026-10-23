@@ -78,8 +78,7 @@ class Rehearsal:
 def metabase() -> Iterator[Rehearsal]:
     if os.environ.get("DANGO_RUN_DOCKER_TESTS") != "1":
         pytest.skip("Set DANGO_RUN_DOCKER_TESTS=1 to run (heavyweight, needs Docker)")
-    if shutil.which("docker") is None:
-        pytest.skip("Docker not available")
+    assert shutil.which("docker") is not None, "DANGO_RUN_DOCKER_TESTS=1 but docker is missing"
     suffix = uuid.uuid4().hex[:8]
     name, volume, port = f"dango-c7b-{suffix}", f"dango-c7b-{suffix}", _free_port()
     _docker("volume", "create", volume)
