@@ -257,6 +257,19 @@ def restore_dir_cmd(src: str, dest: str) -> str:
     )
 
 
+def clear_metabase_lock_state_cmd(project_dir: str) -> str:
+    """Shell step deleting the Metabase connection-lock state files, as the service user.
+
+    A restored Metabase database may hold unlocked connection details while these markers still
+    say "applied"; without them the next start re-checks and re-applies the lock. Run as the
+    service user so root never touches the project's writable state directory.
+    """
+    from dango.visualization.metabase_connection_lock import STATE_FILE_NAMES
+
+    paths = " ".join(shlex.quote(f"{project_dir}/.dango/state/{n}") for n in STATE_FILE_NAMES)
+    return f"{AS_SERVICE_USER} rm -f {paths}"
+
+
 def restore_volume_file_cmd(src: str, volume: str, name: str) -> str:
     """Shell step copying *src* into a root-written volume; refuses symlinked destinations."""
     dest = f"{volume}/{name}"

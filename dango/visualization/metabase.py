@@ -17,6 +17,7 @@ import yaml
 
 from dango.security.metabase_config import load_metabase_admin_credentials, write_metabase_metadata
 from dango.security.metabase_credentials import MetabaseCredentialStore
+from dango.visualization.metabase_connection_lock import apply_lock_catchup, locked_duckdb_details
 
 logger = logging.getLogger(__name__)
 
@@ -1340,14 +1341,16 @@ def setup_metabase(
         duckdb_config = {
             "name": db_name,
             "engine": "duckdb",
-            "details": {
-                "database_file": docker_duckdb_path,
-                "old_implicit_casting": True,
-                "read_only": True,
-                # Note: DuckDB driver doesn't support schema-filters-type/patterns
-                # Users will see all schemas (raw_*, main, staging)
-                # This is a limitation of the DuckDB Metabase driver
-            },
+            "details": locked_duckdb_details(
+                {
+                    "database_file": docker_duckdb_path,
+                    "old_implicit_casting": True,
+                    "read_only": True,
+                    # Note: DuckDB driver doesn't support schema-filters-type/patterns
+                    # Users will see all schemas (raw_*, main, staging)
+                    # This is a limitation of the DuckDB Metabase driver
+                }
+            ),
         }
 
         if existing_db_id:
@@ -2197,6 +2200,15 @@ def refresh_metabase_connection(
                 )
             except Exception:  # noqa: BLE001
                 pass  # Not critical — site URL refresh is best-effort
+
+            # Re-check the file-access restriction on every call (one GET, a PUT only when the
+            # details differ): a restored Metabase database may be unlocked while the marker says
+            # applied. Reuses this login; never raises.
+            if session_id and (
+                apply_lock_catchup(project_root, metabase_url, session_id=session_id, recheck=True)
+                is False
+            ):
+                print("  ⚠ Could not confirm Metabase's file-access lock this time; will retry")
 
             return (True, None, session_id)
 

@@ -27,6 +27,7 @@ services:
           create_host_path: false
 {%- else %}
       - ./data:/data:ro
+{#- The plugins mount is intentionally writable (entrypoint.sh chowns it; a :ro mount made Metabase fall back to /tmp, 1.0.8-O). Do not add :ro. #}
       - ./metabase-plugins:/app/plugins
 {%- endif %}
     environment:

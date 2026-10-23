@@ -111,6 +111,26 @@ class TestScheduledBackupVolumePathQuoting:
         assert tokens[2] == str(vol) + "/"
         assert (vol / "metabase.db.mv.db").read_text() == "h2-archive"
 
+    def test_spaces_restore_clears_metabase_lock_markers(self, tmp_path: Path) -> None:
+        vol = tmp_path / "vol"
+        vol.mkdir()
+        project = tmp_path / "project"
+        state = project / ".dango" / "state"
+        state.mkdir(parents=True)
+        (state / "metabase_duckdb_lock_applied").write_text("applied\n")
+        (state / "metabase_duckdb_lock_attempts").write_text("1\n")
+        (state / "other_marker").write_text("keep\n")
+        content = tmp_path / "backup-staging"
+        (content / "metabase").mkdir(parents=True)
+        (content / "metabase" / "metabase.db.mv.db").write_text("h2-archive")
+        (content / "manifest.json").write_text("{}")
+
+        run_spaces_restore(tmp_path, project, content.name, metabase_vol=vol)
+
+        assert not (state / "metabase_duckdb_lock_applied").exists()
+        assert not (state / "metabase_duckdb_lock_attempts").exists()
+        assert (state / "other_marker").read_text() == "keep\n"
+
     def test_backup_side_copy_survives_quote_in_volume_path(self, tmp_path: Path) -> None:
         vol = tmp_path / "it's a vol"
         vol.mkdir()

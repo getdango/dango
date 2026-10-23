@@ -1047,6 +1047,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         SERVICE_USER,
         UNSAFE_ARCHIVE_MESSAGE,
         auth_config_keeps_auth_on,
+        clear_metabase_lock_state_cmd,
         hand_staging_to_service_user_cmd,
         restore_dir_cmd,
         restore_file_cmd,
@@ -1157,6 +1158,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             )
 
         # Root writes only the Metabase volume, and never through a symlink.
+        h2_restored = False
         metabase_vol = _get_metabase_volume_path()
         if metabase_vol and (staging / "metabase").exists():
             for h2 in ["metabase.db.mv.db", "metabase.db.trace.db"]:
@@ -1168,6 +1170,12 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                             f"Refusing to write through a symlink: {vol / h2}"
                         )
                     _run_local(["cp", str(src), metabase_vol + "/"], step="restore_metabase")
+                    h2_restored = True
+        if h2_restored:
+            # The restored Metabase database may hold unlocked connection details.
+            _run_builder_script(
+                clear_metabase_lock_state_cmd(str(PROJECT_DIR)), step="restore_metabase"
+            )
         _run_local(["chown", "-R", "dango:dango", "/srv/dango/project"], step="fix_ownership")
     except Exception:
         if copies_started:

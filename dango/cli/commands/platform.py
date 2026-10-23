@@ -187,6 +187,7 @@ def start(ctx: click.Context, yes: bool) -> None:
         complete_metabase_credential_migration,
     )
     from dango.platform.common.startup import (
+        apply_metabase_duckdb_lock_if_needed,
         check_duckdb_version_alignment,
         ensure_dbt_schemas,
         ensure_duckdb_driver,
@@ -737,6 +738,13 @@ def start(ctx: click.Context, yes: bool) -> None:
             console.print("  4. Try again: '[cyan]dango start[/cyan]'")
             console.print()
             raise click.Abort() from e
+
+        # Restrict Metabase's DuckDB connection to the warehouse file (once; non-fatal).
+        if metabase_configured:
+            try:
+                apply_metabase_duckdb_lock_if_needed(project_root)
+            except Exception:
+                logger.debug("metabase_duckdb_lock_failed", exc_info=True)
 
         # Import dashboards (if any exist)
         try:

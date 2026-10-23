@@ -37,6 +37,7 @@ from dango.platform.cloud.backup_restore import (
     auth_config_keeps_auth_on,
     backup_dir_cmd,
     backup_file_cmd,
+    clear_metabase_lock_state_cmd,
     copy_file_cmd,
     extract_checked_archive,
     hand_staging_to_service_user_cmd,
@@ -1096,6 +1097,7 @@ def restore_from_archive(
                     restore_volume_file_cmd(f"{staging}/metabase/{h2}", metabase_vol, h2)
                     for h2 in ("metabase.db.mv.db", "metabase.db.trace.db")
                 ]
+                h2_cmds.append(clear_metabase_lock_state_cmd(PROJECT_DIR))
                 _run_checked(ssh, " && ".join(h2_cmds), step="restore_metabase", timeout=300)
             else:
                 warnings.append("Metabase Docker volume not found — H2 restore skipped")
