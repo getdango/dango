@@ -11,6 +11,8 @@ Integrates with Metabase for dashboard provisioning, auto-setup, schema synchron
 | `__init__.py` | Public exports | `provision_dashboard` |
 | `metabase.py` | Metabase auto-setup, DuckDB connection, schema sync | `MetabaseProvisioner`, `setup_metabase`, `sync_metabase_schema`, `refresh_metabase_connection`, `set_metabase_telemetry`, `get_metabase_telemetry_state` |
 | `dashboard_manager.py` | YAML-based dashboard/question export and import with rollback | `DashboardManager`, `import_dashboards` |
+| `collection_repair.py` | Pure planner: full-path collection matching, canonical choice, archive-only repair of empty duplicates (no HTTP except via the `CollectionApi` protocol) | `normalize_export`, `index_live`, `select_canonical`, `plan_steps`, `repair_and_map`, `RepairResult` |
+| `collection_repair_api.py` | Metabase collection HTTP adapter and atomic report `.dango/state/metabase_collection_repair.json` | `RequestsCollectionApi`, `write_report` |
 
 ## Common Tasks
 

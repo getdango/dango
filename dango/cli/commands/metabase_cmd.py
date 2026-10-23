@@ -221,6 +221,10 @@ def metabase_load(ctx: click.Context, overwrite: bool, dry_run: bool) -> None:
         with console.status(f"[cyan]Loading assets {mode_str}...[/cyan]", spinner="dots"):
             result = manager.load_from_files(overwrite=overwrite, dry_run=dry_run)
 
+        from .platform import print_collection_repair
+
+        print_collection_repair(console, result)
+
         if result["success"]:
             if dry_run:
                 console.print("[bold cyan]Preview (dry-run mode):[/bold cyan]\n")
