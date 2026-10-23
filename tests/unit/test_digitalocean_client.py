@@ -379,8 +379,13 @@ class TestDropletOperations:
     def test_delete_droplet(self):
         """delete_droplet succeeds on 204 response."""
         resp = _mock_response(204)
-        with self._patch(resp):
-            self.client.delete_droplet(42)  # should not raise
+        mock_http = _make_client_mock(resp)
+        with patch("dango.platform.cloud.digitalocean.httpx.Client", return_value=mock_http):
+            # does-not-raise: 204 is success
+            self.client.delete_droplet(42)
+        method, url = mock_http.request.call_args[0][:2]
+        assert method == "DELETE"
+        assert url.endswith("/droplets/42")
 
     def test_power_off(self):
         """power_off returns the action dict."""
@@ -453,8 +458,13 @@ class TestSSHKeyOperations:
     def test_delete_ssh_key_by_id(self):
         """delete_ssh_key succeeds on 204 response (integer ID)."""
         resp = _mock_response(204)
-        with self._patch(resp):
-            self.client.delete_ssh_key(100)  # should not raise
+        mock_http = _make_client_mock(resp)
+        with patch("dango.platform.cloud.digitalocean.httpx.Client", return_value=mock_http):
+            # does-not-raise: 204 is success
+            self.client.delete_ssh_key(100)
+        method, url = mock_http.request.call_args[0][:2]
+        assert method == "DELETE"
+        assert url.endswith("/account/keys/100")
 
     def test_delete_ssh_key_by_fingerprint(self):
         """delete_ssh_key accepts a fingerprint string."""
@@ -519,8 +529,13 @@ class TestFirewallOperations:
     def test_delete_firewall(self):
         """delete_firewall succeeds on 204 response."""
         resp = _mock_response(204)
-        with self._patch(resp):
-            self.client.delete_firewall("fw-123")  # should not raise
+        mock_http = _make_client_mock(resp)
+        with patch("dango.platform.cloud.digitalocean.httpx.Client", return_value=mock_http):
+            # does-not-raise: 204 is success
+            self.client.delete_firewall("fw-123")
+        method, url = mock_http.request.call_args[0][:2]
+        assert method == "DELETE"
+        assert url.endswith("/firewalls/fw-123")
 
     def test_get_firewall(self):
         """get_firewall returns the firewall dict for the given ID."""

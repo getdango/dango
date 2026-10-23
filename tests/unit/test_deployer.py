@@ -343,10 +343,12 @@ class TestModelNameValidation:
     """Test _validate_model_names shell safety check."""
 
     def test_valid_names_pass(self):
-        _validate_model_names(["stg_orders", "stg_users", "dim_customer_v2"])
+        # does-not-raise: all names valid
+        assert _validate_model_names(["stg_orders", "stg_users", "dim_customer_v2"]) is None
 
     def test_empty_list_passes(self):
-        _validate_model_names([])
+        # does-not-raise: nothing to validate
+        assert _validate_model_names([]) is None
 
     def test_invalid_name_with_semicolon_raises(self):
         with pytest.raises(CloudProvisioningError, match="Invalid model name"):

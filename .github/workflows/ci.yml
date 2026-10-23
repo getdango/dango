@@ -72,7 +72,13 @@ jobs:
         # running it here would add a live GitHub Releases download
         # dependency to these required checks for no benefit; the egress
         # job already covers it.
-        run: pytest --tb=short -q -m "not egress"
+        run: pytest --tb=short -q -m "not egress"${{ matrix.python-version == '3.12' && ' --cov=dango --cov-report=term --cov-fail-under=72' || '' }}
+      # Non-blocking on purpose (the one allowed continue-on-error). Trigger to make it
+      # blocking (drop continue-on-error, add --fail-on-hits): the count is 0 after this PR.
+      - name: Assertion-less tests
+        if: matrix.python-version == '3.12'
+        continue-on-error: true
+        run: python scripts/find_assertionless_tests.py --fail-on-hits tests
 
   security:
     name: Security (pip-audit)

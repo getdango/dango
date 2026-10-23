@@ -50,13 +50,15 @@ def test_v01x_detected_with_project_yml_and_warehouse(tmp_path, capsys, monkeypa
     assert "v0.1.x" in plain
 
 
-def test_no_detection_without_dango_yml(tmp_path, monkeypatch):
+def test_no_detection_without_dango_yml(tmp_path, monkeypatch, capsys):
     """check_v01x_project does nothing when no dango.yml exists."""
     monkeypatch.chdir(tmp_path)
-    check_v01x_project()
+    # does-not-raise: nothing detected, nothing printed
+    assert check_v01x_project() is None
+    assert capsys.readouterr().out == ""
 
 
-def test_no_detection_with_v1_project(tmp_path, monkeypatch):
+def test_no_detection_with_v1_project(tmp_path, monkeypatch, capsys):
     """check_v01x_project does nothing for a v1 project (.dango/auth.db exists)."""
     dango_dir = tmp_path / ".dango"
     dango_dir.mkdir()
@@ -66,17 +68,21 @@ def test_no_detection_with_v1_project(tmp_path, monkeypatch):
     data_dir.mkdir()
     (data_dir / "warehouse.duckdb").write_bytes(b"")
     monkeypatch.chdir(tmp_path)
-    check_v01x_project()
+    # does-not-raise: nothing detected, nothing printed
+    assert check_v01x_project() is None
+    assert capsys.readouterr().out == ""
 
 
-def test_no_detection_fresh_clone_without_warehouse(tmp_path, monkeypatch):
+def test_no_detection_fresh_clone_without_warehouse(tmp_path, monkeypatch, capsys):
     """No false positive on a cloned v1 project that hasn't synced yet."""
     dango_dir = tmp_path / ".dango"
     dango_dir.mkdir()
     (dango_dir / "project.yml").write_text("project:\n  name: myproject\n")
     # No dango.db AND no warehouse — fresh clone, not v0.1.x
     monkeypatch.chdir(tmp_path)
-    check_v01x_project()
+    # does-not-raise: nothing detected, nothing printed
+    assert check_v01x_project() is None
+    assert capsys.readouterr().out == ""
 
 
 def test_v01x_detected_when_both_dango_yml_and_project_yml_exist(tmp_path, capsys, monkeypatch):

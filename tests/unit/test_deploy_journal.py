@@ -125,10 +125,11 @@ class TestLocalJournal:
         journal.touch()
         journal.chmod(0o000)
 
-        # Should not raise
+        # does-not-raise: unwritable journal is tolerated and left untouched
         write_local_journal(tmp_path, _make_record())
 
         journal.chmod(0o644)  # Cleanup
+        assert journal.read_text() == ""
 
     def test_read_empty(self, tmp_path: Path) -> None:
         result = read_local_journal(tmp_path)
@@ -198,8 +199,9 @@ class TestRemoteJournal:
         ssh = _make_ssh_mock()
         ssh.exec_command.side_effect = Exception("SSH failure")
 
-        # Should not raise
+        # does-not-raise: SSH failure is swallowed; the failing call was actually attempted
         write_remote_journal(ssh, _make_record())
+        ssh.exec_command.assert_called()
 
     def test_read_returns_newest_first(self) -> None:
         ssh = _make_ssh_mock()

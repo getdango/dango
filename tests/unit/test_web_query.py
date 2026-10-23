@@ -411,15 +411,15 @@ class TestSQLValidation:
         """Subquery SELECTs should pass validation."""
         from dango.web.routes.query import _validate_sql
 
-        # Should not raise
-        _validate_sql("SELECT * FROM (SELECT 1 AS x)")
+        # does-not-raise: subquery SELECT is allowed
+        assert _validate_sql("SELECT * FROM (SELECT 1 AS x)") is None
 
     def test_cte_select_allowed(self, tmp_path: Path) -> None:
         """CTE (WITH) SELECTs should pass validation."""
         from dango.web.routes.query import _validate_sql
 
-        # Should not raise
-        _validate_sql("WITH cte AS (SELECT 1 AS x) SELECT * FROM cte")
+        # does-not-raise: CTE SELECT is allowed
+        assert _validate_sql("WITH cte AS (SELECT 1 AS x) SELECT * FROM cte") is None
 
     def test_create_table_rejected(self, tmp_path: Path) -> None:
         """CREATE TABLE should be rejected."""

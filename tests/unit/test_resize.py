@@ -78,10 +78,9 @@ class TestValidateSizeSlug:
     def test_valid_slugs(self) -> None:
         from dango.platform.cloud.resize import validate_size_slug
 
-        validate_size_slug("s-2vcpu-4gb")
-        validate_size_slug("s-1vcpu-2gb")
-        validate_size_slug("g-4vcpu-16gb")
-        validate_size_slug("so1_5-2vcpu-16gb")
+        # does-not-raise: every slug is valid
+        for slug in ("s-2vcpu-4gb", "s-1vcpu-2gb", "g-4vcpu-16gb", "so1_5-2vcpu-16gb"):
+            assert validate_size_slug(slug) is None
 
     def test_invalid_slugs(self) -> None:
         from dango.platform.cloud.resize import validate_size_slug

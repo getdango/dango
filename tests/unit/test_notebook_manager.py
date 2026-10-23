@@ -525,8 +525,9 @@ class TestBroadcastIdleWarning:
             "dango.web.routes.websocket.ws_manager",
             mock_ws,
         ):
-            # Should not raise
+            # does-not-raise: the broadcast failure is swallowed
             asyncio.run(_broadcast_idle_warning(300))
+        mock_ws.broadcast.assert_awaited_once()
 
 
 @pytest.mark.unit

@@ -116,7 +116,9 @@ class TestBroadcastHelper:
         old = jobs_mod._event_loop
         try:
             jobs_mod._event_loop = None
-            jobs_mod._broadcast({"event": "test"})
+            with patch(f"{_JOBS_MOD}.asyncio") as mock_asyncio:
+                jobs_mod._broadcast({"event": "test"})
+            mock_asyncio.run_coroutine_threadsafe.assert_not_called()
         finally:
             jobs_mod._event_loop = old
 
@@ -129,7 +131,9 @@ class TestBroadcastHelper:
             jobs_mod._event_loop = loop
             with patch(f"{_JOBS_MOD}.asyncio") as mock_asyncio:
                 mock_asyncio.run_coroutine_threadsafe.side_effect = RuntimeError("closed")
+                # does-not-raise: the scheduling failure is swallowed
                 jobs_mod._broadcast({"event": "test"})
+                mock_asyncio.run_coroutine_threadsafe.assert_called_once()
         finally:
             jobs_mod._event_loop = old
 
@@ -703,12 +707,13 @@ class TestNotifyHelper:
             sender.is_configured = True
             sender.send.side_effect = RuntimeError("webhook exploded")
 
-            # Should not raise
+            # does-not-raise: the sender failure is swallowed
             jobs_mod._notify(
                 sender,
                 event_type="TEST",
                 schedule_name="daily",
             )
+            sender.send.assert_called_once()
         finally:
             jobs_mod._event_loop = old
 
@@ -891,6 +896,7 @@ class TestCheckFreshness:
 
         with patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None):
             _check_freshness(tmp_path, "daily", ["src1"], mock_sender)
+        assert mock_sender.method_calls == []
 
     def test_missing_history_is_noop(self, tmp_path):
         from dango.platform.scheduling.jobs import _check_freshness

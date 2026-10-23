@@ -215,13 +215,14 @@ class TestStoreSnapshot:
         """Storage error does not propagate."""
         mock_connect.side_effect = Exception("DB locked")
 
-        # Should not raise
+        # does-not-raise: storage failure is swallowed; the error path was actually reached
         _store_snapshot(
             MagicMock(),
             "revenue",
             "product",
             {"Widget": 100.0},
         )
+        mock_connect.assert_called_once()
 
 
 @pytest.mark.unit
