@@ -302,12 +302,12 @@ def test_refresh_catchup_relocks_a_restored_unlocked_connection(stack: _Stack) -
 
     admin = stack.admin_headers()
     row = requests.get(f"{stack.url}/api/database/{stack.db_id}", headers=admin, timeout=30).json()
-    row["details"] = {k: v for k, v in row["details"].items() if k != "init_sql"}  # no key at all
+    row["details"] = {**row["details"], "init_sql": ""}  # Metabase's API keeps a dropped key
     put = requests.put(
         f"{stack.url}/api/database/{stack.db_id}", headers=admin, json=row, timeout=60
     )
     assert put.status_code == 200, put.text
-    assert "init_sql" not in stack.details()
+    assert not stack.details().get("init_sql")
     marker = stack.root / ".dango" / "state" / "metabase_duckdb_lock_applied"
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text("applied\n")  # the marker survives a restore; the H2 does not

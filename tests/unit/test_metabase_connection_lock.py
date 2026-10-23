@@ -215,7 +215,7 @@ class TestSyncTimeFailure:
     ) -> None:
         from dango.platform.common.startup import metabase_startup_work_pending
 
-        root = _project(tmp_path, legacy_password=False)
+        root = _project(tmp_path)
         _fake_metabase(mock_req, dict(BASE_DETAILS), put_status=500)
         _refresh(root, runs=4)
 

@@ -2201,10 +2201,14 @@ def refresh_metabase_connection(
             except Exception:  # noqa: BLE001
                 pass  # Not critical — site URL refresh is best-effort
 
-            # One-time catch-up (marker-guarded, bounded, never raises) for connections created
-            # before the file-access restriction existed; reuses this login.
-            if session_id:
-                apply_lock_catchup(project_root, metabase_url, session_id=session_id)
+            # Re-check the file-access restriction on every call (one GET, a PUT only when the
+            # details differ): a restored Metabase database may be unlocked while the marker says
+            # applied. Reuses this login; never raises.
+            if session_id and (
+                apply_lock_catchup(project_root, metabase_url, session_id=session_id, recheck=True)
+                is False
+            ):
+                print("  ⚠ Could not confirm Metabase's file-access lock this time; will retry")
 
             return (True, None, session_id)
 
