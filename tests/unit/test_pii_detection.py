@@ -268,7 +268,7 @@ class TestScanTableForPii:
             patch(f"{_PII}._scan_column", return_value={}) as mock_scan,
             patch(f"{_PII}._cache_findings"),
         ):
-            # does-not-raise: the failing column is skipped, the other column is still scanned
+            # does-not-raise: the failing column is dropped, the other column is still scanned
             result = scan_table_for_pii(Path("/tmp/test"), "shopify", "orders")
         assert result == []
         mock_scan.assert_called_once()
