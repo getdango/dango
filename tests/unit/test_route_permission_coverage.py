@@ -86,6 +86,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("GET", "/app/{path:path}"): "Metabase static asset proxy",
     ("GET", "/public/{path:path}"): "Metabase static asset proxy",
     ("GET", "/styles.css"): "Metabase stylesheet proxy",
+    ("GET", "/metabase/_dango/recovery.js"): "Static recovery script for the Metabase proxy",
     ("GET", "/dbt-docs"): "dbt docs static proxy; middleware requires a session",
     ("GET", "/dbt-docs/{path:path}"): "dbt docs static proxy; middleware requires a session",
     ("GET", "/manifest.json"): "dbt docs asset proxy; middleware requires a session",
