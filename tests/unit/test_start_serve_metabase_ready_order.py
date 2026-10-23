@@ -104,6 +104,10 @@ def _run_local(
             side_effect=lambda *_args: events.append("setup") or {"success": True},
         ),
         patch(
+            f"{_STARTUP}.apply_metabase_duckdb_lock_if_needed",
+            side_effect=lambda _root: events.append("lock"),
+        ),
+        patch(
             f"{_STARTUP}.import_dashboards",
             side_effect=lambda _root: events.append("import"),
         ),
@@ -169,6 +173,10 @@ def _run_cloud(
             side_effect=lambda *_args: events.append("setup") or {"success": True},
         ),
         patch(
+            f"{_STARTUP}.apply_metabase_duckdb_lock_if_needed",
+            side_effect=lambda _root: events.append("lock"),
+        ),
+        patch(
             f"{_STARTUP}.import_dashboards",
             side_effect=lambda _root: events.append("import"),
         ),
@@ -193,6 +201,21 @@ def test_wait_runs_after_gitignore_before_migration_and_setup(
     assert events[:5] == ["docker", "gitignore", "wait", "completion", "setup"]
     assert events[-1] == "import"
     assert events.index("setup") < events.index("import")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("run_command", [_run_local, _run_cloud])
+def test_lock_helper_runs_after_credential_migration(
+    tmp_path: Path,
+    run_command: CommandRunner,
+) -> None:
+    """The connection lock is applied after migration and setup, before the dashboard import."""
+    result, events = run_command(tmp_path, True)
+
+    assert result.exit_code == 0, result.output
+    assert events.count("lock") == 1
+    assert events.index("completion") < events.index("setup") < events.index("lock")
+    assert events.index("lock") < events.index("import")
 
 
 @pytest.mark.unit
