@@ -27,4 +27,4 @@ Standard library only (an AST test enforces it). Started by `dango/platform/run_
 
 ## Don't Modify
 
-Do not import anything from `dango` here, and do not make the preflight skippable by environment variable or argument: it must fail closed.
+Do not import anything from `dango` here, and do not let an environment variable or argument bypass the preflight: it must fail closed.
