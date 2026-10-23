@@ -436,12 +436,17 @@ def wait_for_metabase_if_needed(project_root: Path, timeout: int = 120) -> bool 
     """
     if not metabase_startup_work_pending(project_root):
         return None
-    from dango.security.metabase_config import load_metabase_metadata
     from dango.visualization.metabase import wait_for_metabase_ready
 
+    return wait_for_metabase_ready(_metabase_url(project_root), timeout=timeout)
+
+
+def _metabase_url(project_root: Path) -> str:
+    """Return the project's Metabase URL from its metadata (fallback when none is recorded)."""
+    from dango.security.metabase_config import load_metabase_metadata
+
     metadata = load_metabase_metadata(project_root) or {}
-    url = str(metadata.get("metabase_url") or "http://localhost:3000").rstrip("/")
-    return wait_for_metabase_ready(url, timeout=timeout)
+    return str(metadata.get("metabase_url") or "http://localhost:3000").rstrip("/")
 
 
 def apply_metabase_duckdb_lock_if_needed(project_root: Path) -> None:
@@ -453,13 +458,10 @@ def apply_metabase_duckdb_lock_if_needed(project_root: Path) -> None:
     """
     import sys
 
-    from dango.security.metabase_config import load_metabase_metadata
     from dango.visualization.metabase_connection_lock import apply_lock_catchup
 
     try:
-        metadata = load_metabase_metadata(project_root) or {}
-        url = str(metadata.get("metabase_url") or "http://localhost:3000").rstrip("/")
-        if apply_lock_catchup(project_root, url) is False:
+        if apply_lock_catchup(project_root, _metabase_url(project_root)) is False:
             print(
                 "WARNING: Could not restrict Metabase's DuckDB connection to the warehouse "
                 "file; it will be tried again on the next start.",
