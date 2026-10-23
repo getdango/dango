@@ -62,6 +62,13 @@ def test_helper_assert():
     _assert_ok()
 
 
+def test_pytest_fail():
+    try:
+        pass
+    except Exception:
+        pytest.fail("boom")
+
+
 def helper_no_assert():
     pass
 

@@ -1,7 +1,7 @@
 """scripts/find_assertionless_tests.py
 
 List test functions that contain no assertion of any kind: no ``assert`` statement,
-no ``pytest.raises`` / ``pytest.warns`` / ``pytest.deprecated_call`` block, and no call to
+no ``pytest.raises`` / ``pytest.warns`` / ``pytest.deprecated_call`` block, no ``pytest.fail``, and no call to
 anything named ``assert*`` (``mock.assert_called_once``, ``self.assertEqual``, ``_assert_ok(...)``).
 Only functions whose name starts with ``test`` are considered; fixtures and helpers are ignored.
 
@@ -29,6 +29,16 @@ def _call_name(node: ast.Call) -> str:
     return ""
 
 
+def _is_pytest_fail(node: ast.Call) -> bool:
+    func = node.func
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == "fail"
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "pytest"
+    )
+
+
 def _has_assertion(func: ast.AST) -> bool:
     """Return True if the function body contains any assertion construct."""
     for node in ast.walk(func):
@@ -36,7 +46,7 @@ def _has_assertion(func: ast.AST) -> bool:
             return True
         if isinstance(node, ast.Call):
             name = _call_name(node)
-            if "assert" in name.lower() or name in _RAISES_NAMES:
+            if "assert" in name.lower() or name in _RAISES_NAMES or _is_pytest_fail(node):
                 return True
     return False
 
