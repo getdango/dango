@@ -129,11 +129,11 @@ class DashboardManager:
         """
         Parse parent collection ID from Metabase location string.
 
-        Metabase location format is "/parent_id/collection_id/" where collection_id
-        is the own ID and parent_id is the parent's ID. Root collections have location "/1/".
+        Metabase location lists ancestors only ("/1/5/" = child of 5, whose parent is 1),
+        so the parent is the last element. Root collections have location "/".
 
         Args:
-            location: Metabase location string (e.g. "/1/5/" → parent 1)
+            location: Metabase location string (e.g. "/1/5/" -> parent 5)
 
         Returns:
             Parent collection ID or None if no parent (root level)
@@ -141,12 +141,9 @@ class DashboardManager:
         if not location:
             return None
         parts = [p for p in location.strip("/").split("/") if p]
-        if len(parts) < 2:
+        if not parts or not all(p.isdigit() for p in parts):
             return None
-        try:
-            return int(parts[-2])
-        except (ValueError, IndexError):
-            return None
+        return int(parts[-1])
 
     def _collection_api(self) -> RequestsCollectionApi:
         return RequestsCollectionApi(self.metabase_url, self._get_headers())

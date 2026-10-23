@@ -32,24 +32,24 @@ class TestParseParentId:
         assert dashboard_manager._parse_parent_id("/") is None
 
     def test_parse_parent_id_single_collection(self, dashboard_manager):
-        """Single-level collection '/1/' → None (at root)."""
-        assert dashboard_manager._parse_parent_id("/1/") is None
+        """Child of collection 1 (Metabase location lists ancestors only) → parent 1."""
+        assert dashboard_manager._parse_parent_id("/1/") == 1
 
     def test_parse_parent_id_nested(self, dashboard_manager):
-        """Nested collection '/1/5/' → parent 1."""
-        assert dashboard_manager._parse_parent_id("/1/5/") == 1
+        """Nested collection '/1/5/' → parent 5."""
+        assert dashboard_manager._parse_parent_id("/1/5/") == 5
 
     def test_parse_parent_id_deep_nested(self, dashboard_manager):
-        """Deep nested '/1/5/7/' → parent 5."""
-        assert dashboard_manager._parse_parent_id("/1/5/7/") == 5
+        """Deep nested '/1/5/7/' → parent 7."""
+        assert dashboard_manager._parse_parent_id("/1/5/7/") == 7
 
     def test_parse_parent_id_very_deep(self, dashboard_manager):
-        """Very deep '/1/2/3/4/5/' → parent 4."""
-        assert dashboard_manager._parse_parent_id("/1/2/3/4/5/") == 4
+        """Very deep '/1/2/3/4/5/' → parent 5."""
+        assert dashboard_manager._parse_parent_id("/1/2/3/4/5/") == 5
 
     def test_parse_parent_id_no_leading_slash(self, dashboard_manager):
         """Location without leading/trailing slashes."""
-        assert dashboard_manager._parse_parent_id("1/5") == 1
+        assert dashboard_manager._parse_parent_id("1/5") == 5
 
     def test_parse_parent_id_empty_string(self, dashboard_manager):
         """Empty string → None."""
