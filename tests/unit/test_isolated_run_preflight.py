@@ -13,6 +13,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+
 from dango.runtime import isolated_run
 
 pytestmark = pytest.mark.unit
@@ -113,7 +114,7 @@ class TestExec:
             root, "--role", "script", "--cwd", str(root), "--", "scripts/hello.py", "a", "b"
         )
         assert result.returncode == 0, result.stderr
-        assert "path0 " + str(root / "scripts") in result.stdout.replace("/private", "")
+        assert f"path0 {(root / 'scripts').resolve()}" in result.stdout
         assert "argv ['a', 'b']" in result.stdout
         assert "secret None" in result.stdout
 
