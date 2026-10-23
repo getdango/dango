@@ -72,7 +72,7 @@ jobs:
         # running it here would add a live GitHub Releases download
         # dependency to these required checks for no benefit; the egress
         # job already covers it.
-        run: pytest --tb=short -q -m "not egress"
+        run: pytest --tb=short -q -m "not egress"${{ matrix.python-version == '3.12' && ' --cov=dango --cov-report=term' || '' }}
 
   security:
     name: Security (pip-audit)
