@@ -195,6 +195,173 @@ class TestRefreshCatchup:
 
 
 @pytest.mark.unit
+class TestSyncTimeFailure:
+    @patch(_SYNC_REQUESTS)
+    def test_sync_failure_prints_one_warning(
+        self, mock_req: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        root = _project(tmp_path)
+        _fake_metabase(mock_req, dict(BASE_DETAILS), put_status=500)
+
+        _refresh(root)
+
+        captured = capsys.readouterr()
+        warnings = [ln for ln in (captured.out + captured.err).splitlines() if "lock" in ln.lower()]
+        assert len(warnings) == 1, captured
+
+    @patch(_SYNC_REQUESTS)
+    def test_sync_failures_do_not_use_up_the_start_attempts(
+        self, mock_req: MagicMock, tmp_path: Path
+    ) -> None:
+        from dango.platform.common.startup import metabase_startup_work_pending
+
+        root = _project(tmp_path, legacy_password=False)
+        _fake_metabase(mock_req, dict(BASE_DETAILS), put_status=500)
+        _refresh(root, runs=4)
+
+        assert not _attempts(root).exists()
+        assert metabase_startup_work_pending(root) is True  # still waits at the next start
+
+
+@pytest.mark.unit
+def test_setup_update_path_puts_locked_details(tmp_project_dir: Path) -> None:
+    from dango.visualization.metabase import setup_metabase
+
+    session = _mock_fresh_setup_session(
+        [MagicMock(status_code=200, ok=True), MagicMock(status_code=200, ok=True)]
+    )
+    existing = MagicMock(status_code=200)
+    existing.json.return_value = {
+        "data": [{"id": 7, "engine": "duckdb", "name": "test-project Analytics"}]
+    }
+    gets = list(session.get.side_effect)
+    gets[1] = existing
+    session.get.side_effect = gets
+    session.put.side_effect = [MagicMock(status_code=200, ok=True) for _ in range(4)]
+    store = MagicMock()
+    store.load_pending.return_value = None
+    with (
+        patch("dango.visualization.metabase.MetabaseCredentialStore", return_value=store),
+        patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+        patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
+        patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
+        patch("dango.visualization.metabase.requests.Session", return_value=session),
+        patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
+    ):
+        setup_metabase(tmp_project_dir, "test-project", "admin@example.com")
+
+    updates = [
+        c
+        for c in session.put.call_args_list
+        if c.args[0].endswith("/api/database/7") and "details" in c.kwargs["json"]
+    ]
+    assert len(updates) == 1
+    assert updates[0].kwargs["json"]["details"] == {**BASE_DETAILS, "init_sql": LOCK_SQL}
+    assert not [c for c in session.post.call_args_list if c.args[0].endswith("/api/database")]
+
+
+@pytest.mark.unit
+class TestRestoreRelock:
+    """A restored Metabase DB can be unlocked while the state marker says applied."""
+
+    @patch(_SYNC_REQUESTS)
+    def test_refresh_relocks_unlocked_details_despite_marker(
+        self, mock_req: MagicMock, tmp_path: Path
+    ) -> None:
+        root = _project(tmp_path)
+        _marker(root).parent.mkdir(parents=True)
+        _marker(root).write_text("applied\n")
+        _fake_metabase(mock_req, dict(BASE_DETAILS))  # as after a restore: no init_sql
+
+        assert _refresh(root)[0][0] is True
+
+        assert mock_req.put.call_count == 1
+        assert mock_req.put.call_args.kwargs["json"]["details"] == {
+            **BASE_DETAILS,
+            "init_sql": LOCK_SQL,
+        }
+        assert _marker(root).is_file()
+
+    @patch(_SYNC_REQUESTS)
+    def test_refresh_with_marker_and_locked_details_is_one_get_no_put(
+        self, mock_req: MagicMock, tmp_path: Path
+    ) -> None:
+        root = _project(tmp_path)
+        _marker(root).parent.mkdir(parents=True)
+        _marker(root).write_text("applied\n")
+        _fake_metabase(mock_req, {**BASE_DETAILS, "init_sql": LOCK_SQL})
+
+        _refresh(root, runs=2)
+
+        assert mock_req.get.call_count == 2  # one GET per refresh
+        mock_req.put.assert_not_called()
+
+    @patch(_SYNC_REQUESTS)
+    def test_refresh_failure_with_marker_keeps_marker(
+        self, mock_req: MagicMock, tmp_path: Path
+    ) -> None:
+        root = _project(tmp_path)
+        _marker(root).parent.mkdir(parents=True)
+        _marker(root).write_text("applied\n")
+        _fake_metabase(mock_req, dict(BASE_DETAILS), put_status=500)
+
+        _refresh(root)
+
+        assert _marker(root).is_file()
+        assert not _attempts(root).exists()
+
+    def test_restore_clears_markers_and_next_start_relocks(self, tmp_path: Path) -> None:
+        from dango.platform.cloud.backup import restore_from_archive
+        from dango.platform.common.startup import apply_metabase_duckdb_lock_if_needed
+        from tests.factories.backup_shell import ShellSSH
+        from tests.unit.test_backup_restore_service_user import _archive, _server
+
+        project = tmp_path / "project"
+        state = project / ".dango" / "state"
+        state.mkdir(parents=True)
+        _marker(project).write_text("applied\n")
+        _attempts(project).write_text("2\n")
+        (state / "other_marker").write_text("keep\n")
+        mb_volume = tmp_path / "mb-volume"
+        mb_volume.mkdir()
+        ssh = ShellSSH(tmp_path / "shim")
+
+        with _server(tmp_path, project, mb_volume):
+            restore_from_archive(ssh, _archive(tmp_path))
+
+        assert not _marker(project).exists()
+        assert not _attempts(project).exists()
+        assert (state / "other_marker").read_text() == "keep\n"  # only the lock files go
+
+        _project(project)  # the restored metabase.yml of a set-up install
+        with patch(_SYNC_REQUESTS) as mock_req:
+            _fake_metabase(mock_req, dict(BASE_DETAILS))  # the restored H2 holds unlocked details
+            apply_metabase_duckdb_lock_if_needed(project)
+            assert mock_req.put.call_count == 1
+        assert _marker(project).is_file()
+
+    def test_restore_without_metabase_volume_keeps_markers(self, tmp_path: Path) -> None:
+        from dango.platform.cloud.backup import restore_from_archive
+        from tests.factories.backup_shell import ShellSSH
+        from tests.unit.test_backup_restore_service_user import _archive, _server
+
+        project = tmp_path / "project"
+        _marker(project).parent.mkdir(parents=True)
+        _marker(project).write_text("applied\n")
+        mb_volume = tmp_path / "mb-volume"
+        mb_volume.mkdir()
+        ssh = ShellSSH(tmp_path / "shim")
+
+        with (
+            _server(tmp_path, project, mb_volume),
+            patch("dango.platform.cloud.backup._get_metabase_volume_path", return_value=None),
+        ):
+            restore_from_archive(ssh, _archive(tmp_path))
+
+        assert _marker(project).is_file()  # the H2 (and its lock) was not replaced
+
+
+@pytest.mark.unit
 class TestStartCatchup:
     @patch(_SYNC_REQUESTS)
     def test_start_applies_lock_once_without_sync(

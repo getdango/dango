@@ -294,3 +294,27 @@ def test_startup_catchup_locks_an_existing_unlocked_connection(stack: _Stack) ->
     assert marker.is_file()
     assert stack.details() == {**unlocked, "init_sql": _LOCK_SQL}
     assert _DISABLED in str(stack.native(stack.editor_headers(), _FILE_READS[0]).get("error"))
+
+
+def test_refresh_catchup_relocks_a_restored_unlocked_connection(stack: _Stack) -> None:
+    """A backup restore brings back unlocked details while the applied marker survives."""
+    from dango.visualization.metabase_connection_lock import apply_lock_catchup
+
+    admin = stack.admin_headers()
+    row = requests.get(f"{stack.url}/api/database/{stack.db_id}", headers=admin, timeout=30).json()
+    row["details"] = {k: v for k, v in row["details"].items() if k != "init_sql"}  # no key at all
+    put = requests.put(
+        f"{stack.url}/api/database/{stack.db_id}", headers=admin, json=row, timeout=60
+    )
+    assert put.status_code == 200, put.text
+    assert "init_sql" not in stack.details()
+    marker = stack.root / ".dango" / "state" / "metabase_duckdb_lock_applied"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("applied\n")  # the marker survives a restore; the H2 does not
+
+    assert apply_lock_catchup(
+        stack.root, stack.url, session_id=admin["X-Metabase-Session"], recheck=True
+    )
+
+    assert stack.details().get("init_sql") == _LOCK_SQL
+    assert marker.is_file()
