@@ -124,7 +124,9 @@ class TestConfigureLoggingWiring:
         """Import and call configure_logging() — no exception raised."""
         from dango.logging import configure_logging
 
+        # does-not-raise: configuration succeeds and creates the log directory
         configure_logging(log_dir=tmp_path / "logs", json_console=True)
+        assert (tmp_path / "logs").is_dir()
 
     def test_structlog_configured_after_call(self, tmp_path: Path) -> None:
         """After configure_logging(), a structlog logger produces structured JSON output."""

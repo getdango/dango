@@ -96,4 +96,5 @@ def test_teardown_error_does_not_mask_failing_test(
 def test_clean_teardown_raises_nothing(tmp_path: Path) -> None:
     (tmp_path / "docker-compose.yml").write_text("services: {}\n")
     with patch(_RUN, side_effect=[_done(), _done(), _done(rc=1)]):
-        mod.teardown_and_check(tmp_path, "dango-x")
+        # does-not-raise: nothing leaked
+        assert mod.teardown_and_check(tmp_path, "dango-x") is None

@@ -83,7 +83,8 @@ class TestBackupHelpers:
         ssh = make_ssh_mock_configurable(
             exec_results={"df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0)}
         )
-        _check_disk_space(ssh)  # Should not raise
+        # does-not-raise: 20000 MB free is sufficient
+        assert _check_disk_space(ssh) is None
 
     def test_check_disk_space_insufficient(self):
         """Raises CloudProvisioningError when disk space is low."""

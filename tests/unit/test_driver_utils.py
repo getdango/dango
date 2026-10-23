@@ -74,7 +74,8 @@ class TestCheckVersionAlignment:
     def test_matching_versions_no_error(self):
         """No exception when Python DuckDB and driver share major.minor."""
         with patch("duckdb.__version__", "1.5.2"):
-            check_version_alignment()  # Should not raise
+            # does-not-raise: same major.minor
+            assert check_version_alignment() is None
 
     def test_mismatched_versions_raises(self):
         """VersionMismatchError raised when major.minor differs."""
@@ -88,4 +89,5 @@ class TestCheckVersionAlignment:
         # Python: "1.5.0" → major.minor "1.5"
         # Driver: "1.5.1.0" → major.minor "1.5"
         with patch("duckdb.__version__", "1.5.0"):
-            check_version_alignment()  # Should not raise
+            # does-not-raise: same major.minor
+            assert check_version_alignment() is None

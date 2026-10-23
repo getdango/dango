@@ -363,14 +363,18 @@ class TestWebhookSender:
         sender = WebhookSender(config)
 
         # Patch _build_json_payload to raise — send() must catch it
-        with patch.object(WebhookSender, "_build_json_payload", side_effect=RuntimeError("boom")):
+        with patch.object(
+            WebhookSender, "_build_json_payload", side_effect=RuntimeError("boom")
+        ) as mock_build:
+            # does-not-raise: the payload failure is swallowed
             self._run(
                 sender.send(
                     event_type=EventType.SYNC_FAILED,
                     schedule_name="daily",
                 )
             )
-            # No exception should propagate
+        mock_build.assert_called_once()
+        # No exception should propagate
 
     def test_multiple_webhooks_concurrent(self) -> None:
         config = NotificationConfig(

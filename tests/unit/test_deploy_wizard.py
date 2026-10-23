@@ -85,7 +85,8 @@ class TestPrereqCheck:
     def test_valid_project(self, project_root, monkeypatch):
         """Valid project with token passes prereqs."""
         monkeypatch.setenv("DIGITALOCEAN_TOKEN", "test-token")
-        _step_prereqs(project_root)  # Should not raise
+        # does-not-raise: all prerequisites present
+        assert _step_prereqs(project_root) is None
 
 
 # ---------------------------------------------------------------------------

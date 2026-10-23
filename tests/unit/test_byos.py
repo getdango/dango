@@ -210,7 +210,10 @@ class TestSSHValidation:
         from dango.cli.commands.deploy_wizard import _validate_ssh_connectivity
         from dango.platform.cloud.ssh import CommandResult
 
-        with patch("dango.platform.cloud.ssh.SSHManager") as MockSSH:
+        with (
+            patch("dango.platform.cloud.ssh.SSHManager") as MockSSH,
+            patch("dango.cli.commands.deploy_wizard.console") as mock_console,
+        ):
             mock_ssh = MockSSH.return_value
             mock_ssh.connect.return_value = None
             mock_ssh.exec_command.return_value = CommandResult(
@@ -218,8 +221,11 @@ class TestSSHValidation:
             )
             mock_ssh.disconnect.return_value = None
 
-            # Should not raise — just warns
+            # does-not-raise: non-Ubuntu only warns
             _validate_ssh_connectivity("1.2.3.4", "root", "/path/to/key")
+
+        assert "does not appear to be running Ubuntu" in mock_console.print.call_args[0][0]
+        mock_ssh.disconnect.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

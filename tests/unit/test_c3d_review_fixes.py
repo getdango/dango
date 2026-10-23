@@ -106,9 +106,11 @@ class TestEmptyGuardEdges:
 
     def test_server_with_only_empty_dirs_proceeds(self, tmp_path):
         (tmp_path / "scripts").mkdir()
-        refuse_empty_mirrors(
+        # does-not-raise: an empty local dir is fine when the server dir is empty too
+        result = refuse_empty_mirrors(
             _guard_ssh(False), tmp_path, ["scripts"], "/srv/dango/project", allow_empty=False
         )
+        assert result is None
 
 
 @pytest.mark.unit

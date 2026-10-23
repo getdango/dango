@@ -54,16 +54,20 @@ class TestValidateVersionString:
     def test_valid_versions(self) -> None:
         from dango.platform.cloud.upgrade import validate_version_string
 
-        validate_version_string("1.0.0")
-        validate_version_string("0.1.1")
-        validate_version_string("99.88.77")
-        # PEP 440 pre-release versions
-        validate_version_string("1.0.0b4")
-        validate_version_string("1.0.0rc1")
-        validate_version_string("1.0.0a1")
-        # PEP 440 shorthand (e.g. "1.0" normalizes to "1.0")
-        validate_version_string("1.0")
-        validate_version_string("v1.0.0")
+        # does-not-raise: every version is valid
+        for version in (
+            "1.0.0",
+            "0.1.1",
+            "99.88.77",
+            # PEP 440 pre-release versions
+            "1.0.0b4",
+            "1.0.0rc1",
+            "1.0.0a1",
+            # PEP 440 shorthand (e.g. "1.0" normalizes to "1.0")
+            "1.0",
+            "v1.0.0",
+        ):
+            assert validate_version_string(version) is None
 
     def test_invalid_versions(self) -> None:
         from dango.platform.cloud.upgrade import validate_version_string

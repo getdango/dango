@@ -63,7 +63,10 @@ IDS = [
 class TestNameValidatorsRejectTrailingNewline:
     @pytest.mark.parametrize(("validator", "valid", "exc"), NAME_VALIDATORS, ids=IDS)
     def test_valid_value_still_accepted(self, validator: Any, valid: str, exc: type) -> None:
-        validator(valid)
+        # does-not-raise: a clean value is accepted
+        result = validator(valid)
+        # validators return None or the parsed (truthy) value
+        assert result is None or bool(result)
 
     @pytest.mark.parametrize(("validator", "valid", "exc"), NAME_VALIDATORS, ids=IDS)
     @pytest.mark.parametrize("suffix", BAD_SUFFIXES)

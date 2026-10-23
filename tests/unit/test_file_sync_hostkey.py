@@ -354,17 +354,24 @@ class TestRemoteSshKnownHosts:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """OpenSSH cannot load a -i path containing % in any spelling (% or %%)."""
-        _invoke_remote_ssh(tmp_path, monkeypatch, key_rel=".dango %d/cloud_key", expect_ok=False)
+        args, _ = _invoke_remote_ssh(
+            tmp_path, monkeypatch, key_rel=".dango %d/cloud_key", expect_ok=False
+        )
+        assert args == []  # helper asserted: non-zero exit, ssh never exec'd
 
     def test_remote_ssh_refuses_known_hosts_path_with_dollar(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _invoke_remote_ssh(tmp_path, monkeypatch, home_name="home${USER}", expect_ok=False)
+        args, _ = _invoke_remote_ssh(
+            tmp_path, monkeypatch, home_name="home${USER}", expect_ok=False
+        )
+        assert args == []  # helper asserted: non-zero exit, ssh never exec'd
 
     def test_remote_ssh_refuses_known_hosts_path_with_quote(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _invoke_remote_ssh(tmp_path, monkeypatch, home_name='bad"home', expect_ok=False)
+        args, _ = _invoke_remote_ssh(tmp_path, monkeypatch, home_name='bad"home', expect_ok=False)
+        assert args == []  # helper asserted: non-zero exit, ssh never exec'd
 
     def test_remote_ssh_carries_over_legacy_pin(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

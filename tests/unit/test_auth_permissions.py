@@ -203,7 +203,8 @@ class TestCheckPermission:
 
     def test_allowed_does_not_raise(self) -> None:
         user = _make_user(role=Role.ADMIN)
-        check_permission(user, "source.sync")  # should not raise
+        # does-not-raise: admin holds source.sync
+        assert check_permission(user, "source.sync") is None
 
     def test_denied_raises_authorization_error(self) -> None:
         user = _make_user(role=Role.VIEWER)

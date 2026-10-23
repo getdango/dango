@@ -574,8 +574,9 @@ class TestKnownHosts:
             incoming_key.get_name.return_value = "ssh-ed25519"
 
             client_mock = MagicMock()
-            # Should not raise.
-            policy.missing_host_key(client_mock, "10.0.0.1", incoming_key)
+            # does-not-raise: a matching stored key is accepted and nothing is re-recorded
+            assert policy.missing_host_key(client_mock, "10.0.0.1", incoming_key) is None
+        assert known_hosts.read_text() == ""
 
     def test_changed_key_raises_cloud_ssh_error(self, tmp_path: Path):
         """Changed host key raises CloudSSHError with remediation message."""
