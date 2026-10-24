@@ -111,7 +111,7 @@ class TestStartMarimo:
 @pytest.mark.unit
 class TestStopMarimo:
     @patch("dango.notebooks.manager.is_process_running", return_value=True)
-    @patch("dango.notebooks.manager.kill_process", return_value=True)
+    @patch("dango.notebooks.marimo_process.kill_process", return_value=True)
     def test_stop_returns_true(self, mock_kill, mock_running, tmp_path):
         import psutil
 
@@ -138,7 +138,7 @@ class TestStopMarimo:
         assert result is False
 
     @patch("dango.notebooks.manager.is_process_running", return_value=True)
-    @patch("dango.notebooks.manager.kill_process", return_value=False)
+    @patch("dango.notebooks.marimo_process.kill_process", return_value=False)
     def test_stop_returns_false_if_kill_fails(self, mock_kill, mock_running, tmp_path):
         pid_file = tmp_path / ".dango" / "marimo.pid"
         pid_file.parent.mkdir(parents=True, exist_ok=True)
@@ -152,8 +152,8 @@ class TestStopMarimo:
             patch("dango.notebooks.manager.os.getpgid", side_effect=lambda pid: pid),
             patch("dango.notebooks.manager.os.killpg"),
             patch("psutil.Process", return_value=survivor),
-            patch("dango.notebooks.manager._STOP_TERM_TIMEOUT_SECONDS", 0.3, create=True),
-            patch("dango.notebooks.manager._STOP_KILL_TIMEOUT_SECONDS", 0.3, create=True),
+            patch("dango.notebooks.marimo_process._STOP_TERM_TIMEOUT_SECONDS", 0.3),
+            patch("dango.notebooks.marimo_process._STOP_KILL_TIMEOUT_SECONDS", 0.3),
         ):
             result = stop_marimo(tmp_path)
         assert result is False
