@@ -12,6 +12,7 @@ platform/
 ├── __main__.py          # python -m dango.platform → runs watcher_runner
 ├── docker.py            # DockerManager, ServiceStatus (shared local + cloud)
 ├── compose_exec.py      # Compose wrapper: root-owned helper when the marker exists, else direct docker compose
+├── run_as.py            # Runs user code as a restricted OS user when the runner marker exists, else legacy argv/env (inert until wired)
 ├── CLAUDE.md            # This file
 │
 ├── common/              # Shared startup logic (local + cloud reuse)
