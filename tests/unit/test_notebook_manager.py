@@ -123,8 +123,8 @@ class TestStopMarimo:
 
         # Never signal a real process: fake the group calls, the process is gone.
         with (
-            patch("dango.notebooks.manager.os.getpgid", side_effect=lambda pid: pid),
-            patch("dango.notebooks.manager.os.killpg"),
+            patch("dango.notebooks.marimo_process.os.getpgid", side_effect=lambda pid: pid),
+            patch("dango.notebooks.marimo_process.os.killpg"),
             patch("psutil.Process", side_effect=psutil.NoSuchProcess(12345)),
         ):
             result = stop_marimo(tmp_path)
@@ -149,8 +149,8 @@ class TestStopMarimo:
         survivor = MagicMock()
         survivor.status.return_value = "running"
         with (
-            patch("dango.notebooks.manager.os.getpgid", side_effect=lambda pid: pid),
-            patch("dango.notebooks.manager.os.killpg"),
+            patch("dango.notebooks.marimo_process.os.getpgid", side_effect=lambda pid: pid),
+            patch("dango.notebooks.marimo_process.os.killpg"),
             patch("psutil.Process", return_value=survivor),
             patch("dango.notebooks.marimo_process._STOP_TERM_TIMEOUT_SECONDS", 0.3),
             patch("dango.notebooks.marimo_process._STOP_KILL_TIMEOUT_SECONDS", 0.3),

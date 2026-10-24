@@ -10,9 +10,39 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+from dango.notebooks.safe_files import copy_regular_file
+from dango.platform import run_as
+
 logger = logging.getLogger(__name__)
 
+#: Where snapshots live when notebooks run as the restricted user (created by server setup).
+ISOLATED_SNAPSHOT_DIR = Path("/srv/dango/runner/snapshots")
+_ISOLATED_MODE = 0o640
+
 _TIMESTAMP_FMT = "%Y%m%d_%H%M%S"
+
+
+def _snapshots_dir(project_root: Path) -> Path:
+    """Snapshot directory: the runner-readable one when isolated, else under ``.dango``."""
+    if run_as.uses_isolation():
+        return ISOLATED_SNAPSHOT_DIR
+    return project_root / ".dango" / "snapshots"
+
+
+def _create_isolated_snapshot(warehouse: Path, name: str) -> Path:
+    """Copy *warehouse* into the runner snapshot directory with mode 0640.
+
+    The group (``dango-nb``) comes from the directory.  The source is opened
+    without following a symlink (``data`` itself may be a link) and the mode is set with ``fchmod``.
+    """
+    directory = ISOLATED_SNAPSHOT_DIR
+    if not directory.is_dir():
+        raise RuntimeError(
+            f"Notebook snapshot directory {directory} is missing; run the server setup again"
+        )
+    target = directory / name
+    copy_regular_file(warehouse, target, mode=_ISOLATED_MODE)
+    return target
 
 
 def create_snapshot(project_root: Path, username: str = "default") -> Path:
@@ -38,16 +68,18 @@ def create_snapshot(project_root: Path, username: str = "default") -> Path:
             f"Warehouse database not found at {warehouse}. Run a sync first to create it."
         )
 
-    snapshots_dir = project_root / ".dango" / "snapshots"
-    snapshots_dir.mkdir(parents=True, exist_ok=True)
-
-    cleanup_snapshots(project_root, username, keep=3)
-
     timestamp = datetime.now().strftime(_TIMESTAMP_FMT)
     snapshot_name = f"warehouse_{username}_{timestamp}.duckdb"
-    snapshot_path = snapshots_dir / snapshot_name
 
-    shutil.copy2(str(warehouse), str(snapshot_path))
+    if run_as.uses_isolation():
+        cleanup_snapshots(project_root, username, keep=3)
+        snapshot_path = _create_isolated_snapshot(warehouse, snapshot_name)
+    else:
+        snapshots_dir = project_root / ".dango" / "snapshots"
+        snapshots_dir.mkdir(parents=True, exist_ok=True)
+        cleanup_snapshots(project_root, username, keep=3)
+        snapshot_path = snapshots_dir / snapshot_name
+        shutil.copy2(str(warehouse), str(snapshot_path))
     logger.info("Created snapshot %s (%d bytes)", snapshot_name, snapshot_path.stat().st_size)
 
     return snapshot_path
@@ -66,7 +98,7 @@ def list_snapshots(
         List of dicts with keys: ``name``, ``path``, ``username``,
         ``created_at``, ``size_bytes``.  Sorted newest first.
     """
-    snapshots_dir = project_root / ".dango" / "snapshots"
+    snapshots_dir = _snapshots_dir(project_root)
     if not snapshots_dir.exists():
         return []
 

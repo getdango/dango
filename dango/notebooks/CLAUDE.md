@@ -10,10 +10,10 @@ Marimo notebook server lifecycle, DuckDB read-only snapshots, file-level locking
 |------|-------|---------|-------------|
 | `__init__.py` | ~45 | Re-exports public symbols | All public API |
 | `access_token.py` | ~110 | Per-start Marimo token file (`.dango/state/marimo.token`, 0600), the open URL carrying `access_token`, private 0600 log, start lock | `create_token_file()`, `read_token()`, `remove_token_file()`, `marimo_open_url()`, `open_private_log()`, `start_lock()` |
-| `marimo_process.py` | ~108 | Stop helpers for the Marimo process (process-group SIGTERM/SIGKILL, wait-for-gone) | `_stop_marimo_process()`, `_stop_unready_process()` |
+| `marimo_process.py` | ~161 | Stop helpers for the Marimo process (process-group SIGTERM/SIGKILL, wait-for-gone) | `_stop_marimo_process()`, `_stop_runner_process()`, `_stop_unready_process()`, `write_runner_record()` |
 | `protection.py` | ~45 | Restart a tokenless pre-fix local Marimo; drop stale token file | `ensure_marimo_protected()` |
-| `manager.py` | ~410 | Marimo process lifecycle (PID file, start/stop/status) + idle auto-shutdown + cloud base-url | `get_marimo_pid_file_path()`, `start_marimo()`, `stop_marimo()`, `get_marimo_status()`, `start_idle_checker()`, `stop_idle_checker()` |
-| `snapshot.py` | ~143 | DuckDB snapshot management | `create_snapshot()`, `list_snapshots()`, `cleanup_snapshots()` |
+| `manager.py` | ~472 | Marimo process lifecycle (PID file, start/stop/status) + idle auto-shutdown + cloud base-url | `get_marimo_pid_file_path()`, `start_marimo()`, `stop_marimo()`, `get_marimo_status()`, `start_idle_checker()`, `stop_idle_checker()` |
+| `snapshot.py` | ~175 | DuckDB snapshot management | `create_snapshot()`, `list_snapshots()`, `cleanup_snapshots()` |
 | `locking.py` | ~285 | File-level notebook locking via `notebook_locks` table | `acquire_lock()`, `release_lock()`, `refresh_lock()`, `force_release_lock()`, `expire_stale_locks()`, `is_locked()`, `get_lock_info()`, `copy_locked_notebook()` |
 | `proxy.py` | ~186 | HTTP + WebSocket reverse proxy to Marimo | `proxy_to_marimo()`, `proxy_websocket_to_marimo()` |
 | `templates/__init__.py` | ~5 | Package marker | — |

@@ -524,8 +524,16 @@ async def restart_marimo(
         rows = conn.execute("SELECT notebook_id, locked_by FROM notebook_locks").fetchall()
         active_locks = [{"notebook": r["notebook_id"], "user": r["locked_by"]} for r in rows]
 
-    # Stop Marimo
-    stop_marimo(project_root)
+    # Stop Marimo; keep the locks if it could not be stopped
+    stopped = stop_marimo(project_root)
+    if not stopped and (await asyncio.to_thread(get_marimo_status, project_root))["running"]:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error_code": "DANGO-NB012",
+                "message": "Marimo could not be stopped. Try again shortly.",
+            },
+        )
 
     # Release all locks (inlined from manager._release_all_locks to avoid
     # importing a private function across modules)

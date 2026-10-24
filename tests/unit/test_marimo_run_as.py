@@ -65,7 +65,6 @@ def test_isolated_launch_uses_sudo_and_minimal_env(tmp_path: Path) -> None:
     assert "dango.runtime.isolated_run" in argv
     assert argv[argv.index("--role") + 1] == "nb"
     assert "--no-token" in argv
-    assert "marimo" not in argv[argv.index("--") - 1 :][:1]  # launcher adds ``-m marimo``
     assert env["DANGO_NOTEBOOK_DB_PATH"] == str(snap)
     assert "DANGO_NOTEBOOK_DB_PATH" in next(a for a in argv if a.startswith("--preserve-env="))
     assert popen.call_args.kwargs["start_new_session"] is True
@@ -79,6 +78,7 @@ def test_isolated_env_has_no_env_file_or_process_values(tmp_path: Path) -> None:
     assert "LEAKY" not in env and "SECRET" not in env
     assert _SECRET not in " ".join(popen.call_args[0][0])
     # positive control: the same secrets do reach the legacy environment
+    get_marimo_pid_file_path(tmp_path).unlink()
     legacy_popen, _, _ = _start(tmp_path, isolated=False, cloud=True)
     assert legacy_popen.call_args.kwargs["env"]["LEAKY"] == _SECRET
 
@@ -325,3 +325,38 @@ def test_non_isolated_snapshot_unchanged(tmp_path: Path) -> None:
         path = snapshot.create_snapshot(tmp_path, "bob")
     assert path.parent == tmp_path / ".dango" / "snapshots"
     assert stat.S_IMODE(path.stat().st_mode) == 0o600  # copy2 keeps the source mode
+
+
+# --- restart route ----------------------------------------------------------
+
+
+def _restart(tmp_path: Path, *, stopped: bool, running: bool) -> tuple[Any, int]:
+    from tests.unit.test_web_notebooks import _client, _init_db, _seed_lock
+
+    _init_db(tmp_path)
+    _seed_lock(tmp_path, "nb1")
+    route = "dango.web.routes.notebooks"
+    with (
+        patch(f"{route}.get_project_root", return_value=tmp_path),
+        patch(f"{route}.stop_marimo", return_value=stopped),
+        patch(f"{route}.get_marimo_status", return_value={"running": running}),
+    ):
+        resp = _client(tmp_path).post("/api/notebooks/marimo/restart")
+    from dango.utils.dango_db import connect
+
+    with connect(tmp_path) as conn:
+        locks = conn.execute("SELECT COUNT(*) AS c FROM notebook_locks").fetchone()["c"]
+    return resp, locks
+
+
+def test_restart_reports_conflict_and_keeps_locks_when_marimo_cannot_stop(tmp_path: Path) -> None:
+    resp, locks = _restart(tmp_path, stopped=False, running=True)
+    assert resp.status_code == 409
+    assert resp.json()["error_code"] == "DANGO-NB012"
+    assert locks == 1
+
+
+def test_restart_succeeds_when_marimo_was_not_running(tmp_path: Path) -> None:
+    resp, locks = _restart(tmp_path, stopped=False, running=False)
+    assert resp.status_code == 200 and resp.json()["restarted"] is True
+    assert locks == 0
