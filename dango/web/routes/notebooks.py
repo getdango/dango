@@ -40,6 +40,7 @@ from dango.notebooks.manager import (
 )
 from dango.notebooks.safe_files import copy_regular_file
 from dango.notebooks.snapshot import create_snapshot
+from dango.platform import run_as
 from dango.utils.dango_db import connect
 from dango.validation import validate_identifier
 from dango.web.helpers import get_project_root
@@ -524,8 +525,21 @@ async def restart_marimo(
         rows = conn.execute("SELECT notebook_id, locked_by FROM notebook_locks").fetchall()
         active_locks = [{"notebook": r["notebook_id"], "user": r["locked_by"]} for r in rows]
 
-    # Stop Marimo
-    stop_marimo(project_root)
+    # Stop Marimo (off the event loop: stopping can take seconds).  When it runs as the
+    # restricted user and could not be stopped, keep the locks.
+    stopped = await asyncio.to_thread(stop_marimo, project_root)
+    if (
+        not stopped
+        and run_as.uses_isolation()
+        and (await asyncio.to_thread(get_marimo_status, project_root))["running"]
+    ):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error_code": "DANGO-NB012",
+                "message": "Marimo could not be stopped. Try again shortly.",
+            },
+        )
 
     # Release all locks (inlined from manager._release_all_locks to avoid
     # importing a private function across modules)

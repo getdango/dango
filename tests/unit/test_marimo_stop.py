@@ -65,9 +65,9 @@ def _stop_with(
     with (
         patch(f"{_M}.is_process_running", side_effect=_running),
         patch("dango.notebooks.marimo_process.kill_process", kill),
-        patch(f"{_M}.os.getpgid", return_value=pgid),
-        patch(f"{_M}.os.getpgrp", return_value=own_pgrp),
-        patch(f"{_M}.os.killpg", side_effect=_killpg),
+        patch("dango.notebooks.marimo_process.os.getpgid", return_value=pgid),
+        patch("dango.notebooks.marimo_process.os.getpgrp", return_value=own_pgrp),
+        patch("dango.notebooks.marimo_process.os.killpg", side_effect=_killpg),
         patch("psutil.Process", side_effect=_process),
         patch("dango.notebooks.marimo_process._STOP_TERM_TIMEOUT_SECONDS", 0.3),
         patch("dango.notebooks.marimo_process._STOP_KILL_TIMEOUT_SECONDS", 0.3),

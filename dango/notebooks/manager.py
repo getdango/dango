@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -24,9 +23,15 @@ from dango.notebooks.marimo_process import (
     _stop_marimo_process as _stop_marimo_process,
 )
 from dango.notebooks.marimo_process import (
+    _stop_runner_process,
+    is_runner_record,
+    write_runner_record,
+)
+from dango.notebooks.marimo_process import (
     _stop_unready_process as _stop_unready_process,
 )
 from dango.notebooks.protection import ensure_marimo_protected as ensure_marimo_protected
+from dango.platform import run_as
 from dango.utils.dango_db import connect
 from dango.utils.process import (
     is_process_running,
@@ -89,6 +94,32 @@ def _is_marimo_responding(port: int, timeout: float = 1.0, base_path: str = "/")
         return False
 
 
+def _marimo_launch(
+    project_root: Path, cmd: list[str], snapshot_path: Path | None, on_cloud: bool
+) -> run_as.RunnerLaunch:
+    """Argv and environment for Marimo: legacy unless the runner marker exists.
+
+    Isolated, Marimo runs as ``dango-nb`` with a minimal environment (no ``.env``
+    values, no copy of ``os.environ``) plus the snapshot path.
+    """
+    launch = run_as.build_launch(
+        "nb",
+        cmd[3:],  # after ``python -m marimo``
+        project_root=project_root,
+        legacy_argv=cmd,
+    )
+    if not launch.isolated:
+        if snapshot_path is not None:
+            launch.env["DANGO_NOTEBOOK_DB_PATH"] = str(snapshot_path)
+        return launch
+    if not on_cloud:
+        raise RuntimeError("Notebook isolation requires cloud mode")
+    if snapshot_path is not None:
+        launch.env["DANGO_NOTEBOOK_DB_PATH"] = str(snapshot_path)
+    argv = run_as.build_command("nb", cmd[3:], env_keys=launch.env, cwd=project_root)
+    return run_as.RunnerLaunch(argv, launch.env, isolated=True)
+
+
 def start_marimo(
     project_root: Path,
     port: int | None = None,
@@ -138,10 +169,6 @@ def _start_marimo_locked(
     # Marimo's --timeout matches Dango's idle checker (fallback if it fails).
     timeout_minutes = _get_idle_timeout(project_root) // 60
 
-    env = os.environ.copy()
-    if snapshot_path is not None:
-        env["DANGO_NOTEBOOK_DB_PATH"] = str(snapshot_path)
-
     log_handle = None
     try:
         log_handle = open_private_log(log_file)
@@ -181,12 +208,13 @@ def _start_marimo_locked(
 
         cmd.append(str(notebooks_dir))
 
+        launch = _marimo_launch(project_root, cmd, snapshot_path, on_cloud)
         proc = subprocess.Popen(
-            cmd,
+            launch.argv,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
             start_new_session=True,
-            env=env,
+            env=launch.env,
         )
 
         # Wait for Marimo to start responding (poll until ready, dead, or
@@ -207,9 +235,12 @@ def _start_marimo_locked(
                     f"Marimo did not become ready within {_MARIMO_START_TIMEOUT_SECONDS} s. "
                     f"Check logs at {log_file}"
                 )
-            write_pid_record(pid_file, proc.pid)
+            if launch.isolated:
+                write_runner_record(pid_file, proc.pid, proc)
+            else:
+                write_pid_record(pid_file, proc.pid)
         except BaseException:
-            _stop_unready_process(proc)
+            _stop_unready_process(proc, runner_owned=launch.isolated)
             remove_token_file(project_root)
             raise
 
@@ -244,6 +275,9 @@ def stop_marimo(project_root: Path) -> bool:
         return False
     pid = record.pid
 
+    if is_runner_record(pid_file):
+        return _stop_runner_marimo(project_root, pid_file, pid, record.start_time)
+
     if not is_process_running(pid, expected_start_time=record.start_time):
         logger.debug("Marimo PID %d is not running (stale PID file)", pid)
         pid_file.unlink(missing_ok=True)
@@ -276,6 +310,32 @@ def stop_marimo(project_root: Path) -> bool:
         pid_file.unlink()
     except OSError:
         pass
+    remove_token_file(project_root)
+    logger.debug("Marimo stopped")
+    return True
+
+
+def _stop_runner_marimo(
+    project_root: Path, pid_file: Path, pid: int, start_time: float | None
+) -> bool:
+    """Stop a runner-owned Marimo; the pid file and token go only once nothing remains.
+
+    ``EPERM`` is expected here (another uid) and never means "foreign": the
+    record is only dropped after ``stop_all`` reports no ``dango-nb`` process.
+    """
+    try:
+        outcome = _stop_runner_process(pid, start_time)
+    except Exception:
+        logger.warning(
+            "Failed to stop runner-owned Marimo %d; keeping %s", pid, pid_file, exc_info=True
+        )
+        return False
+    if outcome != "stopped":
+        logger.warning(
+            "Marimo processes of the runner user remain; keeping %s so they stay tracked", pid_file
+        )
+        return False
+    pid_file.unlink(missing_ok=True)
     remove_token_file(project_root)
     logger.debug("Marimo stopped")
     return True

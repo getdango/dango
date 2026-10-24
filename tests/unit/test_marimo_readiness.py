@@ -130,9 +130,9 @@ def _run_start(
         patch(f"{_M}._get_idle_timeout", return_value=7200),
         patch(f"{_M}.is_process_running", return_value=False),
         patch(_CLOUD, return_value=cloud),
-        patch(f"{_M}.os.getpgid", side_effect=lambda pid: pid),
-        patch(f"{_M}.os.getpgrp", return_value=1),
-        patch(f"{_M}.os.killpg", side_effect=killpg or proc.group_signal),
+        patch("dango.notebooks.marimo_process.os.getpgid", side_effect=lambda pid: pid),
+        patch("dango.notebooks.marimo_process.os.getpgrp", return_value=1),
+        patch("dango.notebooks.marimo_process.os.killpg", side_effect=killpg or proc.group_signal),
     ):
         worker = threading.Thread(target=_target, daemon=True)
         worker.start()

@@ -5,12 +5,15 @@ Helpers that stop a Marimo server process (whole process group where safe).
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
 import time
+from pathlib import Path
 
-from dango.utils.process import kill_process
+from dango.platform import run_as
+from dango.utils.process import get_process_start_time, is_process_running, kill_process
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +22,63 @@ _STOP_TERM_TIMEOUT_SECONDS = 10.0
 _STOP_KILL_TIMEOUT_SECONDS = 5.0
 
 
-def _stop_unready_process(proc: subprocess.Popen[bytes]) -> None:
+# Popen objects of the runner-owned ``sudo`` leaders, so a stop can reap them.
+_runner_procs: dict[int, subprocess.Popen[bytes]] = {}
+
+
+def write_runner_record(
+    pid_file: Path, pid: int, proc: subprocess.Popen[bytes] | None = None
+) -> None:
+    """Write the pid record, marked runner-owned (``"runner": "nb"``), in one atomic step.
+
+    The extra key is ignored by ``read_pid_record``, so older readers still work.
+    Pass *proc* to let a later stop reap the ``sudo`` leader.
+    """
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    record = {"pid": pid, "start_time": get_process_start_time(pid), "runner": "nb"}
+    tmp = pid_file.with_name(pid_file.name + ".tmp")
+    tmp.write_text(json.dumps(record))
+    os.replace(tmp, pid_file)
+    if proc is not None:
+        _runner_procs[pid] = proc
+
+
+def is_runner_record(pid_file: Path) -> bool:
+    """True when the pid file was written for a runner-owned Marimo."""
+    try:
+        data = json.loads(pid_file.read_text())
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and data.get("runner") == "nb"
+
+
+def _stop_runner_process(pid: int, start_time: float | None) -> str:
+    """Stop a runner-owned Marimo (the recorded pid is its ``sudo`` parent).
+
+    Never uses ``killpg``/``kill_process``: the process belongs to another uid.
+    Every ``dango-nb`` process is stopped through ``run_as.stop_all``; the leader
+    is not waited on as a group, because an unreaped ``sudo`` would keep it
+    visible.  A pid whose start time no longer matches the record was reused by
+    an unrelated process and counts as gone.  Returns ``stopped`` only when no
+    ``dango-nb`` process remains and the recorded process is gone; otherwise
+    ``survived``.  Errors from the launcher propagate.
+    """
+    ours = start_time is None or is_process_running(pid, expected_start_time=start_time)
+    if run_as.stop_all("nb"):
+        return "survived"
+    gone = not ours or _wait_gone(pid, _STOP_KILL_TIMEOUT_SECONDS)
+    if gone:
+        held = _runner_procs.pop(pid, None)
+        if held is not None:
+            held.poll()
+    return "stopped" if gone else "survived"
+
+
+def _stop_unready_process(proc: subprocess.Popen[bytes], *, runner_owned: bool = False) -> None:
     """Stop a Marimo that never became ready, with its whole process group.
+
+    A *runner_owned* process belongs to another uid and is stopped through
+    ``run_as.stop_all("nb")``.
 
     Marimo starts with ``start_new_session=True``, so its pid is also its
     process group id: SIGTERM the group, then SIGKILL it after 5 s.  A
@@ -36,6 +94,15 @@ def _stop_unready_process(proc: subprocess.Popen[bytes]) -> None:
             os.killpg(proc.pid, sig)
         except ProcessLookupError:
             pass
+
+    if runner_owned:
+        try:
+            if run_as.stop_all("nb"):
+                logger.warning("Processes of the notebook runner user survived the stop")
+            proc.wait(timeout=5)
+        except Exception:
+            logger.warning("Could not stop unready Marimo process %s", proc.pid, exc_info=True)
+        return
 
     try:
         _signal_group(signal.SIGTERM)
