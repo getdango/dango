@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -191,8 +192,12 @@ def test_at_target_below_the_helper_release_runs_nothing() -> None:
 
 
 def test_guard_waits_for_the_new_long_running_commands() -> None:
-    for needle in ("apt-get", "useradd", "visudo", "[n]ft"):
-        assert needle in GUARD_ACTION
+    patterns = re.findall(r'pgrep -f "([^"]+)"', GUARD_ACTION)
+    for command in ("apt-get install -y -qq acl", "useradd -r dango-run", "visudo -cf x"):
+        assert any(re.search(p, command) for p in patterns), command
+    assert any(re.search(p, "/usr/sbin/nft -f /etc/x") for p in patterns)
+    for p in patterns:  # the waiting shell must not match its own command line
+        assert not re.search(p, GUARD_ACTION)
 
 
 # --- idempotence, interruption, policy ---------------------------------------------------------
@@ -218,7 +223,8 @@ def test_interrupted_run_leaves_no_marker_and_the_rerun_converges(failing: str) 
     result = run(srv, "1.0.14")
     ran = srv.runner_events()
     assert ran == STEPS[: STEPS.index(failing) + 1]
-    assert srv.isolation_marker is None and "marker" not in ran
+    assert srv.isolation_marker is None
+    assert ("marker" in ran) == (failing == "marker")
     assert result.runner_isolation and result.runner_isolation.startswith(ri.ISOLATION_MARK)
     assert failing in result.runner_isolation
     assert [w for w in result.warnings if w.startswith(ri.ISOLATION_MARK)]

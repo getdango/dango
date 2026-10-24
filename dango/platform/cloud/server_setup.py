@@ -546,6 +546,25 @@ def _setup_compose_helper(
     _notify(on_progress, step, "done")
 
 
+def _setup_runner_isolation(
+    ssh: SSHManager,
+    result: SetupResult,
+    on_progress: Callable[[str, str], None] | None,
+) -> None:
+    """Step 18: restricted users for scripts and notebooks (marker last).
+
+    A fatal failure never stops setup: it records a loud warning that isolation is NOT
+    enabled and how to retry; a warning-level failure (no firewall rules) continues.
+    """
+    from dango.platform.cloud import runner_isolation as ri
+
+    step = "runner_isolation"
+    _notify(on_progress, step, "running")
+    ri.enable(ssh, result.warnings)
+    result.steps_completed.append(step)
+    _notify(on_progress, step, "done")
+
+
 def _setup_ufw(
     ssh: SSHManager,
     result: SetupResult,
@@ -743,6 +762,7 @@ _SETUP_STEPS: list[
     _setup_unattended_upgrades,
     _setup_runtime_ownership,
     _setup_compose_helper,
+    _setup_runner_isolation,
 ]
 
 

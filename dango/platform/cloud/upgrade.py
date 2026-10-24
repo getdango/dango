@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudError, CloudProvisioningError
 from dango.platform.cloud import compose_migrate as cm
+from dango.platform.cloud import runner_isolation as ri
 from dango.platform.cloud.upgrade_caddy import has_ws_auth_endpoint, run_ws_migration
 from dango.platform.cloud.upgrade_guard import UpgradeGuard
 
@@ -38,6 +39,7 @@ PROGRESS_LABELS: dict[str, str] = {
     "migrations": "Running migrations...",
     "runtime_ownership": "Securing the server runtime...",
     "docker_access": "Switching Docker access...",
+    "runner_isolation": "Enabling script and notebook isolation...",
     "docker_rebuild": "Rebuilding Docker images...",
     "start_services": "Starting services...",
     "verify_health": "Verifying health...",
@@ -60,6 +62,7 @@ class UpgradeResult:
     runtime_ownership: str | None = None
     venv_rebuild: str | None = None
     docker_access: str | None = None
+    runner_isolation: str | None = None
 
 
 def validate_version_string(version: str) -> None:
@@ -313,6 +316,9 @@ def upgrade_dango(
         )
         if not restore_first:
             at_target_access = _switch_at_target(ssh, at_target_warnings, old_version, guard)
+        isolation_status = ri.enable_in_upgrade(
+            ssh, at_target_warnings, old_version, guard, own_guard=True
+        )
         return UpgradeResult(
             old_version=old_version,
             new_version=old_version,
@@ -326,6 +332,7 @@ def upgrade_dango(
             runtime_ownership=ownership_status,
             venv_rebuild=venv_rebuild,
             docker_access=at_target_access,
+            runner_isolation=isolation_status,
         )
 
     # 4. Pre-upgrade backup
@@ -429,6 +436,12 @@ def upgrade_dango(
             )
             _notify(on_progress, "docker_access", "done")
 
+        # 8e. Restricted users for scripts and notebooks (after 8d: docker access decides the
+        # fallback state first; the ownership script above never touches /srv/dango/runner)
+        _notify(on_progress, "runner_isolation", "running")
+        isolation_status = ri.enable_in_upgrade(ssh, warnings, new_version, guard, own_guard=False)
+        _notify(on_progress, "runner_isolation", "done")
+
         # 9. Docker rebuild
         _notify(on_progress, "docker_rebuild", "running")
         docker_rebuilt = False
@@ -475,4 +488,5 @@ def upgrade_dango(
         runtime_ownership=runtime_ownership,
         venv_rebuild=venv_rebuild,
         docker_access=docker_access,
+        runner_isolation=isolation_status,
     )

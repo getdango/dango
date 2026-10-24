@@ -5,8 +5,8 @@ Plan and policy for turning on restricted runner users on a cloud server.
 Holds the ordered step list as pure data (what to run, as whom, how a failure is treated),
 the id rules for the runner users, the marker record and how it is read back, and
 :func:`run_steps`, which applies the failure policy to results supplied by an executor.
-Importing this module has no side effects and nothing calls it yet: the setup and upgrade
-wiring and the command line come later.
+Importing this module has no side effects.  :func:`enable` runs the plan over SSH for server
+setup and ``remote upgrade``; the command line (opt-out, status) comes later.
 
 Failure policy: the marker is the last step and is never reached after a fatal failure.
 A failed ``nftables`` or ``acl`` package install, or failed firewall rules, only means
@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import stat
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
+from dango.logging import get_logger
 from dango.platform.cloud import runner_access_scripts as access
 from dango.platform.cloud import runner_scripts as scripts
 from dango.platform.run_as import MARKER, RESERVED_UIDS
@@ -33,12 +35,18 @@ __all__ = [
     "RunnerRecord",
     "Step",
     "StepResult",
+    "ISOLATION_MARK",
     "assert_runner_ids",
     "build_steps",
+    "enable",
+    "enable_in_upgrade",
     "parse_record",
     "read_record",
     "run_steps",
+    "status_line",
 ]
+
+_logger = get_logger(__name__)
 
 RunAs = Literal["root", "service"]
 OnFailure = Literal["fatal", "warn"]
@@ -253,3 +261,126 @@ def read_record(path: str = MARKER, *, trusted_uid: int = _TRUSTED_UID) -> Runne
         return parse_record(text)
     except ValueError:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Running the plan over SSH
+# ---------------------------------------------------------------------------
+
+#: Start of the loud warning when the steps could not be completed.
+ISOLATION_MARK = "Runner isolation is NOT enabled"
+_RETRY_HINT = "Run `dango remote upgrade` to retry once the cause is fixed."
+#: SSH timeout per step; package installs may wait for apt.
+_PACKAGE_TIMEOUT = 300
+_STEP_TIMEOUT = 120
+_RECORD_KEY = "runner_isolation"
+
+# Copies schema and loopback from the marker (root-written, read here) into the version record.
+_RECORD_PY = (
+    "import json, os, stat, sys\n"
+    "m, r = sys.argv[1], sys.argv[2]\n"
+    "def ok(p):\n"
+    "    s = os.lstat(p)\n"
+    "    return stat.S_ISREG(s.st_mode) and s.st_uid == 0 and not s.st_mode & 0o022\n"
+    "if not (ok(m) and ok(r)):\n"
+    "    sys.exit(0)\n"
+    "mk = json.load(open(m))\n"
+    "d = json.load(open(r))\n"
+    f"d['{_RECORD_KEY}'] = {{'schema': mk['schema'], 'loopback': mk['loopback']}}\n"
+    "t = r + '.tmp'\n"
+    "open(t, 'w').write(json.dumps(d) + '\\n')\n"
+    "os.chown(t, 0, 0)\n"
+    "os.chmod(t, 0o644)\n"
+    "os.replace(t, r)\n"
+)
+
+
+def record_script(srv_dir: str = scripts.SRV_DIR) -> str:
+    """Merge the marker's schema and loopback state into ``server-version.json`` (non-secret)."""
+    return (
+        f"python3 -c {shlex.quote(_RECORD_PY)} "
+        f"{shlex.quote(scripts.marker_path(srv_dir))} {shlex.quote(srv_dir + '/server-version.json')}\n"
+    )
+
+
+def _executor(ssh: Any, on_step: Callable[[], None] | None) -> Callable[[Step], StepResult]:
+    def execute(step: Step) -> StepResult:
+        """Run one step as root over SSH; a failure is the last line of its error output."""
+        timeout = _PACKAGE_TIMEOUT if step.name.endswith("_package") else _STEP_TIMEOUT
+        # the tag lets a fake or a log tell the steps apart; it is a comment to the shell
+        command = f"# runner-step:{step.name}\n{step.command}"
+        try:
+            result = ssh.exec_command(f"bash -c {shlex.quote(command)}", timeout=timeout)
+        except Exception as exc:  # a dropped connection is a failed step, not a crash
+            return StepResult(False, type(exc).__name__)
+        if result.success:
+            if on_step is not None:
+                on_step()
+            return StepResult(True)
+        text = str(result.stderr or result.stdout or "").strip().splitlines()
+        return StepResult(False, text[-1][:200] if text else f"exit {result.exit_code}")
+
+    return execute
+
+
+def status_line(outcome: Outcome) -> str:
+    """One line for the upgrade result."""
+    if not outcome.enabled:
+        return f"{ISOLATION_MARK}: {outcome.failed} failed ({outcome.detail or 'no detail'})"
+    if outcome.loopback == RESTRICTED:
+        return "Runner isolation enabled"
+    return "Runner isolation enabled (loopback: unrestricted)"
+
+
+def enable(
+    ssh: Any,
+    warnings: list[str],
+    *,
+    on_step: Callable[[], None] | None = None,
+    srv_dir: str = scripts.SRV_DIR,
+) -> str:
+    """Run the plan on the server; returns the status line, warnings go to *warnings*.
+
+    Every step is idempotent and the marker is last, so an interrupted run converges when
+    repeated.  A fatal failure leaves the marker as it was and adds a loud warning; a
+    ``warn`` step only adds its warning.  *on_step* is called after each successful step
+    (the upgrade guard re-arm).
+    """
+    outcome = run_steps(build_steps(srv_dir), _executor(ssh, on_step))
+    warnings.extend(w for w in outcome.warnings if w not in warnings)
+    if not outcome.enabled:
+        warnings.append(
+            f"{ISOLATION_MARK} ({outcome.failed}: {outcome.detail or 'failed'}). Scripts and "
+            f"notebooks keep running as the service account, which is less isolated. {_RETRY_HINT}"
+        )
+    else:
+        result = _executor(ssh, None)(Step("record", record_script(srv_dir), on_failure="warn"))
+        if not result.ok:
+            _logger.warning("runner_isolation_record_failed", detail=result.detail)
+    return status_line(outcome)
+
+
+def enable_in_upgrade(
+    ssh: Any,
+    warnings: list[str],
+    version: str | None,
+    guard: Any,
+    *,
+    own_guard: bool,
+) -> str | None:
+    """:func:`enable` for ``remote upgrade``, after Docker access is settled; None below 1.0.14.
+
+    The guard is re-armed after every step.  On the at-target path no guard is armed yet
+    (*own_guard*): one is armed around the steps.
+    """
+    from dango.platform.cloud.compose_versions import helper_capable
+
+    if not helper_capable(version):
+        return None
+    if own_guard:
+        guard.arm()
+    try:
+        return enable(ssh, warnings, on_step=guard.rearm)
+    finally:
+        if own_guard:
+            guard.disarm()

@@ -32,6 +32,10 @@ class RunnerServer(FakeServer):
         match = RUNNER_TAG.search(command)
         if match is None:
             return super()._answer(command)
+        for needle, exc in self.raise_on.items():
+            if needle in command:
+                self.events.append(f"raised:{needle}")
+                raise exc
         name = match.group(1)
         self.events.append(f"r:{name}")
         self.runner_commands.append(command)
