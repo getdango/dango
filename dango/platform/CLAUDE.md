@@ -72,6 +72,9 @@ platform/
 │   ├── compose_steps.py   # Shared steps of the switch (run a script as root, dango-web stop/start, Metabase rebuild, version record)
 │   ├── compose_versions.py # Version checks + client/server notices for the switch
 │   ├── compose_scripts.py # Shell scripts + constants for that switch (tagged `# step:XX`)
+│   ├── runner_isolation.py # Plan + failure policy + marker record for the restricted runner users (inert until wired)
+│   ├── runner_scripts.py  # Shell text: runner users, dirs, sudoers, loopback nft, marker
+│   ├── runner_access_scripts.py # Shell text: project deny/notebook ACLs (run as dango) + verify
 │   ├── server_compose.py # Server render run by the helper (1.0.14)
 │   ├── pushed_requirements.py # Root installs requirements only from the pusher's local files (1.0.14)
 │   └── _server_templates.py  # Config file templates (incl. build_caddyfile(), backup timer)
@@ -131,6 +134,7 @@ platform/
 | `cloud/compose_helper.py` | Root-owned compose helper (POSIX sh text, sudoers rule, install scripts, per-verb budgets, `server_compose_cmd`) | `helper_script`, `install_script`, `server_compose_cmd`, `VERB_BUDGET`, `min_caller_timeout` |
 | `cloud/compose_migrate.py` (+ `compose_steps.py`) | Switch to the helper: install + self-test, pin + render, marker last, remove the `docker` group, end processes that hold the gid (T), fallback to the group with a warning (only when the marker did not exist before the command; otherwise the switch is kept), downgrade restore (group back, Metabase volume to uid 999), first-deploy build, version record + client notices | `migrate_docker_access`, `enable_fresh`, `prebuild_images`, `restore_docker_access`, `enter_fallback`, `needs_migration`, `rebuild_command`, `refresh_web_unit`, `ownership_steps`, `client_version_notice` |
 | `cloud/compose_scripts.py` | Shell scripts for the switch (prechecks, self-test, render/verify, consistency check, group removal, process drop, fallback, downgrade restore, marker + version record, ownership step) | `marker_script`, `terminate_script`, `restore_script`, `ownership_steps`, `release_of` |
+| `cloud/runner_isolation.py` (+ `runner_scripts.py`, `runner_access_scripts.py`) | Inert builders for the restricted runner users: ordered step list (marker last, fatal vs warn policy), id rules, marker record read, root scripts (users, dirs, sudoers, nft, marker) and service-user scripts (project deny ACLs, notebook ACL, verify). Nothing calls them yet | `build_steps`, `run_steps`, `read_record`, `assert_runner_ids`, `as_service_user`, `project_permission_script`, `notebooks_acl_script`, `verify_script` |
 | `cloud/server_compose.py` | Server-side compose/Dockerfile render and bounded plugin-jar staging, run by the helper's `render` verb | `main`, `Layout`, `acquire_lock`, `quote_name` |
 | `cloud/upgrade_caddy.py` | Caddyfile WebSocket-route migration run by `upgrade_dango` | `run_ws_migration`, `has_ws_auth_endpoint` |
 | `cloud/runtime_ownership.py` | Root-owned runtime: composable ownership steps (`OwnershipStep`) + verify script, root installs of pushed requirements only (`check_requirements`), in-place rebuild of a venv a non-root user could write (fails closed: `VenvRebuildError` aborts upgrade/setup) | `ownership_steps`, `build_ownership_script`, `build_verify_script`, `apply_ownership`, `secure_runtime`, `rebuild_untrusted_venv`, `at_target_restart_plan`, `venv_trust_findings`, `VenvRebuildError`, `ROOT_PYTHON` |
