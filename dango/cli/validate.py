@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from dango.cli.validate_script_env import check_script_env
 from dango.config import ConfigLoader
 
 console = Console()
@@ -101,6 +102,7 @@ class ProjectValidator:
         self._check_model_file_access()  # before portability: it de-duplicates against this
         self._check_model_sql_portability()
         self._check_script_paths()
+        self.results.extend(ValidationResult(*r) for r in check_script_env(self.project_root))
         self._check_database()
         self._check_dependencies()
         self._check_permissions()

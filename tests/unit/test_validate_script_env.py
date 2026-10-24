@@ -102,7 +102,7 @@ class TestUndeclaredEnv:
 
         assert _warns(_check(tmp_path)) == []
 
-    def test_private_and_init_files_skipped(self, tmp_path):
+    def test_private_and_init_files_ignored(self, tmp_path):
         _script(tmp_path, "_helper.py", 'import os\nos.getenv("X1")\n')
         _script(tmp_path, "__init__.py", 'import os\nos.getenv("X2")\n')
 
@@ -216,7 +216,7 @@ class TestWarehouseWrite:
 
 @pytest.mark.unit
 class TestRobustness:
-    def test_syntax_error_script_is_skipped_with_info(self, tmp_path):
+    def test_syntax_error_script_is_ignored_with_info(self, tmp_path):
         _script(tmp_path, "bad.py", "def (:\n")
         _script(tmp_path, "good.py", 'import os\nos.getenv("X")\n')
 
