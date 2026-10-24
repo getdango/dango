@@ -236,7 +236,7 @@ def _start_marimo_locked(
                     f"Check logs at {log_file}"
                 )
             if launch.isolated:
-                write_runner_record(pid_file, proc.pid)
+                write_runner_record(pid_file, proc.pid, proc)
             else:
                 write_pid_record(pid_file, proc.pid)
         except BaseException:
