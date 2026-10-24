@@ -246,7 +246,7 @@ def test_notebooks_acl_does_not_follow_planted_links(box: Sandbox) -> None:
     assert any("setfacl -m u:dango-nb:rwx,d:u:dango-nb:rwx" in c for c in calls)
     file_calls = [c for c in calls if "-P" in c]
     assert len(file_calls) == 1 and file_calls[0].startswith("setfacl -P -m u:dango-nb:rw,m::rw")
-    assert str(nb / "a.py") in file_calls[0] and "b.py" not in file_calls[0]
+    assert file_calls[0].endswith(" ./a.py") and "b.py" not in file_calls[0]
 
 
 @pytest.mark.parametrize(

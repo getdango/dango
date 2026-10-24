@@ -127,7 +127,7 @@ def test_setup_warning_level_failure_continues_with_unrestricted_loopback() -> N
 def test_main_path_runs_isolation_after_docker_access_and_before_the_rebuild() -> None:
     srv = RunnerServer(version="1.0.13")
     result = run(srv, "1.0.14")
-    first, last = at(srv, "r:acl_package"), at(srv, "r:record")
+    first, last = at(srv, f"r:{STEPS[0]}"), at(srv, "r:record")
     assert at(srv, "pip") < at(srv, "H1") < at(srv, "T") < first
     assert srv.runner_events() == [*STEPS, "record"]
     assert last < at(srv, "helper:pull") < srv.events.index("web-start", last)
@@ -154,7 +154,7 @@ def test_guard_is_re_armed_after_every_step_on_the_main_path() -> None:
     srv = settled("1.0.14")
     run(srv, "1.0.15")
     seq = [e for e in srv.events if e.startswith("r:") or e == "guard-arm"]
-    start = seq.index("r:acl_package")
+    start = seq.index(f"r:{STEPS[0]}")
     for i, name in enumerate(STEPS):
         pos = start + 2 * i
         assert seq[pos] == f"r:{name}"
@@ -168,10 +168,14 @@ def test_at_target_runs_isolation_after_secure_runtime_and_the_switch() -> None:
     srv = settled("1.0.14")
     result = run(srv, "1.0.14")
     own = next(i for i, c in enumerate(srv.commands) if "# compose_helper" in c)
-    first = next(i for i, c in enumerate(srv.commands) if "# runner-step:acl_package" in c)
+    first = next(i for i, c in enumerate(srv.commands) if f"# runner-step:{STEPS[0]}" in c)
     assert own < first
     assert srv.runner_events() == [*STEPS, "record"]
-    assert "web-stop" not in srv.events
+    # nothing runs as a runner while permissions are re-applied: web is stopped for the steps and
+    # back afterwards (the stop also ends a Marimo that was started before isolation)
+    assert at(srv, "r:quiesce") < at(srv, "web-stop") < at(srv, "r:project_permissions")
+    assert at(srv, "r:record") < at(srv, "web-start")
+    assert srv.web_active
     assert result.runner_isolation == "Runner isolation enabled"
     assert result.new_version == "1.0.14"
 
@@ -179,7 +183,7 @@ def test_at_target_runs_isolation_after_secure_runtime_and_the_switch() -> None:
 def test_at_target_arms_a_guard_around_the_steps_and_disarms_it() -> None:
     srv = settled("1.0.14")
     run(srv, "1.0.14")
-    first, last = at(srv, "r:acl_package"), at(srv, "r:record")
+    first, last = at(srv, f"r:{STEPS[0]}"), at(srv, "r:record")
     assert "guard-arm" in srv.events[:first][-3:]
     assert "guard-disarm" in srv.events[last:]
     assert srv.events[first:last].count("guard-arm") == len(STEPS)

@@ -27,11 +27,13 @@ class RunnerServer(FakeServer):
     nft_loaded: bool = False
     done: set[str] = field(default_factory=set)
     runner_commands: list[str] = field(default_factory=list)
+    web_active: bool = True
+    build_present: bool = True
 
     def _answer(self, command: str) -> CommandResult:
         match = RUNNER_TAG.search(command)
         if match is None:
-            return super()._answer(command)
+            return self._plain(command)
         for needle, exc in self.raise_on.items():
             if needle in command:
                 self.events.append(f"raised:{needle}")
@@ -42,6 +44,9 @@ class RunnerServer(FakeServer):
         if name in self.rfail:
             return CommandResult("", f"{name} broke\nlast line", self.rfail[name])
         self.done.add(name)
+        if name == "quiesce" and "systemctl stop dango-web" in command:
+            self.web_active = False
+            self.events.append("web-stop")
         if name == "nft_rules":
             self.nft_loaded = True
         elif name == "marker":
@@ -51,12 +56,29 @@ class RunnerServer(FakeServer):
             self._merge_record()
         return CommandResult("", "", 0)
 
+    def _plain(self, command: str) -> CommandResult:
+        """Commands that are not tagged steps but are part of the isolation flow."""
+        if "find_spec" in command and "isolated_run" in command:
+            return CommandResult("", "", 0 if self.build_present else 1)
+        if command.startswith("test -f") and "runner/active" in command:
+            return CommandResult("", "", 0 if self.isolation_marker is not None else 1)
+        if command == "systemctl is-active --quiet dango-web":
+            return CommandResult("", "", 0 if self.web_active else 3)
+        if command == "systemctl stop dango-web":
+            self.web_active = False
+        elif command in ("systemctl start dango-web", "systemctl restart dango-web"):
+            self.web_active = True
+        return super()._answer(command)
+
     def _merge_record(self) -> None:
-        if self.record is None or self.isolation_marker is None:
+        if self.record is None:
             return
         data: dict[str, Any] = json.loads(self.record)
-        marker = json.loads(self.isolation_marker)
-        data["runner_isolation"] = {"schema": marker["schema"], "loopback": marker["loopback"]}
+        if self.isolation_marker is None:
+            data.pop("runner_isolation", None)
+        else:
+            marker = json.loads(self.isolation_marker)
+            data["runner_isolation"] = {"schema": marker["schema"], "loopback": marker["loopback"]}
         self.record = json.dumps(data)
 
     def runner_events(self) -> list[str]:
