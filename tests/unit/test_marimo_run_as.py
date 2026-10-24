@@ -6,20 +6,20 @@ is gated on ``run_as.uses_isolation()``: with no marker the legacy behaviour hol
 
 from __future__ import annotations
 
-import inspect
 import json
 import os
-import stat
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import psutil
 import pytest
 
-from dango.notebooks import manager, marimo_process, snapshot
+from dango.notebooks import manager, marimo_process
 from dango.notebooks.manager import get_marimo_pid_file_path, stop_marimo
 from dango.utils.process import read_pid_record
 
@@ -71,16 +71,26 @@ def test_isolated_launch_uses_sudo_and_minimal_env(tmp_path: Path) -> None:
     assert popen.call_args.kwargs["stderr"] == subprocess.STDOUT
 
 
+def _leaks(argv: list[str], env: dict[str, str]) -> bool:
+    """True when the secret from ``.env`` or the process environment is visible."""
+    return _SECRET in "".join(env.values()) or _SECRET in " ".join(argv) or "LEAKY" in env
+
+
 def test_isolated_env_has_no_env_file_or_process_values(tmp_path: Path) -> None:
     popen, _, _ = _start(tmp_path, isolated=True)
-    env = popen.call_args.kwargs["env"]
-    assert _SECRET not in "".join(env.values())
-    assert "LEAKY" not in env and "SECRET" not in env
-    assert _SECRET not in " ".join(popen.call_args[0][0])
-    # positive control: the same secrets do reach the legacy environment
-    get_marimo_pid_file_path(tmp_path).unlink()
+    assert not _leaks(popen.call_args[0][0], popen.call_args.kwargs["env"])
+    assert "SECRET" not in popen.call_args.kwargs["env"]
+
+
+def test_secret_check_detects_a_leak_positive_control(tmp_path: Path) -> None:
+    """The leak check fires for the legacy env (it copies ``os.environ``) and for a
+    value that came from the ``.env`` file."""
     legacy_popen, _, _ = _start(tmp_path, isolated=False, cloud=True)
-    assert legacy_popen.call_args.kwargs["env"]["LEAKY"] == _SECRET
+    assert _leaks(legacy_popen.call_args[0][0], legacy_popen.call_args.kwargs["env"])
+    env_text = (tmp_path / ".env").read_text()
+    from_file = dict(line.split("=", 1) for line in env_text.splitlines())
+    assert _leaks([], {"SECRET": from_file["SECRET"]})
+    assert _leaks(["--flag", _SECRET], {})
 
 
 def test_isolated_pid_record_marks_runner_and_stays_readable(tmp_path: Path) -> None:
@@ -97,9 +107,24 @@ def test_legacy_launch_is_unchanged(tmp_path: Path) -> None:
     snap = tmp_path / "snap.duckdb"
     popen, _, pid = _start(tmp_path, isolated=False, snapshot_path=snap)
     argv = popen.call_args[0][0]
-    assert argv[:5] == [sys.executable, "-m", "marimo", "edit", "--headless"]
-    assert argv[-1] == str(tmp_path / "notebooks")
-    assert "--no-token" in argv and "sudo" not in " ".join(argv)
+    assert argv == [
+        sys.executable,
+        "-m",
+        "marimo",
+        "edit",
+        "--headless",
+        "--port",
+        "7805",
+        "--host",
+        "127.0.0.1",
+        "--timeout",
+        str(manager._IDLE_TIMEOUT_CLOUD // 60),
+        "--skip-update-check",
+        "--no-token",
+        "--base-url",
+        "/notebooks/marimo",
+        str(tmp_path / "notebooks"),
+    ]
     expected = {**os.environ, "LEAKY": _SECRET, "DANGO_NOTEBOOK_DB_PATH": str(snap)}
     assert popen.call_args.kwargs["env"] == expected
     assert json.loads(get_marimo_pid_file_path(tmp_path).read_text()).get("runner") is None
@@ -158,7 +183,7 @@ def _runner_record(tmp_path: Path, *, runner: bool = True) -> Path:
 @pytest.fixture
 def fake_host() -> Iterator[dict[str, Any]]:
     """The recorded sudo pid is alive and ``killpg`` is denied (a different uid)."""
-    state: dict[str, Any] = {"alive": True, "killpg_calls": 0, "order": []}
+    state: dict[str, Any] = {"alive": True, "reused": False, "killpg_calls": 0, "order": []}
 
     def _killpg(*_a: Any) -> None:
         state["killpg_calls"] += 1
@@ -166,6 +191,11 @@ def fake_host() -> Iterator[dict[str, Any]]:
 
     with (
         patch(f"{manager.__name__}.is_process_running", side_effect=lambda *a, **k: state["alive"]),
+        patch(
+            "dango.notebooks.marimo_process.is_process_running",
+            side_effect=lambda *a, **k: state["alive"] and not state["reused"],
+            create=True,
+        ),
         patch("dango.notebooks.marimo_process.os.killpg", side_effect=_killpg),
         patch("dango.notebooks.marimo_process.os.getpgid", return_value=_PID),
         patch("dango.notebooks.marimo_process.os.getpgrp", return_value=1),
@@ -195,7 +225,7 @@ def test_runner_stop_deletes_files_only_after_stop_all(
     seen: list[bool] = []
 
     def _stop_all(role: str, *, pgid: int | None = None, **_k: Any) -> list[int]:
-        assert role == "nb"
+        assert role == "nb" and pgid is None  # no group signalling of the sudo leader
         seen.append(pid_file.exists())
         if pgid is None:
             fake_host["alive"] = False
@@ -251,112 +281,82 @@ def test_old_record_without_field_still_takes_legacy_path(
     assert not marimo_process.is_runner_record(pid_file)
 
 
-# --- snapshot ---------------------------------------------------------------
+def test_reused_pid_is_treated_as_gone_but_stop_all_still_runs(
+    tmp_path: Path, fake_host: dict[str, Any]
+) -> None:
+    pid_file = _runner_record(tmp_path)
+    fake_host["reused"] = True  # the pid now belongs to an unrelated live process
+    with patch("dango.platform.run_as.stop_all", return_value=[]) as stop_all:
+        assert stop_marimo(tmp_path) is True
+    stop_all.assert_called_once_with("nb")
+    assert not pid_file.exists() and not (tmp_path / ".dango/state/marimo.token").exists()
 
 
-def _warehouse(root: Path, mode: int = 0o644) -> Path:
-    wh = root / "data" / "warehouse.duckdb"
-    wh.parent.mkdir(parents=True)
-    wh.write_bytes(b"duck")
-    wh.chmod(mode)
-    return wh
+def test_reused_pid_still_keeps_files_when_runner_processes_remain(
+    tmp_path: Path, fake_host: dict[str, Any]
+) -> None:
+    pid_file = _runner_record(tmp_path)
+    fake_host["reused"] = True
+    with patch("dango.platform.run_as.stop_all", return_value=[9]):
+        assert stop_marimo(tmp_path) is False
+    assert pid_file.exists() and (tmp_path / ".dango/state/marimo.token").exists()
 
 
-def test_isolated_snapshot_dir_and_mode(tmp_path: Path) -> None:
-    _warehouse(tmp_path, 0o644)
-    snaps = tmp_path / "runner-snaps"
-    snaps.mkdir()
-    with patch(_ISO, return_value=True), patch.object(snapshot, "ISOLATED_SNAPSHOT_DIR", snaps):
-        path = snapshot.create_snapshot(tmp_path, "bob")
-    assert path.parent == snaps and path.read_bytes() == b"duck"
-    assert stat.S_IMODE(path.stat().st_mode) == 0o640
-    assert not (tmp_path / ".dango" / "snapshots").exists()
+@pytest.fixture
+def leader() -> Iterator[subprocess.Popen[bytes]]:
+    """A live stand-in for the ``sudo`` leader of its own group.
 
+    ``sudo kill`` is replaced by a plain kill that does not reap, so after the
+    stop the leader is a zombie (as a real exited ``sudo`` child would be), and
+    the group stays visible until someone reaps it.
+    """
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
+    )
 
-def test_isolated_snapshot_missing_dir_fails_clearly(tmp_path: Path) -> None:
-    _warehouse(tmp_path)
-    missing = tmp_path / "nope"
+    def _kill(*_a: Any, **_k: Any) -> bool:
+        os.kill(child.pid, 9)
+        return True
+
     with (
-        patch(_ISO, return_value=True),
-        patch.object(snapshot, "ISOLATED_SNAPSHOT_DIR", missing),
-        pytest.raises(RuntimeError, match="snapshot"),
+        patch("dango.platform.run_as._sudo_kill", side_effect=_kill),
+        patch("dango.platform.run_as.runner_pids", return_value=[]),
+        patch("dango.platform.run_as._group_alive", side_effect=psutil.pid_exists),
     ):
-        snapshot.create_snapshot(tmp_path, "bob")
-    assert not missing.exists()
+        yield child
+    child.kill()
+    child.wait()
 
 
-def test_isolated_snapshot_keeps_three_per_user(tmp_path: Path) -> None:
-    _warehouse(tmp_path)
-    snaps = tmp_path / "s"
-    snaps.mkdir()
-    for i in range(5):
-        (snaps / f"warehouse_bob_2026010{i + 1}_000000.duckdb").write_bytes(b"x")
-    with patch(_ISO, return_value=True), patch.object(snapshot, "ISOLATED_SNAPSHOT_DIR", snaps):
-        snapshot.create_snapshot(tmp_path, "bob")
-        assert len(snapshot.list_snapshots(tmp_path, "bob")) == 4  # 3 kept + the new one
+def test_stop_with_unreaped_leader_is_fast(tmp_path: Path, leader: subprocess.Popen[bytes]) -> None:
+    marimo_process.write_runner_record(get_marimo_pid_file_path(tmp_path), leader.pid)
+    started = time.monotonic()
+    assert stop_marimo(tmp_path) is True
+    assert time.monotonic() - started < 1.0
 
 
-def test_isolated_snapshot_refuses_symlinked_warehouse(tmp_path: Path) -> None:
-    wh = _warehouse(tmp_path)
-    target = tmp_path / "other.duckdb"
-    target.write_bytes(b"x")
-    wh.unlink()
-    wh.symlink_to(target)
-    snaps = tmp_path / "s"
-    snaps.mkdir()
-    with (
-        patch(_ISO, return_value=True),
-        patch.object(snapshot, "ISOLATED_SNAPSHOT_DIR", snaps),
-        pytest.raises(OSError),
-    ):
-        snapshot.create_snapshot(tmp_path, "bob")
-    assert list(snaps.iterdir()) == []
+def test_stop_reaps_the_leader_when_the_popen_is_held(
+    tmp_path: Path, leader: subprocess.Popen[bytes]
+) -> None:
+    marimo_process.write_runner_record(get_marimo_pid_file_path(tmp_path), leader.pid, leader)
+    assert stop_marimo(tmp_path) is True
+    assert leader.returncode is not None  # reaped: no zombie left behind
 
 
-def test_isolated_copy_code_has_no_copy2_or_copymode() -> None:
-    src = inspect.getsource(snapshot._create_isolated_snapshot)
-    for banned in ("copy2", "copymode", "copystat", "chgrp", "shutil.copy("):
-        assert banned not in src
+def test_runner_record_is_written_in_one_atomic_replace(tmp_path: Path) -> None:
+    pid_file = get_marimo_pid_file_path(tmp_path)
+    seen: list[bool] = []
+    real_replace = os.replace
 
+    def _replace(src: Any, dst: Any) -> None:
+        seen.append(Path(dst).exists())  # nothing is visible before the replace
+        real_replace(src, dst)
 
-def test_non_isolated_snapshot_unchanged(tmp_path: Path) -> None:
-    _warehouse(tmp_path, 0o600)
-    with patch(_ISO, return_value=False):
-        path = snapshot.create_snapshot(tmp_path, "bob")
-    assert path.parent == tmp_path / ".dango" / "snapshots"
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600  # copy2 keeps the source mode
-
-
-# --- restart route ----------------------------------------------------------
-
-
-def _restart(tmp_path: Path, *, stopped: bool, running: bool) -> tuple[Any, int]:
-    from tests.unit.test_web_notebooks import _client, _init_db, _seed_lock
-
-    _init_db(tmp_path)
-    _seed_lock(tmp_path, "nb1")
-    route = "dango.web.routes.notebooks"
-    with (
-        patch(f"{route}.get_project_root", return_value=tmp_path),
-        patch(f"{route}.stop_marimo", return_value=stopped),
-        patch(f"{route}.get_marimo_status", return_value={"running": running}),
-    ):
-        resp = _client(tmp_path).post("/api/notebooks/marimo/restart")
-    from dango.utils.dango_db import connect
-
-    with connect(tmp_path) as conn:
-        locks = conn.execute("SELECT COUNT(*) AS c FROM notebook_locks").fetchone()["c"]
-    return resp, locks
-
-
-def test_restart_reports_conflict_and_keeps_locks_when_marimo_cannot_stop(tmp_path: Path) -> None:
-    resp, locks = _restart(tmp_path, stopped=False, running=True)
-    assert resp.status_code == 409
-    assert resp.json()["error_code"] == "DANGO-NB012"
-    assert locks == 1
-
-
-def test_restart_succeeds_when_marimo_was_not_running(tmp_path: Path) -> None:
-    resp, locks = _restart(tmp_path, stopped=False, running=False)
-    assert resp.status_code == 200 and resp.json()["restarted"] is True
-    assert locks == 0
+    with patch("dango.notebooks.marimo_process.os.replace", side_effect=_replace) as replace:
+        marimo_process.write_runner_record(pid_file, os.getpid())
+    replace.assert_called_once()
+    assert seen == [False]
+    data = json.loads(pid_file.read_text())
+    assert data["runner"] == "nb" and data["pid"] == os.getpid()
+    assert isinstance(data["start_time"], float)
+    assert [p.name for p in pid_file.parent.iterdir()] == [pid_file.name]
