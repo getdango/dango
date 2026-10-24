@@ -93,6 +93,18 @@ def sudo_standin(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
     return calls
 
 
+@pytest.fixture
+def slow_sudo(monkeypatch: pytest.MonkeyPatch, sudo_standin: Any) -> None:
+    """Every ``sudo kill`` takes 0.8 s, so a stop run on the event loop would show."""
+    fast = run_as._sudo_kill
+
+    def slow(role: str, signame: str, target: str) -> bool:
+        time.sleep(0.8)
+        return bool(fast(role, signame, target))
+
+    monkeypatch.setattr(run_as, "_sudo_kill", slow)
+
+
 async def _run_and_wait(
     project: Path, name: str = "hello.py", timeout: int = 10
 ) -> tuple[dict[str, Any], dict[str, Any], SimpleNamespace]:
@@ -204,7 +216,12 @@ class TestWebRunIsolated:
 
 class TestStopThroughRunner:
     def test_timeout_uses_runner_stop_without_blocking_loop(
-        self, tmp_path: Path, isolated: None, monkeypatch: pytest.MonkeyPatch, sudo_standin: Any
+        self,
+        tmp_path: Path,
+        isolated: None,
+        monkeypatch: pytest.MonkeyPatch,
+        sudo_standin: Any,
+        slow_sudo: None,
     ) -> None:
         project = _project(tmp_path)
         monkeypatch.setattr(run_as, "SUDO", _fake_sudo(tmp_path, "exec sleep 30"))
@@ -235,7 +252,12 @@ class TestStopThroughRunner:
         assert "hello.py" not in helpers._running_processes
 
     def test_cancel_uses_runner_stop_and_clears_handle(
-        self, tmp_path: Path, isolated: None, monkeypatch: pytest.MonkeyPatch, sudo_standin: Any
+        self,
+        tmp_path: Path,
+        isolated: None,
+        monkeypatch: pytest.MonkeyPatch,
+        sudo_standin: Any,
+        slow_sudo: None,
     ) -> None:
         import dango.web.routes.scripts_helpers as helpers
         from dango.web.routes.scripts_api import cancel_script, run_script
@@ -243,8 +265,19 @@ class TestStopThroughRunner:
         project = _project(tmp_path)
         monkeypatch.setattr(run_as, "SUDO", _fake_sudo(tmp_path, "exec sleep 30"))
 
+        gaps: list[float] = []
+
+        async def ticker() -> None:
+            last = time.monotonic()
+            while True:
+                await asyncio.sleep(0.02)
+                now = time.monotonic()
+                gaps.append(now - last)
+                last = now
+
         async def scenario() -> float:
             helpers._running_processes.clear()
+            tick = asyncio.create_task(ticker())
             with (
                 patch(f"{_API}.get_project_root", return_value=project),
                 patch(f"{_API}.append_log_entry"),
@@ -262,10 +295,12 @@ class TestStopThroughRunner:
                     if "hello.py" not in helpers._running_processes:
                         break
                     await asyncio.sleep(0.05)
+            tick.cancel()
             return took_to_return
 
         returned_in = asyncio.run(scenario())
         assert returned_in < 0.5
+        assert max(gaps) < 0.5
         assert "hello.py" not in helpers._running_processes
         assert sudo_standin and sudo_standin[0][0] == "TERM"
 

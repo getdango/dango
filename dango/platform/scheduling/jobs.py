@@ -1210,8 +1210,6 @@ def run_scheduled_script(
         script_path: Relative path to script in ``scripts/`` directory.
         **kwargs: Must include ``project_root`` (str).
     """
-    import os
-    import subprocess
     import uuid
 
     project_root = Path(kwargs.get("project_root", "."))
@@ -1351,30 +1349,18 @@ def run_scheduled_script(
             raise JobCancelledError(f"Script cancelled before launch for {schedule_name}")
 
         # Launch subprocess
-        env = os.environ.copy()
-        env["DANGO_PROJECT_ROOT"] = str(project_root)
-
         _script_timeout = max(timeout_minutes * 60, 60)  # minimum 60s
+        from dango.platform import script_launch
 
-        proc = subprocess.Popen(
-            [sys.executable, str(script_full)],
-            cwd=str(project_root),
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+        started = script_launch.start_script(
+            project_root,
+            script_path,
+            script_full,
+            log=lambda m: log_activity(project_root, "warning", script_label, m),
         )
-
-        try:
-            stdout, stderr = proc.communicate(timeout=_script_timeout)
-        except subprocess.TimeoutExpired:
-            proc.terminate()
-            try:
-                stdout, stderr = proc.communicate(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                stdout, stderr = proc.communicate()
-
+        proc = started.proc
+        stdout, stderr, timed_out = script_launch.communicate_with_timeout(proc, _script_timeout)
+        if timed_out:
             elapsed = time.monotonic() - t0
             _write_script_logs(
                 project_root,
