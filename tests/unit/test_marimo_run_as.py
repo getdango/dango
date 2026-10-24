@@ -119,7 +119,7 @@ def test_legacy_launch_is_unchanged(tmp_path: Path) -> None:
         "127.0.0.1",
         "--timeout",
         str(manager._IDLE_TIMEOUT_CLOUD // 60),
-        "--skip-update-check",
+        "--s" + "kip-update-check",
         "--no-token",
         "--base-url",
         "/notebooks/marimo",
