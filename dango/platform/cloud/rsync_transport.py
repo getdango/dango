@@ -10,7 +10,10 @@ pinned (paramiko connects first); rsync never adds keys itself.
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -91,6 +94,30 @@ def _require_pinned_host(
         )
 
 
+def _normalised_copy(local_dir: Path, parent: Path) -> Path:
+    """Copy *local_dir* under *parent* with server-safe modes; returns the copy.
+
+    rsync ``-a`` keeps the source modes exactly, so a project on a shared drive, FAT or a
+    ``chmod -R 777`` would reach the server writable by everyone (and the runner users could
+    then change code that runs as the service account).  Directories become 0755, files 0644
+    (0755 when the source had any execute bit); symlinks are kept as they are.  Done on a copy
+    because not every rsync supports ``--chmod`` (the system rsync on recent macOS does not).
+    """
+    staged = parent / "stage"
+    shutil.copytree(local_dir, staged, symlinks=True)
+    staged.chmod(0o755)
+    for root, dirs, files in os.walk(staged):
+        for name in dirs:
+            path = Path(root) / name
+            if not path.is_symlink():
+                path.chmod(0o755)
+        for name in files:
+            path = Path(root) / name
+            if not path.is_symlink():
+                path.chmod(0o755 if path.stat().st_mode & 0o111 else 0o644)
+    return staged
+
+
 def _rsync_directory(
     local_dir: Path,
     remote_user_host_dir: str,
@@ -131,11 +158,17 @@ def _rsync_directory(
     if dry_run:
         cmd.append("--dry-run")
 
-    # Trailing slash on source ensures contents are synced, not the dir itself
-    cmd.append(f"{local_dir}/")
-    cmd.append(remote_user_host_dir)
-
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    with tempfile.TemporaryDirectory(prefix="dango-rsync-") as tmp:
+        try:
+            staged = _normalised_copy(local_dir, Path(tmp))
+        except OSError as exc:
+            raise CloudProvisioningError(
+                f"rsync failed: cannot prepare {local_dir}: {exc}"
+            ) from exc
+        # Trailing slash on source ensures contents are synced, not the dir itself
+        cmd.append(f"{staged}/")
+        cmd.append(remote_user_host_dir)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise CloudProvisioningError(
             f"rsync failed (exit {result.returncode}): {result.stderr.strip()}"

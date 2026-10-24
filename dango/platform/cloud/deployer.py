@@ -624,6 +624,11 @@ def push_deploy(
             )
             if chown_result.exit_code != 0:
                 logger.warning("chown_failed", path=REMOTE_PROJECT_DIR, stderr=chown_result.stderr)
+            # The sync can recreate protected paths (.dango, .dlt, data): services are stopped,
+            # so put the runner users' denials back before anything starts again.
+            from dango.platform.cloud import runner_reapply
+
+            runner_reapply.reapply(ssh, warnings)
             _notify(on_progress, "fix_ownership", "done")
 
             # Step 5b/5c: Install requirements.txt and scripts/requirements.txt as root

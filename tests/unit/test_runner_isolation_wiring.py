@@ -226,7 +226,9 @@ def test_interrupted_run_leaves_no_marker_and_the_rerun_converges(failing: str) 
     srv = settled("1.0.14", rfail={failing: 1})
     result = run(srv, "1.0.14")
     ran = srv.runner_events()
-    assert ran == STEPS[: STEPS.index(failing) + 1]
+    # the record is brought in line with the (missing) marker, except under an untrusted /srv/dango
+    tail = [] if failing == "ownership_check" else ["record"]
+    assert ran == [*STEPS[: STEPS.index(failing) + 1], *tail]
     assert srv.isolation_marker is None
     assert ("marker" in ran) == (failing == "marker")
     assert result.runner_isolation and result.runner_isolation.startswith(ri.ISOLATION_MARK)
@@ -275,7 +277,7 @@ def test_a_dropped_connection_in_a_step_is_a_failed_step() -> None:
 def test_record_script_is_valid_python_and_names_only_the_marker_and_the_record() -> None:
     text = ri.record_script("/srv/dango")
     assert "/srv/dango/runner/active" in text and "/srv/dango/server-version.json" in text
-    compile(ri._RECORD_PY, "record", "exec")
+    compile(ri.record_python(), "record", "exec")
     assert "secret" not in text.lower() and "password" not in text.lower()
 
 

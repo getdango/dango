@@ -58,7 +58,7 @@ class RunnerServer(FakeServer):
 
     def _plain(self, command: str) -> CommandResult:
         """Commands that are not tagged steps but are part of the isolation flow."""
-        if "find_spec" in command and "isolated_run" in command:
+        if "site-packages/dango/runtime/isolated_run.py" in command:
             return CommandResult("", "", 0 if self.build_present else 1)
         if command.startswith("test -f") and "runner/active" in command:
             return CommandResult("", "", 0 if self.isolation_marker is not None else 1)

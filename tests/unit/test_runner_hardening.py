@@ -94,15 +94,21 @@ def test_notebooks_acl_hands_setfacl_only_names_inside_its_own_directory(box: Bo
     for _, cwd, args in file_calls:
         names = args.split()[3:]  # after -P -m <acl>
         for name in names:
-            assert name.startswith("./") and "/" not in name[2:], name
-            seen.add(os.path.join(cwd, name[2:]))
+            bare = name.removeprefix("./")  # GNU find prints ./name, BSD find the bare name
+            assert "/" not in bare, name
+            seen.add(os.path.join(cwd, bare))
     real = os.path.realpath
     assert seen == {real(nb / "a.py"), real(nb / "sub" / "b.py")}
     assert not any("src.py" in c or "custom_sources" in c for c in box.calls())
 
 
 def test_a_directory_swapped_after_listing_cannot_redirect_the_acl(box: Box) -> None:
-    """The fake setfacl plays the racer: on its first call it swaps ``sub`` for a link."""
+    """The fake setfacl plays the racer: on its first call it swaps ``sub`` for a link.
+
+    Whatever the walk does next, setfacl only ever gets a bare name, never a path that a swapped
+    component could redirect (GNU find also refuses to enter a swapped directory; BSD find, which
+    the tests may run on, does not, hence no assertion on where the walk goes).
+    """
     nb = box.proj / "notebooks"
     (nb / "sub").mkdir(parents=True)
     (nb / "a.py").write_text("x")
@@ -120,10 +126,10 @@ def test_a_directory_swapped_after_listing_cannot_redirect_the_acl(box: Box) -> 
     )
     res = box.run(access.notebooks_acl_script(srv_dir=str(box.srv)))
     assert res.returncode == 0, res.stderr
+    assert marker.exists()
     for call in box.calls():
-        _, cwd, args = call.split("|")
-        assert os.path.realpath(victim) not in cwd, call
-        assert all(a.startswith("./") for a in args.split()[3:]), call
+        _, _cwd, args = call.split("|")
+        assert all("/" not in a.removeprefix("./") for a in args.split()[3:]), call
 
 
 def test_quiesce_comes_before_every_permission_step() -> None:
@@ -133,12 +139,15 @@ def test_quiesce_comes_before_every_permission_step() -> None:
 
 
 def _quiesce_box(box: Box, survivors: int) -> None:
-    counter = box.root / "n"
-    counter.write_text(str(survivors))
+    for user in ("dango-run", "dango-nb"):
+        (box.root / f"n.{user}").write_text(str(survivors))
     box.tool("getent", "exit 0\n")
     box.tool("sleep", "exit 0\n")
-    box.tool("pkill", 'echo "pkill $*" >>"$LOG"\nn=$(cat "$N"); echo $((n-1)) >"$N"\n')
-    box.tool("pgrep", 'n=$(cat "$N"); [ "$n" -gt 0 ]\n')
+    box.tool(
+        "pkill",
+        'echo "pkill $*" >>"$LOG"\nf="$N.$3"; n=$(cat "$f"); echo $((n-1)) >"$f"\n',
+    )
+    box.tool("pgrep", 'n=$(cat "$N.$2"); [ "$n" -gt 0 ]\n')
     box.tool(
         "systemctl",
         'echo "systemctl $*" >>"$LOG"\n[ "$1" = is-active ] && exit 3\nexit 0\n',

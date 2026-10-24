@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import shlex
 import stat
 from collections.abc import Callable, Sequence
@@ -27,7 +28,7 @@ from typing import Any, Literal
 from dango.logging import get_logger
 from dango.platform.cloud import runner_access_scripts as access
 from dango.platform.cloud import runner_scripts as scripts
-from dango.platform.run_as import MARKER, RESERVED_UIDS
+from dango.platform.run_as import MARKER, PYTHON, RESERVED_UIDS
 
 __all__ = [
     "MARKER",
@@ -40,6 +41,8 @@ __all__ = [
     "build_steps",
     "enable",
     "enable_in_upgrade",
+    "executor",
+    "failure_detail",
     "parse_record",
     "read_record",
     "run_steps",
@@ -107,8 +110,9 @@ class RunnerRecord:
 
 
 NFT_WARNING = (
-    "Loopback rules for the runner users were not installed (loopback: unrestricted): "
-    "scripts and notebooks can still reach Dango's local web services."
+    "Firewall rules for the runner users were not installed (loopback: unrestricted): "
+    "scripts and notebooks can still reach Dango's local web services, this host's own "
+    "addresses and the Docker containers (Metabase)."
 )
 ACL_WARNING = "The acl package could not be installed."
 NFT_PACKAGE_WARNING = "The nftables package could not be installed."
@@ -136,6 +140,10 @@ def assert_runner_ids(users: dict[str, tuple[int, int]]) -> None:
 def build_steps(srv_dir: str = scripts.SRV_DIR) -> list[Step]:
     """The enabling sequence, in order; the marker is last."""
     return [
+        # root acts below srv_dir only after it is known that the service account cannot swap it
+        Step("ownership_check", access.ownership_precheck_script(srv_dir)),
+        # nothing may run as a runner while permissions are written
+        Step("quiesce", access.quiesce_script(stop_web=True)),
         Step(
             "acl_package",
             scripts.package_script("acl", "setfacl"),
@@ -275,35 +283,53 @@ _PACKAGE_TIMEOUT = 300
 _STEP_TIMEOUT = 120
 _RECORD_KEY = "runner_isolation"
 
-# Copies schema and loopback from the marker (root-written, read here) into the version record.
-_RECORD_PY = (
-    "import json, os, stat, sys\n"
-    "m, r = sys.argv[1], sys.argv[2]\n"
-    "def ok(p):\n"
-    "    s = os.lstat(p)\n"
-    "    return stat.S_ISREG(s.st_mode) and s.st_uid == 0 and not s.st_mode & 0o022\n"
-    "if not (ok(m) and ok(r)):\n"
-    "    sys.exit(0)\n"
-    "mk = json.load(open(m))\n"
-    "d = json.load(open(r))\n"
-    f"d['{_RECORD_KEY}'] = {{'schema': mk['schema'], 'loopback': mk['loopback']}}\n"
-    "t = r + '.tmp'\n"
-    "open(t, 'w').write(json.dumps(d) + '\\n')\n"
-    "os.chown(t, 0, 0)\n"
-    "os.chmod(t, 0o644)\n"
-    "os.replace(t, r)\n"
-)
+
+def record_python(trusted_uid: int = _TRUSTED_UID) -> str:
+    """Python source that copies the marker's schema and loopback into the version record.
+
+    Both files must be regular, owned by *trusted_uid* and not group/other writable.  Without a
+    marker the key is dropped, so a record never claims an isolation the server does not have.
+    """
+    return (
+        "import json, os, stat, sys\n"
+        "m, r = sys.argv[1], sys.argv[2]\n"
+        "def ok(p):\n"
+        "    s = os.lstat(p)\n"
+        f"    return stat.S_ISREG(s.st_mode) and s.st_uid == {trusted_uid} and not s.st_mode & 0o022\n"
+        "has = os.path.lexists(m)\n"
+        "if (has and not ok(m)) or not ok(r):\n"
+        "    sys.exit(0)\n"
+        "d = json.load(open(r))\n"
+        "if has:\n"
+        "    mk = json.load(open(m))\n"
+        f"    d['{_RECORD_KEY}'] = {{'schema': mk['schema'], 'loopback': mk['loopback']}}\n"
+        "else:\n"
+        f"    d.pop('{_RECORD_KEY}', None)\n"
+        "t = r + '.tmp'\n"
+        "open(t, 'w').write(json.dumps(d) + '\\n')\n"
+        f"os.chown(t, {trusted_uid}, -1)\n"
+        "os.chmod(t, 0o644)\n"
+        "os.replace(t, r)\n"
+    )
 
 
 def record_script(srv_dir: str = scripts.SRV_DIR) -> str:
     """Merge the marker's schema and loopback state into ``server-version.json`` (non-secret)."""
     return (
-        f"python3 -c {shlex.quote(_RECORD_PY)} "
+        f"cd / && python3 -I -c {shlex.quote(record_python())} "
         f"{shlex.quote(scripts.marker_path(srv_dir))} {shlex.quote(srv_dir + '/server-version.json')}\n"
     )
 
 
-def _executor(ssh: Any, on_step: Callable[[], None] | None) -> Callable[[Step], StepResult]:
+def failure_detail(stderr: Any, stdout: Any, exit_code: Any) -> str:
+    """Last line of a failed command's error output (or its exit code)."""
+    text = str(stderr or stdout or "").strip().splitlines()
+    return text[-1][:200] if text else f"exit {exit_code}"
+
+
+def executor(ssh: Any, on_step: Callable[[], None] | None) -> Callable[[Step], StepResult]:
+    """Executor for :func:`run_steps` that runs each step as root over *ssh* (*on_step* after a success)."""
+
     def execute(step: Step) -> StepResult:
         """Run one step as root over SSH; a failure is the last line of its error output."""
         timeout = _PACKAGE_TIMEOUT if step.name.endswith("_package") else _STEP_TIMEOUT
@@ -317,8 +343,7 @@ def _executor(ssh: Any, on_step: Callable[[], None] | None) -> Callable[[Step], 
             if on_step is not None:
                 on_step()
             return StepResult(True)
-        text = str(result.stderr or result.stdout or "").strip().splitlines()
-        return StepResult(False, text[-1][:200] if text else f"exit {result.exit_code}")
+        return StepResult(False, failure_detail(result.stderr, result.stdout, result.exit_code))
 
     return execute
 
@@ -330,6 +355,66 @@ def status_line(outcome: Outcome) -> str:
     if outcome.loopback == RESTRICTED:
         return "Runner isolation enabled"
     return "Runner isolation enabled (loopback: unrestricted)"
+
+
+_WEB_UNIT = "dango-web"
+# looks for the file only: root never imports code from a venv that may not be trusted yet
+_BUILD_CHECK = (
+    f"find {posixpath.dirname(posixpath.dirname(PYTHON))}/lib -maxdepth 5 "
+    "-path '*/site-packages/dango/runtime/isolated_run.py' -print 2>/dev/null | grep -q ."
+)
+BUILD_MISSING = "the Dango build installed on the server does not include it"
+
+
+def build_present(ssh: Any) -> bool:
+    """True when the server's venv has the isolated-run entry point (the build supports isolation)."""
+    try:
+        return bool(ssh.exec_command(_BUILD_CHECK, timeout=60).success)
+    except Exception:  # a dropped connection: let the steps report it
+        return True
+
+
+def web_is_active(ssh: Any) -> bool:
+    """True when ``dango-web`` is running (so it has to be started again after the steps)."""
+    try:
+        return bool(ssh.exec_command(f"systemctl is-active --quiet {_WEB_UNIT}").success)
+    except Exception:  # unknown: leave the service alone
+        return False
+
+
+def start_web(ssh: Any, warnings: list[str]) -> None:
+    """Start ``dango-web`` again after the steps stopped it; a failure is a warning."""
+    try:
+        result = ssh.exec_command(f"systemctl start {_WEB_UNIT}", timeout=120)
+        ok = bool(result.success)
+    except Exception:
+        ok = False
+    if not ok:
+        warnings.append(
+            f"{_WEB_UNIT} could not be started again. Run `dango remote upgrade` to bring it back."
+        )
+
+
+def _marker_present(ssh: Any, srv_dir: str) -> bool:
+    try:
+        return bool(
+            ssh.exec_command(f"test -f {shlex.quote(scripts.marker_path(srv_dir))}").success
+        )
+    except Exception:
+        return False
+
+
+def _failure_warning(outcome: Outcome, marker_exists: bool) -> str:
+    """The loud warning, worded by what is actually in force (the marker)."""
+    cause = f"{outcome.failed}: {outcome.detail or 'failed'}"
+    if marker_exists:
+        state = (
+            "Isolation from an earlier run is still in force (scripts and notebooks stay "
+            "isolated or are refused), but this run did not finish"
+        )
+    else:
+        state = "Scripts and notebooks keep running as the service account, which is less isolated"
+    return f"{ISOLATION_MARK} ({cause}). {state}. {_RETRY_HINT}"
 
 
 def enable(
@@ -344,19 +429,29 @@ def enable(
     Every step is idempotent and the marker is last, so an interrupted run converges when
     repeated.  A fatal failure leaves the marker as it was and adds a loud warning; a
     ``warn`` step only adds its warning.  *on_step* is called after each successful step
-    (the upgrade guard re-arm).
+    (the upgrade guard re-arm).  The plan stops ``dango-web`` (and with it a Marimo started
+    before isolation) and ends all runner processes before it writes permissions; the service
+    is started again afterwards if it was running.  Nothing runs on a build without
+    ``isolated_run``.
     """
-    outcome = run_steps(build_steps(srv_dir), _executor(ssh, on_step))
-    warnings.extend(w for w in outcome.warnings if w not in warnings)
-    if not outcome.enabled:
-        warnings.append(
-            f"{ISOLATION_MARK} ({outcome.failed}: {outcome.detail or 'failed'}). Scripts and "
-            f"notebooks keep running as the service account, which is less isolated. {_RETRY_HINT}"
-        )
-    else:
-        result = _executor(ssh, None)(Step("record", record_script(srv_dir), on_failure="warn"))
-        if not result.ok:
-            _logger.warning("runner_isolation_record_failed", detail=result.detail)
+    if not build_present(ssh):
+        warnings.append(f"{ISOLATION_MARK} ({BUILD_MISSING}). {_RETRY_HINT}")
+        return f"{ISOLATION_MARK}: {BUILD_MISSING}"
+    was_active = web_is_active(ssh)
+    try:
+        outcome = run_steps(build_steps(srv_dir), executor(ssh, on_step))
+        warnings.extend(w for w in outcome.warnings if w not in warnings)
+        if not outcome.enabled:
+            warnings.append(_failure_warning(outcome, _marker_present(ssh, srv_dir)))
+        # with a marker the record shows it; without one a stale key is dropped.  Never when the
+        # ownership check failed: root must not write under a directory that is not trusted.
+        if outcome.failed != "ownership_check":
+            result = executor(ssh, None)(Step("record", record_script(srv_dir), on_failure="warn"))
+            if not result.ok:
+                _logger.warning("runner_isolation_record_failed", detail=result.detail)
+    finally:
+        if was_active:
+            start_web(ssh, warnings)
     return status_line(outcome)
 
 
