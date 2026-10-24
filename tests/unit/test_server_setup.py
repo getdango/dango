@@ -29,7 +29,7 @@ def _trusted_server_venv() -> Any:
 # Helpers
 # ---------------------------------------------------------------------------
 
-# All 17 step names, in the order they must execute.
+# All 18 step names, in the order they must execute.
 _ALL_STEP_NAMES = [
     "apt_packages",
     "create_user",
@@ -48,6 +48,7 @@ _ALL_STEP_NAMES = [
     "unattended_upgrades",
     "runtime_ownership",
     "compose_helper",
+    "runner_isolation",
 ]
 
 
@@ -76,7 +77,7 @@ class TestSetupResult:
 @pytest.mark.unit
 class TestSetupServer:
     def test_all_steps_complete(self):
-        """setup_server() runs all 17 steps when nothing is pre-installed."""
+        """setup_server() runs all 18 steps when nothing is pre-installed."""
         from dango.platform.cloud.server_setup import setup_server
 
         # Docker/Caddy not installed, user doesn't exist, venv doesn't exist
@@ -99,10 +100,10 @@ class TestSetupServer:
 
         result = setup_server(ssh)
 
-        # L1: Verify ALL 17 steps are accounted for
+        # L1: Verify ALL 18 steps are accounted for
         total = len(result.steps_completed) + len(result.steps_skipped)
-        assert total == 17, (
-            f"Expected 17 steps, got {total}: "
+        assert total == 18, (
+            f"Expected 18 steps, got {total}: "
             f"completed={result.steps_completed}, skipped={result.steps_skipped}"
         )
         assert len(result.steps_skipped) == 0
@@ -139,9 +140,9 @@ class TestSetupServer:
         # Steps that always run should still be completed
         assert "apt_packages" in result.steps_completed
         assert "directories" in result.steps_completed
-        # L1: total must still be 17
+        # L1: total must still be 18
         total = len(result.steps_completed) + len(result.steps_skipped)
-        assert total == 17
+        assert total == 18
 
     def test_step_ordering(self):
         """Steps execute in the correct order (L3)."""
