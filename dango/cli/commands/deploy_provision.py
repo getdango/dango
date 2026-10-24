@@ -414,6 +414,11 @@ def run_provisioning(
         ssh.connect(droplet_ip, username="root")
         try:
             _trigger_metabase_setup(ssh, config.admin_email)
+            # Everything that creates protected paths has run (sync, secrets, first start, auth):
+            # put the runner users' denials back on whatever it left behind.
+            from dango.platform.cloud import runner_reapply
+
+            runner_reapply.reapply(ssh, warnings, stop_web=True)
         finally:
             ssh.disconnect()
 
@@ -635,6 +640,11 @@ def run_byos_setup(
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
             _trigger_metabase_setup(ssh, config.admin_email)
+            # Everything that creates protected paths has run (sync, secrets, first start, auth):
+            # put the runner users' denials back on whatever it left behind.
+            from dango.platform.cloud import runner_reapply
+
+            runner_reapply.reapply(ssh, warnings, stop_web=True)
         finally:
             ssh.disconnect()
 
@@ -752,10 +762,12 @@ def _prebuild_command(compose_proj: str) -> str:
 
 
 def _carry_fallback_warnings(setup_warnings: list[str], warnings: list[str]) -> None:
-    """Repeat the setup's loud compose-helper fallback warning at the end of the deploy."""
+    """Repeat the setup's loud compose-helper and runner-isolation warnings at the end of the deploy."""
     from dango.platform.cloud.compose_migrate import FALLBACK_MARK
+    from dango.platform.cloud.runner_isolation import ISOLATION_MARK
 
-    warnings.extend(w for w in setup_warnings if w.startswith(FALLBACK_MARK))
+    marks = (FALLBACK_MARK, ISOLATION_MARK)
+    warnings.extend(w for w in setup_warnings if w.startswith(marks))
 
 
 def _prebuild_images(ssh: Any, warnings: list[str], *, own_marker: bool = False) -> None:

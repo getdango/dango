@@ -1177,6 +1177,10 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                 clear_metabase_lock_state_cmd(str(PROJECT_DIR)), step="restore_metabase"
             )
         _run_local(["chown", "-R", "dango:dango", "/srv/dango/project"], step="fix_ownership")
+        # the restore can recreate protected paths without their denials (services are stopped)
+        from dango.platform.cloud import runner_reapply
+
+        runner_reapply.reapply_local()
     except Exception:
         if copies_started:
             # A failed copy leaves a partial, root-owned restore; give it back to

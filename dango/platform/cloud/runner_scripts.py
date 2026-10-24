@@ -41,6 +41,13 @@ UNIT_PATH = f"/etc/systemd/system/{UNIT_NAME}"
 MARKER_SCHEMA = 1
 LOOPBACK_RESTRICTED = "restricted"
 LOOPBACK_UNRESTRICTED = "unrestricted"
+#: What the marker's ``restricted`` means: the runners cannot open connections to loopback, to any
+#: address of this host, or to the Docker bridge networks (containers), except DNS and the
+#: notebook's own port.
+LOOPBACK_DOC = (
+    "restricted: runner users cannot connect to loopback, this host's own addresses or the "
+    "Docker bridge networks (DNS and the notebook port excepted); unrestricted: no firewall rules"
+)
 
 SUDOERS_TEXT = (
     "# Installed by Dango. The service account may run code as the restricted runner users,\n"
@@ -52,7 +59,7 @@ SUDOERS_TEXT = (
     f"dango ALL=({RUN_USER},{NB_USER}) NOPASSWD:SETENV: DANGO_RUNNER, DANGO_SIGNAL\n"
 )
 
-NFT_RULESET = f"""# Installed by Dango: the runner users cannot open connections to local services.
+NFT_RULESET = f"""# Installed by Dango: runner users cannot connect to local services, this host or Docker networks.
 add table inet {NFT_TABLE}
 delete table inet {NFT_TABLE}
 table inet {NFT_TABLE} {{
@@ -61,6 +68,8 @@ table inet {NFT_TABLE} {{
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip daddr 127.0.0.0/8 udp dport 53 accept
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip daddr 127.0.0.0/8 tcp dport 53 accept
     meta skuid "{NB_USER}" ip daddr 127.0.0.1 tcp dport 7805 accept
+    meta skuid {{ "{RUN_USER}", "{NB_USER}" }} oifname {{ "docker0", "br-*" }} reject
+    meta skuid {{ "{RUN_USER}", "{NB_USER}" }} fib daddr type local reject
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip daddr 127.0.0.0/8 reject
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip6 daddr ::1 reject
   }}
@@ -69,8 +78,12 @@ table inet {NFT_TABLE} {{
 
 NFT_UNIT = f"""[Unit]
 Description=Dango runner loopback rules
-After=network-pre.target
+DefaultDependencies=no
+Wants=network-pre.target
+Before=network-pre.target
 Before=network.target
+Conflicts=shutdown.target
+Before=shutdown.target
 
 [Service]
 Type=oneshot
@@ -125,11 +138,13 @@ def _guard(paths: list[str]) -> str:
 
 
 def package_script(package: str, tool: str) -> str:
-    """Install *package* when *tool* is missing; exits 6 if the tool is still absent."""
+    """Install *package* when *tool* is missing (lists refreshed first); exits 6 if still absent."""
+    lock = "-o DPkg::Lock::Timeout=120"
     return (
         _HEAD
         + "export DEBIAN_FRONTEND=noninteractive\n"
-        + f"command -v {q(tool)} >/dev/null 2>&1 || apt-get install -y -qq {q(package)}\n"
+        + f"command -v {q(tool)} >/dev/null 2>&1 || {{ apt-get update -qq {lock}"
+        + f" && apt-get install -y -qq {q(package)} {lock}; }}\n"
         + f"command -v {q(tool)} >/dev/null 2>&1"
         + f" || {{ echo {q(f'{tool} is not available')} >&2; exit 6; }}\n"
     )
