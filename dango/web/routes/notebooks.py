@@ -6,7 +6,6 @@ Notebook management API endpoints and page route.
 from __future__ import annotations
 
 import asyncio
-import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,6 +38,7 @@ from dango.notebooks.manager import (
     start_marimo,
     stop_marimo,
 )
+from dango.notebooks.safe_files import copy_regular_file
 from dango.notebooks.snapshot import create_snapshot
 from dango.utils.dango_db import connect
 from dango.validation import validate_identifier
@@ -205,12 +205,12 @@ def _create_notebook_blocking(
     notebooks_dir.mkdir(parents=True, exist_ok=True)
 
     target = notebooks_dir / f"{name}.py"
-    if target.exists():
-        raise FileExistsError(f"Notebook file already exists: {name}.py")
-
     templates_dir = Path(dango.notebooks.templates.__file__).parent
     template_file = templates_dir / f"{template}.py"
-    shutil.copy2(str(template_file), str(target))
+    try:
+        copy_regular_file(template_file, target, dst_root=notebooks_dir)
+    except FileExistsError as exc:
+        raise FileExistsError(f"Notebook file already exists: {name}.py") from exc
 
     new_id = str(uuid.uuid4())
     now = datetime.now(tz=timezone.utc).isoformat()
