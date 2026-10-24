@@ -64,13 +64,13 @@ def _stop_with(
     kill = MagicMock(return_value=False)
     with (
         patch(f"{_M}.is_process_running", side_effect=_running),
-        patch(f"{_M}.kill_process", kill),
+        patch("dango.notebooks.marimo_process.kill_process", kill),
         patch(f"{_M}.os.getpgid", return_value=pgid),
         patch(f"{_M}.os.getpgrp", return_value=own_pgrp),
         patch(f"{_M}.os.killpg", side_effect=_killpg),
         patch("psutil.Process", side_effect=_process),
-        patch(f"{_M}._STOP_TERM_TIMEOUT_SECONDS", 0.3),
-        patch(f"{_M}._STOP_KILL_TIMEOUT_SECONDS", 0.3),
+        patch("dango.notebooks.marimo_process._STOP_TERM_TIMEOUT_SECONDS", 0.3),
+        patch("dango.notebooks.marimo_process._STOP_KILL_TIMEOUT_SECONDS", 0.3),
     ):
         result = stop_marimo(tmp_path)
     return {"result": result, "sent": sent, "kill": kill, "pid_file": pid_file}
@@ -234,3 +234,14 @@ def test_marimo_status_malformed_start_time_never_raises(tmp_path: Path) -> None
         status = get_marimo_status(tmp_path)
     assert status["running"] is True
     assert status["pid"] == 12345
+
+
+@pytest.mark.unit
+def test_stop_helpers_are_importable_from_both_modules() -> None:
+    import dango.notebooks.manager as manager
+    import dango.notebooks.marimo_process as marimo_process
+
+    for name in ("_stop_unready_process", "_stop_marimo_process"):
+        assert getattr(manager, name) is getattr(marimo_process, name)
+    for name in ("_process_gone", "_wait_gone"):
+        assert callable(getattr(marimo_process, name))
