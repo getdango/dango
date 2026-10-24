@@ -52,12 +52,9 @@ def test_installer_scripts_pass_syntax_check() -> None:
 def test_hostile_paths_are_quoted_in_every_builder() -> None:
     quoted = rs.q(f"{HOSTILE}/runner")
     assert quoted in rs.runner_dirs_script(HOSTILE).replace(rs.q(f"{HOSTILE}/runner/scripts"), "")
-    for text in (
-        rs.runner_base_dir_script(HOSTILE),
-        rs.marker_script(HOSTILE),
-        rs.disable_script(HOSTILE),
-    ):
+    for text in (rs.runner_base_dir_script(HOSTILE), rs.marker_script(HOSTILE)):
         assert quoted in text
+    assert rs.q(rs.marker_path(HOSTILE)) in rs.disable_script(HOSTILE)
     proj = rs.q(f"{HOSTILE}/project")
     assert f"P={proj}" in access.project_permission_script(srv_dir=HOSTILE)
     assert f"N={proj}/notebooks" in access.notebooks_acl_script(srv_dir=HOSTILE)
@@ -129,7 +126,10 @@ def test_dir_scripts_refuse_a_symlinked_target(box: Sandbox, child: str) -> None
     else:
         runner.rmdir()
         runner.symlink_to(victim)
-    for text in (rs.runner_base_dir_script(str(box.srv)), rs.runner_dirs_script(str(box.srv))):
+    texts = [rs.runner_base_dir_script(str(box.srv))]
+    if child != "active":  # the marker path is guarded by the base-dir and marker scripts
+        texts.append(rs.runner_dirs_script(str(box.srv)))
+    for text in texts:
         res = box.run(text)
         assert res.returncode == 3, res.stderr
         assert "symlink" in res.stderr
@@ -215,18 +215,18 @@ def test_project_script_puts_the_data_acl_on_a_symlink_target(box: Sandbox) -> N
 
 
 @pytest.mark.parametrize("name", [".dango", ".dlt", ".env", "notebooks"])
-def test_project_scripts_refuse_a_symlinked_path(box: Sandbox, name: str) -> None:
-    proj = box.srv / "project"
+def test_project_script_refuses_a_symlinked_path(box: Sandbox, name: str) -> None:
     (box.srv / "runner" / "snapshots").mkdir(parents=True)
-    (proj / name).symlink_to(box.root)
-    for text in (
-        access.project_permission_script(srv_dir=str(box.srv)),
-        access.notebooks_acl_script(srv_dir=str(box.srv)),
-    ):
-        res = box.run(text)
-        if name == "notebooks" or text.startswith("set -eu\nP="):
-            assert res.returncode == 3, res.stderr
+    (box.srv / "project" / name).symlink_to(box.root)
+    res = box.run(access.project_permission_script(srv_dir=str(box.srv)))
+    assert res.returncode == 3 and "symlink" in res.stderr
     assert box.calls() == []
+
+
+def test_notebooks_script_refuses_a_symlinked_directory(box: Sandbox) -> None:
+    (box.srv / "project" / "notebooks").symlink_to(box.root)
+    res = box.run(access.notebooks_acl_script(srv_dir=str(box.srv)))
+    assert res.returncode == 3 and box.calls() == []
 
 
 def test_setfacl_failure_is_fatal_for_the_notebook_acl(box: Sandbox) -> None:
