@@ -39,10 +39,11 @@ def test_pin_metabase_is_a_budgeted_locked_verb() -> None:
 
 def test_helper_text_runs_the_fixed_module_and_keeps_render_at_four_arguments() -> None:
     text = helper_script()
+    joined = re.sub(r"\\\n\s+", "", text)
     assert (
         'locked env -i PATH="$PATH" LANG=C.UTF-8 "$S/venv/bin/python" -I'
         ' -m dango.platform.cloud.metabase_pin pin-custom "$1" "$2"'
-    ) in text
+    ) in joined
     assert re.search(r"pin-metabase\)\s+root_only; argc \$# 2", text)
     assert re.search(r"render\)\s+argc \$# 4;", text)
     assert subprocess.run(["sh", "-n"], input=text, text=True, check=False).returncode == 0

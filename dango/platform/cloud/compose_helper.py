@@ -59,6 +59,7 @@ VERB_BUDGET: dict[str, int] = {
     "reset-password": 120,
     "render": 420,
     "pin-project": 60,
+    "pin-metabase": 60,
     "up-build": 900,
     "pull": 600,
     "build": 900,
@@ -77,6 +78,7 @@ LOCKED_VERBS = frozenset(
         "restart",
         "reset-password",
         "pin-project",
+        "pin-metabase",
         "up-build",
         "pull",
         "build",
@@ -222,6 +224,15 @@ case "$verb" in
                      echo "dango-compose: project pinned" >&2; exit 64; fi
                    printf "%s\n" "$2" >"$D/.pid.tmp" && mv "$D/.pid.tmp" "$D/project-id" &&
                    printf "%s\n" "$3" >"$D/.p.tmp" && mv "$D/.p.tmp" "$D/project"' _ "$D" "$1" "$p" "$force" ;;
+  pin-metabase)  root_only; argc $# 2
+                 case "$1" in v[0-9]*) ;; *) die "bad version";; esac
+                 case "${1#v}" in *[!0-9.]*) die "bad version";; esac
+                 [ "${#1}" -le 20 ] || die "bad version"
+                 case "$2" in *[!0-9A-Fa-f]*) die "bad digest";; esac
+                 [ "${#2}" -eq 64 ] || die "bad digest"
+                 base; own "$S/venv"; cd /
+                 locked env -i PATH="$PATH" LANG=C.UTF-8 "$S/venv/bin/python" -I \
+                   -m dango.platform.cloud.metabase_pin pin-custom "$1" "$2" ;;
   up-build)      root_only; argc $# 0; dc lock up -d --build metabase ;;
   pull|build)    root_only; argc $# 0; dc lock "$verb" ;;
   down-volumes)  root_only; argc $# 1; [ "$1" = metabase ] || die "usage: down-volumes"
