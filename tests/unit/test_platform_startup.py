@@ -64,7 +64,7 @@ class TestEnsureDuckdbDriver:
         pin_driver(monkeypatch)
 
     def test_no_op_if_driver_exists_and_version_matches(self, tmp_path):
-        """ensure_duckdb_driver skips download when a verified jar and version match."""
+        """ensure_duckdb_driver makes no download when a verified jar and version match."""
         seed_jar(tmp_path, GOOD_JAR, METABASE_DUCKDB_DRIVER_VERSION)
         with patch_network([OSError("offline")]) as (script, _sleep):
             ensure_duckdb_driver(tmp_path)
