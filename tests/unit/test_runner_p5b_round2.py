@@ -144,18 +144,18 @@ def test_live_window_is_the_guard_window() -> None:
 
 
 def test_a_guard_older_than_the_old_threshold_but_inside_the_window_is_live() -> None:
-    unit = f"{PREFIX}-isolation-enable-20261025T000000Z-ab12cd.timer"
+    unit = f"{PREFIX}-isolation-disable-20261025T000000Z-ab12cd.timer"
     ssh = IsoSSH(guard_units=[unit], unit_ages={unit: 610})
-    result = invoke(ssh, ["enable", "--yes"])
+    result = invoke(ssh, ["disable", "--yes"])
     out = _plain(result.output)
     assert result.exit_code == 1 and "leftover" not in out.lower()
     assert unit in ssh.units and "guard:disarm" not in ssh.events
 
 
 def test_busy_message_names_the_guard_window() -> None:
-    unit = f"{PREFIX}-isolation-enable-20261025T000000Z-ab12cd.timer"
+    unit = f"{PREFIX}-isolation-disable-20261025T000000Z-ab12cd.timer"
     ssh = IsoSSH(guard_units=[unit], unit_ages={unit: 20})
-    out = _plain(invoke(ssh, ["enable", "--yes"]).output)
+    out = _plain(invoke(ssh, ["disable", "--yes"]).output)
     assert "expires within 20 minutes" in out
 
 

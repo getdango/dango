@@ -39,7 +39,7 @@ from dango.platform.cloud.isolation_audit import (
     ssh_actor,
 )
 from dango.platform.cloud.isolation_status import IsolationStatus, get_isolation
-from dango.platform.cloud.upgrade_guard import GUARD_PREFIX, UpgradeGuard
+from dango.platform.cloud.upgrade_guard import GUARD_PREFIX, GUARD_WINDOW, UpgradeGuard
 from dango.platform.run_as import DISABLED_MARKER
 
 __all__ = [
@@ -162,9 +162,9 @@ class _OwnedGuard(UpgradeGuard):
 
 
 _LIST_GUARDS = f"systemctl list-units --no-legend --plain '{GUARD_PREFIX}-*' 2>/dev/null; true"
-#: A same-command guard armed less than this long ago belongs to a live run: its steps time out
-#: after 60 s and the guard is re-armed after each one.  Older means the run was killed.
-_LIVE_WITHIN = 300
+#: A same-command guard armed less than the full guard window ago may belong to a live run: steps
+#: can take minutes and a failed warn step does not re-arm.  Older means the guard has expired.
+_LIVE_WITHIN = int(GUARD_WINDOW.removesuffix("m")) * 60
 _AGE_CMD = (
     "t=$(systemctl show -p ActiveEnterTimestamp --value '{unit}' 2>/dev/null) && [ -n \"$t\" ]"
     ' && echo $(( $(date +%s) - $(date -d "$t" +%s) ))'
@@ -216,7 +216,7 @@ def _refuse_if_busy(ssh: Any, owner: str, tag: str | None = None) -> bool:
     if busy:
         who = _owner_of(busy[0])
         label = f"`{_OWNERS[who]}`" if who in _OWNERS else "`dango remote upgrade`"
-        wait = "5 minutes" if who == owner else "20 minutes"
+        wait = f"{_LIVE_WITHIN // 60} minutes"
         console.print(
             f"[red]Error:[/red] {label} seems to be running on this server, or was interrupted "
             f"(guard {escape(busy[0])}; it expires within {wait}). Wait for it to finish "

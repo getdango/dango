@@ -86,7 +86,8 @@ table inet {NFT_TABLE} {{
     # default ephemeral range.  The notebook server's kernel connects back over loopback on an
     # ephemeral port, so dango-nb (never dango-run) may reach loopback in that range; the range is
     # the host's ephemeral range at install time (the default 32768-60999 when it cannot be read),
-    # except Dango's fixed ports, which stay closed even when the host range overlaps them.
+    # except Dango's fixed ports, which stay closed even when the host range overlaps them.  The
+    # range is the host's: other local loopback services inside it are reachable by dango-nb.
     meta skuid "{NB_USER}" ip daddr 127.0.0.1 tcp dport {ports} tcp dport != {_FIXED_SET} accept
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} oifname "docker0" reject
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} oifname "br-*" reject

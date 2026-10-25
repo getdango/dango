@@ -44,14 +44,28 @@ _HOME_UNITS = (
 _HOME_LINKS = (".config", ".local", ".local/share")
 SSH_DROP_IN = "dango-runner.conf"
 _SSHD_FIND = "SSHD=$(command -v sshd || echo /usr/sbin/sshd)"
-_SSHD_PORT = (
-    # every configured port, deduplicated (Match blocks are not evaluated without ``-C``; each
-    # port gets its own check); unusable values are dropped, 22 when none is left
-    'SPS=$("$SSHD" -T 2>/dev/null | awk \'$1 == "port" {print $2}\' | sort -u) || SPS=\n'
-    "v=; for p in $SPS; do case \"$p\" in ''|*[!0-9]*|??????*) ;;\n"
-    '  *) [ "$p" -ge 1 ] && [ "$p" -le 65535 ] && v="$v $p";; esac; done\n'
-    'SPS=$v; [ -n "$SPS" ] || SPS=22'
-)
+#: Spec for the port probe: ``Port`` is global, so any ``lport`` lists every listen address.
+_PROBE_SPEC = "user=root,host=localhost,addr=127.0.0.1,laddr=127.0.0.1,lport=22"
+
+
+def _sshd_port(on_fail: str) -> str:
+    """Shell lines setting ``SPS`` to every listening port, read from ``sshd -T -C`` (not ``-T``).
+
+    OpenSSH 8.9's plain ``-T`` exits 255 once a ``Match LocalPort`` block exists, so the port
+    list comes from the ``listenaddress`` lines (``host:port``, ``[::]:port``).  *on_fail* runs
+    when the command fails: the config could not be evaluated, which is never read as port 22.
+    """
+    return (
+        f'if out=$("$SSHD" -T -C "{_PROBE_SPEC}" 2>&1); then\n'
+        '  SPS=$(printf \'%s\\n\' "$out" | awk \'$1 == "listenaddress" {n = split($2, a, ":");'
+        " print a[n]}' | sort -u)\n"
+        f"else {on_fail}; SPS=; fi\n"
+        "v=; for p in $SPS; do case \"$p\" in ''|*[!0-9]*|??????*) ;;\n"
+        '  *) [ "$p" -ge 1 ] && [ "$p" -le 65535 ] && v="$v $p";; esac; done\n'
+        'SPS=$v; [ -n "$SPS" ] || SPS=22'
+    )
+
+
 #: Connection spec for ``sshd -T -C``: a ``Match LocalPort``/``LocalAddress`` block needs both.
 _SSHD_SPEC = "user=$u,host=localhost,addr=127.0.0.1,laddr=127.0.0.1,lport=$sp"
 _DENY_RE = '"^denyusers( .*)? $u( |\\$)"'
@@ -136,7 +150,10 @@ def ssh_deny_script(sshd_dir: str = "/etc/ssh/sshd_config.d") -> str:
                 "fi",
                 "systemctl reload ssh || systemctl reload sshd || {"
                 ' echo "could not reload sshd; isolation NOT enabled" >&2; exit 5; }',
-                _SSHD_PORT,
+                _sshd_port(
+                    'echo "sshd -T could not evaluate the config for its port list'
+                    ' ($(printf %s "$out" | head -n 1)); isolation NOT enabled" >&2; exit 7'
+                ),
                 f"for u in {names}; do",
                 "  for sp in $SPS; do",
                 f'    out=$("$SSHD" -T -C "{_SSHD_SPEC}" 2>&1) || {{',
@@ -235,7 +252,7 @@ def persistence_checks(etc: str = "/etc", paths: PersistencePaths = DEFAULT_PATH
             [
                 f"E={q(etc)}; S={q(paths.cron_spool)}; L={q(paths.linger_dir)}",
                 _SSHD_FIND,
-                _SSHD_PORT,
+                _sshd_port('fail "sshd -T could not evaluate the config for its port list"'),
                 f"for u in {_USERS}; do",
                 '  getent passwd "$u" >/dev/null 2>&1 || continue',
                 "  if command -v crontab >/dev/null 2>&1; then",
