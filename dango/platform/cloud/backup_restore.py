@@ -252,57 +252,81 @@ def restore_file_cmd(src: str, dest: str, before: list[str] | None = None) -> st
 REPLACE_ON_RESTORE = ("notebooks",)
 
 
-def restore_dir_cmd(src: str, dest: str, *, replace: bool = False) -> str:
+def restore_dir_cmd(src: str, dest: str, *, replace: bool = False, kept: str | None = None) -> str:
     """Shell step restoring directory *src* to project path *dest* as the service user.
 
-    Merges by default.  With *replace*, *dest* is removed first without following links (a
-    symlinked *dest* is removed as a link) and recreated, so no planted link survives to
-    redirect the copy; the caller re-applies any ACL the new directory lost.
+    Merges by default.  With *replace*, the old *dest* is renamed to *kept* (a path that does
+    not exist yet, in a directory runners cannot reach; a symlinked *dest* is renamed as a
+    link, never followed), then *dest* is recreated and filled.  A rename needs no access to
+    the contents, so nothing a runner planted inside can block it.  If the copy fails the
+    old directory is put back.  The caller removes *kept* and re-applies any ACL the new
+    directory lost.
     """
     q_dest = shlex.quote(dest)
     q_src = shlex.quote(src)
     copy = f"{AS_SERVICE_USER} cp -RP {shlex.quote(src + '/.')} {q_dest}/"
     if replace:
-        steps = [
-            f"{AS_SERVICE_USER} rm -rf {q_dest}",
-            f"{AS_SERVICE_USER} mkdir -m 0755 {q_dest}",
-            copy,
-        ]
+        if not kept:
+            raise ValueError("replace needs a 'kept' path outside the project")
+        q_kept = shlex.quote(kept)
+        aside = f"{{ {{ [ ! -e {q_dest} ] && [ ! -L {q_dest} ]; }} || {AS_SERVICE_USER} mv {q_dest} {q_kept}; }}"
+        fill = f"{{ {AS_SERVICE_USER} mkdir -m 0755 {q_dest} && {copy}; }}"
+        undo = (
+            f"{{ {AS_SERVICE_USER} rm -rf {q_dest};"
+            f" if {{ [ -e {q_kept} ] || [ -L {q_kept} ]; }} && [ ! -e {q_dest} ] && [ ! -L {q_dest} ];"
+            f" then {AS_SERVICE_USER} mv {q_kept} {q_dest}; fi; false; }}"
+        )
+        steps = [aside, f"{{ {fill} || {undo}; }}"]
     else:
         steps = [f"{AS_SERVICE_USER} mkdir -p {q_dest}", copy]
     return f"if [ -d {q_src} ] && [ ! -L {q_src} ]; then {' && '.join(steps)}; fi"
 
 
-def restore_backup_dir_cmd(staging: str, project_dir: str, rel: str) -> str:
-    """Shell step restoring backed-up directory *rel* from *staging* into *project_dir*."""
+def restore_backup_dir_cmd(
+    staging: str, project_dir: str, rel: str, kept_dir: str | None = None
+) -> str:
+    """Shell step restoring backed-up directory *rel* from *staging* into *project_dir*.
+
+    A replaced directory's old contents are renamed into *kept_dir* (see :func:`restore_dir_cmd`).
+    """
+    replace = rel in REPLACE_ON_RESTORE
     return restore_dir_cmd(
-        f"{staging}/{rel}", f"{project_dir}/{rel}", replace=rel in REPLACE_ON_RESTORE
+        f"{staging}/{rel}",
+        f"{project_dir}/{rel}",
+        replace=replace,
+        kept=f"{kept_dir}/{rel}" if replace and kept_dir else None,
     )
 
 
 #: Root-only parent of the restore upload and staging directories (``/srv/dango`` is root 0755).
 #: Group ``dango`` may traverse it, nobody else: restricted runners are not in that group.
 RESTORE_PRIVATE_ROOT = "/srv/dango/.restore"
+#: The root-owned directory holding it; refused unless root owns it and nobody else can write it.
+SRV_ROOT = "/srv/dango"
+_SRV_UNTRUSTED = "\\( -type l -o ! -user root -o -perm -020 -o -perm -002 \\)"
 
 
-def private_dir_cmd(path: str, *, service_access: bool = False) -> str:
+def private_dir_cmd(path: str, *, service_access: bool = False, service_write: bool = False) -> str:
     """Shell step creating the new directory *path* under :data:`RESTORE_PRIVATE_ROOT`, root-only.
 
     The parent is created ``root:dango 0710`` (never through a link) and *path* ``0700 root``.
     With *service_access* it is ``root:dango 0750`` so the service user can read what root hands
-    it there; entries inside are never listable by any other user.  An existing *path* fails.
+    it there; entries inside are never listable by any other user.  *service_write* makes it
+    ``root:dango 0770`` so the service user can also move things into it.  An existing *path*
+    fails, and so does a ``/srv/dango`` that is a link, not root-owned or writable by others.
     """
     root = path.rsplit("/", 1)[0]
     q_root, q_path = shlex.quote(root), shlex.quote(path)
     steps = [
+        f'[ -z "$(find {SRV_ROOT} -maxdepth 0 {_SRV_UNTRUSTED} -print)" ]',
         f"[ ! -L {q_root} ]",
         f"(umask 077; mkdir -p {q_root})",
         f"chown root:{SERVICE_USER} {q_root}",
         f"chmod 0710 {q_root}",
     ]
-    if service_access:
+    if service_access or service_write:
         steps += [
-            f"mkdir -m 0750 {q_path}",
+            f"mkdir -m {'0770' if service_write else '0750'} {q_path}",
             f"chown root:{SERVICE_USER} {q_path}",
         ]
     else:

@@ -1064,6 +1064,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
     # Fresh private staging (unique name in the root-only restore directory), never in /tmp.
     staging = _private_restore_dir("dango-restore-staging")
     private_dir: Path | None = None
+    kept_dir: Path | None = None
     try:
         _run_local(
             ["tar", "-xzf", str(local_path), "-C", str(staging), *SAFE_EXTRACT_OPTIONS.split()],
@@ -1103,6 +1104,8 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             except ValueError:
                 _logger.warning("metabase_restore_metadata_omitted")
 
+        # The old notebooks/ is renamed into a directory no runner can reach, not deleted.
+        kept_dir = _private_restore_dir("dango-restore-kept", service_write=True)
         # Project files are written as the service user, which owns the project tree.
         copies_started = True
         _run_builder_script(hand_staging_to_service_user_cmd(str(staging)), step="restore_files")
@@ -1151,7 +1154,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             )
         for dpath in BACKUP_DIRS:
             _run_builder_script(
-                restore_backup_dir_cmd(str(staging), str(PROJECT_DIR), dpath),
+                restore_backup_dir_cmd(str(staging), str(PROJECT_DIR), dpath, str(kept_dir)),
                 step="restore_dirs",
             )
 
@@ -1193,15 +1196,15 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                 runner_reapply.reapply_local()
         raise
     finally:
-        for leftover in (staging, private_dir):
+        for leftover in (staging, private_dir, kept_dir):
             if leftover is not None:
                 shutil.rmtree(leftover, ignore_errors=True)
         if not nothing_stopped:
             _start_services()
 
 
-def _private_restore_dir(prefix: str) -> Path:
-    """Fresh ``root:dango 0750`` directory in the root-only restore directory.
+def _private_restore_dir(prefix: str, *, service_write: bool = False) -> Path:
+    """Fresh ``root:dango 0750`` (``0770`` with *service_write*) directory in the root-only restore directory.
 
     The parent is ``root:dango 0710`` and never a link, so only root and the service user can
     reach what the restore stages there; the service user still reads the extracted files.
@@ -1209,6 +1212,13 @@ def _private_restore_dir(prefix: str) -> Path:
     from dango.platform.cloud import backup_restore
     from dango.platform.cloud.backup_restore import SERVICE_USER
 
+    srv = Path(backup_restore.SRV_ROOT)
+    if srv.exists() and (
+        srv.is_symlink() or srv.lstat().st_uid != 0 or srv.lstat().st_mode & 0o022
+    ):
+        raise CloudProvisioningError(
+            f"{srv} is not a root-owned directory; refusing to stage a restore"
+        )
     root = Path(backup_restore.RESTORE_PRIVATE_ROOT)
     if root.is_symlink():
         raise CloudProvisioningError(f"{root} is a symlink; refusing to stage a restore in it")
@@ -1218,7 +1228,7 @@ def _private_restore_dir(prefix: str) -> Path:
     path = Path(tempfile.mkdtemp(prefix=f"{prefix}-", dir=root))
     try:
         _run_local(["chown", f"root:{SERVICE_USER}", str(path)], step="restore_files")
-        path.chmod(0o750)
+        path.chmod(0o770 if service_write else 0o750)
     except Exception:
         shutil.rmtree(path, ignore_errors=True)
         raise

@@ -1020,6 +1020,7 @@ def restore_from_archive(
     services_restarted = False
     copies_started = False
     private_dir = ""
+    kept_dir = ""
     moved_aside: list[str] = []
     stamp = time.strftime("%Y%m%d-%H%M%S")
     try:
@@ -1046,6 +1047,8 @@ def restore_from_archive(
                         f"if [ -f {q_file} ]; then chown {SERVICE_USER}:{SERVICE_USER} {q_file}; fi",
                         step="restore_files",
                     )
+            # The old notebooks/ is renamed into a directory no runner can reach, not deleted.
+            kept_dir = make_private_dir(ssh, "dango-restore-kept", service_write=True)
             # Project files are written as the service user, which owns the project tree.
             copies_started = True
             _run_checked(ssh, hand_staging_to_service_user_cmd(staging), step="restore_files")
@@ -1085,7 +1088,7 @@ def restore_from_archive(
                     )
                 )
             for dpath in BACKUP_DIRS:
-                restore_cmds.append(restore_backup_dir_cmd(staging, PROJECT_DIR, dpath))
+                restore_cmds.append(restore_backup_dir_cmd(staging, PROJECT_DIR, dpath, kept_dir))
             _run_checked(ssh, " && ".join(restore_cmds), step="restore_files", timeout=300)
             for kept_path in moved_aside:
                 if ssh.exec_command(f"test -e {shlex.quote(kept_path)}").success:
@@ -1121,11 +1124,17 @@ def restore_from_archive(
                 # notebooks/ may already be recreated without its ACL; put it back before services start
                 from dango.platform.cloud import runner_reapply
 
-                with contextlib.suppress(Exception):
+                # the error that follows discards `warnings`, so a failed re-apply is logged here
+                seen = len(warnings)
+                try:
                     runner_reapply.reapply(ssh, warnings)
+                except Exception as reapply_exc:  # keep the original error
+                    warnings.append(f"Runner permissions not re-applied: {reapply_exc}")
+                for note in warnings[seen:]:
+                    _logger.warning("runner_permissions_not_reapplied", detail=note)
             raise
         finally:
-            _remove_leftovers(ssh, [p for p in (staging, private_dir) if p])
+            _remove_leftovers(ssh, [p for p in (staging, private_dir, kept_dir) if p])
     finally:
         try:
             _notify(on_progress, "start_services", "running")
@@ -1156,14 +1165,18 @@ def restore_from_archive(
     )
 
 
-def make_private_dir(ssh: SSHManager, prefix: str, *, service_access: bool = False) -> str:
+def make_private_dir(
+    ssh: SSHManager, prefix: str, *, service_access: bool = False, service_write: bool = False
+) -> str:
     """Create a fresh, uniquely named directory under :data:`RESTORE_STAGING_ROOT`; return its path.
 
     Root-only (``0700``), or ``root:dango 0750`` with *service_access* so the service user can
-    read what root hands it there.  Removed again if it could not be fully set up.
+    read what root hands it there (``0770`` with *service_write*).  Removed again if it could not be fully set up.
     """
     path = f"{RESTORE_STAGING_ROOT}/{prefix}-{uuid.uuid4().hex}"
-    result = ssh.exec_command(private_dir_cmd(path, service_access=service_access))
+    result = ssh.exec_command(
+        private_dir_cmd(path, service_access=service_access, service_write=service_write)
+    )
     if not result.success:
         _remove_leftovers(ssh, [path])
         raise CloudProvisioningError(
@@ -1194,15 +1207,17 @@ def _auth_config_refusal(ssh: SSHManager, staging: str) -> str | None:
     Refused when it is larger than :data:`AUTH_CONFIG_MAX_BYTES` (too large to check in
     full) or does not say ``enabled: true``; an absent file needs no warning.
     """
+    # Read as the service user: it owns the staged tree, so root never reads a path it could
+    # have turned into a link.
     staged = shlex.quote(f"{staging}/{AUTH_CONFIG_FILE}")
-    if not ssh.exec_command(f"test -f {staged}").success:
+    if not ssh.exec_command(f"{AS_SERVICE_USER} test -f {staged}").success:
         return None
-    size = ssh.exec_command(f"wc -c < {staged}")
+    size = ssh.exec_command(f"{AS_SERVICE_USER} cat {staged} | wc -c")
     if not size.success or not size.stdout.strip().isdigit():
         return AUTH_CONFIG_SKIPPED_WARNING
     if int(size.stdout.strip()) > AUTH_CONFIG_MAX_BYTES:
         return AUTH_CONFIG_OVERSIZED_WARNING
-    result = ssh.exec_command(f"cat {staged}")
+    result = ssh.exec_command(f"{AS_SERVICE_USER} cat {staged}")
     if result.success and auth_config_keeps_auth_on(result.stdout):
         return None
     return AUTH_CONFIG_SKIPPED_WARNING
@@ -1230,6 +1245,7 @@ def _sweep_stale_leftovers(ssh: SSHManager) -> None:
             "dango-restore-staging-*",
             "dango-restore-upload-*",
             "dango-restore-meta-*",
+            "dango-restore-kept-*",
         )
     )
     backup_dir = shlex.quote(BACKUP_DIR)
