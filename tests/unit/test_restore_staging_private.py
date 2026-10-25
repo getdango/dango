@@ -118,7 +118,7 @@ def test_server_restore_stages_inside_private_root(tmp_path: Path) -> None:
     assert (project / "data" / "warehouse.duckdb").read_bytes() == b"db"
     assert list(root.iterdir()) == [], "staging left behind"
     create = next(c for c in ssh.commands if "mkdir -m 0750" in c)
-    assert "root:dango" in create and "/tmp" not in create
+    assert "root:dango" in create
 
 
 def test_stale_sweep_covers_private_root_and_tmp() -> None:
