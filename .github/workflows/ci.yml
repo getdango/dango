@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [v1, main]
+    branches: [v1, main, v1.1.0]
   pull_request:
-    branches: [v1, main, 'v1.0.*']
+    branches: [v1, main, 'v1.0.*', v1.1.0]
 
 jobs:
   css:
