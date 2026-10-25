@@ -26,7 +26,7 @@ Shared utilities for process management, activity logging, sync history tracking
 | `pipeline_health.py` | Materializes sync history / dbt test results / source list into DuckDB tables (`_dango_meta` schema) for the "Data Pipeline Health" dashboard (1.0.8-DASH-1) — Metabase's container can't read the underlying JSON files directly | `materialize_pipeline_health()`, `SCHEMA` |
 | `git_info.py` | Git repository info, deployment guardrails, and warn-only mutation guardrails (CLI wizards + MCP tools, 1.0.8-OPS-3) | `GitInfo`, `GitGuardrailResult`, `collect_git_info()`, `check_git_guardrails()`, `check_mutation_guardrails()` |
 | `query_connection.py` | Locked-down read-only DuckDB connection for user/agent SQL (web `/api/query`, MCP `query`/catalog tools): in-memory connection, warehouse attached READ_ONLY under its file stem, memory limit, no spill directory, external access off, configuration locked | `open_locked_query_connection()` |
-| `driver.py` | Metabase DuckDB driver version management + version alignment check | `METABASE_DUCKDB_DRIVER_VERSION`, `METABASE_DUCKDB_DRIVER_URL`, `get_duckdb_driver_url()`, `read_driver_version()`, `write_driver_version()`, `driver_needs_update()`, `check_version_alignment()` |
+| `driver.py` | Metabase DuckDB driver version management, pinned SHA-256 verification + HTTPS-only download, version alignment check | `METABASE_DUCKDB_DRIVER_VERSION`, `METABASE_DUCKDB_DRIVER_URL`, `get_duckdb_driver_url()`, `read_driver_version()`, `write_driver_version()`, `driver_needs_update()`, `verify_driver_jar()`, `reuse_verified_driver()`, `download_verified_driver()`, `DRIVER_JAR_NAME`, `DriverIntegrityError`, `DriverDownloadError`, `DriverFilesystemError`, `check_version_alignment()` |
 
 ## Common Tasks
 

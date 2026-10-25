@@ -16,6 +16,7 @@ import pytest
 from click.testing import CliRunner
 
 from dango.cli.commands.serve import serve
+from tests.factories.driver_fakes import GOOD_JAR, pin_driver
 
 # Patch targets — lazy imports mean we patch at origin, not at consumption site.
 _UTILS = "dango.cli.utils"
@@ -503,15 +504,17 @@ class TestServeFailures:
         mock_check_port,
         mock_uvicorn_run,
         tmp_path,
+        monkeypatch,
     ):
-        """BUG-124: Driver download failure is non-fatal if JAR exists (synced from local)."""
+        """BUG-124: Driver download failure is non-fatal if a verified JAR exists (synced from local)."""
+        pin_driver(monkeypatch)
         mock_ctx.return_value = tmp_path
         mock_loader_cls.return_value = _make_config_mock()
 
         # Create the driver JAR file (simulating sync from local)
         plugins_dir = tmp_path / "metabase-plugins"
         plugins_dir.mkdir()
-        (plugins_dir / "duckdb.metabase-driver.jar").write_bytes(b"fake-jar")
+        (plugins_dir / "duckdb.metabase-driver.jar").write_bytes(GOOD_JAR)
 
         runner = CliRunner()
         result = runner.invoke(serve, [], obj={})
@@ -519,7 +522,7 @@ class TestServeFailures:
         assert result.exit_code == 0, result.output
         mock_uvicorn_run.assert_called_once()
         assert "WARNING" in result.output
-        assert "driver JAR exists" in result.output
+        assert "matches the pinned checksum" in result.output
 
     @patch("uvicorn.run", side_effect=RuntimeError("bind failed"))
     @patch(f"{_SERVE}._check_port")

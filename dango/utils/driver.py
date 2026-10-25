@@ -8,7 +8,18 @@ driver needs re-downloading.
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
+import os
+import stat
+import tempfile
+import time
+import urllib.parse
+import urllib.request
+from collections.abc import Callable
+from http.client import HTTPMessage
 from pathlib import Path
+from typing import IO
 
 DRIVER_VERSION_FILE = ".driver-version"
 """Filename written to ``metabase-plugins/`` after a successful driver download."""
@@ -26,6 +37,60 @@ METABASE_DUCKDB_DRIVER_URL = (
     "https://github.com/motherduckdb/metabase_duckdb_driver/"
     f"releases/download/{METABASE_DUCKDB_DRIVER_VERSION}/duckdb.metabase-driver.jar"
 )
+
+# SHA-256 and byte size of the 1.5.4.0 release asset, taken from the publisher's GitHub
+# release-asset metadata (asset id 471374348). These must be updated together with
+# METABASE_DUCKDB_DRIVER_VERSION and are never derived from the downloaded bytes.
+METABASE_DUCKDB_DRIVER_SHA256 = "cc73f4d726b68b15e1a89974feed93348b1bfbfa0646f0d9e9c64ce6aa8ee7ba"
+METABASE_DUCKDB_DRIVER_SIZE = 84156889
+
+DRIVER_JAR_NAME = "duckdb.metabase-driver.jar"
+_DOWNLOAD_ATTEMPTS = 3
+_RETRY_DELAY_SECONDS = 2
+_REQUEST_TIMEOUT_SECONDS = 120
+_CHUNK_SIZE = 65536
+
+
+class DriverIntegrityError(RuntimeError):
+    """Driver bytes do not match the pinned size/SHA-256."""
+
+
+class DriverDownloadError(RuntimeError):
+    """Driver could not be fetched (network or read failure) after bounded attempts."""
+
+
+class DriverFilesystemError(RuntimeError):
+    """Driver could not be written locally (permissions, disk, missing directory)."""
+
+
+def _filesystem_error() -> DriverFilesystemError:
+    return DriverFilesystemError(
+        "Could not write the DuckDB driver to the project's metabase-plugins directory "
+        "(permission or disk problem). Make sure it exists and is writable by the current "
+        "user, then try again."
+    )
+
+
+class _HttpsOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse any redirect whose target is not HTTPS; the digest check stays the real guard."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        """Raise ``DriverDownloadError`` for a non-HTTPS target, else follow the redirect."""
+        if urllib.parse.urlparse(newurl).scheme.lower() != "https":
+            raise DriverDownloadError("Driver download redirected to a non-HTTPS location.")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _build_opener() -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(urllib.request.HTTPSHandler(), _HttpsOnlyRedirectHandler())
 
 
 def get_duckdb_driver_url() -> str:
@@ -51,21 +116,133 @@ def write_driver_version(plugins_dir: Path, version: str) -> None:
     version_file.write_text(version + "\n")
 
 
-def driver_needs_update(plugins_dir: Path) -> bool:
-    """Return ``True`` if the driver jar is missing or its version mismatches.
+def verify_driver_jar(path: Path) -> bool:
+    """Return ``True`` only for a regular file with the pinned size and SHA-256."""
+    try:
+        if not stat.S_ISREG(path.stat().st_mode):
+            return False
+        if path.stat().st_size != METABASE_DUCKDB_DRIVER_SIZE:
+            return False
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            while chunk := handle.read(_CHUNK_SIZE):
+                digest.update(chunk)
+    except OSError:
+        return False
+    return digest.hexdigest() == METABASE_DUCKDB_DRIVER_SHA256
 
-    Checks:
-    1. Driver jar file does not exist → needs update.
-    2. Version tracking file is missing → needs update (legacy install).
-    3. Recorded version differs from ``METABASE_DUCKDB_DRIVER_VERSION`` → needs update.
+
+def driver_needs_update(plugins_dir: Path) -> bool:
+    """Return ``True`` unless the jar matches the pinned digest and the marker matches.
+
+    A version marker alone is never proof: the jar bytes must verify.
     """
-    driver_jar = plugins_dir / "duckdb.metabase-driver.jar"
-    if not driver_jar.exists():
+    if not verify_driver_jar(plugins_dir / DRIVER_JAR_NAME):
         return True
-    recorded = read_driver_version(plugins_dir)
-    if recorded is None:
-        return True
-    return recorded != METABASE_DUCKDB_DRIVER_VERSION
+    return read_driver_version(plugins_dir) != METABASE_DUCKDB_DRIVER_VERSION
+
+
+def reuse_verified_driver(plugins_dir: Path) -> bool:
+    """Return ``True`` if a verified jar is installed, repairing a missing/stale marker."""
+    if not verify_driver_jar(plugins_dir / DRIVER_JAR_NAME):
+        return False
+    if read_driver_version(plugins_dir) != METABASE_DUCKDB_DRIVER_VERSION:
+        try:
+            write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
+        except OSError:
+            raise _filesystem_error() from None
+    return True
+
+
+def _content_length(header: str | None) -> int | None:
+    """Parse Content-Length for progress display only; invalid or absent returns ``None``."""
+    try:
+        value = int(header) if header is not None else 0
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def _fetch_candidate(tmp_path: Path, progress: Callable[[int, int | None], None] | None) -> None:
+    """Stream the pinned URL into *tmp_path*, then check size and SHA-256."""
+    digest = hashlib.sha256()
+    downloaded = 0
+    # The pinned URL is HTTPS and the opener refuses redirects to any non-HTTPS target.
+    opener = _build_opener()
+    with opener.open(get_duckdb_driver_url(), timeout=_REQUEST_TIMEOUT_SECONDS) as response:
+        length = _content_length(response.headers.get("Content-Length"))
+        with open(tmp_path, "wb") as out:
+            while chunk := response.read(_CHUNK_SIZE):
+                downloaded += len(chunk)
+                if downloaded > METABASE_DUCKDB_DRIVER_SIZE:
+                    raise DriverIntegrityError("Downloaded DuckDB driver is larger than expected.")
+                digest.update(chunk)
+                out.write(chunk)
+                if progress is not None:
+                    progress(downloaded, length)
+    if (
+        downloaded != METABASE_DUCKDB_DRIVER_SIZE
+        or digest.hexdigest() != METABASE_DUCKDB_DRIVER_SHA256
+    ):
+        raise DriverIntegrityError("Downloaded DuckDB driver does not match the pinned checksum.")
+
+
+def download_verified_driver(
+    plugins_dir: Path, progress: Callable[[int, int | None], None] | None = None
+) -> None:
+    """Download the pinned driver, verify it, and install it atomically with its marker.
+
+    Up to three attempts, two seconds apart. Nothing is placed at the production path
+    unless the candidate matches the pinned size and SHA-256; an existing jar and marker
+    are left untouched on failure.
+
+    Raises:
+        DriverIntegrityError: The last failed attempt returned wrong bytes.
+        DriverDownloadError: The last failed attempt was a network/read failure.
+        DriverFilesystemError: The plugins directory or marker could not be written.
+    """
+    try:
+        plugins_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        raise _filesystem_error() from None
+    last_error: Exception | None = None
+    for attempt in range(_DOWNLOAD_ATTEMPTS):
+        if attempt > 0:
+            time.sleep(_RETRY_DELAY_SECONDS)
+        try:
+            fd, tmp_name = tempfile.mkstemp(dir=plugins_dir, prefix=".driver-", suffix=".tmp")
+            os.close(fd)
+        except OSError:
+            raise _filesystem_error() from None
+        tmp_path = Path(tmp_name)
+        try:
+            _fetch_candidate(tmp_path, progress)
+            try:
+                tmp_path.chmod(0o644)
+                os.replace(tmp_path, plugins_dir / DRIVER_JAR_NAME)
+                write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
+            except OSError:
+                raise _filesystem_error() from None
+            return
+        except DriverFilesystemError:
+            raise
+        except Exception as exc:  # integrity mismatch, or network/TLS/read/disk failure
+            last_error = exc
+        finally:
+            with contextlib.suppress(OSError):
+                tmp_path.unlink()
+
+    if isinstance(last_error, DriverIntegrityError):
+        raise DriverIntegrityError(
+            "DuckDB driver integrity verification failed: the downloaded file did not match "
+            f"the pinned checksum after {_DOWNLOAD_ATTEMPTS} attempts."
+        ) from None
+    raise DriverDownloadError(
+        f"Failed to download DuckDB driver after {_DOWNLOAD_ATTEMPTS} attempts. "
+        f"URL: {get_duckdb_driver_url()} - Check your internet connection and try again, "
+        "or download manually from: "
+        "https://github.com/motherduckdb/metabase_duckdb_driver/releases"
+    ) from None
 
 
 def check_version_alignment() -> None:
