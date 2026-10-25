@@ -90,10 +90,14 @@ jobs:
       - run: pip install --upgrade pip
       - run: pip install -c constraints.txt -e ".[dev]"
       - name: pip-audit
-        run: pip-audit --ignore-vuln CVE-2026-32274 --ignore-vuln PYSEC-2026-2120 --ignore-vuln CVE-2026-71491 --ignore-vuln CVE-2026-59894 --ignore-vuln CVE-2026-59893 --ignore-vuln CVE-2026-54284
+        # CVE-2026-114134 affects psf/black's GitHub Action with use_pyproject;
+        # this repository does not use that action. Review by 2027-01-15.
+        run: pip-audit --ignore-vuln CVE-2026-32274 --ignore-vuln PYSEC-2026-2120 --ignore-vuln CVE-2026-71491 --ignore-vuln CVE-2026-59894 --ignore-vuln CVE-2026-59893 --ignore-vuln CVE-2026-54284 --ignore-vuln CVE-2026-114134
 
   sast:
     name: SAST (bandit)
+    # The checker counts occurrences; Bandit's built-in baseline can hide a new
+    # instance of the same finding in an already-listed file.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -102,7 +106,7 @@ jobs:
           python-version: "3.12"
       - run: pip install "bandit[toml]==1.9.4"
       - name: bandit
-        run: bandit -r dango -c pyproject.toml -ll -ii -b .github/bandit-baseline.json
+        run: python scripts/check_bandit_baseline.py
 
   egress:
     name: Egress allowlist
