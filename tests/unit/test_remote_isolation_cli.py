@@ -98,12 +98,12 @@ class TestDisable:
         assert "secrets" in out and "backups" in out and "warehouse" in out
 
     def test_warning_helper_state_is_not_root_equivalent(self) -> None:
-        out = invoke(IsoSSH(docker_group=False), ["disable", "--yes"]).output
+        out = " ".join(invoke(IsoSSH(docker_group=False), ["disable", "--yes"]).output.split())
         assert "root-equivalent" in out
         assert "not root-equivalent" in out
 
     def test_warning_group_fallback_is_root_equivalent(self) -> None:
-        out = invoke(IsoSSH(docker_group=True), ["disable", "--yes"]).output
+        out = " ".join(invoke(IsoSSH(docker_group=True), ["disable", "--yes"]).output.split())
         assert "docker group" in out
         assert "not root-equivalent" not in out
 

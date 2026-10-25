@@ -20,6 +20,7 @@ from click.testing import CliRunner
 from dango.auth.audit import AuditEvent
 from dango.cli.commands import remote_isolation as ri_cli
 from dango.cli.commands.remote import remote
+from dango.platform.cloud import isolation_status as iso
 from dango.platform.cloud import server_status as ss
 from dango.platform.cloud.ssh import CommandResult
 from tests.factories.remote_isolation_fakes import (
@@ -44,26 +45,26 @@ class TestStatusMatrix:
         [("1", "0", "on"), ("0", "1", "disabled"), ("1", "1", "disabled"), ("0", "0", "missing")],
     )
     def test_states(self, active: str, disabled: str, state: str) -> None:
-        assert ss.parse_isolation_probe(probe(active, disabled)).state == state
+        assert iso.parse_isolation_probe(probe(active, disabled)).state == state
 
     @pytest.mark.parametrize(
         "text", ["", "garbage", "active=1\n", "active=x\ndisabled=0\n", "---\n{}"]
     )
     def test_unreadable_probe_is_unknown(self, text: str) -> None:
-        status = ss.parse_isolation_probe(text)
+        status = iso.parse_isolation_probe(text)
         assert status.state == "unknown"
         assert status.loopback == "unknown"
 
     def test_missing_record_key_is_unknown_not_off(self) -> None:
-        status = ss.parse_isolation_probe(probe("1", "0", record=DROPPED_RECORD))
+        status = iso.parse_isolation_probe(probe("1", "0", record=DROPPED_RECORD))
         assert status.state == "on"
         assert status.record == "unknown"
 
     def test_record_content_is_recorded(self) -> None:
-        assert ss.parse_isolation_probe(probe()).record == "restricted"
+        assert iso.parse_isolation_probe(probe()).record == "restricted"
 
     def test_garbled_record_is_unknown(self) -> None:
-        status = ss.parse_isolation_probe(probe(record="{not json"))
+        status = iso.parse_isolation_probe(probe(record="{not json"))
         assert status.state == "on"
         assert status.record == "unknown"
 
@@ -77,10 +78,10 @@ class TestStatusMatrix:
         ],
     )
     def test_loopback(self, nft: str | None, record: str, loopback: str) -> None:
-        assert ss.parse_isolation_probe(probe(nft=nft, record=record)).loopback == loopback
+        assert iso.parse_isolation_probe(probe(nft=nft, record=record)).loopback == loopback
 
     def test_pieces(self) -> None:
-        status = ss.parse_isolation_probe(probe(users="1", sudoers="0"))
+        status = iso.parse_isolation_probe(probe(users="1", sudoers="0"))
         assert status.users == "1"
         assert status.sudoers is False
         assert status.active_marker is True
@@ -99,41 +100,42 @@ class TestStatusMatrix:
         ],
     )
     def test_line_variants(self, kwargs: dict[str, Any], line: str) -> None:
-        assert ss.format_isolation_line(ss.parse_isolation_probe(probe(**kwargs))) == line
+        assert iso.format_isolation_line(iso.parse_isolation_probe(probe(**kwargs))) == line
 
     def test_probe_failure_is_unknown(self) -> None:
         ssh = MagicMock()
         ssh.exec_command.return_value = CommandResult("", "boom", 1)
-        assert ss.get_isolation(ssh).state == "unknown"
+        assert iso.get_isolation(ssh).state == "unknown"
 
     def test_probe_exception_is_unknown(self) -> None:
         from dango.exceptions import CloudSSHError
 
         ssh = MagicMock()
         ssh.exec_command.side_effect = CloudSSHError("down")
-        assert ss.get_isolation(ssh).state == "unknown"
+        assert iso.get_isolation(ssh).state == "unknown"
 
 
 class TestProbeCommand:
     def test_marker_rules_match_run_as(self) -> None:
-        cmd = ss.ISOLATION_PROBE_CMD
+        cmd = iso.ISOLATION_PROBE_CMD
         for needle in (
             "-maxdepth 0",
             "-type",
             "-uid",
             "! -perm /022",
-            "runner/active",
-            "runner/disabled",
+            "R=$S/runner",
+            "$R/active",
+            "$R/disabled",
         ):
             assert needle in cmd
 
     def test_reads_only_root_owned_things(self) -> None:
-        assert "/srv/dango/project" not in ss.ISOLATION_PROBE_CMD
-        assert "source " not in ss.ISOLATION_PROBE_CMD
+        assert "/srv/dango/project" not in iso.ISOLATION_PROBE_CMD
+        assert "source " not in iso.ISOLATION_PROBE_CMD
 
     def test_is_valid_shell(self) -> None:
         assert (
-            subprocess.run(["sh", "-n", "-c", ss.ISOLATION_PROBE_CMD], check=False).returncode == 0
+            subprocess.run(["sh", "-n", "-c", iso.ISOLATION_PROBE_CMD], check=False).returncode == 0
         )
 
     def test_collect_server_status_has_the_line(self) -> None:

@@ -16,6 +16,8 @@ import shutil
 from dataclasses import dataclass, field
 from typing import Any
 
+from dango.platform.cloud.isolation_status import format_isolation_line, get_isolation
+
 # SSHManager is lazy-imported to keep module importable without paramiko.
 
 
@@ -67,6 +69,9 @@ class ServerStatus:
     docker_access: str = "unknown"
     # Version recorded by the server (root-owned server-version.json); None when unknown
     server_recorded_version: str | None = None
+    # Script and notebook isolation: "on (loopback restricted)", "disabled (admin opt-out)",
+    # "NOT enabled: run dango remote upgrade" or "unknown"
+    isolation: str = "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +102,7 @@ def collect_server_status(ssh: Any, cloud_config: Any) -> ServerStatus:
     """
     deploy_info = _get_deployment_info(ssh)
     docker_access, recorded_version = _get_docker_access(ssh)
+    isolation = format_isolation_line(get_isolation(ssh))
     return ServerStatus(
         cpu_usage_pct=_get_cpu_usage(ssh),
         ram_total_mb=_get_ram(ssh, "total"),
@@ -116,6 +122,7 @@ def collect_server_status(ssh: Any, cloud_config: Any) -> ServerStatus:
         deployed_by=deploy_info.get("deployed_by"),
         docker_access=docker_access,
         server_recorded_version=recorded_version,
+        isolation=isolation,
     )
 
 
@@ -184,6 +191,11 @@ def _get_docker_access(ssh: Any) -> tuple[str, str | None]:
     if not result.success or not isinstance(result.stdout, str):
         return "unknown", None
     return _parse_docker_access(result.stdout)
+
+
+def docker_access_state(ssh: Any) -> str:
+    """How the server reaches Docker (``helper``, ``group (fallback)``, ...), ``unknown`` if unreadable."""
+    return _get_docker_access(ssh)[0]
 
 
 def local_client_version() -> str:

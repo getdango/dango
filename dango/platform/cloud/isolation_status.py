@@ -1,0 +1,123 @@
+"""dango/platform/cloud/isolation_status.py
+
+What a cloud server says about script and notebook isolation, for ``remote status`` and
+``dango remote isolation status``.
+
+One root probe reads the two root-owned markers (same validity test as
+:mod:`dango.platform.run_as`), asks the firewall live and reads the non-secret version record;
+the client parses the output as data.  Collection never raises: anything unreadable is ``unknown``.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from typing import Any
+
+_RECORD_MAX_BYTES = 4096
+
+
+# One call, run as root, reading root-owned things only.  Both markers use the test that
+# ``dango.platform.run_as`` applies (regular file, uid 0, not group/other-writable, no symlink);
+# ``find -maxdepth 0`` without ``-L`` never follows a link.  The firewall table is asked live.
+# The version record is read like the Docker access probe and parsed by the client as data.
+ISOLATION_PROBE_CMD = (
+    "ROOT=0; S=/srv/dango; R=$S/runner; V=$S/server-version.json; "
+    'safe() { [ -n "$(find "$2" -maxdepth 0 -type "$1" -uid "$ROOT" ! -perm /022 '
+    '2>/dev/null)" ]; }; '
+    'if safe f "$R/active"; then echo active=1; else echo active=0; fi; '
+    'if safe f "$R/disabled"; then echo disabled=1; else echo disabled=0; fi; '
+    "if /usr/sbin/nft list table inet dango_runner >/dev/null 2>&1; "
+    "then echo nft=1; else echo nft=0; fi; "
+    "n=0; for u in dango-run dango-nb; do "
+    'getent passwd "$u" >/dev/null 2>&1 && n=$((n+1)); done; echo users=$n; '
+    "if [ -f /etc/sudoers.d/dango-runner ]; then echo sudoers=1; else echo sudoers=0; fi; "
+    "echo ---; "
+    f'if safe d "$S" && safe f "$V"; then timeout 5 head -c {_RECORD_MAX_BYTES} "$V" '
+    "2>/dev/null; fi; true"
+)
+
+
+@dataclass(frozen=True)
+class IsolationStatus:
+    """What the server says about script and notebook isolation (no secrets)."""
+
+    #: ``on``, ``disabled``, ``missing`` or ``unknown``
+    state: str = "unknown"
+    #: ``restricted``, ``unrestricted`` or ``unknown``
+    loopback: str = "unknown"
+    #: loopback value in the version record, ``unknown`` when the key is absent
+    record: str = "unknown"
+    active_marker: bool | None = None
+    disabled_marker: bool | None = None
+    users: str | None = None
+    sudoers: bool | None = None
+    nft: bool | None = None
+
+
+def _flag(values: dict[str, str], key: str) -> bool | None:
+    value = values.get(key)
+    return {"1": True, "0": False}.get(value) if value is not None else None
+
+
+def parse_isolation_probe(stdout: str) -> IsolationStatus:
+    """Parse :data:`ISOLATION_PROBE_CMD` output; unreadable output is ``unknown``.
+
+    The markers decide the state (``disabled`` wins, as in ``run_as``).  The version record
+    is secondary: a missing ``runner_isolation`` key is ``unknown``, never "off", because a
+    later record write can drop it.
+    """
+    head, _, record_text = stdout.partition("\n---\n")
+    values = dict(line.split("=", 1) for line in head.splitlines() if "=" in line)
+    active, disabled = _flag(values, "active"), _flag(values, "disabled")
+    record = "unknown"
+    try:
+        data = json.loads(record_text)
+        raw = data.get("runner_isolation") if isinstance(data, dict) else None
+        if isinstance(raw, dict) and raw.get("loopback") in ("restricted", "unrestricted"):
+            record = str(raw["loopback"])
+    except (ValueError, RecursionError):
+        record = "unknown"
+    nft = _flag(values, "nft")
+    users = values.get("users")
+    if active is None or disabled is None:
+        return IsolationStatus(record=record)
+    state = "disabled" if disabled else "on" if active else "missing"
+    if nft is None:
+        loopback = record
+    else:
+        loopback = "restricted" if nft else "unrestricted"
+    return IsolationStatus(
+        state=state,
+        loopback=loopback,
+        record=record,
+        active_marker=active,
+        disabled_marker=disabled,
+        users=users if users in ("0", "1", "2") else None,
+        sudoers=_flag(values, "sudoers"),
+        nft=nft,
+    )
+
+
+def get_isolation(ssh: Any) -> IsolationStatus:
+    """Probe the server as root; any failure is ``unknown``."""
+    from dango.exceptions import CloudSSHError
+
+    try:
+        result = ssh.exec_command(ISOLATION_PROBE_CMD)
+    except CloudSSHError:
+        return IsolationStatus()
+    if not result.success or not isinstance(result.stdout, str):
+        return IsolationStatus()
+    return parse_isolation_probe(result.stdout)
+
+
+def format_isolation_line(status: IsolationStatus) -> str:
+    """The text after ``Isolation:`` in ``remote status``."""
+    if status.state == "on":
+        return f"on (loopback {status.loopback})"
+    if status.state == "disabled":
+        return "disabled (admin opt-out)"
+    if status.state == "missing":
+        return "NOT enabled: run dango remote upgrade"
+    return "unknown"
