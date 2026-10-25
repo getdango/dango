@@ -29,6 +29,7 @@ def probe(
     users: str | None = "2",
     sudoers: str | None = "1",
     record: str = VALID_RECORD,
+    disabled_info: str | None = None,
 ) -> str:
     lines = [
         f"{key}={value}"
@@ -38,6 +39,7 @@ def probe(
             ("nft", nft),
             ("users", users),
             ("sudoers", sudoers),
+            ("disabled_info", disabled_info),
         )
         if value is not None
     ]
@@ -60,7 +62,12 @@ class IsoSSH:
         web: bool = True,
         connect_error: Exception | None = None,
         build: bool = True,
+        disabled_info: str | None = None,
+        guard_active: bool = False,
     ) -> None:
+        self.disabled_info = disabled_info
+        self.guard_active = guard_active
+        self.nonces: list[str] = []
         self.connect_error = connect_error
         self.build = build
         self.active, self.disabled, self.nft = active, disabled, nft
@@ -82,6 +89,8 @@ class IsoSSH:
 
     def exec_command(self, command: str, timeout: int | None = None, **_kw: Any) -> CommandResult:
         self.commands.append(command)
+        if "echo disabled=" in command and "echo active=" not in command:
+            return CommandResult(f"disabled={1 if self.disabled else 0}\n", "", 0)
         if "echo active=" in command:
             return CommandResult(self._probe(), "", 0)
         if "compose/active" in command:
@@ -90,10 +99,13 @@ class IsoSSH:
             return CommandResult(f"marker={marker}\ngroups={groups}\n---\n{self.record}\n", "", 0)
         if "log_auth_event" in command:
             tokens = shlex.split(command)
-            event, actor, server = tokens[tokens.index("-c") + 2 :][:3]
+            event, actor, server, nonce = tokens[tokens.index("-c") + 2 :][:4]
             self.audits.append((event, actor, server))
+            self.nonces.append(nonce)
             self.events.append("audit")
             return CommandResult("", "audit write failed" if self.audit_rc else "", self.audit_rc)
+        if "list-units" in command and "dango-upgrade-guard-" in command:
+            return CommandResult("", "", 0 if self.guard_active else 1)
         if command.startswith("systemd-run"):
             self.events.append("guard:arm")
             return CommandResult("", "", 0)
@@ -118,6 +130,7 @@ class IsoSSH:
             "1" if self.disabled else "0",
             "1" if self.nft else "0",
             record=self.record,
+            disabled_info=self.disabled_info if self.disabled else None,
         )
 
     def _step(self, name: str) -> CommandResult:
@@ -139,8 +152,12 @@ class IsoSSH:
         return CommandResult("", "", 0)
 
 
-def invoke(ssh: IsoSSH, args: list[str], input: str | None = None) -> Result:
+def invoke(
+    ssh: IsoSSH, args: list[str], input: str | None = None, key_path: str | None = None
+) -> Result:
     cfg = MagicMock(droplet_ip=IP)
+    if key_path is not None:
+        cfg.ssh_key_path = key_path
     with (
         patch(
             "dango.cli.commands.remote_mgmt._load_cloud_config_with_ip",

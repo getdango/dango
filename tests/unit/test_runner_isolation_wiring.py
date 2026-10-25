@@ -189,6 +189,40 @@ def test_at_target_arms_a_guard_around_the_steps_and_disarms_it() -> None:
     assert srv.events[first:last].count("guard-arm") == len(STEPS)
 
 
+_DISABLED_LINE = (
+    "Runner isolation: DISABLED by admin opt-out (run `dango remote isolation enable` to turn on)"
+)
+_DISABLED_WARNING = (
+    "Runner isolation is installed but DISABLED by an admin opt-out (/srv/dango/runner/disabled): "
+    "scripts and notebooks still run as the dango service account. Run 'dango remote isolation "
+    "enable' to turn it on, or 'dango remote isolation status' for details."
+)
+
+
+@pytest.mark.parametrize("target", ["1.0.14", "1.0.15"])
+def test_upgrade_reports_a_present_opt_out_instead_of_enabled(target: str) -> None:
+    srv = settled("1.0.14")
+    srv.disabled_marker = True
+    result = run(srv, target)
+    assert result.runner_isolation == _DISABLED_LINE
+    assert _DISABLED_WARNING in result.warnings
+    assert "Runner isolation enabled" not in (result.runner_isolation or "")
+
+
+def test_upgrade_without_an_opt_out_still_says_enabled() -> None:
+    srv = settled("1.0.14")
+    result = run(srv, "1.0.14")
+    assert (result.runner_isolation or "").startswith("Runner isolation enabled")
+    assert _DISABLED_WARNING not in result.warnings
+
+
+def test_opt_out_does_not_hide_a_failed_run() -> None:
+    srv = settled("1.0.14", rfail={"verify": 1})
+    srv.disabled_marker = True
+    result = run(srv, "1.0.14")
+    assert (result.runner_isolation or "").startswith(ri.ISOLATION_MARK)
+
+
 def test_at_target_below_the_helper_release_runs_nothing() -> None:
     srv = RunnerServer(version="1.0.13")
     result = run(srv, "1.0.13")

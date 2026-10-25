@@ -195,7 +195,9 @@ class TestRootSafety:
         assert DISABLED_MARKER in ri_cli.remove_disabled_script()
 
     def test_audit_command_runs_as_service_user_with_isolated_python(self) -> None:
-        command = ri_cli.audit_command(AuditEvent.ISOLATION_DISABLED, "alice via ssh root@h", "h")
+        command = ri_cli.audit_command(
+            AuditEvent.ISOLATION_DISABLED, "alice via ssh root@h", "h", "n0nce"
+        )
         assert command.startswith("cd / && runuser -u dango -- ")
         assert " -I -c " in command
         assert "isolation_disabled" in command
@@ -209,7 +211,16 @@ class TestRootSafety:
             "HOME": str(tmp_path),
         }
         proc = subprocess.run(
-            [sys.executable, "-I", "-c", src, "isolation_enabled", "alice via ssh root@h", "h"],
+            [
+                sys.executable,
+                "-I",
+                "-c",
+                src,
+                "isolation_enabled",
+                "alice via ssh root@h",
+                "h",
+                "n1",
+            ],
             capture_output=True,
             text=True,
             env=env,
@@ -231,7 +242,7 @@ class TestRootSafety:
             "HOME": str(tmp_path),
         }
         proc = subprocess.run(
-            [sys.executable, "-I", "-c", src, "isolation_enabled", "a", "h"],
+            [sys.executable, "-I", "-c", src, "isolation_enabled", "a", "h", "n1"],
             capture_output=True,
             text=True,
             env=env,

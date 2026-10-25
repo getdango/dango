@@ -6,7 +6,11 @@ disabled marker staying until verify passes, and the audit events (once, failure
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import re
+from pathlib import Path
 
 import pytest
 
@@ -36,6 +40,13 @@ class TestStatusCommand:
     def test_disabled(self) -> None:
         result = invoke(IsoSSH(disabled=True), ["status"])
         assert "Isolation: disabled" in result.output
+
+    def test_disabled_shows_who_and_when(self) -> None:
+        info = '{"schema": 1, "by": "alice via ssh root@h", "at": "2026-10-25T10:00:00+00:00"}'
+        result = invoke(IsoSSH(disabled=True, disabled_info=info), ["status"])
+        out = " ".join(result.output.split())
+        assert "alice via ssh root@h" in out
+        assert "2026-10-25T10:00:00+00:00" in out
 
     def test_missing(self) -> None:
         result = invoke(IsoSSH(active=False), ["status"])
@@ -121,13 +132,72 @@ class TestDisable:
         assert "pkill -KILL" in quiesce
         assert "systemctl stop dango-web" not in quiesce
 
-    def test_idempotent_when_already_disabled(self) -> None:
+    def test_already_disabled_changes_nothing_but_sweeps_runner_processes(self) -> None:
         ssh = IsoSSH(disabled=True)
         result = invoke(ssh, ["disable", "--yes"])
         assert result.exit_code == 0
         assert "already" in result.output.lower()
-        assert ssh.events == []
+        assert ssh.events == ["quiesce"]
         assert ssh.audits == []
+
+    def test_quiesce_failure_retry_works(self) -> None:
+        ssh = IsoSSH(fail={"quiesce": 8})
+        first = invoke(ssh, ["disable", "--yes"])
+        assert first.exit_code != 0
+        assert "again" in first.output.lower()
+        ssh.fail = {}
+        before = ssh.events.count("quiesce")
+        second = invoke(ssh, ["disable", "--yes"])
+        assert second.exit_code == 0, second.output
+        assert ssh.events.count("quiesce") == before + 1
+        assert len(ssh.audits) == 1
+
+    def test_already_disabled_with_stuck_runners_fails_again(self) -> None:
+        ssh = IsoSSH(disabled=True, fail={"quiesce": 8})
+        result = invoke(ssh, ["disable", "--yes"])
+        assert result.exit_code != 0
+        assert "runner processes" in result.output
+
+    def test_marker_carries_who_and_when(self) -> None:
+        ssh = IsoSSH()
+        invoke(ssh, ["disable", "--yes"])
+        command = next(c for c in ssh.commands if "runner-step:disable_marker" in c)
+        assert "alice via ssh root@203.0.113.1" in command
+        assert re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", command)
+        assert "SSH_CLIENT" in command
+        assert "logger -t dango-isolation" in command
+
+    def test_audit_carries_a_fresh_nonce(self) -> None:
+        ssh = IsoSSH()
+        invoke(ssh, ["disable", "--yes"])
+        assert len(ssh.nonces) == 1
+        assert re.fullmatch(r"[0-9a-f]{32}", ssh.nonces[0])
+
+    def test_refused_while_an_upgrade_guard_is_active(self) -> None:
+        ssh = IsoSSH(guard_active=True)
+        result = invoke(ssh, ["disable", "--yes"])
+        assert result.exit_code != 0
+        assert "upgrade" in result.output.lower()
+        assert ssh.events == []
+        assert not ssh.disabled
+
+    def test_actor_uses_the_ssh_key_fingerprint(self, tmp_path: Path) -> None:
+        blob = b"fake-public-key-blob"
+        key = tmp_path / "cloud_key"
+        key.with_suffix(".pub").write_text(
+            f"ssh-ed25519 {base64.b64encode(blob).decode()} me@laptop\n"
+        )
+        digest = base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
+        ssh = IsoSSH()
+        invoke(ssh, ["disable", "--yes"], key_path=str(key.with_suffix("")))
+        actor = ssh.audits[0][1]
+        assert f"SHA256:{digest}" in actor
+        assert "alice" in actor and "root@203.0.113.1" in actor
+
+    def test_actor_falls_back_without_a_public_key(self, tmp_path: Path) -> None:
+        ssh = IsoSSH()
+        invoke(ssh, ["disable", "--yes"], key_path=str(tmp_path / "missing_key"))
+        assert ssh.audits[0][1] == "alice via ssh root@203.0.113.1"
 
     def test_second_run_after_first_changes_nothing(self) -> None:
         ssh = IsoSSH()
@@ -258,6 +328,14 @@ class TestEnable:
         assert result.exit_code == 0, result.output
         assert ssh.active
         assert "remove_disabled" not in ssh.events or not ssh.disabled
+
+    def test_refused_while_an_upgrade_guard_is_active(self) -> None:
+        ssh = IsoSSH(active=False, disabled=True, guard_active=True)
+        result = invoke(ssh, ["enable"])
+        assert result.exit_code != 0
+        assert "upgrade" in result.output.lower()
+        assert ssh.events == []
+        assert ssh.disabled
 
     def test_build_without_isolation_changes_nothing(self) -> None:
         ssh = IsoSSH(active=False, disabled=True, build=False)
