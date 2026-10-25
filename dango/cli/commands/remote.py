@@ -40,6 +40,7 @@ from typing import Any
 import click
 
 from dango.cli import console
+from dango.cli.commands.remote_isolation import isolation_group
 from dango.cli.utils import safe_confirm
 
 # ---------------------------------------------------------------------------
@@ -758,3 +759,4 @@ from dango.cli.commands.remote_env import env  # noqa: E402
 remote.add_command(auth_group)
 remote.add_command(backup_group)
 remote.add_command(env)
+remote.add_command(isolation_group)

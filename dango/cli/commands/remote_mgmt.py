@@ -210,6 +210,7 @@ def remote_status(ctx: click.Context) -> None:
     version_lines.append(f"  Installed: {installed}")
     version_lines.append(f"  Recorded: {status.server_recorded_version or 'unknown'}")
     version_lines.append(f"  Docker access: {status.docker_access}")
+    version_lines.append(f"  Isolation: {status.isolation}")
     if latest_version:
         version_lines.append(f"  Latest (PyPI): {latest_version}")
         if status.dango_version and status.dango_version != latest_version:

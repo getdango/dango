@@ -87,6 +87,8 @@ class AuditEvent(str, Enum):
     NOTEBOOK_LOCKED             = "notebook_locked"
     NOTEBOOK_RELEASED           = "notebook_released"
     RECOVERY_CODES_REGENERATED  = "recovery_codes_regenerated"
+    ISOLATION_DISABLED          = "isolation_disabled"
+    ISOLATION_ENABLED           = "isolation_enabled"
     # fmt: on
 
 

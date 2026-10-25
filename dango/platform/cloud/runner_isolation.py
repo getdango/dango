@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from dango.logging import get_logger
+from dango.platform.cloud import isolation_status as iso
 from dango.platform.cloud import runner_access_scripts as access
 from dango.platform.cloud import runner_persistence as persistence
 from dango.platform.cloud import runner_scripts as scripts
@@ -463,6 +464,9 @@ def enable(
     status = status_line(outcome)
     if was_active and "quiesce" in outcome.attempted:
         status = f"{status}; {RESTART_NOTE}"
+    if outcome.enabled and iso.disabled_marker_present(ssh, srv_dir):
+        warnings.append(iso.DISABLED_WARNING)
+        return iso.DISABLED_LINE
     return status
 
 

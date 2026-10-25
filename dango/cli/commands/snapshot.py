@@ -394,6 +394,7 @@ def snapshot_db(ctx: click.Context, user: str) -> None:
     """Create a DuckDB read-only snapshot for notebook use."""
     from dango.cli.utils import require_project_context
     from dango.notebooks.snapshot import create_snapshot
+    from dango.platform.run_as import IsolationRequiredError
 
     project_root = require_project_context(ctx)
 
@@ -402,6 +403,9 @@ def snapshot_db(ctx: click.Context, user: str) -> None:
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise SystemExit(1) from e
+    except IsolationRequiredError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise click.Abort() from e
 
     size_mb = snap_path.stat().st_size / (1024 * 1024)
     console.print(f"[green]✓[/green] Snapshot created: [bold]{snap_path.name}[/bold]")

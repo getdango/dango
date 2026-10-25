@@ -29,6 +29,7 @@ class RunnerServer(FakeServer):
     runner_commands: list[str] = field(default_factory=list)
     web_active: bool = True
     build_present: bool = True
+    disabled_marker: bool = False
 
     def _answer(self, command: str) -> CommandResult:
         match = RUNNER_TAG.search(command)
@@ -60,6 +61,8 @@ class RunnerServer(FakeServer):
         """Commands that are not tagged steps but are part of the isolation flow."""
         if "site-packages/dango/runtime/isolated_run.py" in command:
             return CommandResult("", "", 0 if self.build_present else 1)
+        if "echo disabled=" in command and "runner/disabled" in command:
+            return CommandResult(f"disabled={1 if self.disabled_marker else 0}\n", "", 0)
         if command.startswith("test -f") and "runner/active" in command:
             return CommandResult("", "", 0 if self.isolation_marker is not None else 1)
         if command == "systemctl is-active --quiet dango-web":

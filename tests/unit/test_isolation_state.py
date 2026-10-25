@@ -99,11 +99,30 @@ def _fake_popen() -> MagicMock:
 
 
 class TestStateMatrix:
-    def test_local_when_not_on_cloud(self, markers: Markers, local: None) -> None:
-        assert run_as.isolation_state() == "local"
-        markers.write(markers.active)
+    def test_local_when_not_on_cloud_and_no_marker(self, markers: Markers, local: None) -> None:
         assert run_as.isolation_state() == "local"
         assert run_as.uses_isolation() is False
+
+    def test_valid_marker_means_on_even_without_the_cloud_env_var(
+        self, markers: Markers, local: None
+    ) -> None:
+        markers.write(markers.active)
+        assert run_as.isolation_state() == "on"
+        assert run_as.uses_isolation() is True
+
+    def test_valid_disabled_marker_means_disabled_without_the_cloud_env_var(
+        self, markers: Markers, local: None
+    ) -> None:
+        markers.write(markers.disabled)
+        assert run_as.isolation_state() == "disabled"
+        markers.write(markers.active)
+        assert run_as.isolation_state() == "disabled"
+
+    def test_untrusted_marker_without_the_cloud_env_var_is_local(
+        self, markers: Markers, local: None
+    ) -> None:
+        markers.write(markers.active, 0o666)
+        assert run_as.isolation_state() == "local"
 
     def test_missing_on_cloud_without_markers(self, markers: Markers, cloud: None) -> None:
         assert run_as.isolation_state() == "missing"
