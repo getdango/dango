@@ -96,6 +96,36 @@ def _run_local(args: list[str], *, step: str, timeout: int = 120) -> str:
     return result.stdout
 
 
+def _staged_auth_config_refused(staged_auth: Path) -> bool:
+    """True if the staged ``auth.yml`` must not be restored (too large, or not ``enabled: true``).
+
+    Read as the service user, which owns the staged tree after the hand-over, so root never
+    opens a path it could have turned into a link.  An absent file is not refused; a file
+    that cannot be read fails closed (refused).
+    """
+    from dango.platform.cloud.backup_restore import (
+        AUTH_CONFIG_MAX_BYTES,
+        SERVICE_USER,
+        auth_config_keeps_auth_on,
+    )
+
+    prefix = ["runuser", "-u", SERVICE_USER, "--"]
+    path = str(staged_auth)
+    try:
+        _run_local([*prefix, "test", "-f", path], step="restore_files")
+    except CloudProvisioningError:
+        return False  # absent (or not a regular file): nothing to restore
+    try:
+        text = _run_local(
+            [*prefix, "head", "-c", str(AUTH_CONFIG_MAX_BYTES + 1), path], step="restore_files"
+        )
+    except (CloudProvisioningError, UnicodeDecodeError):
+        return True
+    if len(text.encode("utf-8", errors="replace")) > AUTH_CONFIG_MAX_BYTES:
+        return True
+    return not auth_config_keeps_auth_on(text)
+
+
 def _run_builder_script(script: str, *, step: str, timeout: int = 120) -> str:
     """Run a script built by :mod:`backup_restore` under ``sh -c``, raising on failure.
 
@@ -1041,12 +1071,10 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
     )
     from dango.platform.cloud.backup_restore import (
         AUTH_CONFIG_FILE,
-        AUTH_CONFIG_MAX_BYTES,
         SAFE_EXTRACT_OPTIONS,
         SANITIZED_METABASE_NAME,
         SERVICE_USER,
         UNSAFE_ARCHIVE_MESSAGE,
-        auth_config_keeps_auth_on,
         clear_metabase_lock_state_cmd,
         hand_staging_to_service_user_cmd,
         restore_backup_dir_cmd,
@@ -1128,15 +1156,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             set_aside_pipeline_state_cmd(str(staging), str(PROJECT_DIR), stamp),
             step="restore_files",
         )
-        staged_auth = staging / AUTH_CONFIG_FILE
-        skip_auth_config = False
-        if staged_auth.is_file():
-            if staged_auth.stat().st_size > AUTH_CONFIG_MAX_BYTES:
-                skip_auth_config = True
-            else:
-                with open(staged_auth, "rb") as handle:
-                    text = handle.read().decode("utf-8", errors="replace")
-                skip_auth_config = not auth_config_keeps_auth_on(text)
+        skip_auth_config = _staged_auth_config_refused(staging / AUTH_CONFIG_FILE)
         if skip_auth_config:
             # A restore never turns authentication off on a server.
             _logger.warning("restore_auth_config_skipped", path=AUTH_CONFIG_FILE)

@@ -250,6 +250,10 @@ def restore_file_cmd(src: str, dest: str, before: list[str] | None = None) -> st
 #: Project directories a restore replaces instead of merging into: a restricted runner can
 #: write them, so a merge could follow a link it planted and overwrite another file.
 REPLACE_ON_RESTORE = ("notebooks",)
+SAME_FILESYSTEM_ERROR = (
+    "restore refused: the project directory and the restore holding area are on different "
+    "filesystems, so the old directory cannot be moved aside by a rename"
+)
 
 
 def restore_dir_cmd(src: str, dest: str, *, replace: bool = False, kept: str | None = None) -> str:
@@ -269,10 +273,27 @@ def restore_dir_cmd(src: str, dest: str, *, replace: bool = False, kept: str | N
         if not kept:
             raise ValueError("replace needs a 'kept' path outside the project")
         q_kept = shlex.quote(kept)
-        aside = f"{{ {{ [ ! -e {q_dest} ] && [ ! -L {q_dest} ]; }} || {AS_SERVICE_USER} mv {q_dest} {q_kept}; }}"
-        fill = f"{{ {AS_SERVICE_USER} mkdir -m 0755 {q_dest} && {copy}; }}"
+        q_failed = shlex.quote(kept + ".failed")
+        q_kept_dir = shlex.quote(kept.rsplit("/", 1)[0])
+        same_fs = (
+            f'[ "$({AS_SERVICE_USER} stat -c %d {q_dest})"'
+            f' = "$({AS_SERVICE_USER} stat -c %d {q_kept_dir})" ]'
+        )
+        refuse = f"echo {shlex.quote(SAME_FILESYSTEM_ERROR)} >&2; false"
+        # A rename across filesystems degrades to copy-then-delete, which a runner can interrupt.
+        aside = (
+            f"if [ -e {q_dest} ] || [ -L {q_dest} ]; then"
+            f" {{ {same_fs} || {{ {refuse}; }}; }} && {AS_SERVICE_USER} mv {q_dest} {q_kept}; fi"
+        )
+        # Runner-planted read-only or mode-000 directories in the archive must not block the copy.
+        fill = (
+            f"{{ {AS_SERVICE_USER} mkdir -m 0755 {q_dest}"
+            f" && {AS_SERVICE_USER} chmod -R u+rwX {q_src} && {copy}; }}"
+        )
+        # The half-copied directory is renamed aside, never emptied in place: a rename does
+        # not depend on what the directory contains.
         undo = (
-            f"{{ {AS_SERVICE_USER} rm -rf {q_dest};"
+            f"{{ {AS_SERVICE_USER} mv {q_dest} {q_failed};"
             f" if {{ [ -e {q_kept} ] || [ -L {q_kept} ]; }} && [ ! -e {q_dest} ] && [ ! -L {q_dest} ];"
             f" then {AS_SERVICE_USER} mv {q_kept} {q_dest}; fi; false; }}"
         )
