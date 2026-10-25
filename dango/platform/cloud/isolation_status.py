@@ -11,22 +11,31 @@ the client parses the output as data.  Collection never raises: anything unreada
 from __future__ import annotations
 
 import json
+import shlex
 from dataclasses import dataclass
 from typing import Any
 
 _RECORD_MAX_BYTES = 4096
+_INFO_MAX_BYTES = 512
+_FIELD_MAX = 120
 
 
 # One call, run as root, reading root-owned things only.  Both markers use the test that
-# ``dango.platform.run_as`` applies (regular file, uid 0, not group/other-writable, no symlink);
+# ``dango.platform.run_as`` applies (regular file, uid 0, not group/other-writable, no symlink,
+# inside root-owned closed ``/srv/dango/runner`` and ``/srv/dango``);
 # ``find -maxdepth 0`` without ``-L`` never follows a link.  The firewall table is asked live.
 # The version record is read like the Docker access probe and parsed by the client as data.
 ISOLATION_PROBE_CMD = (
     "ROOT=0; S=/srv/dango; R=$S/runner; V=$S/server-version.json; "
     'safe() { [ -n "$(find "$2" -maxdepth 0 -type "$1" -uid "$ROOT" ! -perm /022 '
     '2>/dev/null)" ]; }; '
-    'if safe f "$R/active"; then echo active=1; else echo active=0; fi; '
-    'if safe f "$R/disabled"; then echo disabled=1; else echo disabled=0; fi; '
+    'if safe d "$S" && safe d "$R" && safe f "$R/active"; then echo active=1; '
+    "else echo active=0; fi; "
+    'if safe d "$S" && safe d "$R" && safe f "$R/disabled"; then echo disabled=1; '
+    "else echo disabled=0; fi; "
+    'if safe d "$S" && safe d "$R" && safe f "$R/disabled"; then printf disabled_info=; '
+    f"timeout 5 head -c {_INFO_MAX_BYTES} \"$R/disabled\" 2>/dev/null | tr -d '\\000-\\037'; "
+    "echo; fi; "
     "if /usr/sbin/nft list table inet dango_runner >/dev/null 2>&1; "
     "then echo nft=1; else echo nft=0; fi; "
     "n=0; for u in dango-run dango-nb; do "
@@ -53,6 +62,28 @@ class IsolationStatus:
     users: str | None = None
     sudoers: bool | None = None
     nft: bool | None = None
+    #: who and when, from the opt-out marker (informational, cleaned and bounded)
+    disabled_by: str | None = None
+    disabled_at: str | None = None
+
+
+def _clean(value: object) -> str | None:
+    """A bounded printable string from marker content, or None."""
+    if not isinstance(value, str):
+        return None
+    text = "".join(ch for ch in value if ch.isprintable())[:_FIELD_MAX].strip()
+    return text or None
+
+
+def _opt_out_info(raw: str) -> tuple[str | None, str | None]:
+    """``(by, at)`` from the marker's content; anything unreadable is ``(None, None)``."""
+    try:
+        data = json.loads(raw)
+    except (ValueError, RecursionError):
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+    return _clean(data.get("by")), _clean(data.get("at"))
 
 
 def _flag(values: dict[str, str], key: str) -> bool | None:
@@ -83,6 +114,7 @@ def parse_isolation_probe(stdout: str) -> IsolationStatus:
     if active is None or disabled is None:
         return IsolationStatus(record=record)
     state = "disabled" if disabled else "on" if active else "missing"
+    by, at = _opt_out_info(values.get("disabled_info", "")) if disabled else (None, None)
     if nft is None:
         loopback = record
     else:
@@ -96,6 +128,8 @@ def parse_isolation_probe(stdout: str) -> IsolationStatus:
         users=users if users in ("0", "1", "2") else None,
         sudoers=_flag(values, "sudoers"),
         nft=nft,
+        disabled_by=by,
+        disabled_at=at,
     )
 
 
@@ -117,7 +151,47 @@ def format_isolation_line(status: IsolationStatus) -> str:
     if status.state == "on":
         return f"on (loopback {status.loopback})"
     if status.state == "disabled":
-        return "disabled (admin opt-out)"
+        who = f" by {status.disabled_by}" if status.disabled_by else ""
+        when = f" at {status.disabled_at}" if status.disabled_at else ""
+        return f"disabled (admin opt-out{who}{when})"
     if status.state == "missing":
         return "NOT enabled: run dango remote upgrade"
     return "unknown"
+
+
+#: Reported by ``remote upgrade`` and setup when the opt-out marker is present.
+DISABLED_LINE = (
+    "Runner isolation: DISABLED by admin opt-out (run `dango remote isolation enable` to turn on)"
+)
+DISABLED_WARNING = (
+    "Runner isolation is installed but DISABLED by an admin opt-out (/srv/dango/runner/disabled): "
+    "scripts and notebooks still run as the dango service account. Run 'dango remote isolation "
+    "enable' to turn it on, or 'dango remote isolation status' for details."
+)
+
+
+def disabled_probe_cmd(srv_dir: str = "/srv/dango") -> str:
+    """Root command that prints ``disabled=1`` when a valid opt-out marker exists, else ``disabled=0``.
+
+    Same test as :func:`dango.platform.run_as._marker_valid` and the main probe.
+    """
+    base = shlex.quote(srv_dir)
+    runner = shlex.quote(f"{srv_dir}/runner")
+    marker = shlex.quote(f"{srv_dir}/runner/disabled")
+    return (
+        f'if [ "$(find {base} {runner} -maxdepth 0 -type d -uid 0 ! -perm /022 2>/dev/null '
+        f'| wc -l)" -eq 2 ] && [ -n "$(find {marker} -maxdepth 0 -type f -uid 0 '
+        '! -perm /022 2>/dev/null)" ]; then echo disabled=1; else echo disabled=0; fi'
+    )
+
+
+DISABLED_PROBE_CMD = disabled_probe_cmd()
+
+
+def disabled_marker_present(ssh: Any, srv_dir: str = "/srv/dango") -> bool:
+    """True when the server has a valid opt-out marker; any failure is False."""
+    try:
+        result = ssh.exec_command(disabled_probe_cmd(srv_dir), timeout=30)
+    except Exception:
+        return False
+    return bool(result.success) and "disabled=1" in str(result.stdout).split()

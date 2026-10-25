@@ -44,7 +44,8 @@ class TestStatusCommand:
     def test_disabled_shows_who_and_when(self) -> None:
         info = '{"schema": 1, "by": "alice via ssh root@h", "at": "2026-10-25T10:00:00+00:00"}'
         result = invoke(IsoSSH(disabled=True, disabled_info=info), ["status"])
-        out = " ".join(result.output.split())
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        out = " ".join(plain.split())
         assert "alice via ssh root@h" in out
         assert "2026-10-25T10:00:00+00:00" in out
 

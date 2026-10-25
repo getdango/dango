@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import getpass
 import shlex
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import click
@@ -27,8 +29,17 @@ from dango.cli import console
 from dango.platform.cloud import runner_access_scripts as access
 from dango.platform.cloud import runner_isolation as ri
 from dango.platform.cloud import runner_scripts as scripts
+from dango.platform.cloud.isolation_audit import (
+    AUDIT_LOG_DIR,
+    AUDIT_SOURCE,
+    audit_command,
+    journal_command,
+    marker_prefix,
+    ssh_actor,
+)
 from dango.platform.cloud.isolation_status import IsolationStatus, get_isolation
-from dango.platform.run_as import DISABLED_MARKER, PYTHON
+from dango.platform.cloud.upgrade_guard import GUARD_ACTIVE_CMD
+from dango.platform.run_as import DISABLED_MARKER
 
 __all__ = [
     "AUDIT_LOG_DIR",
@@ -40,28 +51,6 @@ __all__ = [
     "stop_web_script",
 ]
 
-#: Directory of the project audit log on a server (owned by the service account).
-AUDIT_LOG_DIR = "/srv/dango/project/.dango/logs"
-#: Run by the service account.  ``log_auth_event`` swallows write errors, so the last line is
-#: read back: a missing entry is a non-zero exit, which the caller turns into a warning.
-AUDIT_SOURCE = (
-    "import json, sys\n"
-    "from pathlib import Path\n"
-    "from dango.auth.audit import AuditEvent, log_auth_event\n"
-    "event, actor, server = sys.argv[1:4]\n"
-    f"log_dir = Path({AUDIT_LOG_DIR!r})\n"
-    "log_auth_event(\n"
-    "    AuditEvent(event),\n"
-    "    details={'actor': actor, 'server': server, 'source': 'dango remote isolation'},\n"
-    "    log_dir=log_dir,\n"
-    ")\n"
-    "with open(log_dir / 'audit.jsonl', 'rb') as fh:\n"
-    "    fh.seek(0, 2)\n"
-    "    fh.seek(max(0, fh.tell() - 8192))\n"
-    "    last = json.loads(fh.read().decode('utf-8').splitlines()[-1])\n"
-    "ok = last.get('event') == event and last.get('details', {}).get('actor') == actor\n"
-    "sys.exit(0 if ok else 1)\n"
-)
 _STEP_TIMEOUT = 60
 _CONFIRM_WORD = "disable"
 _GROUP_STATES = ("group (fallback)", "group (legacy)", "migrating")
@@ -87,24 +76,44 @@ def stop_web_script() -> str:
     )
 
 
-def disable_marker_script(srv_dir: str = scripts.SRV_DIR) -> str:
+def disable_marker_script(
+    srv_dir: str = scripts.SRV_DIR,
+    *,
+    by: str | None = None,
+    at: str | None = None,
+    server: str = "",
+) -> str:
     """Write the opt-out marker: root:root 0644, regular file, temp file then ``mv -f``.
 
     Refuses a symlink at the runner directory, the marker or the temp file, and a directory at
     the marker path.  Only ``<srv>/runner`` is touched (never a path the service account owns).
+    With *by* and *at* the marker's content records who and when (plus the SSH client address
+    seen by the server) in one bounded line, and a copy goes to the journal (best effort).  The
+    content is informational: nothing trusts it for a decision.
     """
     base = scripts.runner_dir(srv_dir)
     marker = _disabled_path(srv_dir)
     tmp = f"{base}/.disabled.tmp"
     q = shlex.quote
+    if by is None:
+        content, journal = f"printf '{{\"schema\": 1}}\\n' >{q(tmp)}\n", ""
+    else:
+        prefix = marker_prefix(by, at or "", server)
+        content = (
+            "S_C=${SSH_CLIENT:-}\n"
+            "C=$(printf %s \"${S_C%% *}\" | tr -cd '0-9a-fA-F.:' | head -c 64)\n"
+            f'printf \'%s, "client": "%s"}}\\n\' {q(prefix)} "$C" >{q(tmp)}\n'
+        )
+        journal = journal_command(AuditEvent.ISOLATION_DISABLED, by, at or "", server)
     return (
         "set -eu\n"
         + scripts._guard([base, marker, tmp])
         + f"[ ! -d {q(marker)} ] || {{ echo 'marker path is a directory' >&2; exit 3; }}\n"
         + f"install -d -o root -g root -m 0755 {q(base)}\n"
         + f"rm -f {q(tmp)}\numask 022\n"
-        + f"printf '{{\"schema\": 1}}\\n' >{q(tmp)}\n"
+        + content
         + f"chown root:root {q(tmp)}\nchmod 0644 {q(tmp)}\nmv -f {q(tmp)} {q(marker)}\n"
+        + journal
     )
 
 
@@ -120,25 +129,13 @@ def remove_disabled_script(srv_dir: str = scripts.SRV_DIR) -> str:
     )
 
 
-def audit_command(event: AuditEvent, actor: str, server: str) -> str:
-    """Shell command (for a root session) that writes *event* as the service account.
-
-    Fixed source, fixed interpreter, ``-I`` (no environment or cwd imports), arguments quoted;
-    no secrets are passed.
-    """
-    return (
-        f"cd / && runuser -u {scripts.SERVICE_USER} -- {PYTHON} -I -c {shlex.quote(AUDIT_SOURCE)} "
-        f"{shlex.quote(event.value)} {shlex.quote(actor)} {shlex.quote(server)}"
-    )
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _connect(ctx: click.Context) -> tuple[Any, Any]:
-    """Load the cloud config and connect to the server as root; exits 1 on failure."""
+def _connect(ctx: click.Context) -> tuple[Any, Any, str]:
+    """Load the cloud config, connect as root; returns ``(config, ssh, actor)``, exits 1 on failure."""
     from dango.cli.commands.remote_mgmt import _load_cloud_config_with_ip, _make_ssh_manager
 
     cloud_cfg, project_root = _load_cloud_config_with_ip(ctx)
@@ -148,7 +145,22 @@ def _connect(ctx: click.Context) -> tuple[Any, Any]:
     except Exception as exc:
         console.print(f"[red]Error:[/red] Cannot connect to server: {exc}")
         raise SystemExit(1) from exc
-    return cloud_cfg, ssh
+    actor = ssh_actor(cloud_cfg, project_root, str(cloud_cfg.droplet_ip), getpass.getuser())
+    return cloud_cfg, ssh, actor
+
+
+def _refuse_during_upgrade(ssh: Any) -> None:
+    """Exit 1 when an upgrade guard is active: arming ours would cancel its dead-man timer."""
+    try:
+        active = bool(ssh.exec_command(GUARD_ACTIVE_CMD, timeout=30).success)
+    except Exception:
+        active = False
+    if active:
+        console.print(
+            "[red]Error:[/red] A `dango remote upgrade` (or another isolation change) seems to be "
+            "running on this server. Wait for it to finish and run the command again."
+        )
+        raise SystemExit(1)
 
 
 def _require_known(status: IsolationStatus) -> None:
@@ -164,11 +176,14 @@ def _executor(ssh: Any, guard: Any) -> Any:
     return ri.executor(ssh, guard.rearm)
 
 
-def _record_audit(ssh: Any, event: AuditEvent, ip: str) -> None:
-    """Write the audit event on the server; a failure only prints a warning."""
-    actor = f"{getpass.getuser()} via ssh root@{ip}"
+def _record_audit(ssh: Any, event: AuditEvent, ip: str, actor: str) -> None:
+    """Write the audit event on the server; a failure only prints a warning.
+
+    A fresh nonce is read back, so a stale identical line cannot count as success.
+    """
+    command = audit_command(event, actor, ip, uuid.uuid4().hex)
     try:
-        ok = bool(ssh.exec_command(audit_command(event, actor, ip), timeout=_STEP_TIMEOUT).success)
+        ok = bool(ssh.exec_command(command, timeout=_STEP_TIMEOUT).success)
     except Exception:
         ok = False
     if not ok:
@@ -225,13 +240,17 @@ def isolation_status(ctx: click.Context) -> None:
     Example:
       dango remote isolation status
     """
-    _, ssh = _connect(ctx)
+    _, ssh, _actor = _connect(ctx)
     try:
         status = get_isolation(ssh)
     finally:
         ssh.disconnect()
     yes_no = {True: "yes", False: "no", None: "unknown"}
     console.print(f"Isolation: {status.state}")
+    if status.disabled_by or status.disabled_at:
+        console.print(
+            f"Opt-out recorded by: {status.disabled_by or '?'} at {status.disabled_at or '?'}"
+        )
     console.print(f"Loopback: {status.loopback}")
     console.print("Runner pieces:")
     console.print(f"  Runner users: {status.users or 'unknown'} of 2 present")
@@ -260,14 +279,28 @@ def isolation_disable(ctx: click.Context, yes: bool) -> None:
     from dango.platform.cloud.server_status import docker_access_state
     from dango.platform.cloud.upgrade_guard import UpgradeGuard
 
-    cloud_cfg, ssh = _connect(ctx)
+    cloud_cfg, ssh, actor = _connect(ctx)
     ip = str(cloud_cfg.droplet_ip)
     try:
         status = get_isolation(ssh)
         _require_known(status)
         if status.state == "disabled":
-            console.print("Isolation is already disabled on this server; nothing to do.")
+            # the marker is in force; a re-run still ends leftover runner processes
+            swept = ri.run_steps(
+                [ri.Step("quiesce", access.quiesce_script(stop_web=False))], ri.executor(ssh, None)
+            )
+            if swept.failed:
+                console.print(
+                    "[red]Error:[/red] Isolation is already disabled, but runner processes could "
+                    f"not be ended ({swept.detail or swept.failed}). Run the command again."
+                )
+                raise SystemExit(1)
+            console.print(
+                "Isolation is already disabled on this server; leftover runner processes, if "
+                "any, were ended."
+            )
             return
+        _refuse_during_upgrade(ssh)
         for line in _exposure_warning(docker_access_state(ssh)):
             console.print(f"[yellow]Warning:[/yellow] {line}")
         if not yes:
@@ -284,7 +317,12 @@ def isolation_disable(ctx: click.Context, yes: bool) -> None:
         steps = [
             ri.Step("ownership_check", access.ownership_precheck_script()),
             ri.Step("stop_web", stop_web_script()),
-            ri.Step("disable_marker", disable_marker_script()),
+            ri.Step(
+                "disable_marker",
+                disable_marker_script(
+                    by=actor, at=datetime.now(timezone.utc).isoformat(timespec="seconds"), server=ip
+                ),
+            ),
             # runner processes that outlived the stop are ended before the service returns
             ri.Step("quiesce", access.quiesce_script(stop_web=False)),
         ]
@@ -297,7 +335,7 @@ def isolation_disable(ctx: click.Context, yes: bool) -> None:
         _print_warnings(warnings)
         in_force = "disable_marker" in outcome.attempted and outcome.failed != "disable_marker"
         if in_force:
-            _record_audit(ssh, AuditEvent.ISOLATION_DISABLED, ip)
+            _record_audit(ssh, AuditEvent.ISOLATION_DISABLED, ip, actor)
         if outcome.failed is None:
             console.print(
                 "[green]Isolation disabled.[/green] Scripts and notebooks now run as dango."
@@ -331,7 +369,7 @@ def isolation_enable(ctx: click.Context) -> None:
     """
     from dango.platform.cloud.upgrade_guard import UpgradeGuard
 
-    cloud_cfg, ssh = _connect(ctx)
+    cloud_cfg, ssh, actor = _connect(ctx)
     ip = str(cloud_cfg.droplet_ip)
     try:
         status = get_isolation(ssh)
@@ -339,6 +377,7 @@ def isolation_enable(ctx: click.Context) -> None:
         if status.state == "on":
             console.print("Isolation is already enabled on this server; nothing to do.")
             return
+        _refuse_during_upgrade(ssh)
         if not ri.build_present(ssh):
             console.print(
                 f"[red]Error:[/red] {ri.ISOLATION_MARK}: {ri.BUILD_MISSING}. "
@@ -365,7 +404,7 @@ def isolation_enable(ctx: click.Context) -> None:
         warnings.extend(outcome.warnings)
         _print_warnings(warnings)
         if outcome.enabled and removed:
-            _record_audit(ssh, AuditEvent.ISOLATION_ENABLED, ip)
+            _record_audit(ssh, AuditEvent.ISOLATION_ENABLED, ip, actor)
             console.print(f"[green]{ri.status_line(outcome)}[/green]")
             return
         if outcome.enabled:

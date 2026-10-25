@@ -1147,6 +1147,7 @@ def _write_script_logs(
     run_id: str,
     started_at: datetime,
     error: str | None = None,
+    unisolated: bool = False,
 ) -> None:
     """Write script stdout, stderr, and metadata to log files. Never raises."""
     import json as _json
@@ -1180,6 +1181,7 @@ def _write_script_logs(
             "exit_code": exit_code if exit_code is not None else -1,
             "status": status,
             "error": error,
+            **({"unisolated": True} if unisolated else {}),
         }
         (log_dir / "meta.json").write_text(_json.dumps(meta))
 
@@ -1374,6 +1376,7 @@ def run_scheduled_script(
                 run_id,
                 started_at,
                 error=f"Script timed out after {_script_timeout}s",
+                unisolated=started.unisolated,
             )
             log_activity(project_root, "error", script_label, "Scheduled script timed out")
             _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
@@ -1422,6 +1425,7 @@ def run_scheduled_script(
             run_id,
             started_at,
             error=error_msg,
+            unisolated=started.unisolated,
         )
 
         if exit_code == 0:

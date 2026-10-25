@@ -31,6 +31,12 @@ DISARM_ALL = (
     f"systemctl reset-failed '{GUARD_PREFIX}-*' 2>/dev/null; true"
 )
 
+# Exit 0 when an upgrade guard (timer or fired, still-waiting service) is active: a ``remote
+# upgrade`` is probably running, and arming another guard would cancel its dead-man timer.
+GUARD_ACTIVE_CMD = (
+    f"systemctl list-units --no-legend --plain '{GUARD_PREFIX}-*' 2>/dev/null | grep -q ."
+)
+
 # The guard action waits (120 x 15 s = 30 min at most) while an upgrade step still runs, then
 # starts dango-web.  The [p]/[d]/[a] brackets keep pgrep from matching this sh's own command line.
 GUARD_ACTION = (

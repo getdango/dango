@@ -107,8 +107,28 @@ class IsolationRequiredError(DangoError):
         super().__init__(ISOLATION_MISSING_MESSAGE)
 
 
+def _closed_dir(path: str) -> bool:
+    """True when *path* is a real directory owned by root that nobody else can write."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return (
+        stat.S_ISDIR(st.st_mode)
+        and st.st_uid == _ROOT_UID
+        and not st.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+    )
+
+
 def _marker_valid(path: str) -> bool:
-    """True when *path* is a root-owned regular file nobody else can write (no symlinks)."""
+    """True when *path* is a root-owned regular file nobody else can write (no symlinks).
+
+    The two directories above it (``/srv/dango/runner`` and ``/srv/dango``) must be closed
+    root-owned directories too, or a service account could swap one for a link.
+    """
+    parent = os.path.dirname(path)
+    if not (_closed_dir(parent) and _closed_dir(os.path.dirname(parent))):
+        return False
     try:
         st = os.lstat(path)
     except OSError:
@@ -123,20 +143,18 @@ def _marker_valid(path: str) -> bool:
 def isolation_state() -> IsolationState:
     """How user code is run on this host.
 
-    ``local``: not a cloud server, nothing changes.  ``disabled``: a valid
-    opt-out marker exists (an admin's explicit opt-out wins over ``on``).  ``on``:
-    a valid runner marker exists.  ``missing``: a cloud server with neither, where
-    user code must be refused.
+    The root-owned markers decide first, so a process without ``DANGO_CLOUD_MODE`` cannot
+    run user code unisolated on a server that has them.  ``disabled``: a valid opt-out marker
+    (an admin's explicit opt-out wins over ``on``).  ``on``: a valid runner marker.  With
+    neither, ``missing`` on a cloud server (user code must be refused) and ``local`` elsewhere.
     """
     from dango.config.helpers import is_running_on_cloud
 
-    if not is_running_on_cloud():
-        return "local"
     if _marker_valid(DISABLED_MARKER):
         return "disabled"
     if _marker_valid(MARKER):
         return "on"
-    return "missing"
+    return "missing" if is_running_on_cloud() else "local"
 
 
 def require_isolation_ready() -> IsolationState:

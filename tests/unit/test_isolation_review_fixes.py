@@ -8,6 +8,7 @@ prints the refusal without a traceback.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -118,7 +119,8 @@ class TestScheduledRunLabel:
 class TestFriendlyRefusal:
     def _assert_friendly(self, result: Any) -> None:
         assert result.exit_code == 1, result.output
-        assert _MESSAGE in " ".join(result.output.split())
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert _MESSAGE in " ".join(plain.split())
         assert "Traceback" not in result.output
         assert not isinstance(result.exception, run_as.IsolationRequiredError)
 

@@ -149,6 +149,7 @@ def notebook_open(ctx: click.Context, name: str) -> None:
         start_marimo,
     )
     from dango.notebooks.snapshot import create_snapshot
+    from dango.platform.run_as import IsolationRequiredError
 
     project_root = require_project_context(ctx)
     notebooks_dir = project_root / "notebooks"
@@ -209,6 +210,9 @@ def notebook_open(ctx: click.Context, name: str) -> None:
 
         console.print("\n[dim]Press Ctrl+C to release lock and exit.[/dim]")
         stop_event.wait()
+    except IsolationRequiredError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise click.Abort() from exc
     except KeyboardInterrupt:  # noqa: BLE001
         pass
     finally:
