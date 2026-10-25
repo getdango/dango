@@ -32,6 +32,7 @@ from dango.platform.cloud.backup_restore import (
     AUTH_CONFIG_MAX_BYTES,
     AUTH_CONFIG_OVERSIZED_WARNING,
     AUTH_CONFIG_SKIPPED_WARNING,
+    RESTORE_PRIVATE_ROOT,
     SANITIZED_METABASE_NAME,
     SERVICE_USER,
     auth_config_keeps_auth_on,
@@ -41,8 +42,9 @@ from dango.platform.cloud.backup_restore import (
     copy_file_cmd,
     extract_checked_archive,
     hand_staging_to_service_user_cmd,
+    private_dir_cmd,
     prune_backup_staging_cmd,
-    restore_dir_cmd,
+    restore_backup_dir_cmd,
     restore_file_cmd,
     restore_volume_file_cmd,
     set_aside_pipeline_state_cmd,
@@ -72,8 +74,8 @@ VENV_PYTHON = "/srv/dango/venv/bin/python"
 #: The same interpreter as the service user, for work on files that user owns.
 SERVICE_PYTHON = f"cd / && runuser -u dango -- {VENV_PYTHON} -I"
 MAX_LOCAL_BACKUPS = 1
-#: Parent of the generated per-restore staging directories.
-RESTORE_STAGING_ROOT = "/tmp"
+#: Root-only parent of the generated per-restore upload, staging and scratch directories.
+RESTORE_STAGING_ROOT = RESTORE_PRIVATE_ROOT
 #: Parent of the private (``mktemp -d``, 0700) per-backup staging directories.
 BACKUP_STAGING_ROOT = "/tmp"
 #: Shown when the compose helper reports that another Docker operation holds its lock.
@@ -967,7 +969,7 @@ def restore_from_archive(
     # leaves the server untouched (no safety backup, services still running).
     # Generated, unique staging dir: independent of the archive's file name
     # and of the top-level directory name inside the archive.
-    staging = f"{RESTORE_STAGING_ROOT}/dango-restore-staging-{uuid.uuid4().hex}"
+    staging = make_private_dir(ssh, "dango-restore-staging", service_access=True)
     _notify(on_progress, "extract_archive", "running")
     extract_checked_archive(
         ssh,
@@ -1018,6 +1020,7 @@ def restore_from_archive(
     services_restarted = False
     copies_started = False
     private_dir = ""
+    kept_dir = ""
     moved_aside: list[str] = []
     stamp = time.strftime("%Y%m%d-%H%M%S")
     try:
@@ -1027,10 +1030,11 @@ def restore_from_archive(
             # (never into staging or the project tree), then let the service user read it.
             metabase_source = f"{staging}/{METABASE_CONFIG_FILE}"
             if ssh.exec_command(f"test -f {shlex.quote(metabase_source)}").success:
-                made = ssh.exec_command("mktemp -d")
-                private_dir = made.stdout.strip() if made.success else ""
-                if not private_dir.startswith("/"):
+                try:
+                    private_dir = make_private_dir(ssh, "dango-restore-meta", service_access=True)
+                except CloudProvisioningError:
                     private_dir = ""
+                if not private_dir:
                     warnings.append("Metabase metadata omitted: no private temporary directory")
                 else:
                     sanitized = f"{private_dir}/{SANITIZED_METABASE_NAME}"
@@ -1040,10 +1044,11 @@ def restore_from_archive(
                     q_file = shlex.quote(sanitized)
                     _run_checked(
                         ssh,
-                        f"if [ -f {q_file} ]; then chown {SERVICE_USER}:{SERVICE_USER} {q_file};"
-                        f" fi && chmod 711 {shlex.quote(private_dir)}",
+                        f"if [ -f {q_file} ]; then chown {SERVICE_USER}:{SERVICE_USER} {q_file}; fi",
                         step="restore_files",
                     )
+            # The old notebooks/ is renamed into a directory no runner can reach, not deleted.
+            kept_dir = make_private_dir(ssh, "dango-restore-kept", service_write=True)
             # Project files are written as the service user, which owns the project tree.
             copies_started = True
             _run_checked(ssh, hand_staging_to_service_user_cmd(staging), step="restore_files")
@@ -1083,7 +1088,7 @@ def restore_from_archive(
                     )
                 )
             for dpath in BACKUP_DIRS:
-                restore_cmds.append(restore_dir_cmd(f"{staging}/{dpath}", f"{PROJECT_DIR}/{dpath}"))
+                restore_cmds.append(restore_backup_dir_cmd(staging, PROJECT_DIR, dpath, kept_dir))
             _run_checked(ssh, " && ".join(restore_cmds), step="restore_files", timeout=300)
             for kept_path in moved_aside:
                 if ssh.exec_command(f"test -e {shlex.quote(kept_path)}").success:
@@ -1116,9 +1121,20 @@ def restore_from_archive(
                 # to the service user before services restart on it.
                 with contextlib.suppress(Exception):  # best effort; keep the original error
                     ssh.exec_command("chown -R dango:dango /srv/dango/project")
+                # notebooks/ may already be recreated without its ACL; put it back before services start
+                from dango.platform.cloud import runner_reapply
+
+                # the error that follows discards `warnings`, so a failed re-apply is logged here
+                seen = len(warnings)
+                try:
+                    runner_reapply.reapply(ssh, warnings)
+                except Exception as reapply_exc:  # keep the original error
+                    warnings.append(f"Runner permissions not re-applied: {reapply_exc}")
+                for note in warnings[seen:]:
+                    _logger.warning("runner_permissions_not_reapplied", detail=note)
             raise
         finally:
-            _remove_leftovers(ssh, [p for p in (staging, private_dir) if p])
+            _remove_leftovers(ssh, [p for p in (staging, private_dir, kept_dir) if p])
     finally:
         try:
             _notify(on_progress, "start_services", "running")
@@ -1149,6 +1165,27 @@ def restore_from_archive(
     )
 
 
+def make_private_dir(
+    ssh: SSHManager, prefix: str, *, service_access: bool = False, service_write: bool = False
+) -> str:
+    """Create a fresh, uniquely named directory under :data:`RESTORE_STAGING_ROOT`; return its path.
+
+    Root-only (``0700``), or ``root:dango 0750`` with *service_access* so the service user can
+    read what root hands it there (``0770`` with *service_write*).  Removed again if it could not be fully set up.
+    """
+    path = f"{RESTORE_STAGING_ROOT}/{prefix}-{uuid.uuid4().hex}"
+    result = ssh.exec_command(
+        private_dir_cmd(path, service_access=service_access, service_write=service_write)
+    )
+    if not result.success:
+        _remove_leftovers(ssh, [path])
+        raise CloudProvisioningError(
+            f"Could not create a private directory for the restore: "
+            f"{result.stderr.strip() or f'exit {result.exit_code}'}"
+        )
+    return path
+
+
 def _remove_leftovers(ssh: SSHManager, paths: list[str]) -> None:
     """Best-effort ``rm -rf`` of temporary directories; a failure is logged, never raised.
 
@@ -1170,15 +1207,17 @@ def _auth_config_refusal(ssh: SSHManager, staging: str) -> str | None:
     Refused when it is larger than :data:`AUTH_CONFIG_MAX_BYTES` (too large to check in
     full) or does not say ``enabled: true``; an absent file needs no warning.
     """
+    # Read as the service user: it owns the staged tree, so root never reads a path it could
+    # have turned into a link.
     staged = shlex.quote(f"{staging}/{AUTH_CONFIG_FILE}")
-    if not ssh.exec_command(f"test -f {staged}").success:
+    if not ssh.exec_command(f"{AS_SERVICE_USER} test -f {staged}").success:
         return None
-    size = ssh.exec_command(f"wc -c < {staged}")
+    size = ssh.exec_command(f"{AS_SERVICE_USER} cat {staged} | wc -c")
     if not size.success or not size.stdout.strip().isdigit():
         return AUTH_CONFIG_SKIPPED_WARNING
     if int(size.stdout.strip()) > AUTH_CONFIG_MAX_BYTES:
         return AUTH_CONFIG_OVERSIZED_WARNING
-    result = ssh.exec_command(f"cat {staged}")
+    result = ssh.exec_command(f"{AS_SERVICE_USER} cat {staged}")
     if result.success and auth_config_keeps_auth_on(result.stdout):
         return None
     return AUTH_CONFIG_SKIPPED_WARNING
@@ -1196,11 +1235,18 @@ _STALE_STAGING_MINUTES = 360
 def _sweep_stale_leftovers(ssh: SSHManager) -> None:
     """Remove what a backup or restore whose client died could not clean up.
 
-    ``find`` never follows links; only root-owned entries directly in ``/tmp`` and the
+    ``find`` never follows links; only root-owned entries directly in ``/tmp``, the private restore directory and the
     backup directory are touched.
     """
     names = " -o ".join(
-        f"-name {shlex.quote(n)}" for n in ("dango-backup.*", "dango-restore-staging-*")
+        f"-name {shlex.quote(n)}"
+        for n in (
+            "dango-backup.*",
+            "dango-restore-staging-*",
+            "dango-restore-upload-*",
+            "dango-restore-meta-*",
+            "dango-restore-kept-*",
+        )
     )
     backup_dir = shlex.quote(BACKUP_DIR)
     orphan_manifests = (
@@ -1211,7 +1257,8 @@ def _sweep_stale_leftovers(ssh: SSHManager) -> None:
         f" -name {shlex.quote('backup-*.tar.gz.partial')} -mmin +{_STALE_FILE_MINUTES} -delete",
         f"find {backup_dir} -maxdepth 1 -type f -name {shlex.quote('backup-*.json')}"
         f" -mmin +{_STALE_FILE_MINUTES} -exec sh -c {shlex.quote(orphan_manifests)} sh {{}} +",
-        f"find /tmp -maxdepth 1 -type d -user root \\( {names} \\)"
+        f"find /tmp {shlex.quote(RESTORE_STAGING_ROOT)} -maxdepth 1 -type d -user root"
+        f" \\( {names} \\)"
         f" -mmin +{_STALE_STAGING_MINUTES} -exec rm -rf {{}} +",
     ):
         try:

@@ -247,14 +247,112 @@ def restore_file_cmd(src: str, dest: str, before: list[str] | None = None) -> st
     return f"if [ -f {shlex.quote(src)} ]; then {' && '.join(steps)}; fi"
 
 
-def restore_dir_cmd(src: str, dest: str) -> str:
-    """Shell step merging directory *src* into project path *dest* as the service user."""
+#: Project directories a restore replaces instead of merging into: a restricted runner can
+#: write them, so a merge could follow a link it planted and overwrite another file.
+REPLACE_ON_RESTORE = ("notebooks",)
+SAME_FILESYSTEM_ERROR = (
+    "restore refused: the project directory and the restore holding area are on different "
+    "filesystems, so the old directory cannot be moved aside by a rename"
+)
+
+
+def restore_dir_cmd(src: str, dest: str, *, replace: bool = False, kept: str | None = None) -> str:
+    """Shell step restoring directory *src* to project path *dest* as the service user.
+
+    Merges by default.  With *replace*, the old *dest* is renamed to *kept* (a path that does
+    not exist yet, in a directory runners cannot reach; a symlinked *dest* is renamed as a
+    link, never followed), then *dest* is recreated and filled.  A rename needs no access to
+    the contents, so nothing a runner planted inside can block it.  If the copy fails the
+    old directory is put back.  The caller removes *kept* and re-applies any ACL the new
+    directory lost.
+    """
     q_dest = shlex.quote(dest)
     q_src = shlex.quote(src)
-    return (
-        f"if [ -d {q_src} ] && [ ! -L {q_src} ]; then {AS_SERVICE_USER} mkdir -p {q_dest}"
-        f" && {AS_SERVICE_USER} cp -RP {shlex.quote(src + '/.')} {q_dest}/; fi"
+    copy = f"{AS_SERVICE_USER} cp -RP {shlex.quote(src + '/.')} {q_dest}/"
+    if replace:
+        if not kept:
+            raise ValueError("replace needs a 'kept' path outside the project")
+        q_kept = shlex.quote(kept)
+        q_failed = shlex.quote(kept + ".failed")
+        q_kept_dir = shlex.quote(kept.rsplit("/", 1)[0])
+        same_fs = (
+            f'[ "$({AS_SERVICE_USER} stat -c %d {q_dest})"'
+            f' = "$({AS_SERVICE_USER} stat -c %d {q_kept_dir})" ]'
+        )
+        refuse = f"echo {shlex.quote(SAME_FILESYSTEM_ERROR)} >&2; false"
+        # A rename across filesystems degrades to copy-then-delete, which a runner can interrupt.
+        aside = (
+            f"if [ -e {q_dest} ] || [ -L {q_dest} ]; then"
+            f" {{ {same_fs} || {{ {refuse}; }}; }} && {AS_SERVICE_USER} mv {q_dest} {q_kept}; fi"
+        )
+        # Runner-planted read-only or mode-000 directories in the archive must not block the copy.
+        fill = (
+            f"{{ {AS_SERVICE_USER} mkdir -m 0755 {q_dest}"
+            f" && {AS_SERVICE_USER} chmod -R u+rwX {q_src} && {copy}; }}"
+        )
+        # The half-copied directory is renamed aside, never emptied in place: a rename does
+        # not depend on what the directory contains.
+        undo = (
+            f"{{ {AS_SERVICE_USER} mv {q_dest} {q_failed};"
+            f" if {{ [ -e {q_kept} ] || [ -L {q_kept} ]; }} && [ ! -e {q_dest} ] && [ ! -L {q_dest} ];"
+            f" then {AS_SERVICE_USER} mv {q_kept} {q_dest}; fi; false; }}"
+        )
+        steps = [aside, f"{{ {fill} || {undo}; }}"]
+    else:
+        steps = [f"{AS_SERVICE_USER} mkdir -p {q_dest}", copy]
+    return f"if [ -d {q_src} ] && [ ! -L {q_src} ]; then {' && '.join(steps)}; fi"
+
+
+def restore_backup_dir_cmd(
+    staging: str, project_dir: str, rel: str, kept_dir: str | None = None
+) -> str:
+    """Shell step restoring backed-up directory *rel* from *staging* into *project_dir*.
+
+    A replaced directory's old contents are renamed into *kept_dir* (see :func:`restore_dir_cmd`).
+    """
+    replace = rel in REPLACE_ON_RESTORE
+    return restore_dir_cmd(
+        f"{staging}/{rel}",
+        f"{project_dir}/{rel}",
+        replace=replace,
+        kept=f"{kept_dir}/{rel}" if replace and kept_dir else None,
     )
+
+
+#: Root-only parent of the restore upload and staging directories (``/srv/dango`` is root 0755).
+#: Group ``dango`` may traverse it, nobody else: restricted runners are not in that group.
+RESTORE_PRIVATE_ROOT = "/srv/dango/.restore"
+#: The root-owned directory holding it; refused unless root owns it and nobody else can write it.
+SRV_ROOT = "/srv/dango"
+_SRV_UNTRUSTED = "\\( -type l -o ! -user root -o -perm -020 -o -perm -002 \\)"
+
+
+def private_dir_cmd(path: str, *, service_access: bool = False, service_write: bool = False) -> str:
+    """Shell step creating the new directory *path* under :data:`RESTORE_PRIVATE_ROOT`, root-only.
+
+    The parent is created ``root:dango 0710`` (never through a link) and *path* ``0700 root``.
+    With *service_access* it is ``root:dango 0750`` so the service user can read what root hands
+    it there; entries inside are never listable by any other user.  *service_write* makes it
+    ``root:dango 0770`` so the service user can also move things into it.  An existing *path*
+    fails, and so does a ``/srv/dango`` that is a link, not root-owned or writable by others.
+    """
+    root = path.rsplit("/", 1)[0]
+    q_root, q_path = shlex.quote(root), shlex.quote(path)
+    steps = [
+        f'[ -z "$(find {SRV_ROOT} -maxdepth 0 {_SRV_UNTRUSTED} -print)" ]',
+        f"[ ! -L {q_root} ]",
+        f"(umask 077; mkdir -p {q_root})",
+        f"chown root:{SERVICE_USER} {q_root}",
+        f"chmod 0710 {q_root}",
+    ]
+    if service_access or service_write:
+        steps += [
+            f"mkdir -m {'0770' if service_write else '0750'} {q_path}",
+            f"chown root:{SERVICE_USER} {q_path}",
+        ]
+    else:
+        steps.append(f"mkdir -m 0700 {q_path}")
+    return " && ".join(steps)
 
 
 def clear_metabase_lock_state_cmd(project_dir: str) -> str:
