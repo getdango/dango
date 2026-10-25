@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import click
+from rich.markup import escape
 
 from dango.auth.audit import AuditEvent
 from dango.cli import console
@@ -38,7 +39,7 @@ from dango.platform.cloud.isolation_audit import (
     ssh_actor,
 )
 from dango.platform.cloud.isolation_status import IsolationStatus, get_isolation
-from dango.platform.cloud.upgrade_guard import GUARD_ACTIVE_CMD
+from dango.platform.cloud.upgrade_guard import GUARD_PREFIX, GUARD_WINDOW, UpgradeGuard
 from dango.platform.run_as import DISABLED_MARKER
 
 __all__ = [
@@ -143,24 +144,100 @@ def _connect(ctx: click.Context) -> tuple[Any, Any, str]:
     try:
         ssh.connect(cloud_cfg.droplet_ip)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Cannot connect to server: {exc}")
+        console.print(f"[red]Error:[/red] Cannot connect to server: {escape(str(exc))}")
         raise SystemExit(1) from exc
     actor = ssh_actor(cloud_cfg, project_root, str(cloud_cfg.droplet_ip), getpass.getuser())
     return cloud_cfg, ssh, actor
 
 
-def _refuse_during_upgrade(ssh: Any) -> None:
-    """Exit 1 when an upgrade guard is active: arming ours would cancel its dead-man timer."""
+class _OwnedGuard(UpgradeGuard):
+    """An :class:`UpgradeGuard` whose unit names say which isolation command armed them."""
+
+    def __init__(self, ssh: Any, warnings: list[str], owner: str) -> None:
+        super().__init__(ssh, warnings)
+        self.owner = owner
+        # a random suffix tells two runs of the same command in the same second apart
+        self.tag = f"{owner}-{self._run_id}-{uuid.uuid4().hex[:6]}"
+        self._run_id = self.tag
+
+
+_LIST_GUARDS = f"systemctl list-units --no-legend --plain '{GUARD_PREFIX}-*' 2>/dev/null; true"
+#: A same-command guard armed less than the full guard window ago may belong to a live run: steps
+#: can take minutes and a failed warn step does not re-arm.  Older means the guard has expired.
+_LIVE_WITHIN = int(GUARD_WINDOW.removesuffix("m")) * 60
+_AGE_CMD = (
+    "t=$(systemctl show -p ActiveEnterTimestamp --value '{unit}' 2>/dev/null) && [ -n \"$t\" ]"
+    ' && echo $(( $(date +%s) - $(date -d "$t" +%s) ))'
+)
+_OWNERS = {
+    "isolation-disable": "dango remote isolation disable",
+    "isolation-enable": "dango remote isolation enable",
+}
+
+
+def _guard_units(ssh: Any) -> list[str]:
+    """Names of the guard units systemd lists (empty when none or unreadable)."""
     try:
-        active = bool(ssh.exec_command(GUARD_ACTIVE_CMD, timeout=30).success)
+        out = str(ssh.exec_command(_LIST_GUARDS, timeout=30).stdout or "")
     except Exception:
-        active = False
-    if active:
+        return []
+    return [line.split()[0] for line in out.splitlines() if line.split()]
+
+
+def _owner_of(unit: str) -> str:
+    """The command that armed *unit*: an isolation owner key, or ``upgrade``."""
+    return next((k for k in _OWNERS if f"{GUARD_PREFIX}-{k}-" in unit), "upgrade")
+
+
+def _age(ssh: Any, unit: str) -> int | None:
+    """Seconds since the guard *unit* was last armed, or None when the server cannot say."""
+    try:
+        out = str(ssh.exec_command(_AGE_CMD.format(unit=unit), timeout=30).stdout or "").strip()
+        return int(out)
+    except Exception:
+        return None
+
+
+def _refuse_if_busy(ssh: Any, owner: str, tag: str | None = None) -> bool:
+    """Exit 1 when another operation holds an upgrade guard; True when a stale leftover was seen.
+
+    A guard of *owner* itself that is clearly stale (armed more than ``_LIVE_WITHIN`` seconds ago)
+    is the leftover of a killed run of the same command: arming replaces it.  A recent one, or one
+    whose age is unknown, may be a live run of the same command, so it blocks like any other
+    operation's guard.  This is a check, not a lock: an operation that starts between the check
+    and the arm is only caught by the second call right after arming (*tag* is this run's guard).
+    """
+    units = [u for u in _guard_units(ssh) if tag is None or tag not in u]
+    busy = []
+    for unit in units:
+        age = _age(ssh, unit) if _owner_of(unit) == owner else None
+        if age is None or age <= _LIVE_WITHIN:
+            busy.append(unit)
+    if busy:
+        who = _owner_of(busy[0])
+        label = f"`{_OWNERS[who]}`" if who in _OWNERS else "`dango remote upgrade`"
+        wait = f"{_LIVE_WITHIN // 60} minutes"
         console.print(
-            "[red]Error:[/red] A `dango remote upgrade` (or another isolation change) seems to be "
-            "running on this server. Wait for it to finish and run the command again."
+            f"[red]Error:[/red] {label} seems to be running on this server, or was interrupted "
+            f"(guard {escape(busy[0])}; it expires within {wait}). Wait for it to finish "
+            "and run the command again."
         )
         raise SystemExit(1)
+    return bool(units)
+
+
+def _arm_guard(ssh: Any, warnings: list[str], owner: str) -> _OwnedGuard:
+    """Check, arm and check again; exits 1 when another operation holds a guard."""
+    leftover = _refuse_if_busy(ssh, owner)
+    guard = _OwnedGuard(ssh, warnings, owner)
+    guard.arm()
+    if leftover:
+        console.print(
+            f"Removed a leftover guard from an earlier `{_OWNERS[owner]}` that did not finish."
+        )
+    # an operation that armed in the gap has cancelled ours (or will): its guard is not ours to stop
+    _refuse_if_busy(ssh, owner, guard.tag)
+    return guard
 
 
 def _require_known(status: IsolationStatus) -> None:
@@ -195,7 +272,7 @@ def _record_audit(ssh: Any, event: AuditEvent, ip: str, actor: str) -> None:
 
 def _print_warnings(warnings: list[str]) -> None:
     for warning in dict.fromkeys(warnings):
-        console.print(f"[yellow]Warning:[/yellow] {warning}")
+        console.print(f"[yellow]Warning:[/yellow] {escape(warning)}")
 
 
 def _exposure_warning(docker_access: str) -> list[str]:
@@ -249,7 +326,8 @@ def isolation_status(ctx: click.Context) -> None:
     console.print(f"Isolation: {status.state}")
     if status.disabled_by or status.disabled_at:
         console.print(
-            f"Opt-out recorded by: {status.disabled_by or '?'} at {status.disabled_at or '?'}"
+            f"Opt-out recorded by: {escape(status.disabled_by or '?')} at "
+            f"{escape(status.disabled_at or '?')}"
         )
     console.print(f"Loopback: {status.loopback}")
     console.print("Runner pieces:")
@@ -277,7 +355,6 @@ def isolation_disable(ctx: click.Context, yes: bool) -> None:
       dango remote isolation disable --yes
     """
     from dango.platform.cloud.server_status import docker_access_state
-    from dango.platform.cloud.upgrade_guard import UpgradeGuard
 
     cloud_cfg, ssh, actor = _connect(ctx)
     ip = str(cloud_cfg.droplet_ip)
@@ -300,7 +377,6 @@ def isolation_disable(ctx: click.Context, yes: bool) -> None:
                 "any, were ended."
             )
             return
-        _refuse_during_upgrade(ssh)
         for line in _exposure_warning(docker_access_state(ssh)):
             console.print(f"[yellow]Warning:[/yellow] {line}")
         if not yes:
@@ -311,8 +387,7 @@ def isolation_disable(ctx: click.Context, yes: bool) -> None:
                 console.print("Aborted. Isolation was not changed.")
                 raise click.Abort()
         warnings: list[str] = []
-        guard = UpgradeGuard(ssh, warnings)
-        guard.arm()
+        guard = _arm_guard(ssh, warnings, "isolation-disable")
         was_active = ri.web_is_active(ssh)
         steps = [
             ri.Step("ownership_check", access.ownership_precheck_script()),
@@ -344,12 +419,12 @@ def isolation_disable(ctx: click.Context, yes: bool) -> None:
         if in_force:
             console.print(
                 "[red]Error:[/red] Isolation is disabled, but runner processes could not be ended "
-                f"({outcome.detail or outcome.failed}). Run the command again."
+                f"({escape(outcome.detail or outcome.failed or '')}). Run the command again."
             )
         else:
             console.print(
                 f"[red]Error:[/red] Isolation was not changed: {outcome.failed} failed "
-                f"({outcome.detail or 'no detail'})."
+                f"({escape(outcome.detail or 'no detail')})."
             )
         raise SystemExit(1)
     finally:
@@ -367,8 +442,6 @@ def isolation_enable(ctx: click.Context) -> None:
     Example:
       dango remote isolation enable
     """
-    from dango.platform.cloud.upgrade_guard import UpgradeGuard
-
     cloud_cfg, ssh, actor = _connect(ctx)
     ip = str(cloud_cfg.droplet_ip)
     try:
@@ -377,7 +450,6 @@ def isolation_enable(ctx: click.Context) -> None:
         if status.state == "on":
             console.print("Isolation is already enabled on this server; nothing to do.")
             return
-        _refuse_during_upgrade(ssh)
         if not ri.build_present(ssh):
             console.print(
                 f"[red]Error:[/red] {ri.ISOLATION_MARK}: {ri.BUILD_MISSING}. "
@@ -385,8 +457,7 @@ def isolation_enable(ctx: click.Context) -> None:
             )
             raise SystemExit(1)
         warnings: list[str] = []
-        guard = UpgradeGuard(ssh, warnings)
-        guard.arm()
+        guard = _arm_guard(ssh, warnings, "isolation-enable")
         was_active = ri.web_is_active(ssh)
         removed = True
         try:
@@ -405,7 +476,7 @@ def isolation_enable(ctx: click.Context) -> None:
         _print_warnings(warnings)
         if outcome.enabled and removed:
             _record_audit(ssh, AuditEvent.ISOLATION_ENABLED, ip, actor)
-            console.print(f"[green]{ri.status_line(outcome)}[/green]")
+            console.print(f"[green]{escape(ri.status_line(outcome))}[/green]")
             return
         if outcome.enabled:
             console.print(
@@ -416,7 +487,7 @@ def isolation_enable(ctx: click.Context) -> None:
             kept = (
                 "The server stays disabled." if status.state == "disabled" else "Nothing changed."
             )
-            console.print(f"[red]Error:[/red] {ri.status_line(outcome)}. {kept}")
+            console.print(f"[red]Error:[/red] {escape(ri.status_line(outcome))}. {kept}")
         raise SystemExit(1)
     finally:
         ssh.disconnect()

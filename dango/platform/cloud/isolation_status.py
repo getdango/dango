@@ -15,6 +15,8 @@ import shlex
 from dataclasses import dataclass
 from typing import Any
 
+from rich.markup import escape
+
 _RECORD_MAX_BYTES = 4096
 _INFO_MAX_BYTES = 512
 _FIELD_MAX = 120
@@ -147,12 +149,12 @@ def get_isolation(ssh: Any) -> IsolationStatus:
 
 
 def format_isolation_line(status: IsolationStatus) -> str:
-    """The text after ``Isolation:`` in ``remote status``."""
+    """The text after ``Isolation:`` in ``remote status`` (Rich markup: marker text is escaped)."""
     if status.state == "on":
         return f"on (loopback {status.loopback})"
     if status.state == "disabled":
-        who = f" by {status.disabled_by}" if status.disabled_by else ""
-        when = f" at {status.disabled_at}" if status.disabled_at else ""
+        who = f" by {escape(status.disabled_by)}" if status.disabled_by else ""
+        when = f" at {escape(status.disabled_at)}" if status.disabled_at else ""
         return f"disabled (admin opt-out{who}{when})"
     if status.state == "missing":
         return "NOT enabled: run dango remote upgrade"

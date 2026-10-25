@@ -61,8 +61,18 @@ SUDOERS_TEXT = (
 
 #: ``net.ipv4.ip_local_port_range`` default: where a notebook kernel's loopback listener lives.
 EPHEMERAL_PORTS = "32768-60999"
+PORT_RANGE_FILE = "/proc/sys/net/ipv4/ip_local_port_range"
+#: Dango's fixed loopback ports: Caddy (80, 443, admin 2019), Metabase 3000, the dev server 8080,
+#: dbt-docs 8081 and dango-web 8800.  A host ephemeral range may overlap them, so the notebook
+#: user's ephemeral rule excludes them (the Marimo port 7805 has its own accept rule).  A test
+#: ties this list to the port defaults and the Caddyfile in the code.
+FIXED_LOOPBACK_PORTS = (80, 443, 2019, 3000, 8080, 8081, 8800)
+_FIXED_SET = "{ " + ", ".join(str(p) for p in FIXED_LOOPBACK_PORTS) + " }"
 
-NFT_RULESET = f"""# Installed by Dango: runner users cannot connect to local services, this host or Docker networks.
+
+def nft_ruleset(ports: str = EPHEMERAL_PORTS) -> str:
+    """The loopback ruleset; *ports* (``A-B``) is the notebook user's ephemeral loopback range."""
+    return f"""# Installed by Dango: runner users cannot connect to local services, this host or Docker networks.
 add table inet {NFT_TABLE}
 delete table inet {NFT_TABLE}
 table inet {NFT_TABLE} {{
@@ -72,10 +82,13 @@ table inet {NFT_TABLE} {{
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip daddr 127.0.0.0/8 udp dport 53 accept
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip daddr 127.0.0.0/8 tcp dport 53 accept
     meta skuid "{NB_USER}" ip daddr 127.0.0.1 tcp dport 7805 accept
-    # Dango's own services use fixed low ports (80, 443, 3000, 7805, 8080, 8081, 8800), outside the
-    # ephemeral range.  The notebook server's kernel connects back over loopback on an ephemeral
-    # port, so dango-nb (never dango-run) may reach loopback in that range.
-    meta skuid "{NB_USER}" ip daddr 127.0.0.1 tcp dport {EPHEMERAL_PORTS} accept
+    # Dango's own services use fixed ports (80, 443, 2019, 3000, 8080, 8081, 8800), outside the
+    # default ephemeral range.  The notebook server's kernel connects back over loopback on an
+    # ephemeral port, so dango-nb (never dango-run) may reach loopback in that range; the range is
+    # the host's ephemeral range at install time (the default 32768-60999 when it cannot be read),
+    # except Dango's fixed ports, which stay closed even when the host range overlaps them.  The
+    # range is the host's: other local loopback services inside it are reachable by dango-nb.
+    meta skuid "{NB_USER}" ip daddr 127.0.0.1 tcp dport {ports} tcp dport != {_FIXED_SET} accept
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} oifname "docker0" reject
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} oifname "br-*" reject
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} fib daddr type local reject
@@ -84,6 +97,35 @@ table inet {NFT_TABLE} {{
   }}
 }}
 """
+
+
+NFT_RULESET = nft_ruleset()
+
+
+def ephemeral_range_script(path: str = PORT_RANGE_FILE) -> str:
+    """Shell lines (POSIX ``sh``) that set ``EP`` to the host's ephemeral port range.
+
+    ``EP`` is ``A-B``, or ``A`` when both are equal (nft rejects ``A-A``).  Two plain integers in
+    1024-65535 with ``A <= B`` are used as read; anything else (missing file, garbage, leading
+    zeros, extra fields, out of bounds) gives the default with a warning on stderr.  The file is
+    read with ``cat`` into a variable: dash's ``read`` consumes ``/proc`` one byte at a time and
+    misreads it.  Only digits and one dash reach the ruleset.
+    """
+    default = EPHEMERAL_PORTS
+    return (
+        f"EP={default}; lo=; hi=; extra=; r=\n"
+        f"[ ! -r {q(path)} ] || r=$(cat {q(path)} 2>/dev/null) || r=\n"
+        "read -r lo hi extra <<DANGO_EP_RANGE || true\n"
+        "$r\nDANGO_EP_RANGE\n"
+        'ok=1; for v in "$lo" "$hi"; do case "$v" in\n'
+        "  ''|0*|*[!0-9]*|??????*) ok=0;; esac; done\n"
+        '[ -z "$extra" ] || ok=0\n'
+        '[ "$ok" = 1 ] && [ "$lo" -ge 1024 ] && [ "$hi" -le 65535 ] && [ "$lo" -le "$hi" ] || ok=0\n'
+        'if [ "$ok" = 1 ]; then EP="$lo-$hi"; [ "$lo" -lt "$hi" ] || EP="$lo"; else\n'
+        f'  echo "warning: could not read a valid ephemeral port range from {path}; using {default}"'
+        " >&2\nfi\n"
+    )
+
 
 NFT_UNIT = f"""[Unit]
 Description=Dango runner loopback rules
@@ -138,10 +180,10 @@ def _homes(srv_dir: str) -> dict[str, str]:
     return {RUN_USER: f"{base}/scripts", NB_USER: f"{base}/nb-home"}
 
 
-def _heredoc(tmp: str, text: str, tag: str) -> str:
+def _heredoc(tmp: str, text: str, tag: str, *, expand: bool = False) -> str:
     if tag in text:
         raise ValueError("heredoc tag appears in the text")
-    return f"cat >{q(tmp)} <<'{tag}'\n{text}{tag}\n"
+    return f"cat >{q(tmp)} <<{tag if expand else repr(tag)}\n{text}{tag}\n"
 
 
 def _guard(paths: list[str]) -> str:
@@ -267,7 +309,9 @@ def nft_install_script() -> str:
         + f"[ -x {NFT_BIN} ] || {{ echo 'nft is not installed' >&2; exit 6; }}\n"
         + _guard([NFT_DIR, NFT_PATH, tmp_rules, UNIT_PATH, tmp_unit])
         + f"install -d -o root -g root -m 0755 {NFT_DIR}\n"
-        + _heredoc(tmp_rules, NFT_RULESET, "DANGO_RUNNER_NFT_EOF")
+        + ephemeral_range_script()
+        # unquoted tag: only ``${EP}`` (digits and one dash, validated above) is expanded
+        + _heredoc(tmp_rules, nft_ruleset("${EP}"), "DANGO_RUNNER_NFT_EOF", expand=True)
         + f"chown root:root {tmp_rules}\nchmod 0644 {tmp_rules}\n"
         + f"{NFT_BIN} -c -f {tmp_rules} || {{ rm -f {tmp_rules}; echo 'nft rules rejected' >&2; exit 6; }}\n"
         + f"mv -f {tmp_rules} {NFT_PATH}\n"

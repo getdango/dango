@@ -28,7 +28,10 @@ from tests.unit.test_runner_review2 import _check_run, _clean_state, _paths
 
 pytestmark = pytest.mark.unit
 
-NB_EPHEMERAL = 'meta skuid "dango-nb" ip daddr 127.0.0.1 tcp dport 32768-60999 accept'
+NB_EPHEMERAL = (
+    'meta skuid "dango-nb" ip daddr 127.0.0.1 tcp dport 32768-60999'
+    " tcp dport != { 80, 443, 2019, 3000, 8080, 8081, 8800 } accept"
+)
 
 
 @pytest.fixture
@@ -63,7 +66,7 @@ def test_script_user_gets_no_loopback_accept_except_dns() -> None:
 def test_ephemeral_range_leaves_the_fixed_dango_ports_blocked() -> None:
     assert not any(32768 <= port <= 60999 for port in (80, 443, 3000, 7805, 8080, 8081, 8800))
     text = rs.NFT_RULESET
-    assert "fixed low ports" in text and "kernel" in text
+    assert "fixed ports" in text and "kernel" in text
 
 
 # --- H-2: no ssh login for the runners, no user manager -----------------------------------------

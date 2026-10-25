@@ -1235,6 +1235,7 @@ def run_scheduled_script(
     timeout_minutes = int(configured_timeout if configured_timeout is not None else 30)
 
     record_id: int | None = None
+    started: Any = None  # set once the script launched; later exits then carry its isolation label
 
     try:
         # Resolve and validate script path
@@ -1516,6 +1517,7 @@ def run_scheduled_script(
                 run_id=run_id,
                 started_at=started_at,
                 error=str(exc) or "Job timed out (APScheduler limit)",
+                unisolated=bool(started and started.unisolated),
             )
         log_activity(project_root, "error", script_label, "Scheduled script timed out")
         _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
@@ -1557,6 +1559,7 @@ def run_scheduled_script(
                 run_id=run_id,
                 started_at=started_at,
                 error=str(exc) or "Script run was cancelled",
+                unisolated=bool(started and started.unisolated),
             )
         log_activity(project_root, "warning", script_label, "Scheduled script cancelled")
         _try_finish_record(project_root, schedule_name, record_id, "record_cancellation")
@@ -1599,6 +1602,7 @@ def run_scheduled_script(
                 run_id=run_id,
                 started_at=started_at,
                 error=error_msg,
+                unisolated=bool(started and started.unisolated),
             )
         log_activity(
             project_root,
