@@ -68,6 +68,7 @@ class IsoSSH:
         guard_active: bool = False,
         guard_units: list[str] | None = None,
         after_arm: list[str] | None = None,
+        unit_ages: dict[str, int | None] | None = None,
         fail_detail: str = "last line",
     ) -> None:
         self.disabled_info = disabled_info
@@ -78,6 +79,8 @@ class IsoSSH:
             self.units.append(f"{GUARD_PREFIX}-20261025T000000Z.timer")
         #: units another command arms right after ours (the race window)
         self.after_arm = after_arm or []
+        #: seconds since a guard unit was last armed (``None``: unreadable); default: long ago
+        self.unit_ages = unit_ages or {}
         self.nonces: list[str] = []
         self.connect_error = connect_error
         self.build = build
@@ -118,6 +121,10 @@ class IsoSSH:
         if "list-units" in command and "dango-upgrade-guard-" in command:
             lines = "".join(f"{u} loaded active waiting guard\n" for u in self.units)
             return CommandResult(lines, "", 0 if self.units else 1)
+        if "ActiveEnterTimestamp" in command:
+            unit = re.search(r"'([^']+)'", command)
+            age = self.unit_ages.get(unit.group(1) if unit else "", 3600)
+            return CommandResult("" if age is None else f"{age}\n", "", 0 if age is not None else 1)
         if command.startswith("systemd-run"):
             self.events.append("guard:arm")
             unit = re.search(r"--unit=(\S+)", command)
