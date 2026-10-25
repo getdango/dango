@@ -147,15 +147,15 @@ def test_glob_characters_in_the_range_file_are_not_expanded(tmp_path: Path) -> N
 
 def _multi_port_sshd(box: Box, ports: tuple[int, ...], deny_on: tuple[int, ...]) -> None:
     """Fake sshd listening on *ports*; denies the runners only for a spec naming a *deny_on* port."""
-    out = "; ".join(f"echo 'port {p}'" for p in ports)
+    out = "; ".join(f"echo 'listenaddress 0.0.0.0:{p}'" for p in ports)
     cases = "\n".join(
         f'  *"lport={p}") echo "denyusers dango-run"; echo "denyusers dango-nb";;' for p in deny_on
     )
     box.tool(
         "sshd",
         'echo "sshd $*" >>"$LOG"\ncase "$1" in -t) exit 0;; esac\n'
-        f'case "$*" in *-C*) case "$*" in\n{cases}\n  *) echo "port 22";; esac;;\n'
-        f"*) {out};; esac\n",
+        f'case "$*" in *user=root*) {out};; *-C*) case "$*" in\n{cases}\n  *) echo "port 22";; esac;;\n'
+        "*) exit 255;; esac\n",
     )
 
 
@@ -169,7 +169,7 @@ def _setup(box: Box) -> Path:
 
 
 def _specs(box: Box) -> list[str]:
-    return [c for c in box.calls() if c.startswith("sshd -T -C")]
+    return [c for c in box.calls() if c.startswith("sshd -T -C") and "user=root" not in c]
 
 
 def test_setup_checks_every_port_for_both_users(box: Box) -> None:

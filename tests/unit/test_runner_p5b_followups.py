@@ -32,15 +32,22 @@ def box(tmp_path: Path) -> Box:
 # --- L-a: sshd -T with the local address and port ---------------------------------------------
 
 
-def _sshd(box: Box, *, port_out: str = "port 22", eval_rc: int = 0, denied: bool = True) -> None:
-    """Fake sshd: plain ``-T`` prints *port_out*; ``-T -C`` fails (*eval_rc*) or prints the deny list."""
+def _sshd(
+    box: Box, *, port_out: str = "listenaddress 0.0.0.0:22", eval_rc: int = 0, denied: bool = True
+) -> None:
+    """Fake sshd 8.9: plain ``-T`` always fails; ``-T -C`` fails (*eval_rc*) or answers.
+
+    The port probe (``user=root``) prints *port_out*; the per-user spec prints the deny list.
+    """
     deny = 'echo "denyusers dango-run"; echo "denyusers dango-nb"' if denied else "echo port 22"
     box.tool(
         "sshd",
         'echo "sshd $*" >>"$LOG"\n'
         'case "$1" in -t) exit 0;; esac\n'
+        'case "$*" in *-C*) ;; *) exit 255;; esac\n'
         f'case "$*" in *-C*) [ {eval_rc} -eq 0 ] || {{ echo "Match LocalPort not evaluated" >&2;'
-        f" exit {eval_rc}; }}; {deny};; *) echo {port_out!r};; esac\n",
+        f' exit {eval_rc}; }}; case "$*" in *user=root*) echo {port_out!r};; *) {deny};; esac;;'
+        " esac\n",
     )
 
 
@@ -54,7 +61,7 @@ def _setup_box(box: Box) -> Path:
 
 
 def _c_specs(box: Box) -> list[str]:
-    return [c for c in box.calls() if c.startswith("sshd -T -C")]
+    return [c for c in box.calls() if c.startswith("sshd -T -C") and "user=root" not in c]
 
 
 def test_setup_check_names_local_address_and_port() -> None:
@@ -69,7 +76,7 @@ def test_verify_check_names_local_address_and_port() -> None:
 
 def test_setup_uses_the_configured_sshd_port(box: Box) -> None:
     d = _setup_box(box)
-    _sshd(box, port_out="port 2222")
+    _sshd(box, port_out="listenaddress 0.0.0.0:2222")
     res = box.run(rp.ssh_deny_script(str(d)))
     assert res.returncode == 0, res.stderr
     specs = _c_specs(box)
@@ -77,7 +84,14 @@ def test_setup_uses_the_configured_sshd_port(box: Box) -> None:
 
 
 @pytest.mark.parametrize(
-    "out", ["", "garbage", "port 0", "port 70000", "port 99999999999999999999"]
+    "out",
+    [
+        "",
+        "garbage",
+        "listenaddress 0.0.0.0:0",
+        "listenaddress 0.0.0.0:70000",
+        "listenaddress 0.0.0.0:99999999999999999999",
+    ],
 )
 def test_unusable_sshd_port_falls_back_to_22(box: Box, out: str) -> None:
     d = _setup_box(box)
@@ -114,7 +128,7 @@ def test_verify_tells_could_not_evaluate_from_not_effective(box: Box) -> None:
 
 def test_verify_passes_when_sshd_denies_with_port_probe(box: Box) -> None:
     etc, _home = _clean_state(box)
-    _sshd(box, port_out="port 2222")
+    _sshd(box, port_out="listenaddress 0.0.0.0:2222")
     res = _check_run(box, etc, _paths(box))
     assert res.returncode == 0, res.stderr
     assert any("lport=2222" in s for s in _c_specs(box))
