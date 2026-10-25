@@ -69,6 +69,15 @@ _CHOWN_SHIM = """#!/bin/sh
 exit 0
 """
 
+#: GNU ``stat -c %d PATH`` (device number, no link following) for hosts without GNU stat.
+#: ``STAT_OTHER_DEVICE`` names a path reported as living on a different device.
+STAT_SHIM = """#!/bin/sh
+[ "$1" = "-c" ] && [ "$2" = "%d" ] || exec /usr/bin/stat "$@"
+exec python3 -c 'import os, sys
+dev = os.lstat(sys.argv[1]).st_dev
+print(dev + 1 if os.environ.get("STAT_OTHER_DEVICE") == sys.argv[1] else dev)' "$3"
+"""
+
 
 def shim_env(
     shim_dir: Path, *, fail_cp_match: str | None = None, fail_find: bool = False
@@ -84,6 +93,7 @@ def shim_env(
         ("runuser", _RUNUSER_SHIM),
         ("chown", _CHOWN_SHIM),
         ("find", _FIND_SHIM),
+        ("stat", STAT_SHIM),
     )
     for name, body in shims:
         shim = shim_dir / name
