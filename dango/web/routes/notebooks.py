@@ -410,6 +410,9 @@ async def lock_notebook(
             },
         )
 
+    # D2: no lock and no Marimo on a cloud server whose isolation is missing
+    run_as.require_isolation_ready()
+
     acquired = await asyncio.to_thread(acquire_lock, project_root, name, user.email)
     if not acquired:
         lock = await asyncio.to_thread(get_lock_info, project_root, name)

@@ -15,6 +15,7 @@ import pytest
 
 _M = "dango.notebooks.manager"
 _CLOUD = "dango.config.helpers.is_running_on_cloud"
+_STATE = "dango.platform.run_as.isolation_state"
 
 
 def _token_file(root: Path) -> Path:
@@ -47,6 +48,7 @@ def _start(root: Path, *, cloud: bool = False, port: int = 7805) -> dict[str, An
         patch(f"{_M}.is_process_running", return_value=False),
         patch(f"{_M}.time.sleep"),
         patch(_CLOUD, return_value=cloud),
+        patch(_STATE, return_value="disabled" if cloud else "local"),
     ):
         seen["pid"] = start_marimo(root, port=port)
     return seen

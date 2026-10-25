@@ -240,7 +240,7 @@ class TestRefusalWhenMissing:
         project = _project(tmp_path)
         with (
             patch("subprocess.Popen") as popen,
-            patch(f"{_JOBS}.log_activity") as activity,
+            patch("dango.utils.activity_log.log_activity") as activity,
             patch(f"{_JOBS}._broadcast"),
             patch(f"{_JOBS}._notify"),
             patch(f"{_JOBS}._try_record_start", return_value=1),

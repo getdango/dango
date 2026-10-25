@@ -25,6 +25,7 @@ from dango.utils.process import read_pid_record
 
 _ISO = "dango.platform.run_as.uses_isolation"
 _CLOUD = "dango.config.helpers.is_running_on_cloud"
+_STATE = "dango.platform.run_as.isolation_state"
 _PID = 12345
 _STARTED = 1_700_000_000.0
 _SECRET = "s3cret-value-must-not-leak"
@@ -46,6 +47,7 @@ def _start(
     with (
         patch(_ISO, return_value=isolated),
         patch(_CLOUD, return_value=cloud),
+        patch(_STATE, return_value="disabled" if cloud else "local"),
         patch.dict(os.environ, {"LEAKY": _SECRET}),
         patch(f"{manager.__name__}.subprocess.Popen", return_value=_Proc()) as popen,
         patch(f"{manager.__name__}._is_marimo_responding", return_value=True),
