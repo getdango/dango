@@ -184,7 +184,7 @@ def test_failed_copy_puts_the_old_directory_back(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert nb.is_dir() and not nb.is_symlink() and (nb / "stale.py").read_text() == "stale\n"
     assert (nb / "a.py").is_symlink()
-    assert list(_kept(tmp_path).iterdir()) == []
+    assert [p.name for p in _kept(tmp_path).iterdir()] == ["notebooks.failed"]
 
 
 @pytest.mark.parametrize("mode", [0o000, 0o755, 0o1777], ids=["mode-000", "mode-0755", "sticky"])
