@@ -14,9 +14,12 @@ import os
 import stat
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
+from http.client import HTTPMessage
 from pathlib import Path
+from typing import IO
 
 DRIVER_VERSION_FILE = ".driver-version"
 """Filename written to ``metabase-plugins/`` after a successful driver download."""
@@ -54,6 +57,40 @@ class DriverIntegrityError(RuntimeError):
 
 class DriverDownloadError(RuntimeError):
     """Driver could not be fetched (network or read failure) after bounded attempts."""
+
+
+class DriverFilesystemError(RuntimeError):
+    """Driver could not be written locally (permissions, disk, missing directory)."""
+
+
+def _filesystem_error() -> DriverFilesystemError:
+    return DriverFilesystemError(
+        "Could not write the DuckDB driver to the project's metabase-plugins directory "
+        "(permission or disk problem). Make sure it exists and is writable by the current "
+        "user, then try again."
+    )
+
+
+class _HttpsOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse any redirect whose target is not HTTPS; the digest check stays the real guard."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        """Raise ``DriverDownloadError`` for a non-HTTPS target, else follow the redirect."""
+        if urllib.parse.urlparse(newurl).scheme.lower() != "https":
+            raise DriverDownloadError("Driver download redirected to a non-HTTPS location.")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _build_opener() -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(urllib.request.HTTPSHandler(), _HttpsOnlyRedirectHandler())
 
 
 def get_duckdb_driver_url() -> str:
@@ -110,7 +147,10 @@ def reuse_verified_driver(plugins_dir: Path) -> bool:
     if not verify_driver_jar(plugins_dir / DRIVER_JAR_NAME):
         return False
     if read_driver_version(plugins_dir) != METABASE_DUCKDB_DRIVER_VERSION:
-        write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
+        try:
+            write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
+        except OSError:
+            raise _filesystem_error() from None
     return True
 
 
@@ -127,8 +167,8 @@ def _fetch_candidate(tmp_path: Path, progress: Callable[[int, int | None], None]
     """Stream the pinned URL into *tmp_path*, then check size and SHA-256."""
     digest = hashlib.sha256()
     downloaded = 0
-    # HTTPS-only opener (default redirect handling): the pinned URL can never resolve to file:/ or ftp:.
-    opener = urllib.request.build_opener(urllib.request.HTTPSHandler())
+    # The pinned URL is HTTPS and the opener refuses redirects to any non-HTTPS target.
+    opener = _build_opener()
     with opener.open(get_duckdb_driver_url(), timeout=_REQUEST_TIMEOUT_SECONDS) as response:
         length = _content_length(response.headers.get("Content-Length"))
         with open(tmp_path, "wb") as out:
@@ -159,21 +199,33 @@ def download_verified_driver(
     Raises:
         DriverIntegrityError: The last failed attempt returned wrong bytes.
         DriverDownloadError: The last failed attempt was a network/read failure.
+        DriverFilesystemError: The plugins directory or marker could not be written.
     """
-    plugins_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        plugins_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        raise _filesystem_error() from None
     last_error: Exception | None = None
     for attempt in range(_DOWNLOAD_ATTEMPTS):
         if attempt > 0:
             time.sleep(_RETRY_DELAY_SECONDS)
-        fd, tmp_name = tempfile.mkstemp(dir=plugins_dir, prefix=".driver-", suffix=".tmp")
-        os.close(fd)
+        try:
+            fd, tmp_name = tempfile.mkstemp(dir=plugins_dir, prefix=".driver-", suffix=".tmp")
+            os.close(fd)
+        except OSError:
+            raise _filesystem_error() from None
         tmp_path = Path(tmp_name)
         try:
             _fetch_candidate(tmp_path, progress)
-            tmp_path.chmod(0o644)
-            os.replace(tmp_path, plugins_dir / DRIVER_JAR_NAME)
-            write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
+            try:
+                tmp_path.chmod(0o644)
+                os.replace(tmp_path, plugins_dir / DRIVER_JAR_NAME)
+                write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
+            except OSError:
+                raise _filesystem_error() from None
             return
+        except DriverFilesystemError:
+            raise
         except Exception as exc:  # integrity mismatch, or network/TLS/read/disk failure
             last_error = exc
         finally:

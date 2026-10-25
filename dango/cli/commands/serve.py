@@ -134,6 +134,7 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
     except Exception as exc:
         from dango.utils.driver import (
             DRIVER_JAR_NAME,
+            DriverFilesystemError,
             DriverIntegrityError,
             verify_driver_jar,
         )
@@ -146,11 +147,12 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
                 file=sys.stderr,
             )
         else:
-            label = (
-                "integrity verification failed"
-                if isinstance(exc, DriverIntegrityError) or driver_jar.is_file()
-                else "download failed"
-            )
+            if isinstance(exc, DriverIntegrityError):
+                label = "integrity verification failed"
+            elif isinstance(exc, DriverFilesystemError):
+                label = "could not be written locally"
+            else:
+                label = "download failed"
             print(f"DuckDB driver {label}: {exc}", file=sys.stderr)
             raise SystemExit(1) from exc
 

@@ -1035,12 +1035,18 @@ custom_sources/
         )
 
         from dango.utils.driver import (
+            DriverFilesystemError,
             DriverIntegrityError,
             download_verified_driver,
             reuse_verified_driver,
         )
 
-        if reuse_verified_driver(plugins_dir):
+        try:
+            reused = reuse_verified_driver(plugins_dir)
+        except DriverFilesystemError:
+            reused = False  # the download path below reports the local write failure
+
+        if reused:
             console.print("[green]✓[/green] DuckDB driver already exists")
         else:
             try:
@@ -1061,6 +1067,8 @@ custom_sources/
             except Exception as exc:
                 if isinstance(exc, DriverIntegrityError):
                     print_error("✗ DuckDB driver integrity verification failed")
+                elif isinstance(exc, DriverFilesystemError):
+                    print_error("✗ DuckDB driver could not be written locally")
                 else:
                     print_error("✗ Failed to download DuckDB driver (network issue)")
                 console.print(
