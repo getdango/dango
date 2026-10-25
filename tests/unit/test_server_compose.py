@@ -21,7 +21,7 @@ from dango.platform.cloud.server_compose import Layout, RenderError, acquire_loc
 pytestmark = pytest.mark.unit
 
 MIB = 1024 * 1024
-ARGS = ["3000", "8081", "v0.59.1", "my-project"]
+ARGS = ["3000", "8081", "v0.62.18", "my-project"]
 
 _FAKE_PY = """#!{py}
 import fcntl, json, os, sys, time
@@ -130,7 +130,7 @@ def test_render_writes_compose_dockerfile_and_entrypoint(env: Env) -> None:
     assert "context: " + str(env.srv / "compose/build") in compose
     assert '"abcd1234-0000-4000-8000-000000000000"' in compose and '"my-project"' in compose
     docker = (env.srv / "compose/build/Dockerfile.metabase").read_text()
-    assert docker.count("ENV MB_VERSION=v0.59.1\n") == 1
+    assert docker.count("ENV MB_VERSION=v0.62.18\n") == 1
     entry = (env.srv / "compose/build/entrypoint.sh").read_bytes()
     assert entry.startswith(b"#!/bin/bash") and b"gosu 61000:61000" in entry
     for rel in (

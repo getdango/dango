@@ -23,6 +23,7 @@ VALID_ARGS: dict[str, list[str]] = {
     "reset-password": ["a@b.c"],
     "render": ["3000", "8081", "v0.59.1", "n"],
     "pin-project": ["abcd1234"],
+    "pin-metabase": ["v0.99.1", "ab" * 32],
     "down-volumes": ["metabase"],
 }
 

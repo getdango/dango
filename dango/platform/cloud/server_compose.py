@@ -35,17 +35,24 @@ from importlib import resources
 from jinja2 import Environment, PackageLoader, select_autoescape
 
 from dango.platform.cloud.compose_helper import DOCS_ID, LOCK_DIR, METABASE_ID, SRV_DIR
+from dango.platform.cloud.metabase_pin import (
+    DEFAULT_MB_DIGEST,
+    DIGEST_RE,
+    VERSION_RE,
+    PinError,
+    digest_for_version,
+)
 
 EXIT_USAGE = 64
 EXIT_STAGE = 65
 EXIT_NAME = 66
 EXIT_IDS = 67
+EXIT_PIN = 68
 EXIT_BUSY = 75
 
 _JAR_RE = re.compile(r"[A-Za-z0-9._-]+\.jar")
 _NAME_RE = re.compile(r"dango-[0-9a-f]{8}")
 _ID_RE = re.compile(r"[0-9a-f]{8}[0-9a-f-]{0,28}")
-_VERSION_RE = re.compile(r"v[0-9][0-9.]{0,18}")
 _PORT_RE = re.compile(r"[1-9][0-9]{0,4}")
 _MIB = 1024 * 1024
 
@@ -314,16 +321,41 @@ def render_compose(layout: Layout, mb_port: int, docs_port: int, name_q: str, id
     )
 
 
-def render_dockerfile(version: str) -> str:
-    """The packaged Metabase Dockerfile with ``MB_VERSION`` replaced (exactly one occurrence)."""
+def render_dockerfile(version: str, digest: str) -> str:
+    """The packaged Metabase Dockerfile for *version*, its jar download bound to *digest*."""
     text = (resources.files("dango") / "templates" / "Dockerfile.metabase").read_text(
         encoding="utf-8"
     )
     out, count = re.subn(r"(?m)^ENV MB_VERSION=.*$", f"ENV MB_VERSION={version}", text)
     if count != 1:
         raise RenderError(EXIT_STAGE, "packaged Dockerfile has no single MB_VERSION line")
+    out = _bind_digest(out, digest)
     out = _swap(out, "groupadd -r metabase", f"groupadd -r -g {METABASE_ID} metabase")
     return _swap(out, "useradd -r -g metabase", f"useradd -r -u {METABASE_ID} -g metabase")
+
+
+def _bind_digest(text: str, digest: str) -> str:
+    """Replace the digest of the one checksummed jar download; refuse any other recipe shape."""
+    if not DIGEST_RE.fullmatch(digest):
+        raise RenderError(EXIT_PIN, "bad Metabase jar digest")
+    adds = re.findall(r"(?m)^ADD\s.*$", text)
+    add_line = re.compile(
+        rf"(?m)^ADD --checksum=sha256:{DEFAULT_MB_DIGEST} "
+        r"https://downloads\.metabase\.com/\$\{MB_VERSION\}/metabase\.jar /app/metabase\.jar$"
+    )
+    check_line = re.compile(
+        rf'(?m)^RUN echo "{DEFAULT_MB_DIGEST}  /app/metabase\.jar" \| sha256sum -c -$'
+    )
+    if (
+        len(adds) != 1
+        or len(add_line.findall(text)) != 1
+        or len(check_line.findall(text)) != 1
+        or text.count("--checksum") != 1
+        or text.count("sha256sum") != 1
+        or text.count(DEFAULT_MB_DIGEST) != 2
+    ):
+        raise RenderError(EXIT_PIN, "packaged Dockerfile does not carry the pinned jar checksum")
+    return text.replace(DEFAULT_MB_DIGEST, digest)
 
 
 def render_entrypoint() -> bytes:
@@ -381,13 +413,17 @@ def run(argv: list[str], layout: Layout) -> None:
     mb_port, docs_port = int(mb_s), int(docs_s)
     if not (1024 <= mb_port <= 65535 and 1024 <= docs_port <= 65535) or mb_port == docs_port:
         raise RenderError(EXIT_USAGE, "bad port")
-    if not _VERSION_RE.fullmatch(version):
+    if not VERSION_RE.fullmatch(version):
         raise RenderError(EXIT_USAGE, "bad version")
     name_q = quote_name(name)
     check_container_ids()
     _, ident = read_pinned(layout)
+    try:
+        digest = digest_for_version(version, layout)
+    except PinError as exc:
+        raise RenderError(EXIT_PIN, str(exc)) from None
     compose = render_compose(layout, mb_port, docs_port, name_q, f'"{ident}"')
-    dockerfile = render_dockerfile(version)
+    dockerfile = render_dockerfile(version, digest)
     entrypoint = render_entrypoint()
 
     jars = list_jars(layout)
