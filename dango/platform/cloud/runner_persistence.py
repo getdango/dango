@@ -45,13 +45,15 @@ _HOME_LINKS = (".config", ".local", ".local/share")
 SSH_DROP_IN = "dango-runner.conf"
 _SSHD_FIND = "SSHD=$(command -v sshd || echo /usr/sbin/sshd)"
 _SSHD_PORT = (
-    # the first configured port (Match blocks are not evaluated without ``-C``); 22 when unusable
-    'SP=$("$SSHD" -T 2>/dev/null | awk \'$1 == "port" {print $2; exit}\') || SP=\n'
-    "case \"$SP\" in ''|*[!0-9]*|??????*) SP=22;; esac\n"
-    '[ "$SP" -ge 1 ] && [ "$SP" -le 65535 ] || SP=22'
+    # every configured port, deduplicated (Match blocks are not evaluated without ``-C``; each
+    # port gets its own check); unusable values are dropped, 22 when none is left
+    'SPS=$("$SSHD" -T 2>/dev/null | awk \'$1 == "port" {print $2}\' | sort -u) || SPS=\n'
+    "v=; for p in $SPS; do case \"$p\" in ''|*[!0-9]*|??????*) ;;\n"
+    '  *) [ "$p" -ge 1 ] && [ "$p" -le 65535 ] && v="$v $p";; esac; done\n'
+    'SPS=$v; [ -n "$SPS" ] || SPS=22'
 )
 #: Connection spec for ``sshd -T -C``: a ``Match LocalPort``/``LocalAddress`` block needs both.
-_SSHD_SPEC = "user=$u,host=localhost,addr=127.0.0.1,laddr=127.0.0.1,lport=$SP"
+_SSHD_SPEC = "user=$u,host=localhost,addr=127.0.0.1,laddr=127.0.0.1,lport=$sp"
 _DENY_RE = '"^denyusers( .*)? $u( |\\$)"'
 _LINK_TESTS = " -o ".join(f'-path "$h/{d}"' for d in _HOME_LINKS)
 
@@ -136,12 +138,15 @@ def ssh_deny_script(sshd_dir: str = "/etc/ssh/sshd_config.d") -> str:
                 ' echo "could not reload sshd; isolation NOT enabled" >&2; exit 5; }',
                 _SSHD_PORT,
                 f"for u in {names}; do",
-                f'  out=$("$SSHD" -T -C "{_SSHD_SPEC}" 2>&1) || {{',
-                '    echo "sshd -T could not evaluate the config for $u ($(printf %s "$out" | head -n 1));'
-                ' isolation NOT enabled" >&2; exit 7; }',
-                f'  printf %s "$out" | grep -Eq {_DENY_RE} || {{',
-                "    echo \"sshd does not apply $F (add 'Include /etc/ssh/sshd_config.d/*.conf' to"
-                ' sshd_config); isolation NOT enabled" >&2; exit 6; }',
+                "  for sp in $SPS; do",
+                f'    out=$("$SSHD" -T -C "{_SSHD_SPEC}" 2>&1) || {{',
+                '      echo "sshd -T could not evaluate the config for $u on port $sp'
+                ' ($(printf %s "$out" | head -n 1)); isolation NOT enabled" >&2; exit 7; }',
+                f'    printf %s "$out" | grep -Eq {_DENY_RE} || {{',
+                "      echo \"sshd does not apply $F on port $sp (add 'Include"
+                " /etc/ssh/sshd_config.d/*.conf' to sshd_config or fix a Match block);"
+                ' isolation NOT enabled" >&2; exit 6; }',
+                "  done",
                 '  systemctl mask "user@$(id -u "$u").service" >/dev/null',
                 '  systemctl stop "user@$(id -u "$u").service" >/dev/null 2>&1 || true',
                 "done",
@@ -252,9 +257,12 @@ def persistence_checks(etc: str = "/etc", paths: PersistencePaths = DEFAULT_PATH
                 '  uid=$(id -u "$u")',
                 '  [ "$(systemctl is-enabled "user@$uid.service" 2>/dev/null)" = masked ]'
                 ' || fail "user@$uid.service is not masked for $u"',
-                f'  if out=$("$SSHD" -T -C "{_SSHD_SPEC}" 2>&1); then',
-                f'    printf %s "$out" | grep -Eq {_DENY_RE} || fail "sshd does not deny ssh logins for $u"',
-                '  else fail "sshd -T could not evaluate the config for $u"; fi',
+                "  for sp in $SPS; do",
+                f'    if out=$("$SSHD" -T -C "{_SSHD_SPEC}" 2>&1); then',
+                f'      printf %s "$out" | grep -Eq {_DENY_RE}'
+                ' || fail "sshd does not deny ssh logins for $u on port $sp"',
+                '    else fail "sshd -T could not evaluate the config for $u on port $sp"; fi',
+                "  done",
                 '  h=$(getent passwd "$u" | cut -d: -f6)',
                 '  if [ -n "$h" ]; then',
                 # find -P lists a link without entering it: a planted link is found, never followed

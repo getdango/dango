@@ -59,12 +59,12 @@ def _c_specs(box: Box) -> list[str]:
 
 def test_setup_check_names_local_address_and_port() -> None:
     text = rp.ssh_deny_script()
-    assert "laddr=127.0.0.1,lport=$SP" in text
+    assert "laddr=127.0.0.1,lport=$sp" in text
     assert "user=$u,host=localhost,addr=127.0.0.1" in text
 
 
 def test_verify_check_names_local_address_and_port() -> None:
-    assert "laddr=127.0.0.1,lport=$SP" in rp.persistence_checks()
+    assert "laddr=127.0.0.1,lport=$sp" in rp.persistence_checks()
 
 
 def test_setup_uses_the_configured_sshd_port(box: Box) -> None:
@@ -191,8 +191,8 @@ def test_unusable_range_falls_back_with_a_warning(tmp_path: Path, content: bytes
 
 def test_ruleset_renders_a_custom_range_for_the_notebook_user_only() -> None:
     text = rs.nft_ruleset("10000-65000")
-    line = 'meta skuid "dango-nb" ip daddr 127.0.0.1 tcp dport 10000-65000 accept'
-    assert line in [ln.strip() for ln in text.splitlines()]
+    line = 'meta skuid "dango-nb" ip daddr 127.0.0.1 tcp dport 10000-65000 tcp dport != '
+    assert any(ln.strip().startswith(line) for ln in text.splitlines())
     assert (
         f"tcp dport {DEFAULT_RANGE}" not in text
         and 'dango-run" ip daddr 127.0.0.1 tcp dport 10000' not in text
@@ -201,7 +201,7 @@ def test_ruleset_renders_a_custom_range_for_the_notebook_user_only() -> None:
 
 def test_default_ruleset_is_the_documented_default() -> None:
     assert rs.NFT_RULESET == rs.nft_ruleset(DEFAULT_RANGE)
-    assert f"tcp dport {DEFAULT_RANGE} accept" in rs.NFT_RULESET
+    assert f"tcp dport {DEFAULT_RANGE} tcp dport != " in rs.NFT_RULESET
 
 
 def test_ruleset_comment_says_the_range_is_read_at_install_time() -> None:
@@ -212,7 +212,7 @@ def test_ruleset_comment_says_the_range_is_read_at_install_time() -> None:
 def test_installer_reads_the_range_before_writing_the_rules() -> None:
     text = rs.nft_install_script()
     assert text.index("/proc/sys/net/ipv4/ip_local_port_range") < text.index("cat >")
-    assert "tcp dport ${EP} accept" in text
+    assert "tcp dport ${EP} tcp dport != " in text
     assert text.count("DANGO_RUNNER_NFT_EOF") == 2
     assert "<<'DANGO_RUNNER_NFT_EOF'" not in text
 
@@ -232,7 +232,7 @@ def test_installer_runs_and_renders_the_hosts_range(box: Box, tmp_path: Path) ->
     )
     res = subprocess.run([DASH, "-c", script], capture_output=True, text=True)
     assert res.returncode == 0, res.stderr
-    assert "tcp dport 11000-52000 accept" in out.read_text()
+    assert "tcp dport 11000-52000 tcp dport != " in out.read_text()
     assert "${EP}" not in out.read_text()
 
 

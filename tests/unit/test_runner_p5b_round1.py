@@ -29,13 +29,17 @@ from tests.unit.test_runner_review2 import _check_run, _clean_state, _paths
 pytestmark = pytest.mark.unit
 
 EXCLUDED = "{ 80, 443, 2019, 3000, 8080, 8081, 8800 }"
-ACCEPT = 'meta skuid "dango-nb" ip daddr 127.0.0.1 tcp dport {ports} tcp dport != ' + EXCLUDED
+ACCEPT = 'meta skuid "dango-nb" ip daddr 127.0.0.1 tcp dport PORTS tcp dport != ' + EXCLUDED
 ACCEPT += " accept"
 
 
 @pytest.fixture
 def box(tmp_path: Path) -> Box:
     return Box(tmp_path)
+
+
+def _accept(ports: str) -> str:
+    return ACCEPT.replace("PORTS", ports)
 
 
 def _lines(text: str) -> list[str]:
@@ -46,12 +50,12 @@ def _lines(text: str) -> list[str]:
 
 
 def test_default_ruleset_excludes_the_fixed_ports() -> None:
-    assert ACCEPT.format(ports="32768-60999") in _lines(rs.NFT_RULESET)
+    assert _accept("32768-60999") in _lines(rs.NFT_RULESET)
 
 
 def test_overlapping_range_still_excludes_the_fixed_ports() -> None:
     for ports in ("1024-65535", "3000-9000", "40000"):
-        assert ACCEPT.format(ports=ports) in _lines(rs.nft_ruleset(ports))
+        assert _accept(ports) in _lines(rs.nft_ruleset(ports))
 
 
 def test_only_the_notebook_user_gets_an_ephemeral_rule() -> None:
@@ -60,7 +64,7 @@ def test_only_the_notebook_user_gets_an_ephemeral_rule() -> None:
 
 
 def test_installer_template_keeps_the_exclusion() -> None:
-    assert ACCEPT.format(ports="${EP}") in _lines(rs.nft_install_script())
+    assert _accept("${EP}") in _lines(rs.nft_install_script())
 
 
 def test_ruleset_comment_describes_the_exclusion() -> None:
@@ -81,6 +85,7 @@ def test_every_fixed_dango_port_in_the_code_is_excluded() -> None:
     }
     caddy = {int(p) for p in re.findall(r"localhost:(\d+)", CADDYFILE)}
     caddy |= {int(p) for p in re.findall(r"^:(\d+) \{", CADDYFILE, flags=re.M)}
+    caddy.discard(settings.marimo_port)  # websocket proxy; has its own accept rule
     assert configured <= _fixed_ports()
     assert caddy and caddy <= _fixed_ports()
     # Caddy's admin API default, https, the dev server; the notebook port has its own rule
@@ -144,7 +149,7 @@ def _multi_port_sshd(box: Box, ports: tuple[int, ...], deny_on: tuple[int, ...])
     """Fake sshd listening on *ports*; denies the runners only for a spec naming a *deny_on* port."""
     out = "; ".join(f"echo 'port {p}'" for p in ports)
     cases = "\n".join(
-        f'  *"lport={p}"*) echo "denyusers dango-run"; echo "denyusers dango-nb";;' for p in deny_on
+        f'  *"lport={p}") echo "denyusers dango-run"; echo "denyusers dango-nb";;' for p in deny_on
     )
     box.tool(
         "sshd",

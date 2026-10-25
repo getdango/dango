@@ -156,11 +156,19 @@ class _OwnedGuard(UpgradeGuard):
     def __init__(self, ssh: Any, warnings: list[str], owner: str) -> None:
         super().__init__(ssh, warnings)
         self.owner = owner
-        self.tag = f"{owner}-{self._run_id}"
+        # a random suffix tells two runs of the same command in the same second apart
+        self.tag = f"{owner}-{self._run_id}-{uuid.uuid4().hex[:6]}"
         self._run_id = self.tag
 
 
 _LIST_GUARDS = f"systemctl list-units --no-legend --plain '{GUARD_PREFIX}-*' 2>/dev/null; true"
+#: A same-command guard armed less than this long ago belongs to a live run: its steps time out
+#: after 60 s and the guard is re-armed after each one.  Older means the run was killed.
+_LIVE_WITHIN = 300
+_AGE_CMD = (
+    "t=$(systemctl show -p ActiveEnterTimestamp --value '{unit}' 2>/dev/null) && [ -n \"$t\" ]"
+    ' && echo $(( $(date +%s) - $(date -d "$t" +%s) ))'
+)
 _OWNERS = {
     "isolation-disable": "dango remote isolation disable",
     "isolation-enable": "dango remote isolation enable",
@@ -181,23 +189,37 @@ def _owner_of(unit: str) -> str:
     return next((k for k in _OWNERS if f"{GUARD_PREFIX}-{k}-" in unit), "upgrade")
 
 
-def _refuse_if_busy(ssh: Any, owner: str, tag: str | None = None) -> bool:
-    """Exit 1 when another operation holds an upgrade guard; True when a leftover of *owner* was seen.
+def _age(ssh: Any, unit: str) -> int | None:
+    """Seconds since the guard *unit* was last armed, or None when the server cannot say."""
+    try:
+        out = str(ssh.exec_command(_AGE_CMD.format(unit=unit), timeout=30).stdout or "").strip()
+        return int(out)
+    except Exception:
+        return None
 
-    A guard armed by *owner* itself and not by this run (*tag*) is the leftover of a killed run of
-    the same command: it is not a conflict, arming replaces it.  Anything else means an upgrade
-    or the other isolation command is running (or was killed; its guard expires within 20 minutes).
-    This is a check, not a lock: an operation that starts between the check and the arm is only
-    caught by the second call right after arming.
+
+def _refuse_if_busy(ssh: Any, owner: str, tag: str | None = None) -> bool:
+    """Exit 1 when another operation holds an upgrade guard; True when a stale leftover was seen.
+
+    A guard of *owner* itself that is clearly stale (armed more than ``_LIVE_WITHIN`` seconds ago)
+    is the leftover of a killed run of the same command: arming replaces it.  A recent one, or one
+    whose age is unknown, may be a live run of the same command, so it blocks like any other
+    operation's guard.  This is a check, not a lock: an operation that starts between the check
+    and the arm is only caught by the second call right after arming (*tag* is this run's guard).
     """
     units = [u for u in _guard_units(ssh) if tag is None or tag not in u]
-    foreign = [u for u in units if _owner_of(u) != owner]
-    if foreign:
-        who = _owner_of(foreign[0])
+    busy = []
+    for unit in units:
+        age = _age(ssh, unit) if _owner_of(unit) == owner else None
+        if age is None or age <= _LIVE_WITHIN:
+            busy.append(unit)
+    if busy:
+        who = _owner_of(busy[0])
         label = f"`{_OWNERS[who]}`" if who in _OWNERS else "`dango remote upgrade`"
+        wait = "5 minutes" if who == owner else "20 minutes"
         console.print(
             f"[red]Error:[/red] {label} seems to be running on this server, or was interrupted "
-            f"(guard {escape(foreign[0])}; it expires within 20 minutes). Wait for it to finish "
+            f"(guard {escape(busy[0])}; it expires within {wait}). Wait for it to finish "
             "and run the command again."
         )
         raise SystemExit(1)
