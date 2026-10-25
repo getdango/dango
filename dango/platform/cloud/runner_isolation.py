@@ -394,35 +394,35 @@ def web_is_active(ssh: Any) -> bool:
 def start_web(ssh: Any, warnings: list[str]) -> None:
     """Start ``dango-web`` again after the steps stopped it; a failure is a warning."""
     try:
-        result = ssh.exec_command(f"systemctl start {_WEB_UNIT}", timeout=120)
-        ok = bool(result.success)
+        ok = bool(ssh.exec_command(f"systemctl start {_WEB_UNIT}", timeout=120).success)
     except Exception:
         ok = False
     if not ok:
-        warnings.append(
-            f"{_WEB_UNIT} could not be started again. Run `dango remote upgrade` to bring it back."
-        )
+        warnings.append(f"{_WEB_UNIT} could not be started again. Run `dango remote upgrade`.")
 
 
-def _marker_present(ssh: Any, srv_dir: str) -> bool:
+def _isolation_state(ssh: Any, srv_dir: str) -> str:
+    """``disabled`` (opt-out marker), ``on`` (active marker) or ``missing``."""
+    if iso.disabled_marker_present(ssh, srv_dir):
+        return "disabled"
     try:
-        return bool(
-            ssh.exec_command(f"test -f {shlex.quote(scripts.marker_path(srv_dir))}").success
-        )
+        test = f"test -f {shlex.quote(scripts.marker_path(srv_dir))}"
+        return "on" if ssh.exec_command(test).success else "missing"
     except Exception:
-        return False
+        return "missing"
 
 
-def _failure_warning(outcome: Outcome, marker_exists: bool) -> str:
-    """The loud warning, worded by what is actually in force (the marker)."""
+def _failure_warning(outcome: Outcome, state: str) -> str:
+    """The loud warning, worded by what is in force: ``on``, ``disabled`` or ``missing``."""
     cause = f"{outcome.failed}: {outcome.detail or 'failed'}"
-    if marker_exists:
-        state = (
-            "Isolation from an earlier run is still in force (scripts and notebooks stay "
-            "isolated or are refused), but this run did not finish"
-        )
-    else:
-        state = "Scripts and notebooks keep running as the service account, which is less isolated"
+    wording = {
+        "on": "Isolation from an earlier run is still in force (scripts and notebooks stay "
+        "isolated or are refused), but this run did not finish",
+        "disabled": "Isolation is disabled by an admin opt-out; scripts and notebooks run as the service account",
+    }
+    state = wording.get(
+        state, "Scripts and notebooks keep running as the service account, which is less isolated"
+    )
     return f"{ISOLATION_MARK} ({cause}). {state}. {_RETRY_HINT}"
 
 
@@ -436,12 +436,11 @@ def enable(
     """Run the plan on the server; returns the status line, warnings go to *warnings*.
 
     Every step is idempotent and the marker is last, so an interrupted run converges when
-    repeated.  A fatal failure leaves the marker as it was and adds a loud warning; a
-    ``warn`` step only adds its warning.  *on_step* is called after each successful step
-    (the upgrade guard re-arm).  The plan stops ``dango-web`` (and with it a Marimo started
-    before isolation) and ends all runner processes before it writes permissions; the service
-    is started again afterwards if it was running.  Nothing runs on a build without
-    ``isolated_run``.
+    repeated.  A fatal failure leaves the marker as it was and adds a loud warning; a ``warn``
+    step only adds its warning.  *on_step* is called after each successful step (the guard
+    re-arm).  The plan stops ``dango-web`` and ends all runner processes before it writes
+    permissions, then starts the service again if it was running.  Nothing runs on a build
+    without ``isolated_run``.
     """
     if not build_present(ssh):
         warnings.append(f"{ISOLATION_MARK} ({BUILD_MISSING}). {_RETRY_HINT}")
@@ -451,7 +450,7 @@ def enable(
         outcome = run_steps(build_steps(srv_dir), executor(ssh, on_step))
         warnings.extend(w for w in outcome.warnings if w not in warnings)
         if not outcome.enabled:
-            warnings.append(_failure_warning(outcome, _marker_present(ssh, srv_dir)))
+            warnings.append(_failure_warning(outcome, _isolation_state(ssh, srv_dir)))
         # with a marker the record shows it; without one a stale key is dropped.  Never when the
         # ownership check failed: root must not write under a directory that is not trusted.
         if outcome.failed != "ownership_check":

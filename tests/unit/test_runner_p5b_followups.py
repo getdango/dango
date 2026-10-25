@@ -59,12 +59,12 @@ def _c_specs(box: Box) -> list[str]:
 
 def test_setup_check_names_local_address_and_port() -> None:
     text = rp.ssh_deny_script()
-    assert "laddr=127.0.0.1,lport=$P" in text
+    assert "laddr=127.0.0.1,lport=$SP" in text
     assert "user=$u,host=localhost,addr=127.0.0.1" in text
 
 
 def test_verify_check_names_local_address_and_port() -> None:
-    assert "laddr=127.0.0.1,lport=$P" in rp.persistence_checks()
+    assert "laddr=127.0.0.1,lport=$SP" in rp.persistence_checks()
 
 
 def test_setup_uses_the_configured_sshd_port(box: Box) -> None:
@@ -193,7 +193,10 @@ def test_ruleset_renders_a_custom_range_for_the_notebook_user_only() -> None:
     text = rs.nft_ruleset("10000-65000")
     line = 'meta skuid "dango-nb" ip daddr 127.0.0.1 tcp dport 10000-65000 accept'
     assert line in [ln.strip() for ln in text.splitlines()]
-    assert DEFAULT_RANGE not in text and 'dango-run" ip daddr 127.0.0.1 tcp dport 10000' not in text
+    assert (
+        f"tcp dport {DEFAULT_RANGE}" not in text
+        and 'dango-run" ip daddr 127.0.0.1 tcp dport 10000' not in text
+    )
 
 
 def test_default_ruleset_is_the_documented_default() -> None:

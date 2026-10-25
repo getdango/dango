@@ -44,6 +44,15 @@ _HOME_UNITS = (
 _HOME_LINKS = (".config", ".local", ".local/share")
 SSH_DROP_IN = "dango-runner.conf"
 _SSHD_FIND = "SSHD=$(command -v sshd || echo /usr/sbin/sshd)"
+_SSHD_PORT = (
+    # the first configured port (Match blocks are not evaluated without ``-C``); 22 when unusable
+    'SP=$("$SSHD" -T 2>/dev/null | awk \'$1 == "port" {print $2; exit}\') || SP=\n'
+    "case \"$SP\" in ''|*[!0-9]*|??????*) SP=22;; esac\n"
+    '[ "$SP" -ge 1 ] && [ "$SP" -le 65535 ] || SP=22'
+)
+#: Connection spec for ``sshd -T -C``: a ``Match LocalPort``/``LocalAddress`` block needs both.
+_SSHD_SPEC = "user=$u,host=localhost,addr=127.0.0.1,laddr=127.0.0.1,lport=$SP"
+_DENY_RE = '"^denyusers( .*)? $u( |\\$)"'
 _LINK_TESTS = " -o ".join(f'-path "$h/{d}"' for d in _HOME_LINKS)
 
 
@@ -96,8 +105,10 @@ def ssh_deny_script(sshd_dir: str = "/etc/ssh/sshd_config.d") -> str:
     login starts ``user@<uid>.service``, which runs units the runner planted outside
     ``dango-web``.  A ``DenyUsers`` drop-in naming only the two runners is written atomically
     (root:root 0644), checked with ``sshd -t`` (the previous file comes back when it fails),
-    reloaded, and then proven effective with ``sshd -T`` (a missing ``Include`` fails the step:
-    isolation is NOT enabled).  Fixed system paths only; a symlink or non-regular file at the
+    reloaded, and then proven effective with ``sshd -T -C`` for the local address and the
+    configured port (so ``Match LocalPort`` blocks can be evaluated).  A missing ``Include``
+    fails the step with 6, an ``sshd -T`` that cannot evaluate the config with 7: isolation is
+    NOT enabled in both cases.  Fixed system paths only; a symlink or non-regular file at the
     drop-in path is refused.
     """
     names = " ".join(RUNNER_USERS)
@@ -123,9 +134,12 @@ def ssh_deny_script(sshd_dir: str = "/etc/ssh/sshd_config.d") -> str:
                 "fi",
                 "systemctl reload ssh || systemctl reload sshd || {"
                 ' echo "could not reload sshd; isolation NOT enabled" >&2; exit 5; }',
+                _SSHD_PORT,
                 f"for u in {names}; do",
-                '  "$SSHD" -T -C "user=$u,host=localhost,addr=127.0.0.1" 2>/dev/null'
-                ' | grep -Eq "^denyusers( .*)? $u( |\\$)" || {',
+                f'  out=$("$SSHD" -T -C "{_SSHD_SPEC}" 2>&1) || {{',
+                '    echo "sshd -T could not evaluate the config for $u ($(printf %s "$out" | head -n 1));'
+                ' isolation NOT enabled" >&2; exit 7; }',
+                f'  printf %s "$out" | grep -Eq {_DENY_RE} || {{',
                 "    echo \"sshd does not apply $F (add 'Include /etc/ssh/sshd_config.d/*.conf' to"
                 ' sshd_config); isolation NOT enabled" >&2; exit 6; }',
                 '  systemctl mask "user@$(id -u "$u").service" >/dev/null',
@@ -216,6 +230,7 @@ def persistence_checks(etc: str = "/etc", paths: PersistencePaths = DEFAULT_PATH
             [
                 f"E={q(etc)}; S={q(paths.cron_spool)}; L={q(paths.linger_dir)}",
                 _SSHD_FIND,
+                _SSHD_PORT,
                 f"for u in {_USERS}; do",
                 '  getent passwd "$u" >/dev/null 2>&1 || continue',
                 "  if command -v crontab >/dev/null 2>&1; then",
@@ -237,8 +252,9 @@ def persistence_checks(etc: str = "/etc", paths: PersistencePaths = DEFAULT_PATH
                 '  uid=$(id -u "$u")',
                 '  [ "$(systemctl is-enabled "user@$uid.service" 2>/dev/null)" = masked ]'
                 ' || fail "user@$uid.service is not masked for $u"',
-                '  "$SSHD" -T -C "user=$u,host=localhost,addr=127.0.0.1" 2>/dev/null'
-                ' | grep -Eq "^denyusers( .*)? $u( |\\$)" || fail "sshd does not deny ssh logins for $u"',
+                f'  if out=$("$SSHD" -T -C "{_SSHD_SPEC}" 2>&1); then',
+                f'    printf %s "$out" | grep -Eq {_DENY_RE} || fail "sshd does not deny ssh logins for $u"',
+                '  else fail "sshd -T could not evaluate the config for $u"; fi',
                 '  h=$(getent passwd "$u" | cut -d: -f6)',
                 '  if [ -n "$h" ]; then',
                 # find -P lists a link without entering it: a planted link is found, never followed
