@@ -40,10 +40,10 @@ def setup_result() -> server_setup.SetupResult:
 # --- setup (V1, V11) -------------------------------------------------------------------------
 
 
-def test_setup_steps_have_no_docker_group_step_and_end_with_the_helper() -> None:
+def test_setup_steps_have_no_docker_group_step_and_the_helper_follows_ownership() -> None:
     names = [f.__name__ for f in server_setup._SETUP_STEPS]
     assert "_setup_docker_group" not in names
-    assert names[-2:] == ["_setup_runtime_ownership", "_setup_compose_helper"]
+    assert names[-3:-1] == ["_setup_runtime_ownership", "_setup_compose_helper"]
     assert not hasattr(server_setup, "_setup_docker_group")
 
 

@@ -131,7 +131,7 @@ def remote_upgrade(
         if result.docker_rebuilt:
             console.print("  Docker: rebuilt")
         steps = (result.caddyfile_ws_migration, result.runtime_ownership, result.venv_rebuild)
-        for line in filter(None, steps):
+        for line in filter(None, (*steps, result.runner_isolation)):
             console.print(f"  {line}")
 
         for warning in result.warnings:

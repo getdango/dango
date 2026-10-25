@@ -7,7 +7,7 @@ dies in between, nothing would start it again.  The guard is a transient systemd
 timer on the server that starts ``dango-web`` unless the client keeps pushing it
 back: it is re-armed after every completed step, so the window means "minutes
 since the last completed step".  When the timer fires while an upgrade step
-(pip, migrations, Docker rebuild) is still running, the action waits for it.
+(pip, migrations, runner-user setup, Docker rebuild) is still running, the action waits for it.
 """
 
 from __future__ import annotations
@@ -39,6 +39,11 @@ GUARD_ACTION = (
     'pgrep -f "[a]pply_all_pending" >/dev/null || '
     'pgrep -f "/srv/dango/venv/bin/[p]ython.* -m (pip|spacy)" >/dev/null || '
     'pgrep -f "[p]ython3 -m venv /srv/dango" >/dev/null || '
+    'pgrep -f "[a]pt-get (install|update)" >/dev/null || '
+    'pgrep -f "[u]seradd|[g]roupadd" >/dev/null || '
+    'pgrep -f "[v]isudo" >/dev/null || '
+    'pgrep -f "[s]etfacl" >/dev/null || '
+    'pgrep -f "[/]usr/sbin/[n]ft -" >/dev/null || '
     'pgrep -f "[d]ocker compose.*build" >/dev/null || '
     'pgrep -f "[d]ango-compose (up-build|build|pull)" >/dev/null; }; do n=$((n+1)); sleep 15; done; '
     "systemctl start dango-web'"

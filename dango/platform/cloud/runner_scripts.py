@@ -41,6 +41,13 @@ UNIT_PATH = f"/etc/systemd/system/{UNIT_NAME}"
 MARKER_SCHEMA = 1
 LOOPBACK_RESTRICTED = "restricted"
 LOOPBACK_UNRESTRICTED = "unrestricted"
+#: What the marker's ``restricted`` means: the runners cannot open connections to loopback, to any
+#: address of this host, or to the Docker bridge networks (containers), except DNS and the
+#: notebook's own port.
+LOOPBACK_DOC = (
+    "restricted: runner users cannot connect to loopback, this host's own addresses or the "
+    "Docker bridge networks (DNS and the notebook port excepted); unrestricted: no firewall rules"
+)
 
 SUDOERS_TEXT = (
     "# Installed by Dango. The service account may run code as the restricted runner users,\n"
@@ -52,15 +59,26 @@ SUDOERS_TEXT = (
     f"dango ALL=({RUN_USER},{NB_USER}) NOPASSWD:SETENV: DANGO_RUNNER, DANGO_SIGNAL\n"
 )
 
-NFT_RULESET = f"""# Installed by Dango: the runner users cannot open connections to local services.
+#: ``net.ipv4.ip_local_port_range`` default: where a notebook kernel's loopback listener lives.
+EPHEMERAL_PORTS = "32768-60999"
+
+NFT_RULESET = f"""# Installed by Dango: runner users cannot connect to local services, this host or Docker networks.
 add table inet {NFT_TABLE}
 delete table inet {NFT_TABLE}
 table inet {NFT_TABLE} {{
   chain output {{
     type filter hook output priority 0; policy accept;
+    ct state established,related accept
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip daddr 127.0.0.0/8 udp dport 53 accept
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip daddr 127.0.0.0/8 tcp dport 53 accept
     meta skuid "{NB_USER}" ip daddr 127.0.0.1 tcp dport 7805 accept
+    # Dango's own services use fixed low ports (80, 443, 3000, 7805, 8080, 8081, 8800), outside the
+    # ephemeral range.  The notebook server's kernel connects back over loopback on an ephemeral
+    # port, so dango-nb (never dango-run) may reach loopback in that range.
+    meta skuid "{NB_USER}" ip daddr 127.0.0.1 tcp dport {EPHEMERAL_PORTS} accept
+    meta skuid {{ "{RUN_USER}", "{NB_USER}" }} oifname "docker0" reject
+    meta skuid {{ "{RUN_USER}", "{NB_USER}" }} oifname "br-*" reject
+    meta skuid {{ "{RUN_USER}", "{NB_USER}" }} fib daddr type local reject
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip daddr 127.0.0.0/8 reject
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip6 daddr ::1 reject
   }}
@@ -69,8 +87,12 @@ table inet {NFT_TABLE} {{
 
 NFT_UNIT = f"""[Unit]
 Description=Dango runner loopback rules
-After=network-pre.target
+DefaultDependencies=no
+Wants=network-pre.target
+Before=network-pre.target
 Before=network.target
+Conflicts=shutdown.target
+Before=shutdown.target
 
 [Service]
 Type=oneshot
@@ -83,6 +105,12 @@ WantedBy=multi-user.target
 """
 
 _HEAD = "set -eu\n"
+
+#: Drops empty and relative ``PATH`` entries: GNU ``find -execdir`` refuses to run when it finds one.
+SAFE_PATH = (
+    '_np=; IFS=:; for _d in $PATH; do case "$_d" in /*) _np="${_np:+$_np:}$_d";; esac; done; '
+    'unset IFS; PATH="$_np"; export PATH\n'
+)
 
 
 def q(value: str) -> str:
@@ -125,11 +153,13 @@ def _guard(paths: list[str]) -> str:
 
 
 def package_script(package: str, tool: str) -> str:
-    """Install *package* when *tool* is missing; exits 6 if the tool is still absent."""
+    """Install *package* when *tool* is missing (lists refreshed first); exits 6 if still absent."""
+    lock = "-o DPkg::Lock::Timeout=120"
     return (
         _HEAD
         + "export DEBIAN_FRONTEND=noninteractive\n"
-        + f"command -v {q(tool)} >/dev/null 2>&1 || apt-get install -y -qq {q(package)}\n"
+        + f"command -v {q(tool)} >/dev/null 2>&1 || {{ apt-get update -qq {lock}"
+        + f" && apt-get install -y -qq {q(package)} {lock}; }}\n"
         + f"command -v {q(tool)} >/dev/null 2>&1"
         + f" || {{ echo {q(f'{tool} is not available')} >&2; exit 6; }}\n"
     )

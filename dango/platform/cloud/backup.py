@@ -1105,6 +1105,10 @@ def restore_from_archive(
 
             _notify(on_progress, "fix_ownership", "running")
             _run_checked(ssh, "chown -R dango:dango /srv/dango/project", step="fix_ownership")
+            # the restore can recreate protected paths without their denials (services are stopped)
+            from dango.platform.cloud import runner_reapply
+
+            runner_reapply.reapply(ssh, warnings)
             _notify(on_progress, "fix_ownership", "done")
         except BaseException:
             if copies_started:
