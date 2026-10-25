@@ -7,6 +7,7 @@ Nothing here runs a shell.
 
 from __future__ import annotations
 
+import re
 import shlex
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ from click.testing import CliRunner, Result
 from dango.cli.commands.remote import remote
 from dango.platform.cloud.ssh import CommandResult
 
+GUARD_PREFIX = "dango-upgrade-guard"
 IP = "203.0.113.1"
 VALID_RECORD = '{"dango": "1.0.14", "runner_isolation": {"schema": 1, "loopback": "restricted"}}'
 DROPPED_RECORD = '{"dango": "1.0.14", "docker_access": "helper"}'
@@ -64,9 +66,18 @@ class IsoSSH:
         build: bool = True,
         disabled_info: str | None = None,
         guard_active: bool = False,
+        guard_units: list[str] | None = None,
+        after_arm: list[str] | None = None,
+        fail_detail: str = "last line",
     ) -> None:
         self.disabled_info = disabled_info
-        self.guard_active = guard_active
+        self.fail_detail = fail_detail
+        #: guard units listed by systemd; ``guard_active`` stands for one left by an upgrade
+        self.units = list(guard_units or [])
+        if guard_active:
+            self.units.append(f"{GUARD_PREFIX}-20261025T000000Z.timer")
+        #: units another command arms right after ours (the race window)
+        self.after_arm = after_arm or []
         self.nonces: list[str] = []
         self.connect_error = connect_error
         self.build = build
@@ -105,12 +116,20 @@ class IsoSSH:
             self.events.append("audit")
             return CommandResult("", "audit write failed" if self.audit_rc else "", self.audit_rc)
         if "list-units" in command and "dango-upgrade-guard-" in command:
-            return CommandResult("", "", 0 if self.guard_active else 1)
+            lines = "".join(f"{u} loaded active waiting guard\n" for u in self.units)
+            return CommandResult(lines, "", 0 if self.units else 1)
         if command.startswith("systemd-run"):
             self.events.append("guard:arm")
+            unit = re.search(r"--unit=(\S+)", command)
+            self.units.append((unit.group(1) if unit else "unit") + ".timer")
+            self.units.extend(self.after_arm)
             return CommandResult("", "", 0)
         if "reset-failed" in command:
             self.events.append("guard:disarm")
+            self.units = []
+            return CommandResult("", "", 0)
+        if command.startswith("systemctl stop '") and "upgrade-guard" in command:
+            self.units = [u for u in self.units if f"'{u}'" not in command]
             return CommandResult("", "", 0)
         if command == "systemctl is-active --quiet dango-web":
             return CommandResult("", "", 0 if self.web else 3)
@@ -136,7 +155,7 @@ class IsoSSH:
     def _step(self, name: str) -> CommandResult:
         self.events.append(name)
         if name in self.fail:
-            return CommandResult("", f"{name} broke\nlast line", self.fail[name])
+            return CommandResult("", f"{name} broke\n{self.fail_detail}", self.fail[name])
         if name == "stop_web":
             self.web = False
         elif name == "quiesce":
