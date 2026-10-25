@@ -28,6 +28,13 @@ def _run(cmd: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["dash", "-c", local], capture_output=True, text=True, check=False)
 
 
+def _kept(tmp_path: Path) -> Path:
+    """A fresh directory standing in for the private ``dango-restore-kept`` directory."""
+    kept = tmp_path / "kept"
+    kept.mkdir(exist_ok=True)
+    return kept
+
+
 def _tree(tmp_path: Path) -> tuple[Path, Path, Path]:
     """Project with hostile notebooks content, a scripts/x.py, and a staged archive copy."""
     project = tmp_path / "project"
@@ -63,16 +70,24 @@ def _assert_replaced(project: Path, nb: Path) -> None:
 
 
 def test_replace_command_is_valid_dash_and_runs_as_service_user() -> None:
-    cmd = br.restore_backup_dir_cmd("/s", "/p", "notebooks")
+    cmd = br.restore_backup_dir_cmd("/s", "/p", "notebooks", "/k")
     assert subprocess.run(["dash", "-n"], input=cmd, capture_output=True, text=True).returncode == 0
-    for tool in ("rm -rf", "mkdir", "cp -RP"):
+    for tool in ("mkdir", "cp -RP"):
         assert cmd.count(tool) == cmd.count(f"{br.AS_SERVICE_USER} {tool}") == 1, tool
-    assert "rm -rf /p/notebooks &&" in cmd and "rm -rf /p/notebooks/" not in cmd
+    # every mutation runs as the service user; the old directory is renamed, never emptied in place
+    assert "rm -rf /p/notebooks/" not in cmd and "rm -rf /p/notebooks &&" not in cmd
+    assert cmd.count(" mv ") == cmd.count(f"{br.AS_SERVICE_USER} mv ") == 2
+    assert f"{br.AS_SERVICE_USER} mv /p/notebooks /k/notebooks" in cmd
+    assert " -T" not in cmd
 
 
 def test_planted_links_are_not_followed(tmp_path: Path) -> None:
     project, nb, stage = _tree(tmp_path)
-    result = _run(br.restore_backup_dir_cmd(str(stage.parent), str(project), "notebooks"))
+    result = _run(
+        br.restore_backup_dir_cmd(
+            str(stage.parent), str(project), "notebooks", str(_kept(tmp_path))
+        )
+    )
     assert result.returncode == 0, result.stderr
     _assert_replaced(project, nb)
 
@@ -86,7 +101,11 @@ def test_notebooks_itself_a_symlink_is_removed_not_followed(tmp_path: Path) -> N
         child.unlink()
     nb.rmdir()
     nb.symlink_to(other)
-    result = _run(br.restore_backup_dir_cmd(str(stage.parent), str(project), "notebooks"))
+    result = _run(
+        br.restore_backup_dir_cmd(
+            str(stage.parent), str(project), "notebooks", str(_kept(tmp_path))
+        )
+    )
     assert result.returncode == 0, result.stderr
     assert sorted(p.name for p in other.iterdir()) == ["keep.py"]
     assert (other / "keep.py").read_text() == "KEEP\n"
@@ -99,13 +118,22 @@ def test_missing_or_linked_source_changes_nothing(tmp_path: Path) -> None:
     before = sorted(p.name for p in nb.iterdir())
     assert (
         _run(
-            br.restore_backup_dir_cmd(str(tmp_path / "nope"), str(project), "notebooks")
+            br.restore_backup_dir_cmd(
+                str(tmp_path / "nope"), str(project), "notebooks", str(_kept(tmp_path))
+            )
         ).returncode
         == 0
     )
     link = tmp_path / "stage-link"
     link.symlink_to(stage)
-    assert _run(br.restore_dir_cmd(str(link), str(nb), replace=True)).returncode == 0
+    assert (
+        _run(
+            br.restore_dir_cmd(
+                str(link), str(nb), replace=True, kept=str(_kept(tmp_path) / "notebooks")
+            )
+        ).returncode
+        == 0
+    )
     assert sorted(p.name for p in nb.iterdir()) == before
 
 
@@ -116,11 +144,74 @@ def test_failed_copy_fails_the_step(tmp_path: Path) -> None:
     (shim / "cp").write_text("#!/bin/sh\necho 'cp: No space left on device' >&2\nexit 1\n")
     (shim / "cp").chmod(0o755)
     env = {**os.environ, "PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}
-    cmd = br.restore_backup_dir_cmd(str(stage.parent), str(project), "notebooks").replace(
-        br.AS_SERVICE_USER + " ", ""
-    )
+    cmd = br.restore_backup_dir_cmd(
+        str(stage.parent), str(project), "notebooks", str(_kept(tmp_path))
+    ).replace(br.AS_SERVICE_USER + " ", "")
     result = subprocess.run(["dash", "-c", cmd], capture_output=True, text=True, env=env)
     assert result.returncode != 0
+
+
+def test_replace_without_a_kept_path_is_refused() -> None:
+    with pytest.raises(ValueError):
+        br.restore_dir_cmd("/s/notebooks", "/p/notebooks", replace=True)
+    with pytest.raises(ValueError):
+        br.restore_backup_dir_cmd("/s", "/p", "notebooks")
+
+
+def test_failed_copy_puts_the_old_directory_back(tmp_path: Path) -> None:
+    project, nb, stage = _tree(tmp_path)
+    shim = tmp_path / "shim"
+    shim.mkdir()
+    (shim / "cp").write_text("#!/bin/sh\necho 'cp: No space left on device' >&2\nexit 1\n")
+    (shim / "cp").chmod(0o755)
+    env = {**os.environ, "PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}
+    cmd = br.restore_backup_dir_cmd(
+        str(stage.parent), str(project), "notebooks", str(_kept(tmp_path))
+    ).replace(br.AS_SERVICE_USER + " ", "")
+    result = subprocess.run(["dash", "-c", cmd], capture_output=True, text=True, env=env)
+    assert result.returncode != 0
+    assert nb.is_dir() and not nb.is_symlink() and (nb / "stale.py").read_text() == "stale\n"
+    assert (nb / "a.py").is_symlink()
+    assert list(_kept(tmp_path).iterdir()) == []
+
+
+@pytest.mark.parametrize("mode", [0o000, 0o755, 0o1777], ids=["mode-000", "mode-0755", "sticky"])
+def test_runner_planted_directory_cannot_block_the_replace(tmp_path: Path, mode: int) -> None:
+    """A subdirectory the service user cannot empty must not fail or half-do the restore."""
+    project, nb, stage = _tree(tmp_path)
+    blocker = nb / "blk"
+    blocker.mkdir()
+    (blocker / "inner.py").write_text("planted\n")
+    blocker.chmod(mode)
+    kept = _kept(tmp_path)
+    try:
+        result = _run(
+            br.restore_backup_dir_cmd(str(stage.parent), str(project), "notebooks", str(kept))
+        )
+        assert result.returncode == 0, result.stderr
+        _assert_replaced(project, nb)
+        assert (kept / "notebooks" / "stale.py").exists()  # moved aside whole, not half-deleted
+        assert (kept / "notebooks" / "blk").is_dir()
+    finally:
+        (kept / "notebooks" / "blk").chmod(0o755)
+
+
+def test_symlinked_notebooks_is_renamed_as_a_link(tmp_path: Path) -> None:
+    project, nb, stage = _tree(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "keep.py").write_text("KEEP\n")
+    for child in list(nb.iterdir()):
+        child.unlink()
+    nb.rmdir()
+    nb.symlink_to(other)
+    kept = _kept(tmp_path)
+    result = _run(
+        br.restore_backup_dir_cmd(str(stage.parent), str(project), "notebooks", str(kept))
+    )
+    assert result.returncode == 0, result.stderr
+    assert (kept / "notebooks").is_symlink() and (other / "keep.py").read_text() == "KEEP\n"
+    assert nb.is_dir() and not nb.is_symlink()
 
 
 def test_other_directories_keep_merge_behaviour(tmp_path: Path) -> None:
@@ -180,6 +271,7 @@ def test_server_restore_replaces_notebooks(tmp_path: Path) -> None:
     ):
         backup.restore_from_archive(ssh, str(archive))
     _assert_replaced(project, nb)
+    assert not [p for p in root.iterdir() if "dango-restore-" in p.name], "leftover private dirs"
 
 
 def test_scheduled_restore_replaces_notebooks(tmp_path: Path) -> None:
