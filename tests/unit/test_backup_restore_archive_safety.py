@@ -127,7 +127,7 @@ def test_server_restore_sanitizes_into_private_dir_outside_staging(tmp_path: Pat
     assert "dango-restore-staging-" not in str(destination), destination
     assert not str(destination).startswith(str(project))
     # The private directory is created fresh by mktemp and removed afterwards.
-    assert any(c.startswith("mktemp -d") for c in ssh.commands)
+    assert any("mkdir -m 0750" in c and "dango-restore-meta-" in c for c in ssh.commands)
     assert not destination.parent.exists()
 
 

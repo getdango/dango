@@ -72,7 +72,7 @@ def test_replace_command_is_valid_dash_and_runs_as_service_user() -> None:
 
 def test_planted_links_are_not_followed(tmp_path: Path) -> None:
     project, nb, stage = _tree(tmp_path)
-    result = _run(br.restore_backup_dir_cmd(str(stage), str(nb), "notebooks"))
+    result = _run(br.restore_backup_dir_cmd(str(stage.parent), str(project), "notebooks"))
     assert result.returncode == 0, result.stderr
     _assert_replaced(project, nb)
 
@@ -86,7 +86,7 @@ def test_notebooks_itself_a_symlink_is_removed_not_followed(tmp_path: Path) -> N
         child.unlink()
     nb.rmdir()
     nb.symlink_to(other)
-    result = _run(br.restore_backup_dir_cmd(str(stage), str(nb), "notebooks"))
+    result = _run(br.restore_backup_dir_cmd(str(stage.parent), str(project), "notebooks"))
     assert result.returncode == 0, result.stderr
     assert sorted(p.name for p in other.iterdir()) == ["keep.py"]
     assert (other / "keep.py").read_text() == "KEEP\n"
@@ -98,23 +98,25 @@ def test_missing_or_linked_source_changes_nothing(tmp_path: Path) -> None:
     project, nb, stage = _tree(tmp_path)
     before = sorted(p.name for p in nb.iterdir())
     assert (
-        _run(br.restore_backup_dir_cmd(str(tmp_path / "nope"), str(nb), "notebooks")).returncode
+        _run(
+            br.restore_backup_dir_cmd(str(tmp_path / "nope"), str(project), "notebooks")
+        ).returncode
         == 0
     )
     link = tmp_path / "stage-link"
     link.symlink_to(stage)
-    assert _run(br.restore_backup_dir_cmd(str(link), str(nb), "notebooks")).returncode == 0
+    assert _run(br.restore_dir_cmd(str(link), str(nb), replace=True)).returncode == 0
     assert sorted(p.name for p in nb.iterdir()) == before
 
 
 def test_failed_copy_fails_the_step(tmp_path: Path) -> None:
-    _project, nb, stage = _tree(tmp_path)
+    project, nb, stage = _tree(tmp_path)
     shim = tmp_path / "shim"
     shim.mkdir()
     (shim / "cp").write_text("#!/bin/sh\necho 'cp: No space left on device' >&2\nexit 1\n")
     (shim / "cp").chmod(0o755)
     env = {**os.environ, "PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}
-    cmd = br.restore_backup_dir_cmd(str(stage), str(nb), "notebooks").replace(
+    cmd = br.restore_backup_dir_cmd(str(stage.parent), str(project), "notebooks").replace(
         br.AS_SERVICE_USER + " ", ""
     )
     result = subprocess.run(["dash", "-c", cmd], capture_output=True, text=True, env=env)
@@ -182,6 +184,5 @@ def test_server_restore_replaces_notebooks(tmp_path: Path) -> None:
 
 def test_scheduled_restore_replaces_notebooks(tmp_path: Path) -> None:
     _archive, project, nb = _archive_and_project(tmp_path)
-    with patch.object(br, "RESTORE_PRIVATE_ROOT", str(tmp_path / "root"), create=True):
-        run_spaces_restore(tmp_path, project, "backup-1")
+    run_spaces_restore(tmp_path, project, "backup-1")
     _assert_replaced(project, nb)

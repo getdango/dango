@@ -47,9 +47,8 @@ def test_private_root_is_not_a_world_visible_location() -> None:
 
 @pytest.mark.parametrize("service_access", [True, False])
 def test_private_dir_command_is_valid_dash_and_root_only(service_access: bool) -> None:
-    cmd = br.private_dir_cmd(
-        f"{br.RESTORE_PRIVATE_ROOT}/x-{'a' * 32}", service_access=service_access
-    )
+    path = f"{br.RESTORE_PRIVATE_ROOT}/x-{'a' * 32}"
+    cmd = br.private_dir_cmd(path, service_access=service_access)
     assert _dash("exit 0; " + cmd).returncode == 0
     check = subprocess.run(["dash", "-n"], input=cmd, capture_output=True, text=True, check=False)
     assert check.returncode == 0, check.stderr
@@ -58,7 +57,7 @@ def test_private_dir_command_is_valid_dash_and_root_only(service_access: bool) -
     if service_access:
         assert "root:dango" in cmd and "0750" in cmd
     else:
-        assert "dango" not in cmd and "0700" in cmd
+        assert f"root:dango {path}" not in cmd and "mkdir -m 0700" in cmd
 
 
 @pytest.mark.parametrize(("service_access", "mode"), [(True, 0o750), (False, 0o700)])
@@ -171,7 +170,7 @@ def test_local_file_upload_goes_into_private_directory(tmp_path: Path, failing: 
     assert directory.startswith(br.RESTORE_PRIVATE_ROOT + "/dango-restore-upload-")
     assert not upload_dest.startswith("/tmp")
     make = next(c for c in commands if "mkdir -m 0700" in c and directory in c)
-    assert "dango" not in make.replace(directory, "").replace(br.RESTORE_PRIVATE_ROOT, "")
+    assert f"root:dango {directory}" not in make
     # created before the upload, archive locked down right after, whole directory removed
     order = [make, f"chmod 0600 {shlex.quote(upload_dest)}", f"rm -rf {shlex.quote(directory)}"]
     positions = [next(i for i, c in enumerate(commands) if c == want) for want in order]
@@ -186,10 +185,9 @@ def test_scheduled_restore_stages_in_private_root(tmp_path: Path) -> None:
     (top / "data" / "warehouse.duckdb").write_bytes(b"db")
     (top / "manifest.json").write_text("{}")
     project.mkdir()
-    root = tmp_path / "private-root"
+    root = tmp_path / "private"
     events: list[str] = []
-    with patch.object(br, "RESTORE_PRIVATE_ROOT", str(root), create=True):
-        run_spaces_restore(tmp_path, project, "backup-1", events=events)
+    run_spaces_restore(tmp_path, project, "backup-1", events=events)
     extract = next(e for e in events if e.startswith("run: tar -xzf"))
     staging = Path(shlex.split(extract)[shlex.split(extract).index("-C") + 1])
     assert staging.parent == root and staging.name.startswith("dango-restore-staging-")

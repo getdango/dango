@@ -1049,7 +1049,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         auth_config_keeps_auth_on,
         clear_metabase_lock_state_cmd,
         hand_staging_to_service_user_cmd,
-        restore_dir_cmd,
+        restore_backup_dir_cmd,
         restore_file_cmd,
         set_aside_pipeline_state_cmd,
         unsafe_tar_members,
@@ -1061,8 +1061,8 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
     unsafe = unsafe_tar_members(local_path)
     if unsafe:
         raise CloudProvisioningError(UNSAFE_ARCHIVE_MESSAGE.format(names=", ".join(unsafe)))
-    # Fresh private staging (mkdtemp, 0700), never a predictable /tmp name.
-    staging = Path(tempfile.mkdtemp(prefix="dango-restore-staging-"))
+    # Fresh private staging (unique name in the root-only restore directory), never in /tmp.
+    staging = _private_restore_dir("dango-restore-staging")
     private_dir: Path | None = None
     try:
         _run_local(
@@ -1090,7 +1090,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         metabase_source = staging / METABASE_CONFIG_FILE
         sanitized: Path | None = None
         if metabase_source.exists():
-            private_dir = Path(tempfile.mkdtemp(prefix="dango-restore-meta-"))
+            private_dir = _private_restore_dir("dango-restore-meta")
             try:
                 _write_sanitized_metabase_yaml(
                     metabase_source, private_dir / SANITIZED_METABASE_NAME
@@ -1100,13 +1100,11 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                     ["chown", f"{SERVICE_USER}:{SERVICE_USER}", str(sanitized)],
                     step="restore_files",
                 )
-                private_dir.chmod(0o711)
             except ValueError:
                 _logger.warning("metabase_restore_metadata_omitted")
 
         # Project files are written as the service user, which owns the project tree.
         copies_started = True
-        staging.chmod(0o755)
         _run_builder_script(hand_staging_to_service_user_cmd(str(staging)), step="restore_files")
         stamp = time.strftime("%Y%m%d-%H%M%S")
         for db_path in DATABASE_FILES:
@@ -1153,7 +1151,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             )
         for dpath in BACKUP_DIRS:
             _run_builder_script(
-                restore_dir_cmd(str(staging / dpath), str(PROJECT_DIR / dpath)),
+                restore_backup_dir_cmd(str(staging), str(PROJECT_DIR), dpath),
                 step="restore_dirs",
             )
 
@@ -1188,6 +1186,11 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
             # the service user before services restart on it.
             with contextlib.suppress(Exception):  # best effort; keep the original error
                 subprocess.run(["chown", "-R", "dango:dango", "/srv/dango/project"], timeout=120)
+            # notebooks/ may already be recreated without its ACL; put it back before services start
+            from dango.platform.cloud import runner_reapply
+
+            with contextlib.suppress(Exception):
+                runner_reapply.reapply_local()
         raise
     finally:
         for leftover in (staging, private_dir):
@@ -1195,6 +1198,31 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                 shutil.rmtree(leftover, ignore_errors=True)
         if not nothing_stopped:
             _start_services()
+
+
+def _private_restore_dir(prefix: str) -> Path:
+    """Fresh ``root:dango 0750`` directory in the root-only restore directory.
+
+    The parent is ``root:dango 0710`` and never a link, so only root and the service user can
+    reach what the restore stages there; the service user still reads the extracted files.
+    """
+    from dango.platform.cloud import backup_restore
+    from dango.platform.cloud.backup_restore import SERVICE_USER
+
+    root = Path(backup_restore.RESTORE_PRIVATE_ROOT)
+    if root.is_symlink():
+        raise CloudProvisioningError(f"{root} is a symlink; refusing to stage a restore in it")
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _run_local(["chown", f"root:{SERVICE_USER}", str(root)], step="restore_files")
+    root.chmod(0o710)
+    path = Path(tempfile.mkdtemp(prefix=f"{prefix}-", dir=root))
+    try:
+        _run_local(["chown", f"root:{SERVICE_USER}", str(path)], step="restore_files")
+        path.chmod(0o750)
+    except Exception:
+        shutil.rmtree(path, ignore_errors=True)
+        raise
+    return path
 
 
 def enable_scheduled_backup() -> bool:

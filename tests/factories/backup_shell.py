@@ -297,6 +297,9 @@ def run_spaces_restore(
 
     with (
         patch(f"{sb}.PROJECT_DIR", project),
+        patch(
+            "dango.platform.cloud.backup_restore.RESTORE_PRIVATE_ROOT", str(tmp_path / "private")
+        ),
         patch(f"{sb}.BACKUP_DIR", tmp_path / "backups"),
         patch(f"{sb}.download_from_spaces", side_effect=download),
         patch(f"{sb}._stop_services", side_effect=lambda: _stop(events, stop_error)),

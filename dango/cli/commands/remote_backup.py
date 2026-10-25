@@ -17,6 +17,7 @@ Registered as a subgroup of ``remote`` in ``remote.py`` via
 
 from __future__ import annotations
 
+import contextlib
 import shlex
 import uuid
 from pathlib import Path
@@ -618,15 +619,22 @@ def _backup_restore_from_local(ctx: click.Context, source: str, yes: bool) -> No
             return
 
     cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
-    remote_tmp = f"/tmp/dango-restore-{uuid.uuid4().hex}.tar.gz"
+    upload_dir = ""
 
     try:
+        from dango.platform.cloud.backup import make_private_dir, restore_from_archive
+
+        # Root-only directory: the archive holds auth.db (and secrets), so no running
+        # restricted user may read it while it waits for the restore.
+        upload_dir = make_private_dir(ssh, "dango-restore-upload")
+        remote_tmp = f"{upload_dir}/{uuid.uuid4().hex}.tar.gz"
         with Status(f"[bold blue]Uploading {local_path.name}...", console=console):
             ssh.upload_file(local_path, remote_tmp)
+        locked = ssh.exec_command(f"chmod 0600 {shlex.quote(remote_tmp)}")
+        if not locked.success:
+            raise RuntimeError(f"Could not restrict the uploaded archive: {locked.stderr.strip()}")
 
         console.print(f"[green]Uploaded.[/green] Restoring from {local_path.name}...")
-
-        from dango.platform.cloud.backup import restore_from_archive
 
         with Status("[bold blue]Restoring from backup...", console=console):
             result = restore_from_archive(ssh, remote_tmp)
@@ -647,11 +655,11 @@ def _backup_restore_from_local(ctx: click.Context, source: str, yes: bool) -> No
         console.print(f"[red]Error:[/red] {exc}")
         raise SystemExit(1) from exc
     finally:
-        # Clean up remote temp file (best-effort — SSH may already be dead)
-        try:
-            ssh.exec_command(f"rm -f {shlex.quote(remote_tmp)}")
-        except Exception:  # noqa: BLE001
-            pass
+        # Remove the whole upload directory (best-effort: SSH may already be dead; a
+        # directory a dead client leaves behind is swept by the next backup or restore)
+        if upload_dir:
+            with contextlib.suppress(Exception):
+                ssh.exec_command(f"rm -rf {shlex.quote(upload_dir)}")
         ssh.disconnect()
 
 

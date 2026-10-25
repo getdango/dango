@@ -74,7 +74,7 @@ def test_restore_local_uses_generated_remote_name(name: str, tmp_path: Path) -> 
     """P1/P2: the local file name never reaches the remote path or a shell command.
 
     The upload target and the restore/cleanup path are a generated
-    /tmp/dango-restore-<32 hex>.tar.gz, whatever the local name looks like.
+    /srv/dango/.restore/dango-restore-upload-<32 hex>/<32 hex>.tar.gz, whatever the local name looks like.
     """
     local = tmp_path / name
     local.write_bytes(b"x")
@@ -95,12 +95,17 @@ def test_restore_local_uses_generated_remote_name(name: str, tmp_path: Path) -> 
         result = CliRunner().invoke(backup_restore, [str(local), "--from-local", "--yes"])
 
     assert result.exit_code == 0, result.output
-    pattern = re.compile(r"^/tmp/dango-restore-[0-9a-f]{32}\.tar\.gz$")
+    pattern = re.compile(
+        r"^/srv/dango/\.restore/dango-restore-upload-[0-9a-f]{32}/[0-9a-f]{32}\.tar\.gz$"
+    )
     assert len(ssh.uploads) == 1
     remote = ssh.uploads[0][1]
     assert pattern.match(remote)
     assert restored == [remote]
-    assert ssh.commands == [f"rm -f {remote}"]
+    directory = remote.rsplit("/", 1)[0]
+    assert len(ssh.commands) == 3
+    assert "mkdir -m 0700" in ssh.commands[0] and directory in ssh.commands[0]
+    assert ssh.commands[1:] == [f"chmod 0600 {remote}", f"rm -rf {directory}"]
     assert all(name not in c for c in ssh.commands)
 
 
@@ -132,7 +137,7 @@ def test_rollback_quotes_backup_path(path: str) -> None:
 
     tar_cmd = next(c for c in ssh.commands if "tar -xzf" in c)
     staging = shlex.split(tar_cmd)[2]
-    assert re.fullmatch(r"/tmp/dango-restore-staging-[0-9a-f]{32}", staging)
+    assert re.fullmatch(r"/srv/dango/\.restore/dango-restore-staging-[0-9a-f]{32}", staging)
     assert len(ssh.commands) >= 5
     all_tokens: list[str] = []
     for cmd in ssh.commands:
@@ -155,7 +160,8 @@ def test_rollback_quotes_backup_path(path: str) -> None:
         "--no-same-owner",
         "--no-same-permissions",
     ]
-    assert f"rm -rf {shlex.quote(staging)}" in ssh.commands
+    # staging and the Metabase scratch directory are removed together
+    assert any(c.startswith(f"rm -rf {shlex.quote(staging)}") for c in ssh.commands)
     test_cmd = ssh.commands[0]
     assert shlex.split(test_cmd) == ["test", "-f", path]
 
@@ -168,7 +174,7 @@ def test_safe_path_commands_unchanged() -> None:
     assert f"test -f {path}" in ssh.commands
     assert f"cat {path.replace('.tar.gz', '.json')} 2>/dev/null" in ssh.commands
     tar_cmd = next(c for c in ssh.commands if "tar -xzf" in c)
-    assert f"tar -xzf {path} -C /tmp/dango-restore-staging-" in tar_cmd
+    assert f"tar -xzf {path} -C /srv/dango/.restore/dango-restore-staging-" in tar_cmd
 
 
 def test_cleanup_and_stat_quote_listed_names() -> None:
@@ -336,4 +342,4 @@ def test_failed_extraction_still_removes_only_generated_staging() -> None:
     removals = [shlex.split(c) for c in ssh.commands if "rm " in c]
     assert len(removals) == 1
     assert removals[0][:2] == ["rm", "-rf"]
-    assert re.fullmatch(r"/tmp/dango-restore-staging-[0-9a-f]{32}", removals[0][2])
+    assert re.fullmatch(r"/srv/dango/\.restore/dango-restore-staging-[0-9a-f]{32}", removals[0][2])

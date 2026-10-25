@@ -247,14 +247,67 @@ def restore_file_cmd(src: str, dest: str, before: list[str] | None = None) -> st
     return f"if [ -f {shlex.quote(src)} ]; then {' && '.join(steps)}; fi"
 
 
-def restore_dir_cmd(src: str, dest: str) -> str:
-    """Shell step merging directory *src* into project path *dest* as the service user."""
+#: Project directories a restore replaces instead of merging into: a restricted runner can
+#: write them, so a merge could follow a link it planted and overwrite another file.
+REPLACE_ON_RESTORE = ("notebooks",)
+
+
+def restore_dir_cmd(src: str, dest: str, *, replace: bool = False) -> str:
+    """Shell step restoring directory *src* to project path *dest* as the service user.
+
+    Merges by default.  With *replace*, *dest* is removed first without following links (a
+    symlinked *dest* is removed as a link) and recreated, so no planted link survives to
+    redirect the copy; the caller re-applies any ACL the new directory lost.
+    """
     q_dest = shlex.quote(dest)
     q_src = shlex.quote(src)
-    return (
-        f"if [ -d {q_src} ] && [ ! -L {q_src} ]; then {AS_SERVICE_USER} mkdir -p {q_dest}"
-        f" && {AS_SERVICE_USER} cp -RP {shlex.quote(src + '/.')} {q_dest}/; fi"
+    copy = f"{AS_SERVICE_USER} cp -RP {shlex.quote(src + '/.')} {q_dest}/"
+    if replace:
+        steps = [
+            f"{AS_SERVICE_USER} rm -rf {q_dest}",
+            f"{AS_SERVICE_USER} mkdir -m 0755 {q_dest}",
+            copy,
+        ]
+    else:
+        steps = [f"{AS_SERVICE_USER} mkdir -p {q_dest}", copy]
+    return f"if [ -d {q_src} ] && [ ! -L {q_src} ]; then {' && '.join(steps)}; fi"
+
+
+def restore_backup_dir_cmd(staging: str, project_dir: str, rel: str) -> str:
+    """Shell step restoring backed-up directory *rel* from *staging* into *project_dir*."""
+    return restore_dir_cmd(
+        f"{staging}/{rel}", f"{project_dir}/{rel}", replace=rel in REPLACE_ON_RESTORE
     )
+
+
+#: Root-only parent of the restore upload and staging directories (``/srv/dango`` is root 0755).
+#: Group ``dango`` may traverse it, nobody else: restricted runners are not in that group.
+RESTORE_PRIVATE_ROOT = "/srv/dango/.restore"
+
+
+def private_dir_cmd(path: str, *, service_access: bool = False) -> str:
+    """Shell step creating the new directory *path* under :data:`RESTORE_PRIVATE_ROOT`, root-only.
+
+    The parent is created ``root:dango 0710`` (never through a link) and *path* ``0700 root``.
+    With *service_access* it is ``root:dango 0750`` so the service user can read what root hands
+    it there; entries inside are never listable by any other user.  An existing *path* fails.
+    """
+    root = path.rsplit("/", 1)[0]
+    q_root, q_path = shlex.quote(root), shlex.quote(path)
+    steps = [
+        f"[ ! -L {q_root} ]",
+        f"(umask 077; mkdir -p {q_root})",
+        f"chown root:{SERVICE_USER} {q_root}",
+        f"chmod 0710 {q_root}",
+    ]
+    if service_access:
+        steps += [
+            f"mkdir -m 0750 {q_path}",
+            f"chown root:{SERVICE_USER} {q_path}",
+        ]
+    else:
+        steps.append(f"mkdir -m 0700 {q_path}")
+    return " && ".join(steps)
 
 
 def clear_metabase_lock_state_cmd(project_dir: str) -> str:
