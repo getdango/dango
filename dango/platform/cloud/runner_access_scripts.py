@@ -16,12 +16,14 @@ from __future__ import annotations
 import posixpath
 from collections.abc import Sequence
 
+from dango.platform.cloud import runner_persistence as persistence
 from dango.platform.cloud.runner_scripts import (
     FORBIDDEN_GROUPS,
     NB_USER,
     RESERVED_IDS,
     RUN_USER,
     RUNNER_USERS,
+    SAFE_PATH,
     SERVICE_USER,
     SRV_DIR,
     UID_MAX,
@@ -64,6 +66,7 @@ def project_permission_script(project: str | None = None, srv_dir: str = SRV_DIR
         "\n".join(
             [
                 "set -eu",
+                SAFE_PATH.rstrip("\n"),
                 f"P={q(proj)}",
                 f"SNAP={q(snap)}",
                 f"H={q(HOME_DIR)}",
@@ -106,6 +109,7 @@ def notebooks_acl_script(project: str | None = None, srv_dir: str = SRV_DIR) -> 
         "\n".join(
             [
                 "set -eu",
+                SAFE_PATH.rstrip("\n"),
                 f"N={q(proj)}/notebooks",
                 'if [ -L "$N" ]; then echo "refusing: $N is a symlink" >&2; exit 3; fi',
                 'mkdir -p "$N"',
@@ -150,11 +154,18 @@ def ownership_precheck_script(
     )
 
 
-def quiesce_script(*, stop_web: bool = True) -> str:
+def quiesce_script(
+    *,
+    stop_web: bool = True,
+    paths: persistence.PersistencePaths = persistence.DEFAULT_PATHS,
+) -> str:
     """Root-side: make sure no runner process exists, optionally after stopping ``dango-web``.
 
-    Permissions are re-applied only while no runner can race them.  Kills every process of
-    both runner users (``pkill -KILL -u``), repeats until ``pgrep -u`` finds none, and exits 8
+    Permissions are re-applied only while no runner can race them.  A runner could otherwise
+    start fresh processes outside ``dango-web`` (cron, ``at``, a lingering systemd user), so the
+    crontab, ``at`` jobs and lingering are cleared first and again after the kill; user units and
+    autostart entries in the runner homes are removed once nothing runs.  Then every process of
+    both runner users is killed (``pkill -KILL -u``) until ``pgrep -u`` finds none; exits 8
     when one survives or ``dango-web`` is still active after its stop.  Users that do not
     exist yet are skipped.
     """
@@ -165,6 +176,7 @@ def quiesce_script(*, stop_web: bool = True) -> str:
             "if systemctl is-active --quiet dango-web; then"
             ' echo "dango-web is still running" >&2; exit 8; fi'
         )
+    lines.append(persistence.cleanup_before_kill(paths))
     lines += [
         f"for u in {' '.join(RUNNER_USERS)}; do",
         '  getent passwd "$u" >/dev/null 2>&1 || continue',
@@ -176,6 +188,7 @@ def quiesce_script(*, stop_web: bool = True) -> str:
         "  done",
         "done",
     ]
+    lines.append(persistence.cleanup_after_kill(paths))
     return "\n".join(lines) + "\n"
 
 
@@ -248,7 +261,8 @@ def verify_script(project: str | None = None, srv_dir: str = SRV_DIR) -> str:
     3. runners are in none of the forbidden groups;
     4. runner ids are in range, not reserved, and 61000/61001 have no host entry;
     5. the container uids can still read ``data`` (other bits ``r-x``);
-    6. ``setfacl`` works on the project filesystem.
+    6. ``setfacl`` works on the project filesystem;
+    7. a runner cannot persist code: ``crontab``/``at`` refused, no lingering, no user units.
     """
     proj = project if project is not None else project_dir(srv_dir)
     reserved = "|".join(str(i) for i in RESERVED_IDS)
@@ -303,6 +317,7 @@ def verify_script(project: str | None = None, srv_dir: str = SRV_DIR) -> str:
                 "fi",
                 protected_path_checks(proj).rstrip("\n"),
                 code_permission_checks(proj, srv_dir).rstrip("\n"),
+                persistence.persistence_checks().rstrip("\n"),
                 f'runuser -u {SERVICE_USER} -- sh -c {q(probe)} _ "$P/notebooks"'
                 ' || fail "setfacl does not work on the project filesystem"',
                 'exit "$bad"',

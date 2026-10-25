@@ -386,7 +386,9 @@ def test_notebooks_acl_runs_with_a_relative_path_entry(box: Box) -> None:
 # --- L-c: special files in pushed directories --------------------------------------------------
 
 
-def test_pushed_directories_skip_fifos_and_keep_regular_files_and_links(tmp_path: Path) -> None:
+def test_pushed_directories_leave_out_fifos_and_keep_regular_files_and_links(
+    tmp_path: Path,
+) -> None:
     from dango.platform.cloud.rsync_transport import _normalised_copy
 
     src = tmp_path / "scripts"

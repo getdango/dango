@@ -27,6 +27,7 @@ from typing import Any, Literal
 
 from dango.logging import get_logger
 from dango.platform.cloud import runner_access_scripts as access
+from dango.platform.cloud import runner_persistence as persistence
 from dango.platform.cloud import runner_scripts as scripts
 from dango.platform.run_as import MARKER, PYTHON, RESERVED_UIDS
 
@@ -37,6 +38,7 @@ __all__ = [
     "Step",
     "StepResult",
     "ISOLATION_MARK",
+    "RESTART_NOTE",
     "assert_runner_ids",
     "build_steps",
     "enable",
@@ -158,6 +160,8 @@ def build_steps(srv_dir: str = scripts.SRV_DIR) -> list[Step]:
         ),
         Step("runner_base_dir", scripts.runner_base_dir_script(srv_dir)),
         Step("users", scripts.users_script(srv_dir)),
+        # a runner must not be able to start code later through cron, at or systemd
+        Step("persistence", persistence.deny_lists_script()),
         Step("runner_dirs", scripts.runner_dirs_script(srv_dir)),
         Step("sudoers", scripts.sudoers_install_script()),
         Step(
@@ -358,6 +362,10 @@ def status_line(outcome: Outcome) -> str:
 
 
 _WEB_UNIT = "dango-web"
+#: Added to the result when the steps stopped a running ``dango-web`` and started it again.
+RESTART_NOTE = (
+    "dango-web was stopped and started again, so open notebooks and running scripts were ended"
+)
 # looks for the file only: root never imports code from a venv that may not be trusted yet
 _BUILD_CHECK = (
     f"find {posixpath.dirname(posixpath.dirname(PYTHON))}/lib -maxdepth 5 "
@@ -452,7 +460,10 @@ def enable(
     finally:
         if was_active:
             start_web(ssh, warnings)
-    return status_line(outcome)
+    status = status_line(outcome)
+    if was_active and "quiesce" in outcome.attempted:
+        status = f"{status}; {RESTART_NOTE}"
+    return status
 
 
 def enable_in_upgrade(

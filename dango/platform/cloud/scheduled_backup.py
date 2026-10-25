@@ -1180,7 +1180,8 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         # the restore can recreate protected paths without their denials (services are stopped)
         from dango.platform.cloud import runner_reapply
 
-        runner_reapply.reapply_local()
+        for note in runner_reapply.reapply_local():
+            print(f"  Warning: {note}", file=sys.stderr)
     except Exception:
         if copies_started:
             # A failed copy leaves a partial, root-owned restore; give it back to

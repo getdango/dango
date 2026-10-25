@@ -252,7 +252,9 @@ def test_failed_verify_never_writes_the_marker() -> None:
 def test_warning_level_failure_is_reported_as_enabled_with_unrestricted_loopback() -> None:
     srv = settled("1.0.14", rfail={"nftables_package": 6})
     result = run(srv, "1.0.14")
-    assert result.runner_isolation == "Runner isolation enabled (loopback: unrestricted)"
+    assert result.runner_isolation == (
+        f"Runner isolation enabled (loopback: unrestricted); {ri.RESTART_NOTE}"
+    )
     assert "nft_rules" not in srv.runner_events()
     assert any("nftables package" in w for w in result.warnings)
     assert json.loads(srv.record or "")["runner_isolation"]["loopback"] == "unrestricted"
@@ -262,7 +264,7 @@ def test_acl_package_failure_alone_does_not_block() -> None:
     srv = settled("1.0.14", rfail={"acl_package": 6})
     result = run(srv, "1.0.14")
     assert srv.isolation_marker is not None
-    assert result.runner_isolation == "Runner isolation enabled"
+    assert result.runner_isolation == f"Runner isolation enabled; {ri.RESTART_NOTE}"
 
 
 def test_a_dropped_connection_in_a_step_is_a_failed_step() -> None:

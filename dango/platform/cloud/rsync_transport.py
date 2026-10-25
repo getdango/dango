@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 from collections.abc import Sequence
@@ -94,6 +95,16 @@ def _require_pinned_host(
         )
 
 
+def _special_entries(directory: str, names: list[str]) -> set[str]:
+    """Names in *directory* that are not regular files, directories or links (FIFOs, sockets, devices)."""
+    special = set()
+    for name in names:
+        mode = os.lstat(os.path.join(directory, name)).st_mode
+        if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode) or stat.S_ISLNK(mode)):
+            special.add(name)
+    return special
+
+
 def _normalised_copy(local_dir: Path, parent: Path) -> Path:
     """Copy *local_dir* under *parent* with server-safe modes; returns the copy.
 
@@ -104,7 +115,7 @@ def _normalised_copy(local_dir: Path, parent: Path) -> Path:
     because not every rsync supports ``--chmod`` (the system rsync on recent macOS does not).
     """
     staged = parent / "stage"
-    shutil.copytree(local_dir, staged, symlinks=True)
+    shutil.copytree(local_dir, staged, symlinks=True, ignore=_special_entries)
     staged.chmod(0o755)
     for root, dirs, files in os.walk(staged):
         for name in dirs:

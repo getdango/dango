@@ -42,6 +42,7 @@ GUARD_ACTION = (
     'pgrep -f "[a]pt-get (install|update)" >/dev/null || '
     'pgrep -f "[u]seradd|[g]roupadd" >/dev/null || '
     'pgrep -f "[v]isudo" >/dev/null || '
+    'pgrep -f "[s]etfacl" >/dev/null || '
     'pgrep -f "[/]usr/sbin/[n]ft -" >/dev/null || '
     'pgrep -f "[d]ocker compose.*build" >/dev/null || '
     'pgrep -f "[d]ango-compose (up-build|build|pull)" >/dev/null; }; do n=$((n+1)); sleep 15; done; '

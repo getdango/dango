@@ -75,6 +75,7 @@ platform/
 │   ├── runner_isolation.py # Plan + failure policy + marker record + setup/upgrade wiring for the restricted runner users
 │   ├── runner_scripts.py  # Shell text: runner users, dirs, sudoers, loopback nft, marker
 │   ├── runner_access_scripts.py # Shell text: ownership check, quiesce, project deny/notebook ACLs (run as dango), verify
+│   ├── runner_persistence.py # Shell text: deny cron/at for the runners, clear crontab/at/linger/user units, checks
 │   ├── runner_reapply.py  # Re-apply the permission steps after deploy, push and restore
 │   ├── server_compose.py # Server render run by the helper (1.0.14)
 │   ├── pushed_requirements.py # Root installs requirements only from the pusher's local files (1.0.14)

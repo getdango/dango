@@ -413,12 +413,13 @@ def run_provisioning(
         _status("Configuring Metabase...")
         ssh.connect(droplet_ip, username="root")
         try:
-            _trigger_metabase_setup(ssh, config.admin_email)
             # Everything that creates protected paths has run (sync, secrets, first start, auth):
-            # put the runner users' denials back on whatever it left behind.
+            # put the runner users' denials back on whatever it left behind.  Before the Metabase
+            # trigger: that restarts dango-web, which must not be stopped again while it sets up.
             from dango.platform.cloud import runner_reapply
 
             runner_reapply.reapply(ssh, warnings, stop_web=True)
+            _trigger_metabase_setup(ssh, config.admin_email)
         finally:
             ssh.disconnect()
 
@@ -639,12 +640,13 @@ def run_byos_setup(
         _status("Configuring Metabase...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            _trigger_metabase_setup(ssh, config.admin_email)
             # Everything that creates protected paths has run (sync, secrets, first start, auth):
-            # put the runner users' denials back on whatever it left behind.
+            # put the runner users' denials back on whatever it left behind.  Before the Metabase
+            # trigger: that restarts dango-web, which must not be stopped again while it sets up.
             from dango.platform.cloud import runner_reapply
 
             runner_reapply.reapply(ssh, warnings, stop_web=True)
+            _trigger_metabase_setup(ssh, config.admin_email)
         finally:
             ssh.disconnect()
 

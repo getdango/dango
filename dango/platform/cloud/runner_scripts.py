@@ -65,10 +65,12 @@ delete table inet {NFT_TABLE}
 table inet {NFT_TABLE} {{
   chain output {{
     type filter hook output priority 0; policy accept;
+    ct state established,related accept
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip daddr 127.0.0.0/8 udp dport 53 accept
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip daddr 127.0.0.0/8 tcp dport 53 accept
     meta skuid "{NB_USER}" ip daddr 127.0.0.1 tcp dport 7805 accept
-    meta skuid {{ "{RUN_USER}", "{NB_USER}" }} oifname {{ "docker0", "br-*" }} reject
+    meta skuid {{ "{RUN_USER}", "{NB_USER}" }} oifname "docker0" reject
+    meta skuid {{ "{RUN_USER}", "{NB_USER}" }} oifname "br-*" reject
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} fib daddr type local reject
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip daddr 127.0.0.0/8 reject
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip6 daddr ::1 reject
@@ -96,6 +98,12 @@ WantedBy=multi-user.target
 """
 
 _HEAD = "set -eu\n"
+
+#: Drops empty and relative ``PATH`` entries: GNU ``find -execdir`` refuses to run when it finds one.
+SAFE_PATH = (
+    '_np=; IFS=:; for _d in $PATH; do case "$_d" in /*) _np="${_np:+$_np:}$_d";; esac; done; '
+    'unset IFS; PATH="$_np"; export PATH\n'
+)
 
 
 def q(value: str) -> str:
