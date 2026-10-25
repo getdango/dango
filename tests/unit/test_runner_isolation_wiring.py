@@ -176,7 +176,7 @@ def test_at_target_runs_isolation_after_secure_runtime_and_the_switch() -> None:
     assert at(srv, "r:quiesce") < at(srv, "web-stop") < at(srv, "r:project_permissions")
     assert at(srv, "r:record") < at(srv, "web-start")
     assert srv.web_active
-    assert result.runner_isolation == "Runner isolation enabled"
+    assert result.runner_isolation == f"Runner isolation enabled; {ri.RESTART_NOTE}"
     assert result.new_version == "1.0.14"
 
 
@@ -240,7 +240,7 @@ def test_interrupted_run_leaves_no_marker_and_the_rerun_converges(failing: str) 
     again = run(srv, "1.0.14")
     assert srv.runner_events() == [*STEPS, "record"]
     assert srv.isolation_marker is not None
-    assert again.runner_isolation == "Runner isolation enabled"
+    assert again.runner_isolation == f"Runner isolation enabled; {ri.RESTART_NOTE}"
 
 
 def test_failed_verify_never_writes_the_marker() -> None:

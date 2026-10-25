@@ -302,9 +302,9 @@ def test_spaces_restore_reapplies_permissions_while_services_are_stopped(tmp_pat
     assert events.index("stop") < events.index("reapply") < events.index("start")
 
 
-def test_deploy_provisioning_reapplies_permissions_at_the_end_on_both_paths() -> None:
+def test_deploy_provisioning_reapplies_permissions_before_the_trigger_on_both_paths() -> None:
     for fn in (dp.run_provisioning, dp.run_byos_setup):
         text = inspect.getsource(fn)
         assert "runner_reapply" in text, fn.__name__
-        assert text.index("_trigger_metabase_setup(") < text.index("runner_reapply")
-        assert text.index("runner_reapply") < text.index("_health_check(")
+        assert text.index("runner_reapply") < text.index("_trigger_metabase_setup(")
+        assert text.index("_trigger_metabase_setup(") < text.index("_health_check(")

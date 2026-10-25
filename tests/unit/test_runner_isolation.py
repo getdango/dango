@@ -67,6 +67,8 @@ def test_step_order_puts_the_marker_last_after_verify() -> None:
     assert names.count("marker") == 1
     for before, after in [
         ("runner_base_dir", "users"),
+        ("users", "persistence"),
+        ("persistence", "verify"),
         ("users", "runner_dirs"),
         ("runner_dirs", "project_permissions"),
         ("users", "sudoers"),
@@ -139,6 +141,7 @@ def test_acl_package_failure_alone_does_not_block() -> None:
     [
         "runner_base_dir",
         "users",
+        "persistence",
         "runner_dirs",
         "sudoers",
         "project_permissions",

@@ -143,6 +143,8 @@ def _quiesce_box(box: Box, survivors: int) -> None:
         (box.root / f"n.{user}").write_text(str(survivors))
     box.tool("getent", "exit 0\n")
     box.tool("sleep", "exit 0\n")
+    for name in ("crontab", "loginctl", "atq", "atrm", "id"):
+        box.tool(name, "exit 0\n")
     box.tool(
         "pkill",
         'echo "pkill $*" >>"$LOG"\nf="$N.$3"; n=$(cat "$f"); echo $((n-1)) >"$f"\n',
@@ -308,7 +310,8 @@ def test_verify_flags_a_group_writable_venv_and_runner_writable_dirs(box: Box) -
 def test_nft_rejects_the_docker_bridge_and_every_local_address() -> None:
     text = rs.NFT_RULESET
     both = 'meta skuid { "dango-run", "dango-nb" }'
-    assert f'{both} oifname {{ "docker0", "br-*" }} reject' in text
+    assert f'{both} oifname "docker0" reject' in text
+    assert f'{both} oifname "br-*" reject' in text
     assert f"{both} fib daddr type local reject" in text
     lines = text.splitlines()
     accept = [i for i, ln in enumerate(lines) if "accept" in ln and "skuid" in ln]
