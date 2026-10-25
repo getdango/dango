@@ -54,12 +54,14 @@ def reapply(
     warnings: list[str],
     *,
     stop_web: bool = False,
+    restart: bool = True,
     srv_dir: str = scripts.SRV_DIR,
 ) -> str | None:
     """Re-apply over SSH when isolation is on; returns ``None`` when it is not.
 
     *stop_web* stops ``dango-web`` for the steps (a deploy end, where it is running) and starts
-    it again; the push and restore paths have the services stopped already.
+    it again; the push and restore paths have the services stopped already.  With
+    ``restart=False`` the caller starts it (a deploy that restarts it next anyway: one start only).
     """
     marker = shlex.quote(scripts.marker_path(srv_dir))
     try:
@@ -68,7 +70,7 @@ def reapply(
         present = False
     if not present:
         return None
-    was_active = stop_web and ri.web_is_active(ssh)
+    was_active = stop_web and restart and ri.web_is_active(ssh)
     try:
         outcome = ri.run_steps(reapply_steps(srv_dir, stop_web=stop_web), ri.executor(ssh, None))
     finally:

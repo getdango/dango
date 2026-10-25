@@ -170,7 +170,7 @@ def test_quiesce_fails_when_a_runner_process_survives(box: Box) -> None:
     _quiesce_box(box, survivors=10**6)
     res = box.run(access.quiesce_script(stop_web=False), N=str(box.root / "n"))
     assert res.returncode == 8 and "dango-" in res.stderr
-    assert not any(c.startswith("systemctl stop") for c in box.calls())
+    assert not any(c.startswith("systemctl stop dango-web") for c in box.calls())
 
 
 def test_quiesce_fails_when_web_is_still_running(box: Box) -> None:

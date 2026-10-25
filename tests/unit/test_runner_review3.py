@@ -107,7 +107,8 @@ def test_ssh_drop_in_denies_only_the_two_runners_atomically(box: Box) -> None:
 def test_ssh_config_is_validated_before_reload_and_effect_is_checked() -> None:
     text = rp.ssh_deny_script()
     assert text.index("-t") < text.index("reload") < text.index("-T")
-    assert "user=dango-nb,host=localhost,addr=127.0.0.1" in text
+    assert "user=$u,host=localhost,addr=127.0.0.1" in text
+    assert "for u in dango-run dango-nb; do" in text
     assert "systemctl reload ssh || systemctl reload sshd" in text
 
 

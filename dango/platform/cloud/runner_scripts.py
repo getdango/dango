@@ -59,6 +59,9 @@ SUDOERS_TEXT = (
     f"dango ALL=({RUN_USER},{NB_USER}) NOPASSWD:SETENV: DANGO_RUNNER, DANGO_SIGNAL\n"
 )
 
+#: ``net.ipv4.ip_local_port_range`` default: where a notebook kernel's loopback listener lives.
+EPHEMERAL_PORTS = "32768-60999"
+
 NFT_RULESET = f"""# Installed by Dango: runner users cannot connect to local services, this host or Docker networks.
 add table inet {NFT_TABLE}
 delete table inet {NFT_TABLE}
@@ -69,6 +72,10 @@ table inet {NFT_TABLE} {{
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip daddr 127.0.0.0/8 udp dport 53 accept
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} ip daddr 127.0.0.0/8 tcp dport 53 accept
     meta skuid "{NB_USER}" ip daddr 127.0.0.1 tcp dport 7805 accept
+    # Dango's own services use fixed low ports (80, 443, 3000, 7805, 8080, 8081, 8800), outside the
+    # ephemeral range.  The notebook server's kernel connects back over loopback on an ephemeral
+    # port, so dango-nb (never dango-run) may reach loopback in that range.
+    meta skuid "{NB_USER}" ip daddr 127.0.0.1 tcp dport {EPHEMERAL_PORTS} accept
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} oifname "docker0" reject
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} oifname "br-*" reject
     meta skuid {{ "{RUN_USER}", "{NB_USER}" }} fib daddr type local reject

@@ -26,12 +26,25 @@ __all__ = [
     "cleanup_before_kill",
     "deny_lists_script",
     "persistence_checks",
+    "persistence_script",
+    "ssh_deny_script",
 ]
 
 _USERS = " ".join(RUNNER_USERS)
 _DENY_FILES = ("cron.deny", "at.deny")
 #: Relative to a runner home: what a nologin user could use to start code on its own.
-_HOME_UNITS = (".config/autostart", ".config/systemd", ".local/share/systemd")
+_HOME_UNITS = (
+    ".ssh",
+    ".config/autostart",
+    ".config/environment.d",
+    ".config/systemd",
+    ".local/share/systemd",
+)
+#: Directories a runner could replace with a link to a tree it controls (systemd follows it).
+_HOME_LINKS = (".config", ".local", ".local/share")
+SSH_DROP_IN = "dango-runner.conf"
+_SSHD_FIND = "SSHD=$(command -v sshd || echo /usr/sbin/sshd)"
+_LINK_TESTS = " -o ".join(f'-path "$h/{d}"' for d in _HOME_LINKS)
 
 
 @dataclass(frozen=True)
@@ -76,6 +89,59 @@ def deny_lists_script(etc: str = "/etc") -> str:
     )
 
 
+def ssh_deny_script(sshd_dir: str = "/etc/ssh/sshd_config.d") -> str:
+    """Root-side: refuse ssh logins of both runners and mask their systemd user managers.
+
+    A locked ``nologin`` account can still log in with a key planted in its own home, and the
+    login starts ``user@<uid>.service``, which runs units the runner planted outside
+    ``dango-web``.  A ``DenyUsers`` drop-in naming only the two runners is written atomically
+    (root:root 0644), checked with ``sshd -t`` (the previous file comes back when it fails),
+    reloaded, and then proven effective with ``sshd -T`` (a missing ``Include`` fails the step:
+    isolation is NOT enabled).  Fixed system paths only; a symlink or non-regular file at the
+    drop-in path is refused.
+    """
+    names = " ".join(RUNNER_USERS)
+    return (
+        "\n".join(
+            [
+                "set -eu",
+                f'D={q(sshd_dir)}; F="$D/{SSH_DROP_IN}"',
+                _SSHD_FIND,
+                'new=; bak=; trap \'rm -f -- "$new" "$bak"\' EXIT',
+                '[ -d "$D" ] || mkdir -p -m 0755 "$D"',
+                'if [ -L "$F" ] || { [ -e "$F" ] && [ ! -f "$F" ]; }; then'
+                ' echo "refusing: $F is a link or not a regular file" >&2; exit 3; fi',
+                'new=$(mktemp "$D/.dango-runner.XXXXXX")',
+                'if [ -f "$F" ]; then bak=$(mktemp "$D/.dango-runner-old.XXXXXX"); cp -p "$F" "$bak"; fi',
+                "printf '%s\\n' '# Installed by Dango: the runner users never log in over ssh.'"
+                f" 'DenyUsers {names}' >\"$new\"",
+                'chmod 0644 "$new"; chown root:root "$new"',
+                'mv -f "$new" "$F"',
+                'if ! "$SSHD" -t; then',
+                '  if [ -n "$bak" ]; then mv -f "$bak" "$F"; else rm -f "$F"; fi',
+                '  echo "sshd rejected the config, restored it; isolation NOT enabled" >&2; exit 4',
+                "fi",
+                "systemctl reload ssh || systemctl reload sshd || {"
+                ' echo "could not reload sshd; isolation NOT enabled" >&2; exit 5; }',
+                f"for u in {names}; do",
+                '  "$SSHD" -T -C "user=$u,host=localhost,addr=127.0.0.1" 2>/dev/null'
+                ' | grep -Eq "^denyusers( .*)? $u( |\\$)" || {',
+                "    echo \"sshd does not apply $F (add 'Include /etc/ssh/sshd_config.d/*.conf' to"
+                ' sshd_config); isolation NOT enabled" >&2; exit 6; }',
+                '  systemctl mask "user@$(id -u "$u").service" >/dev/null',
+                '  systemctl stop "user@$(id -u "$u").service" >/dev/null 2>&1 || true',
+                "done",
+            ]
+        )
+        + "\n"
+    )
+
+
+def persistence_script() -> str:
+    """The ``persistence`` setup step: cron/at deny lists, then the ssh and user-manager denial."""
+    return deny_lists_script() + ssh_deny_script()
+
+
 def _jobs_cleanup(paths: PersistencePaths) -> str:
     """Per-user (``$u``) removal of crontab, at jobs and lingering; used inside a ``for u`` loop."""
     return "\n".join(
@@ -89,6 +155,7 @@ def _jobs_cleanup(paths: PersistencePaths) -> str:
             '  [ ! -d "$A" ] || find -P "$A" -maxdepth 1 -type f -user "$u" -delete 2>/dev/null || true',
             '  loginctl disable-linger "$u" >/dev/null 2>&1 || true',
             '  rm -f "$L/$u"',
+            '  systemctl stop "user@$(id -u "$u").service" >/dev/null 2>&1 || true',
             '  loginctl terminate-user "$u" >/dev/null 2>&1 || true',
         ]
     )
@@ -101,7 +168,10 @@ def _home_cleanup() -> str:
         [
             '  h=$(getent passwd "$u" | cut -d: -f6)',
             '  if [ -n "$h" ]; then',
-            f'    find -P "$h" -mindepth 2 -maxdepth 3 \\( {prunes} \\) -prune -exec rm -rf {{}} +'
+            # planted links first: find -P never enters them, so the prune pass cannot reach what they hide
+            f'    find -P "$h" -mindepth 1 -maxdepth 2 -type l \\( {_LINK_TESTS} \\) -delete'
+            " 2>/dev/null || true",
+            f'    find -P "$h" -mindepth 1 -maxdepth 3 \\( {prunes} \\) -prune -exec rm -rf {{}} +'
             " 2>/dev/null || true",
             "  fi",
         ]
@@ -140,11 +210,12 @@ def persistence_checks(etc: str = "/etc", paths: PersistencePaths = DEFAULT_PATH
     is missing from ``cron.deny`` or ``at.deny``, when an ``at`` job can be queued, when systemd
     lingering is on, or when a user unit or autostart entry is present in its home.
     """
-    units = " ".join(f'"$h/{unit}"' for unit in _HOME_UNITS)
+    unit_tests = " -o ".join(f'-path "$h/{unit}"' for unit in _HOME_UNITS)
     return (
         "\n".join(
             [
                 f"E={q(etc)}; S={q(paths.cron_spool)}; L={q(paths.linger_dir)}",
+                _SSHD_FIND,
                 f"for u in {_USERS}; do",
                 '  getent passwd "$u" >/dev/null 2>&1 || continue',
                 "  if command -v crontab >/dev/null 2>&1; then",
@@ -163,11 +234,17 @@ def persistence_checks(etc: str = "/etc", paths: PersistencePaths = DEFAULT_PATH
                 "    fi",
                 "  fi",
                 '  [ ! -e "$L/$u" ] || fail "$u has systemd lingering enabled"',
+                '  uid=$(id -u "$u")',
+                '  [ "$(systemctl is-enabled "user@$uid.service" 2>/dev/null)" = masked ]'
+                ' || fail "user@$uid.service is not masked for $u"',
+                '  "$SSHD" -T -C "user=$u,host=localhost,addr=127.0.0.1" 2>/dev/null'
+                ' | grep -Eq "^denyusers( .*)? $u( |\\$)" || fail "sshd does not deny ssh logins for $u"',
                 '  h=$(getent passwd "$u" | cut -d: -f6)',
                 '  if [ -n "$h" ]; then',
-                f"    for x in {units}; do",
-                '      if [ -e "$x" ] || [ -L "$x" ]; then fail "$u has $x"; fi',
-                "    done",
+                # find -P lists a link without entering it: a planted link is found, never followed
+                f'    x=$(find -P "$h" -mindepth 1 -maxdepth 3 \\( {unit_tests} -o'
+                f" \\( -type l \\( {_LINK_TESTS} \\) \\) \\) -print 2>/dev/null | head -n 1)",
+                '    [ -z "$x" ] || fail "$u has $x"',
                 "  fi",
                 "done",
             ]

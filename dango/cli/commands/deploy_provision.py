@@ -415,10 +415,10 @@ def run_provisioning(
         try:
             # Everything that creates protected paths has run (sync, secrets, first start, auth):
             # put the runner users' denials back on whatever it left behind.  Before the Metabase
-            # trigger: that restarts dango-web, which must not be stopped again while it sets up.
+            # trigger: that restarts dango-web, so it is left stopped here (one start, no restart while it sets up).
             from dango.platform.cloud import runner_reapply
 
-            runner_reapply.reapply(ssh, warnings, stop_web=True)
+            runner_reapply.reapply(ssh, warnings, stop_web=True, restart=False)
             _trigger_metabase_setup(ssh, config.admin_email)
         finally:
             ssh.disconnect()
@@ -642,10 +642,10 @@ def run_byos_setup(
         try:
             # Everything that creates protected paths has run (sync, secrets, first start, auth):
             # put the runner users' denials back on whatever it left behind.  Before the Metabase
-            # trigger: that restarts dango-web, which must not be stopped again while it sets up.
+            # trigger: that restarts dango-web, so it is left stopped here (one start, no restart while it sets up).
             from dango.platform.cloud import runner_reapply
 
-            runner_reapply.reapply(ssh, warnings, stop_web=True)
+            runner_reapply.reapply(ssh, warnings, stop_web=True, restart=False)
             _trigger_metabase_setup(ssh, config.admin_email)
         finally:
             ssh.disconnect()

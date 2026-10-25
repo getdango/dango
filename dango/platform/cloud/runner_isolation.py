@@ -161,7 +161,7 @@ def build_steps(srv_dir: str = scripts.SRV_DIR) -> list[Step]:
         Step("runner_base_dir", scripts.runner_base_dir_script(srv_dir)),
         Step("users", scripts.users_script(srv_dir)),
         # a runner must not be able to start code later through cron, at or systemd
-        Step("persistence", persistence.deny_lists_script()),
+        Step("persistence", persistence.persistence_script()),
         Step("runner_dirs", scripts.runner_dirs_script(srv_dir)),
         Step("sudoers", scripts.sudoers_install_script()),
         Step(
