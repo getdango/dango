@@ -101,6 +101,13 @@ def assert_bound_to(text: str, digest: str) -> None:
     assert len(adds) == 1
     assert adds[0].startswith(f"ADD --checksum=sha256:{digest} https://downloads.metabase.com/")
     assert text.count("--checksum=") == 1
+    assert text.count(digest) == 2, "digest only on the ADD and the sha256sum check"
+    assert sha_check_lines(text, digest) == 1
+
+
+def sha_check_lines(text: str, digest: str) -> int:
+    check = f'RUN echo "{digest}  /app/metabase.jar" | sha256sum -c -'
+    return text.splitlines().count(check)
 
 
 def test_default_metabase_jar_uses_pinned_checksum(server: Server) -> None:
@@ -132,6 +139,8 @@ def test_rendered_recipe_binds_every_remote_add_to_the_pinned_digest(server: Ser
     for line in remote_adds(text):
         assert re.fullmatch(rf"ADD --checksum=sha256:{DIGEST_A} \S+ \S+", line), line
     assert DEFAULT_DIGEST not in text
+    assert text.count(DIGEST_A) == 2
+    assert sha_check_lines(text, DIGEST_A) == 1
 
 
 def test_custom_metabase_version_uses_root_pin(server: Server) -> None:
@@ -323,3 +332,34 @@ def test_checksum_template_drift_is_refused(
     recipe.write_text(re.sub(r"--checksum=\S+ ", "", recipe.read_text()))
     assert server.render(DEFAULT_VERSION) == 68
     server.assert_untouched()
+
+
+def test_packaged_recipe_checks_the_jar_before_any_later_use() -> None:
+    """The classic builder ignores ADD --checksum, so a RUN check must follow the ADD."""
+    lines = (TEMPLATE / "Dockerfile.metabase").read_text().splitlines()
+    add = next(i for i, ln in enumerate(lines) if ln.startswith("ADD --checksum"))
+    check = lines.index(f'RUN echo "{DEFAULT_DIGEST}  /app/metabase.jar" | sha256sum -c -')
+    assert check == add + 1
+    used = [i for i, ln in enumerate(lines) if "metabase.jar" in ln and i not in (add, check)]
+    assert all(i > check for i in used)
+
+
+def test_wrong_digest_in_the_run_check_alone_is_drift(
+    server: Server, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pkg = tmp_path / "pkg"
+    shutil.copytree(TEMPLATE, pkg / "templates")
+    recipe = pkg / "templates/Dockerfile.metabase"
+    original = recipe.read_text()
+    monkeypatch.setattr(sc, "resources", SimpleNamespace(files=lambda _name: pkg))
+    check = f'RUN echo "{DEFAULT_DIGEST}  /app/metabase.jar" | sha256sum -c -'
+    for broken in (
+        original.replace(check, check.replace(DEFAULT_DIGEST, DIGEST_B)),
+        original.replace(check + "\n", ""),
+        original.replace(check, check + "\n" + check),
+        original.replace(check, check.replace("sha256sum -c -", "sha256sum")),
+    ):
+        assert broken != original
+        recipe.write_text(broken)
+        assert server.render(DEFAULT_VERSION) == 68
+        server.assert_untouched()

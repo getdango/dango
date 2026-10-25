@@ -67,23 +67,28 @@ def test_root_pin_metabase_runs_isolated_python_with_a_clean_environment(tree: T
     assert tree.calls("docker") == []
 
 
-PIN_REFUSALS: list[list[str]] = [
-    [],
-    [VERSION],
-    [VERSION, DIGEST, "extra"],
-    ["0.99.1", DIGEST],
-    ["v0.9x", DIGEST],
-    ["v" + "1" * 20, DIGEST],
-    ["v0.99.1;id", DIGEST],
-    [VERSION, "ab" * 31],
-    [VERSION, DIGEST + "0"],
-    [VERSION, "zz" * 32],
-    [VERSION, "$(id)" + "a" * 59],
+PIN_REFUSALS: list[tuple[list[str], str]] = [
+    ([], "usage: pin-metabase"),
+    ([VERSION], "usage: pin-metabase"),
+    ([VERSION, DIGEST, "extra"], "usage: pin-metabase"),
+    (["0.99.1", DIGEST], "bad version"),
+    (["v0.9x", DIGEST], "bad version"),
+    (["v" + "1" * 20, DIGEST], "bad version"),
+    (["v0.99.1;id", DIGEST], "bad version"),
+    ([VERSION, "ab" * 31], "bad digest"),
+    ([VERSION, DIGEST + "0"], "bad digest"),
+    ([VERSION, "zz" * 32], "bad digest"),
+    ([VERSION, "$(id)" + "a" * 59], "bad digest"),
 ]
 
 
-@pytest.mark.parametrize("args", PIN_REFUSALS, ids=[" ".join(a) or "empty" for a in PIN_REFUSALS])
-def test_pin_metabase_grammar_refusals_never_reach_python(tree: Tree, args: list[str]) -> None:
+@pytest.mark.parametrize(
+    ("args", "message"), PIN_REFUSALS, ids=[" ".join(a) or "empty" for a, _ in PIN_REFUSALS]
+)
+def test_pin_metabase_grammar_refusals_never_reach_python(
+    tree: Tree, args: list[str], message: str
+) -> None:
     result = tree.call("pin-metabase", *args)
     assert result.returncode == 64, result.stderr
+    assert message in result.stderr, result.stderr
     assert tree.calls("python") == []
