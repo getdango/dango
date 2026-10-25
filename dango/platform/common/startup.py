@@ -84,62 +84,22 @@ def check_duckdb_version_alignment() -> None:
 
 
 def ensure_duckdb_driver(project_root: Path) -> None:
-    """Ensure Metabase DuckDB driver is downloaded and version-matched.
+    """Ensure the pinned, digest-verified Metabase DuckDB driver is installed.
 
-    Downloads the driver if not present or if the installed DuckDB version
-    has changed since the last download.  Retries 3 times on network failure.
-
-    Args:
-        project_root: Project root directory
+    A cached jar is reused only if it matches the pinned digest (a missing or stale
+    version marker is repaired offline). Otherwise a candidate is downloaded and
+    installed only after verification; a failed fetch leaves any existing jar untouched.
 
     Raises:
-        RuntimeError: If download fails after all retries
+        DriverIntegrityError: Downloaded bytes did not match the pinned digest.
+        DriverDownloadError: Network failure after all retries.
     """
-    import time
-    import urllib.request
-
-    from dango.utils.driver import (
-        METABASE_DUCKDB_DRIVER_VERSION,
-        driver_needs_update,
-        get_duckdb_driver_url,
-        write_driver_version,
-    )
+    from dango.utils.driver import download_verified_driver, reuse_verified_driver
 
     plugins_dir = project_root / "metabase-plugins"
-    driver_path = plugins_dir / "duckdb.metabase-driver.jar"
-
-    if driver_path.exists() and not driver_needs_update(plugins_dir):
+    if reuse_verified_driver(plugins_dir):
         return
-
-    # Delete stale driver if version mismatch
-    if driver_path.exists():
-        driver_path.unlink()
-
-    driver_url = get_duckdb_driver_url()
-    plugins_dir.mkdir(exist_ok=True)
-
-    for attempt in range(3):
-        try:
-            if attempt > 0:
-                time.sleep(2)
-            urllib.request.urlretrieve(driver_url, driver_path)
-            write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
-            return
-        except Exception:
-            if attempt == 2:
-                # Clean up partial download on final failure
-                try:
-                    if driver_path.exists():
-                        driver_path.unlink()
-                except Exception:  # noqa: BLE001
-                    pass
-
-    raise RuntimeError(
-        f"Failed to download DuckDB driver after 3 attempts. "
-        f"URL: {driver_url} — "
-        f"Check your internet connection and try again, or download manually from: "
-        f"https://github.com/motherduckdb/metabase_duckdb_driver/releases"
-    )
+    download_verified_driver(plugins_dir)
 
 
 def start_docker_services(project_root: Path) -> None:

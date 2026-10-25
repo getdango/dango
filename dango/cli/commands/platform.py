@@ -553,7 +553,12 @@ def start(ctx: click.Context, yes: bool) -> None:
                 console.print(f"[green]✓[/green] DuckDB driver ready ({driver_size_mb}MB)")
                 console.print()
         except RuntimeError as e:
-            console.print("[red]❌ Failed to download DuckDB driver[/red]")
+            from dango.utils.driver import DriverIntegrityError
+
+            if isinstance(e, DriverIntegrityError):
+                console.print("[red]❌ DuckDB driver integrity verification failed[/red]")
+            else:
+                console.print("[red]❌ Failed to download DuckDB driver[/red]")
             console.print()
             console.print("[bold]This is required for Metabase to connect to DuckDB.[/bold]")
             console.print()

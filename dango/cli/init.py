@@ -995,8 +995,6 @@ custom_sources/
         Returns:
             True if successful, False if driver download failed
         """
-        import urllib.request
-
         from jinja2 import Environment, PackageLoader
 
         console.print("Setting up Metabase with DuckDB support...")
@@ -1027,83 +1025,50 @@ custom_sources/
         plugins_dir = self.project_dir / "metabase-plugins"
         plugins_dir.mkdir(exist_ok=True)
 
-        # Download DuckDB driver (MotherDuck official driver, version-matched)
-        from dango.utils.driver import (
-            METABASE_DUCKDB_DRIVER_VERSION,
-            driver_needs_update,
-            get_duckdb_driver_url,
-            write_driver_version,
+        # Install the pinned, digest-verified MotherDuck driver
+        from rich.progress import (
+            BarColumn,
+            DownloadColumn,
+            Progress,
+            TextColumn,
+            TransferSpeedColumn,
         )
 
-        duckdb_driver_path = plugins_dir / "duckdb.metabase-driver.jar"
-        needs_download = not duckdb_driver_path.exists() or driver_needs_update(plugins_dir)
+        from dango.utils.driver import (
+            DriverIntegrityError,
+            download_verified_driver,
+            reuse_verified_driver,
+        )
 
-        if needs_download:
-            # Delete stale driver if version mismatch
-            if duckdb_driver_path.exists():
-                duckdb_driver_path.unlink()
+        if reuse_verified_driver(plugins_dir):
+            console.print("[green]✓[/green] DuckDB driver already exists")
+        else:
+            try:
+                with Progress(
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    DownloadColumn(),
+                    TransferSpeedColumn(),
+                    console=console,
+                ) as progress:
+                    task = progress.add_task("Downloading DuckDB driver", total=None)
 
-            driver_url = get_duckdb_driver_url()
-            driver_downloaded = False
+                    def _on_chunk(done: int, total: int | None) -> None:
+                        progress.update(task, completed=done, total=total)
 
-            # Retry same URL 3 times (network issues are transient)
-            import time
-
-            from rich.progress import (
-                BarColumn,
-                DownloadColumn,
-                Progress,
-                TextColumn,
-                TransferSpeedColumn,
-            )
-
-            for attempt in range(3):
-                try:
-                    if attempt > 0:
-                        console.print(f"    Retry {attempt}/2...")
-                        time.sleep(2)  # Wait before retry
-                    with urllib.request.urlopen(driver_url, timeout=120) as response:
-                        total = int(response.headers.get("Content-Length", 0))
-                        with Progress(
-                            TextColumn("[progress.description]{task.description}"),
-                            BarColumn(),
-                            DownloadColumn(),
-                            TransferSpeedColumn(),
-                            console=console,
-                        ) as progress:
-                            task = progress.add_task(
-                                "Downloading DuckDB driver",
-                                total=total if total > 0 else None,
-                            )
-                            with open(duckdb_driver_path, "wb") as f:
-                                while True:
-                                    chunk = response.read(65536)
-                                    if not chunk:
-                                        break
-                                    f.write(chunk)
-                                    progress.advance(task, len(chunk))
-                    write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
-                    console.print(
-                        f"[green]✓[/green] Downloaded DuckDB driver ({duckdb_driver_path.stat().st_size // 1024 // 1024}MB)"
-                    )
-                    driver_downloaded = True
-                    break
-                except Exception:
-                    duckdb_driver_path.unlink(missing_ok=True)
-                    if attempt == 2:  # Last attempt failed
-                        break
-                    continue
-
-            if not driver_downloaded:
-                print_error("✗ Failed to download DuckDB driver (network issue)")
+                    download_verified_driver(plugins_dir, _on_chunk)
+                console.print("[green]✓[/green] Downloaded and verified DuckDB driver")
+            except Exception as exc:
+                if isinstance(exc, DriverIntegrityError):
+                    print_error("✗ DuckDB driver integrity verification failed")
+                else:
+                    print_error("✗ Failed to download DuckDB driver (network issue)")
                 console.print(
                     "    [yellow]Don't worry![/yellow] The driver will be downloaded automatically when you run:"
                 )
                 console.print("    [bold cyan]dango start[/bold cyan]")
                 print_success("Metabase setup complete (driver pending)")
                 return False
-        else:
-            console.print("[green]✓[/green] DuckDB driver already exists")
 
         print_success("Metabase setup complete")
         return True

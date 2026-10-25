@@ -1,7 +1,7 @@
 """tests/factories/driver_fakes.py
 
 Test doubles for the pinned Metabase DuckDB driver: controlled jar bytes, a patched pin,
-and a fake ``urllib.request.urlopen`` so no test ever fetches the real jar.
+and a fake HTTPS opener so no test ever fetches the real jar.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ def plugin_files(plugins: Path) -> list[str]:
 
 
 class UrlopenScript:
-    """Scripted ``urlopen``: each item is a payload (bytes) or an exception to raise."""
+    """Scripted opener ``open``: each item is a payload (bytes) or an exception to raise."""
 
     def __init__(self, steps: list[bytes | BaseException]) -> None:
         self.steps = list(steps)
@@ -83,14 +83,14 @@ class UrlopenScript:
 
 @contextmanager
 def patch_network(steps: list[bytes | BaseException]) -> Iterator[tuple[UrlopenScript, MagicMock]]:
-    """Patch urlopen with a script and time.sleep; the legacy urlretrieve path must not run."""
+    """Patch the HTTPS opener's open() with a script and time.sleep; the legacy urlretrieve path must not run."""
     script = UrlopenScript(steps)
 
     def _no_retrieve(*_a: Any, **_k: Any) -> None:
         raise AssertionError("legacy urlretrieve path must not be used")
 
     with (
-        patch("urllib.request.urlopen", side_effect=script),
+        patch("urllib.request.build_opener", return_value=MagicMock(open=script)),
         patch("urllib.request.urlretrieve", side_effect=_no_retrieve),
         patch("time.sleep") as sleep,
     ):

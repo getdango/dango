@@ -127,19 +127,31 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
         print(f"Schema setup failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
-    # 3. DuckDB driver — non-fatal if JAR already exists (BUG-124: synced from local)
+    # 3. DuckDB driver. BUG-124: a jar synced from local may satisfy startup when the
+    # network is unavailable, but only if its bytes match the pinned digest.
     try:
         ensure_duckdb_driver(project_root)
     except Exception as exc:
-        driver_jar = project_root / "metabase-plugins" / "duckdb.metabase-driver.jar"
-        if driver_jar.is_file():
+        from dango.utils.driver import (
+            DRIVER_JAR_NAME,
+            DriverIntegrityError,
+            verify_driver_jar,
+        )
+
+        driver_jar = project_root / "metabase-plugins" / DRIVER_JAR_NAME
+        if not isinstance(exc, DriverIntegrityError) and verify_driver_jar(driver_jar):
             print(
-                f"WARNING: DuckDB driver download failed ({exc}), "
-                "but driver JAR exists (synced from local). Continuing.",
+                f"WARNING: DuckDB driver check failed ({exc}), but the cached driver "
+                "matches the pinned checksum. Continuing.",
                 file=sys.stderr,
             )
         else:
-            print(f"DuckDB driver download failed: {exc}", file=sys.stderr)
+            label = (
+                "integrity verification failed"
+                if isinstance(exc, DriverIntegrityError) or driver_jar.is_file()
+                else "download failed"
+            )
+            print(f"DuckDB driver {label}: {exc}", file=sys.stderr)
             raise SystemExit(1) from exc
 
     # 4. Docker services

@@ -16,6 +16,7 @@ from dango.utils.driver import (
     read_driver_version,
     write_driver_version,
 )
+from tests.factories.driver_fakes import GOOD_JAR, pin_driver
 
 
 @pytest.mark.unit
@@ -62,9 +63,10 @@ class TestDriverNeedsUpdate:
         write_driver_version(tmp_path, "1.3.0")
         assert driver_needs_update(tmp_path) is True
 
-    def test_up_to_date(self, tmp_path):
-        """No update needed when jar exists and version matches pinned."""
-        (tmp_path / "duckdb.metabase-driver.jar").touch()
+    def test_up_to_date(self, tmp_path, monkeypatch):
+        """No update needed when a verified jar exists and version matches pinned."""
+        pin_driver(monkeypatch)
+        (tmp_path / "duckdb.metabase-driver.jar").write_bytes(GOOD_JAR)
         write_driver_version(tmp_path, METABASE_DUCKDB_DRIVER_VERSION)
         assert driver_needs_update(tmp_path) is False
 
