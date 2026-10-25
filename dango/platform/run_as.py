@@ -22,15 +22,24 @@ import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
+
+from dango.exceptions import DangoError
 
 __all__ = [
+    "DISABLED_MARKER",
+    "ISOLATION_ERROR_CODE",
+    "ISOLATION_MISSING_MESSAGE",
     "MARKER",
+    "IsolationRequiredError",
     "RunnerLaunch",
     "assert_distinct_uids",
     "assert_runner_uid",
     "build_command",
     "build_env",
     "build_launch",
+    "isolation_state",
+    "require_isolation_ready",
     "resolve_declared",
     "runner_pids",
     "runner_uid",
@@ -41,6 +50,15 @@ __all__ = [
 ]
 
 MARKER = "/srv/dango/runner/active"
+#: Root-owned opt-out marker (``dango remote isolation disable``); it wins over ``MARKER``.
+DISABLED_MARKER = "/srv/dango/runner/disabled"
+ISOLATION_ERROR_CODE = "DANGO-ISO001"
+ISOLATION_MISSING_MESSAGE = (
+    "Script and notebook isolation is not set up on this server. "
+    "Run `dango remote upgrade` to enable it "
+    "(an admin can opt out with `dango remote isolation disable`)."
+)
+IsolationState = Literal["local", "on", "disabled", "missing"]
 PYTHON = "/srv/dango/venv/bin/python"
 SUDO = "/usr/bin/sudo"
 KILL = "/usr/bin/kill"
@@ -80,10 +98,19 @@ def runner_user(role: str) -> str:
         raise ValueError(f"unknown runner role: {role!r}") from None
 
 
-def uses_isolation() -> bool:
-    """True when the marker is a root-owned regular file nobody else can write."""
+class IsolationRequiredError(DangoError):
+    """User code was refused because a cloud server has no isolation set up (D2)."""
+
+    _default_error_code = ISOLATION_ERROR_CODE
+
+    def __init__(self) -> None:
+        super().__init__(ISOLATION_MISSING_MESSAGE)
+
+
+def _marker_valid(path: str) -> bool:
+    """True when *path* is a root-owned regular file nobody else can write (no symlinks)."""
     try:
-        st = os.lstat(MARKER)
+        st = os.lstat(path)
     except OSError:
         return False
     return (
@@ -91,6 +118,40 @@ def uses_isolation() -> bool:
         and st.st_uid == _ROOT_UID
         and not st.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
     )
+
+
+def isolation_state() -> IsolationState:
+    """How user code is run on this host.
+
+    ``local``: not a cloud server, nothing changes.  ``disabled``: a valid
+    opt-out marker exists (an admin's explicit opt-out wins over ``on``).  ``on``:
+    a valid runner marker exists.  ``missing``: a cloud server with neither, where
+    user code must be refused.
+    """
+    from dango.config.helpers import is_running_on_cloud
+
+    if not is_running_on_cloud():
+        return "local"
+    if _marker_valid(DISABLED_MARKER):
+        return "disabled"
+    if _marker_valid(MARKER):
+        return "on"
+    return "missing"
+
+
+def require_isolation_ready() -> IsolationState:
+    """Return the state, or raise :class:`IsolationRequiredError` when it is ``missing``."""
+    if uses_isolation():
+        return "on"
+    state = isolation_state()
+    if state == "missing":
+        raise IsolationRequiredError
+    return state
+
+
+def uses_isolation() -> bool:
+    """True when user code runs as a restricted user (state ``on``)."""
+    return isolation_state() == "on"
 
 
 def _read_env_file(project_root: Path) -> str:
@@ -220,6 +281,7 @@ def build_launch(
     """
     runner_user(role)
     if not uses_isolation():
+        require_isolation_ready()
         return RunnerLaunch(list(legacy_argv), dict(os.environ), isolated=False)
     declared: dict[str, str] = {}
     missing: tuple[str, ...] = ()

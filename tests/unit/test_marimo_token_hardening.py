@@ -20,6 +20,7 @@ from dango.auth.models import Role
 
 _M = "dango.notebooks.manager"
 _CLOUD = "dango.config.helpers.is_running_on_cloud"
+_STATE = "dango.platform.run_as.isolation_state"
 
 
 def _token(root: Path) -> str:
@@ -121,6 +122,7 @@ def test_cloud_log_unchanged_no_quiet(tmp_path: Path) -> None:
         patch(f"{_M}.is_process_running", return_value=False),
         patch(f"{_M}.time.sleep"),
         patch(_CLOUD, return_value=True),
+        patch(_STATE, return_value="disabled"),
     ):
         start_marimo(tmp_path, port=7805)
     assert "--quiet" not in seen["cmds"][0]

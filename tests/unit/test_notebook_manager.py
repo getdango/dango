@@ -348,6 +348,7 @@ class TestGetIdleTimeout:
 class TestStartMarimoCloudBaseUrl:
     """Tests for --base-url flag when running in cloud mode."""
 
+    @patch("dango.platform.run_as.isolation_state", return_value="disabled")
     @patch("dango.notebooks.manager._get_idle_timeout", return_value=3600)
     @patch("dango.notebooks.manager._is_marimo_responding", return_value=True)
     @patch("dango.notebooks.manager.is_process_running", return_value=False)
@@ -360,6 +361,7 @@ class TestStartMarimoCloudBaseUrl:
         mock_running: MagicMock,
         mock_responding: MagicMock,
         mock_timeout: MagicMock,
+        mock_state: MagicMock,
         tmp_path: Path,
     ) -> None:
         mock_proc = MagicMock()

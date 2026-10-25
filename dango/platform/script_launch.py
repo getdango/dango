@@ -136,9 +136,11 @@ def start_script(
     """Start a script; *script_rel* is its path relative to ``scripts/``.
 
     Raises:
+        IsolationRequiredError: On a cloud server whose isolation is missing (D2).
         OSError: If the process cannot be started (as ``subprocess.Popen`` does).
     """
-    if not run_as.uses_isolation():
+    state = run_as.require_isolation_ready()
+    if state != "on":
         env = os.environ.copy()
         env["DANGO_PROJECT_ROOT"] = str(project_root)
         if run_id is not None:
@@ -146,7 +148,7 @@ def start_script(
         proc = subprocess.Popen(
             [sys.executable, str(script_path)], cwd=str(project_root), env=env, **_PIPES
         )
-        return ScriptStart(proc, isolated=False)
+        return ScriptStart(proc, isolated=False, unisolated=state == "disabled")
 
     from dango.config.scripts import load_scripts_config
 

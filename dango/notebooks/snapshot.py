@@ -69,8 +69,10 @@ def create_snapshot(project_root: Path, username: str = "default") -> Path:
         Path to the new snapshot file.
 
     Raises:
+        IsolationRequiredError: On a cloud server whose isolation is missing (D2).
         FileNotFoundError: If ``data/warehouse.duckdb`` does not exist.
     """
+    run_as.require_isolation_ready()
     warehouse = project_root / "data" / "warehouse.duckdb"
     if not warehouse.exists():
         raise FileNotFoundError(

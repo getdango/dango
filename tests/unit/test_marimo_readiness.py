@@ -21,6 +21,7 @@ from dango.utils.process import read_pid_record
 
 _M = "dango.notebooks.manager"
 _CLOUD = "dango.config.helpers.is_running_on_cloud"
+_STATE = "dango.platform.run_as.isolation_state"
 
 
 def _serve(routes: dict[str, tuple[int, bytes]]) -> Iterator[int]:
@@ -130,6 +131,7 @@ def _run_start(
         patch(f"{_M}._get_idle_timeout", return_value=7200),
         patch(f"{_M}.is_process_running", return_value=False),
         patch(_CLOUD, return_value=cloud),
+        patch(_STATE, return_value="disabled" if cloud else "local"),
         patch("dango.notebooks.marimo_process.os.getpgid", side_effect=lambda pid: pid),
         patch("dango.notebooks.marimo_process.os.getpgrp", return_value=1),
         patch("dango.notebooks.marimo_process.os.killpg", side_effect=killpg or proc.group_signal),

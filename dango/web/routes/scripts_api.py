@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from dango.auth.audit import AuditEvent
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
-from dango.platform import script_launch
+from dango.platform import run_as, script_launch
 from dango.web.helpers import append_log_entry, get_project_root
 from dango.web.routes.scripts_helpers import (
     _MAX_STDERR_SIZE,
@@ -97,6 +97,9 @@ async def run_script(
                 },
             )
         del _running_processes[name]
+
+    # Refuse before a run record exists (D2): a cloud server without isolation
+    run_as.require_isolation_ready()
 
     run_id = str(uuid.uuid4())
     log_dir = _get_log_dir(project_root) / run_id

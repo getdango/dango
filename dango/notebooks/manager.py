@@ -130,8 +130,11 @@ def start_marimo(
     Starts are serialized by a file lock.  *port* defaults to
     ``PlatformSettings.marimo_port``; *snapshot_path* becomes
     ``DANGO_NOTEBOOK_DB_PATH``.  Raises ``RuntimeError`` if Marimo is already
-    running or fails to start.
+    running or fails to start, and ``IsolationRequiredError`` on a cloud server
+    whose isolation is missing (D2).
     """
+    if run_as.require_isolation_ready() == "disabled":
+        logger.warning("Starting Marimo unisolated: isolation is disabled on this server")
     with start_lock(project_root):
         return _start_marimo_locked(project_root, port, snapshot_path)
 

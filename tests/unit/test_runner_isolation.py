@@ -241,6 +241,7 @@ def test_record_and_launcher_trust_the_same_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     me = os.getuid()
+    monkeypatch.setenv("DANGO_CLOUD_MODE", "true")
     monkeypatch.setattr(run_as, "_ROOT_UID", me)
     path = _write(tmp_path / "active", '{"schema": 1, "loopback": "restricted"}')
     monkeypatch.setattr(run_as, "MARKER", str(path))

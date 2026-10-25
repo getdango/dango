@@ -30,6 +30,7 @@ def marker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path.chmod(0o644)
     monkeypatch.setattr(run_as, "MARKER", str(path))
     monkeypatch.setattr(run_as, "_ROOT_UID", os.getuid())
+    monkeypatch.setenv("DANGO_CLOUD_MODE", "true")
     return path
 
 
