@@ -257,9 +257,12 @@ def test_restore_extracts_create_archive_layout_whatever_the_file_name(
     assert (project / "dbt" / "models" / "m.sql").read_text() == "select 1"
     rm_cmds = [shlex.split(c) for c in ssh.commands if c.startswith("rm ")]
     assert len(rm_cmds) == 1
-    assert rm_cmds[0][:2] == ["rm", "-rf"] and len(rm_cmds[0]) == 3
+    assert rm_cmds[0][:2] == ["rm", "-rf"] and len(rm_cmds[0]) == 4
     assert re.fullmatch(
         rf"{re.escape(str(stage_root))}/dango-restore-staging-[0-9a-f]{{32}}", rm_cmds[0][2]
+    )
+    assert re.fullmatch(
+        rf"{re.escape(str(stage_root))}/dango-restore-kept-[0-9a-f]{{32}}", rm_cmds[0][3]
     )
 
 
@@ -339,7 +342,7 @@ def test_failed_extraction_still_removes_only_generated_staging() -> None:
 
     # The archive is extracted and checked before services are touched.
     start.assert_not_called()
-    removals = [shlex.split(c) for c in ssh.commands if "rm " in c]
+    removals = [shlex.split(c) for c in ssh.commands if c.startswith("rm ")]
     assert len(removals) == 1
     assert removals[0][:2] == ["rm", "-rf"]
     assert re.fullmatch(r"/srv/dango/\.restore/dango-restore-staging-[0-9a-f]{32}", removals[0][2])
