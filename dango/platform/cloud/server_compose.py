@@ -339,13 +339,23 @@ def _bind_digest(text: str, digest: str) -> str:
     if not DIGEST_RE.fullmatch(digest):
         raise RenderError(EXIT_PIN, "bad Metabase jar digest")
     adds = re.findall(r"(?m)^ADD\s.*$", text)
-    line = re.compile(
+    add_line = re.compile(
         rf"(?m)^ADD --checksum=sha256:{DEFAULT_MB_DIGEST} "
         r"https://downloads\.metabase\.com/\$\{MB_VERSION\}/metabase\.jar /app/metabase\.jar$"
     )
-    if len(adds) != 1 or len(line.findall(text)) != 1 or text.count("--checksum") != 1:
+    check_line = re.compile(
+        rf'(?m)^RUN echo "{DEFAULT_MB_DIGEST}  /app/metabase\.jar" \| sha256sum -c -$'
+    )
+    if (
+        len(adds) != 1
+        or len(add_line.findall(text)) != 1
+        or len(check_line.findall(text)) != 1
+        or text.count("--checksum") != 1
+        or text.count("sha256sum") != 1
+        or text.count(DEFAULT_MB_DIGEST) != 2
+    ):
         raise RenderError(EXIT_PIN, "packaged Dockerfile does not carry the pinned jar checksum")
-    return text.replace(f"--checksum=sha256:{DEFAULT_MB_DIGEST}", f"--checksum=sha256:{digest}")
+    return text.replace(DEFAULT_MB_DIGEST, digest)
 
 
 def render_entrypoint() -> bytes:

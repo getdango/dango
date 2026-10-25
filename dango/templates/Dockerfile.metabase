@@ -17,9 +17,11 @@ WORKDIR /app
 # Install curl (healthcheck) and gosu (entrypoint privilege dropping)
 RUN apt-get update && apt-get install -y --no-install-recommends curl gosu && rm -rf /var/lib/apt/lists/*
 
-# Download Metabase jar, verified against a SHA-256 (a build with different bytes fails).
-# A custom MB_VERSION needs its own digest on the ADD line below.
+# Download Metabase jar, verified against a SHA-256 twice: the ADD checksum flag (BuildKit only; the
+# classic builder ignores it) and the RUN check below, which works on every builder.
+# A custom MB_VERSION needs its own digest on both lines.
 ADD --checksum=sha256:4cc9c801ac616e4b5093c4906cb59f6e8f819f620c65d94ca4469ed87034a2e5 https://downloads.metabase.com/${MB_VERSION}/metabase.jar /app/metabase.jar
+RUN echo "4cc9c801ac616e4b5093c4906cb59f6e8f819f620c65d94ca4469ed87034a2e5  /app/metabase.jar" | sha256sum -c -
 
 # Create metabase user
 RUN groupadd -r metabase && \
