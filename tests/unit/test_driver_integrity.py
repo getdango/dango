@@ -109,3 +109,81 @@ class TestDriverIntegrity:
     def test_verify_rejects_missing_path_and_directory(self, tmp_path):
         assert driver.verify_driver_jar(tmp_path / "nope.jar") is False
         assert driver.verify_driver_jar(tmp_path) is False
+
+
+@pytest.mark.unit
+class TestRedirectPolicy:
+    """The download opener refuses any redirect that leaves HTTPS (L1)."""
+
+    @staticmethod
+    def _redirect(url):
+        import urllib.request
+
+        opener = driver._build_opener()
+        handler = next(
+            h for h in opener.handlers if isinstance(h, urllib.request.HTTPRedirectHandler)
+        )
+        request = urllib.request.Request(driver.get_duckdb_driver_url())
+        return handler.redirect_request(request, None, 302, "Found", {}, url)
+
+    @pytest.mark.parametrize(
+        "target", ["http://example.com/x.jar", "ftp://example.com/x.jar", "file:///etc/passwd"]
+    )
+    def test_non_https_redirect_is_refused(self, target):
+        with pytest.raises(driver.DriverDownloadError):
+            self._redirect(target)
+
+    def test_https_redirect_is_followed(self):
+        assert self._redirect("https://release-assets.githubusercontent.com/x.jar") is not None
+
+    def test_refused_redirect_counts_as_failed_attempt(self, tmp_path):
+        refusal = driver.DriverDownloadError("redirect refused")
+        with patch_network([refusal]) as (script, _sleep):
+            with pytest.raises(driver.DriverDownloadError, match="3 attempts"):
+                ensure_duckdb_driver(tmp_path)
+        assert len(script.calls) == 3
+        assert plugin_files(tmp_path / "metabase-plugins") == []
+
+
+@pytest.mark.unit
+class TestLocalFilesystemFailures:
+    """Local write failures become a clean, path-free DriverFilesystemError (L3)."""
+
+    def test_mkstemp_failure_is_wrapped(self, tmp_path, monkeypatch):
+        import tempfile
+
+        def _deny(*_a, **_k):
+            raise PermissionError(13, "denied", str(tmp_path / "secret"))
+
+        monkeypatch.setattr(tempfile, "mkstemp", _deny)
+        with patch_network([GOOD_JAR]) as (script, _sleep):
+            with pytest.raises(driver.DriverFilesystemError) as info:
+                ensure_duckdb_driver(tmp_path)
+        assert script.calls == []
+        assert str(tmp_path) not in str(info.value)
+        assert info.value.__cause__ is None
+
+    def test_marker_write_failure_is_wrapped(self, tmp_path, monkeypatch):
+        def _deny(*_a, **_k):
+            raise PermissionError(13, "denied", str(tmp_path / "secret"))
+
+        monkeypatch.setattr(driver, "write_driver_version", _deny)
+        with patch_network([GOOD_JAR]) as (script, _sleep):
+            with pytest.raises(driver.DriverFilesystemError) as info:
+                ensure_duckdb_driver(tmp_path)
+        assert len(script.calls) == 1
+        assert str(tmp_path) not in str(info.value)
+
+    def test_marker_repair_failure_is_wrapped(self, tmp_path, monkeypatch):
+        seed_jar(tmp_path, GOOD_JAR, marker=None)
+
+        def _deny(*_a, **_k):
+            raise PermissionError(13, "denied")
+
+        monkeypatch.setattr(driver, "write_driver_version", _deny)
+        with pytest.raises(driver.DriverFilesystemError):
+            ensure_duckdb_driver(tmp_path)
+
+    def test_filesystem_error_is_a_runtime_error_not_integrity(self):
+        assert issubclass(driver.DriverFilesystemError, RuntimeError)
+        assert not issubclass(driver.DriverFilesystemError, driver.DriverIntegrityError)

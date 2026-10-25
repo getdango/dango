@@ -16,7 +16,7 @@ from tests.factories.driver_fakes import CORRUPT_JAR, GOOD_JAR, pin_driver, seed
 from tests.unit.test_serve_command import _CONFIG, _SERVE, _STARTUP, _UTILS, _make_config_mock
 
 
-def _invoke(tmp_path, jar_bytes):
+def _invoke(tmp_path, jar_bytes, error=None):
     seed_jar(tmp_path, jar_bytes, marker=None)
     with (
         patch("uvicorn.run") as uvicorn_run,
@@ -24,7 +24,9 @@ def _invoke(tmp_path, jar_bytes):
         patch(f"{_STARTUP}.import_dashboards"),
         patch(f"{_STARTUP}.setup_metabase_if_needed"),
         patch(f"{_STARTUP}.start_docker_services") as docker,
-        patch(f"{_STARTUP}.ensure_duckdb_driver", side_effect=RuntimeError("network down")),
+        patch(
+            f"{_STARTUP}.ensure_duckdb_driver", side_effect=error or RuntimeError("network down")
+        ),
         patch(f"{_STARTUP}.ensure_dbt_schemas"),
         patch(f"{_STARTUP}.run_pending_migrations", return_value={}),
         patch(f"{_CONFIG}.ConfigLoader", return_value=_make_config_mock()),
@@ -51,3 +53,29 @@ class TestServeDriverIntegrity:
         docker.assert_not_called()
         uvicorn_run.assert_not_called()
         assert "JAR exists" not in result.output
+
+
+@pytest.mark.unit
+class TestServeDriverErrorWording:
+    """The serve failure label follows the real error type (L3)."""
+
+    @pytest.mark.parametrize(
+        ("error_name", "expected", "absent"),
+        [
+            ("DriverIntegrityError", "integrity verification failed", "download failed"),
+            ("DriverDownloadError", "download failed", "integrity"),
+            ("DriverFilesystemError", "could not be written", "integrity"),
+        ],
+    )
+    def test_label_follows_error_type(self, tmp_path, monkeypatch, error_name, expected, absent):
+        from dango.utils import driver
+
+        pin_driver(monkeypatch)
+        error = getattr(driver, error_name)("detail")
+        # An old, unverifiable jar is present: presence alone must not mean "integrity".
+        result, docker, _uvicorn = _invoke(tmp_path, b"old driver bytes", error=error)
+        assert result.exit_code != 0
+        docker.assert_not_called()
+        assert expected in result.output
+        assert absent not in result.output
+        assert "Traceback" not in result.output

@@ -64,3 +64,28 @@ class TestInitDriverIntegrity:
             assert ProjectInitializer(tmp_path)._setup_metabase() is True
         assert len(script.calls) == 1
         assert (tmp_path / "metabase-plugins" / JAR_NAME).read_bytes() == GOOD_JAR
+
+    def test_init_local_filesystem_failure_is_not_a_network_issue(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        def _deny(*_a, **_k):
+            raise PermissionError(13, "denied")
+
+        monkeypatch.setattr("tempfile.mkstemp", _deny)
+        with patch_network([GOOD_JAR]):
+            ok = ProjectInitializer(tmp_path)._setup_metabase()
+        out = capsys.readouterr().out
+        assert ok is False
+        assert "network issue" not in out
+        assert "could not be written" in out
+
+    def test_init_marker_repair_failure_does_not_traceback(self, tmp_path, capsys, monkeypatch):
+        seed_jar(tmp_path, GOOD_JAR, marker=None)
+
+        def _deny(*_a, **_k):
+            raise PermissionError(13, "denied")
+
+        monkeypatch.setattr(driver, "write_driver_version", _deny)
+        with patch_network([GOOD_JAR]):
+            assert ProjectInitializer(tmp_path)._setup_metabase() is False
+        assert "network issue" not in capsys.readouterr().out
