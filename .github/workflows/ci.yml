@@ -92,6 +92,18 @@ jobs:
       - name: pip-audit
         run: pip-audit --ignore-vuln CVE-2026-32274 --ignore-vuln PYSEC-2026-2120 --ignore-vuln CVE-2026-71491 --ignore-vuln CVE-2026-59894 --ignore-vuln CVE-2026-59893 --ignore-vuln CVE-2026-54284
 
+  sast:
+    name: SAST (bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "bandit[toml]==1.9.4"
+      - name: bandit
+        run: bandit -r dango -c pyproject.toml -ll -ii -b .github/bandit-baseline.json
+
   egress:
     name: Egress allowlist
     runs-on: ubuntu-latest
