@@ -259,6 +259,13 @@ def _check_run(box: Box, etc: Path, paths: rp.PersistencePaths) -> Any:
     return box.run(head + rp.persistence_checks(str(etc), paths) + '\nexit "$bad"\n')
 
 
+def ssh_tools(box: Box) -> None:
+    """Fakes for the ssh and user-manager checks: sshd denies both runners, user@ units masked."""
+    box.tool("id", "echo 1001\n")
+    box.tool("sshd", 'echo "denyusers dango-run dango-nb"\n')
+    box.tool("systemctl", 'case "$1" in is-enabled) echo masked;; esac\nexit 0\n')
+
+
 def _clean_state(
     box: Box, crontab_out: str = "You (u) are not allowed to use this program"
 ) -> tuple[Path, Path]:
@@ -272,6 +279,7 @@ def _clean_state(
     box.tool("crontab", f'echo "{crontab_out}" >&2\nexit 1\n')
     box.tool("at", "cat >/dev/null\necho 'You do not have permission to use at.' >&2\nexit 1\n")
     box.tool("atq", "exit 0\n")
+    ssh_tools(box)
     return etc, home
 
 
