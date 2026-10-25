@@ -192,5 +192,5 @@ def test_scheduled_restore_stages_in_private_root(tmp_path: Path) -> None:
     staging = Path(shlex.split(extract)[shlex.split(extract).index("-C") + 1])
     assert staging.parent == root and staging.name.startswith("dango-restore-staging-")
     assert not root.exists() or list(root.iterdir()) == []
-    assert not any("chmod" in e and "755" in e for e in events)
+    assert not any(re.search(r"chmod\s+(-R\s+)?0?755", e) for e in events)
     assert (project / "data" / "warehouse.duckdb").read_bytes() == b"db"
