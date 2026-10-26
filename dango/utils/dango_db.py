@@ -4,7 +4,7 @@ Connection management for the Dango metadata database (``.dango/dango.db``).
 
 Provides a single entry point — :func:`get_connection` — that lazily creates
 the ``.dango/`` directory, opens a WAL-mode SQLite connection, and ensures
-all governance/notebook/analysis tables exist via ``CREATE TABLE IF NOT EXISTS``.
+all legacy tables exist, then applies the serialized metadata migration stream.
 """
 
 from __future__ import annotations
@@ -54,14 +54,25 @@ def get_connection(project_root: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-
     db_key = str(db_path)
-    if db_key not in _schema_initialized:
-        _ensure_schema(conn)
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+
+        if db_key not in _schema_initialized:
+            _ensure_schema(conn)
+        # The migration runner uses separate connections. Finish legacy setup
+        # before it writes, and bootstrap even when this process cached setup.
+        conn.commit()
+        from dango.migrations.metadata.bootstrap import ensure_metadata_schema
+
+        ensure_metadata_schema(project_root)
         _schema_initialized.add(db_key)
+    except BaseException:
+        conn.close()
+        _schema_initialized.discard(db_key)
+        raise
 
     return conn
 

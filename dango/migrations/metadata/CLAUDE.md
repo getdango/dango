@@ -13,29 +13,37 @@ Auth and scheduler migrations use separate physical databases and version stream
 |------|---------|----------------------|
 | `__init__.py` | Empty package marker; imports perform no initialization | — |
 | `001_operation_journal.py` | Constrained operation, effect and lease tables | `VERSION`, `DESCRIPTION`, `upgrade()` |
+| `bootstrap.py` | Persistent flock serialization and history checks for `.dango/dango.db` | `ensure_metadata_schema()` |
 
 ## Common Tasks
 
 | To... | Do... | Verify with... |
 |-------|-------|----------------|
 | Evolve metadata schema | Reserve the next global version and add `NNN_description.py` here | Metadata migration tests |
-| Apply this stream in an isolated fixture | Prepare legacy schema with `get_connection(project_root)`, close it, then call `MigrationRunner(get_dango_db_path(project_root), "metadata", migrations_dir).apply_pending()` | Legacy preservation and once-only tests |
-| Integrate metadata bootstrap | T03B owns serialized `apply_pending()` integration with `get_connection()` | T03B bootstrap/concurrency tests |
+| Open the runtime metadata database | Call `get_connection(project_root)`; it prepares legacy tables and runs the locked bootstrap before returning | Legacy preservation and bootstrap tests |
+| Test a migration before bootstrap | Open SQLite directly and call the existing legacy `_ensure_schema()` in test-local setup, then use `MigrationRunner` | Metadata migration tests |
+| Apply pending metadata migrations explicitly | Call `ensure_metadata_schema(project_root, timeout_seconds=10.0)` after legacy setup with no open SQLite write transaction | Bootstrap/concurrency tests |
 
 Preserve existing profiling, governance, notebook and analysis tables and rows.
 Inventory any unexplained existing `_migrations` history before claiming compatibility;
 a recorded version alone does not establish that the journal schema exists. Never
 overwrite history or start another version 1 in a future feature folder.
 
-The current generic migration orchestration maps a `metadata/` directory to
-`.dango/metadata.db`. That routing blocks integration of this candidate until a
-separately scoped change targets `.dango/dango.db`. Do not use generic orchestration
-as proof of metadata bootstrap acceptance.
+Generic migration apply/status orchestration skips `metadata/`; explicit CLI
+metadata application is refused. Runtime bootstrap targets `.dango/dango.db`
+and never creates `.dango/metadata.db`. It locks the persistent project-local
+`.dango/metadata-migration.lock` with bounded nonblocking `fcntl.flock` waiting on
+Linux/macOS. Never unlink that file: waiters must lock the same inode. Timeout
+errors advise waiting/retrying or increasing the timeout. Kernel locks release
+on failure or process death. Unexplained history is rejected without overwriting it.
 
 ## Dependencies
 
-- Imports: standard-library `sqlite3` only; upgrades receive an existing connection.
-- Used by: explicit `MigrationRunner` calls in tests; T03B owns runtime bootstrap.
+- Imports: standard-library SQLite/path/time/math and lazy `fcntl`; bootstrap uses
+  `MigrationRunner` and `MigrationApplicationError`. Imports perform no initialization.
+- Used by: `dango.utils.dango_db.get_connection()` (lazy bootstrap import) and tests.
+  Failed preparation/bootstrap closes the caller connection; the process-local legacy
+  cache never bypasses bootstrap or hides a failed migration.
 - Runner owns `BEGIN`, commit and rollback. Use individual `conn.execute()` calls;
   never call `executescript()` or commit inside a migration.
 - Final `status` values match T01 `OutcomeReceipt`: `success`, `blocked`, `failed`,
@@ -49,6 +57,7 @@ as proof of metadata bootstrap acceptance.
 ## Testing
 
 - `python scripts/validate_claude_md.py dango/migrations/metadata/CLAUDE.md`
+- `python -m pytest tests/unit/test_metadata_bootstrap.py -x`
 - `python -m pytest tests/unit/test_metadata_migration.py tests/unit/test_migrations.py tests/unit/test_dango_db.py -x`
 - Tests use temporary SQLite projects, preserve legacy data, check the global version
   stream, keys, foreign keys, lifecycle constraints and independent failure rollback.
@@ -60,4 +69,4 @@ as proof of metadata bootstrap acceptance.
 | Previously applied migration files or `_migrations` rows | Preserve database history; add the next global version instead |
 | Existing legacy tables and data | The journal is additive to the existing metadata database |
 | Auth/scheduler streams | Their physical databases and compatibility remain independent |
-| Startup hooks, bootstrap or stores in this schema task | T03B owns serialized integration and operation-store behavior |
+| Operation stores or native writer fencing | Separate T03B2 and native qualification own these behaviors |
