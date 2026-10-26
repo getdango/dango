@@ -18,11 +18,24 @@ import pytest
 from dango.exceptions import MigrationApplicationError
 from dango.migrations import MigrationRunner
 from dango.operations.contracts import OutcomeReceipt
-from dango.utils.dango_db import get_connection, get_dango_db_path
+from dango.utils.dango_db import _ensure_schema, get_connection, get_dango_db_path
 
 pytestmark = pytest.mark.unit
 MIGRATIONS = Path(__file__).resolve().parents[2] / "dango/migrations/metadata"
 NOW = "2026-10-26T00:00:00+00:00"
+
+
+def _legacy_connection(project: Path) -> sqlite3.Connection:
+    """Prepare pre-bootstrap metadata explicitly for migration-only fixtures."""
+    db_path = get_dango_db_path(project)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    _ensure_schema(conn)
+    conn.commit()
+    return conn
 
 
 def _runner(project: Path, directory: Path = MIGRATIONS, name: str = "metadata") -> MigrationRunner:
@@ -75,7 +88,7 @@ def _effect(
 
 @pytest.fixture
 def journal(tmp_path: Path) -> Iterator[sqlite3.Connection]:
-    legacy = get_connection(tmp_path)
+    legacy = _legacy_connection(tmp_path)
     legacy.close()
     assert [item.version for item in _runner(tmp_path).apply_pending()] == [1]
     conn = get_connection(tmp_path)
@@ -86,7 +99,7 @@ def journal(tmp_path: Path) -> Iterator[sqlite3.Connection]:
 
 
 def test_metadata_migration_preserves_legacy_governance_row(tmp_path: Path) -> None:
-    conn = get_connection(tmp_path)
+    conn = _legacy_connection(tmp_path)
     try:
         conn.execute(
             "INSERT INTO schema_baselines VALUES (?, ?, ?, ?, ?)",
@@ -115,7 +128,7 @@ def test_metadata_migration_preserves_legacy_governance_row(tmp_path: Path) -> N
 
 
 def test_metadata_version_one_applies_once(tmp_path: Path) -> None:
-    conn = get_connection(tmp_path)
+    conn = _legacy_connection(tmp_path)
     conn.close()
     runner = _runner(tmp_path)
     assert [item.version for item in runner.apply_pending()] == [1]
@@ -127,7 +140,7 @@ def test_metadata_version_one_applies_once(tmp_path: Path) -> None:
 
 
 def test_metadata_stream_does_not_touch_auth_or_scheduler_db(tmp_path: Path) -> None:
-    conn = get_connection(tmp_path)
+    conn = _legacy_connection(tmp_path)
     conn.close()
     siblings = [tmp_path / ".dango" / f"{name}.db" for name in ("auth", "scheduler")]
     for path in siblings:
@@ -143,7 +156,7 @@ def test_metadata_stream_does_not_touch_auth_or_scheduler_db(tmp_path: Path) -> 
 def test_metadata_version_stream_is_global_and_preserves_unexplained_history(
     tmp_path: Path,
 ) -> None:
-    conn = get_connection(tmp_path)
+    conn = _legacy_connection(tmp_path)
     try:
         runner = _runner(tmp_path)
         runner.ensure_migrations_table(conn)
@@ -273,7 +286,7 @@ def test_invalid_effect_values_are_rejected(journal: sqlite3.Connection) -> None
 
 
 def test_runner_rollback_preserves_prior_schema_and_version(tmp_path: Path) -> None:
-    conn = get_connection(tmp_path)
+    conn = _legacy_connection(tmp_path)
     conn.close()
     _runner(tmp_path).apply_pending()
     directory = tmp_path / "failing-migrations"

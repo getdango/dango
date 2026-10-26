@@ -4,12 +4,13 @@ Connection management for the Dango metadata database (``.dango/dango.db``).
 
 Provides a single entry point — :func:`get_connection` — that lazily creates
 the ``.dango/`` directory, opens a WAL-mode SQLite connection, and ensures
-all governance/notebook/analysis tables exist via ``CREATE TABLE IF NOT EXISTS``.
+all legacy tables exist, then applies the serialized metadata migration stream.
 """
 
 from __future__ import annotations
 
 import sqlite3
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -20,6 +21,29 @@ logger = get_logger(__name__)
 
 # Tracks db paths whose schema has already been ensured this process.
 _schema_initialized: set[str] = set()
+
+
+def _enable_wal(conn: sqlite3.Connection, *, timeout_seconds: float = 5.0) -> None:
+    """Retry only transient first-open WAL lock contention, with no native wait.
+
+    SQLite can reject simultaneous journal-mode changes without invoking its
+    busy handler. The caller opens with timeout=0 so each attempt is nonblocking;
+    a monotonic deadline bounds retries. Other operational failures propagate.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError as exc:
+            # Exact SQLite SQLITE_BUSY message; also works on Python 3.10,
+            # where sqlite_errorcode is not available on the exception.
+            if str(exc) != "database is locked":
+                raise
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise
+            time.sleep(min(0.05, remaining))
 
 
 def get_dango_db_path(project_root: Path) -> Path:
@@ -41,6 +65,9 @@ def get_connection(project_root: Path) -> sqlite3.Connection:
     in WAL mode with foreign keys enabled, and ensures all required tables
     are present.
 
+    Simultaneous first opens retry transient WAL setup lock contention for up
+    to five seconds. Normal SQLite busy waiting is restored before legacy setup.
+
     Callers are responsible for closing the returned connection.  Prefer
     :func:`connect` (context manager) for automatic cleanup.
 
@@ -53,15 +80,27 @@ def get_connection(project_root: Path) -> sqlite3.Connection:
     db_path = get_dango_db_path(project_root)
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-
+    conn = sqlite3.connect(str(db_path), timeout=0)
     db_key = str(db_path)
-    if db_key not in _schema_initialized:
-        _ensure_schema(conn)
+    try:
+        conn.row_factory = sqlite3.Row
+        _enable_wal(conn)
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA foreign_keys=ON")
+
+        if db_key not in _schema_initialized:
+            _ensure_schema(conn)
+        # The migration runner uses separate connections. Finish legacy setup
+        # before it writes, and bootstrap even when this process cached setup.
+        conn.commit()
+        from dango.migrations.metadata.bootstrap import ensure_metadata_schema
+
+        ensure_metadata_schema(project_root)
         _schema_initialized.add(db_key)
+    except BaseException:
+        conn.close()
+        _schema_initialized.discard(db_key)
+        raise
 
     return conn
 
