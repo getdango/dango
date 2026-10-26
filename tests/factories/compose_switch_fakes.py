@@ -135,13 +135,13 @@ class FakeServer:
 
     def _pending(self, command: str) -> CommandResult:
         """The root-private flag that a Metabase rebuild still has to be retried."""
-        if "touch" in command:
+        if "mktemp" in command:
             self.rebuild_pending = True
             self.events.append("pending-set")
-        elif "rm" in command:
+        elif "rm -f --" in command:
             self.rebuild_pending = False
             self.events.append("pending-clear")
-        elif self.rebuild_pending:
+        elif "echo PENDING" in command and self.rebuild_pending:
             return self._ok("PENDING\n")
         return self._ok()
 

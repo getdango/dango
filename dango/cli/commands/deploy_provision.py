@@ -194,6 +194,7 @@ def run_provisioning(
     Raises:
         CloudProvisioningError: On unrecoverable failure (after cleanup).
     """
+    from dango.platform.cloud.compose_migrate import MetabasePinRequired
     from dango.platform.cloud.digitalocean import DigitalOceanClient
     from dango.platform.cloud.size_availability import (
         SizeUnavailableError,
@@ -204,16 +205,7 @@ def run_provisioning(
     # BUG-251: Resolve project_root so Path(".").name is never empty
     project_root = project_root.resolve()
 
-    # A custom Metabase version needs an administrator pin that a new server cannot have yet:
-    # refuse it before anything is created, not after the droplet exists.
-    from dango.platform.cloud.compose_migrate import PIN_RECOVERY_NEW_SERVER, MetabasePinRequired
-    from dango.platform.cloud.compose_steps import custom_metabase_version
-
-    custom = custom_metabase_version(project_root)
-    if custom is not None:
-        message = f"Cannot deploy Metabase {custom} to a new DigitalOcean server. {PIN_RECOVERY_NEW_SERVER}"
-        console.print(f"\n[red]Cannot deploy:[/red] {message}")
-        raise CloudProvisioningError(message)
+    _refuse_new_server(project_root, "DigitalOcean")
 
     tracker = _ResourceTracker()
     tracker.snapshot_cloud_yml(project_root / ".dango" / "cloud.yml")
@@ -543,6 +535,8 @@ def run_byos_setup(
     # BUG-251: Resolve project_root so Path(".").name is never empty
     project_root = project_root.resolve()
 
+    _refuse_new_server(project_root, "BYOS")
+
     warnings: list[str] = []
     key_path = Path(config.ssh_key_path).expanduser()
     ssh = SSHManager(key_path=key_path)
@@ -776,6 +770,16 @@ def _carry_fallback_warnings(setup_warnings: list[str], warnings: list[str]) -> 
     warnings.extend(w for w in setup_warnings if w.startswith(marks))
 
 
+def _refuse_new_server(project_root: Path, target: str) -> None:
+    """Refuse a custom Metabase version or an unusable local recipe before anything is created."""
+    from dango.platform.cloud.compose_steps import new_server_refusal
+
+    message = new_server_refusal(project_root, target)
+    if message is not None:
+        console.print(f"\n[red]Cannot deploy:[/red] {message}")
+        raise CloudProvisioningError(message)
+
+
 def _prebuild_images(
     ssh: Any, warnings: list[str], *, own_marker: bool = False, provider: str = "byos"
 ) -> None:
@@ -788,7 +792,7 @@ def _prebuild_images(
     """
     from dango.platform.cloud import compose_migrate as cm
 
-    recovery = cm.PIN_RECOVERY_NEW_SERVER if provider == "digitalocean" else cm.PIN_RECOVERY_DEPLOY
+    recovery = cm.PIN_RECOVERY_NEW_SERVER if provider == "digitalocean" else cm.PIN_RECOVERY_BYOS
     cm.prebuild_images(ssh, warnings, own_marker=own_marker, recovery=recovery)
 
 

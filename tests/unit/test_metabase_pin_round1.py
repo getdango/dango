@@ -58,12 +58,12 @@ def _refused() -> FakeServer:
     return FakeServer(marker=True, in_group=False, fail={"P2": 68})
 
 
-def test_byos_deploy_pin_refusal_says_to_pin_then_rerun_deploy() -> None:
+def test_byos_deploy_pin_refusal_says_to_pin_then_redeploy_without_cloud_yml() -> None:
     with pytest.raises(cm.MetabasePinRequired) as err:
         dp._prebuild_images(_refused(), [], own_marker=True)
     text = str(err.value)
     assert "pin-metabase VERSION SHA256" in text and "dango deploy" in text
-    assert "remote upgrade" not in text and "transient" not in text
+    assert "cloud.yml" in text and "remote upgrade" not in text and "transient" not in text
 
 
 def test_upgrade_pin_refusal_still_says_to_rerun_remote_upgrade() -> None:

@@ -115,10 +115,11 @@ class MetabasePinRequired(CloudProvisioningError):
 _PIN_CMD = f"`{ch.HELPER_PATH} pin-metabase VERSION SHA256`"
 #: Recovery text per caller: only the caller knows which retry actually builds the image.
 PIN_RECOVERY_UPGRADE = f"As root on the server run {_PIN_CMD}, then re-run `dango remote upgrade`."
-PIN_RECOVERY_DEPLOY = f"As root on the server run {_PIN_CMD}, then re-run `dango deploy`."
 PIN_RECOVERY_NEW_SERVER = (
     "A custom Metabase version needs an administrator pin on an existing server: deploy with the "
-    f"default Metabase version, then as root run {_PIN_CMD} and switch to the custom version."
+    "default Metabase version (set MB_VERSION in Dockerfile.metabase to the default for that "
+    f"deploy), then as root on the server run {_PIN_CMD}, set the custom version in "
+    "Dockerfile.metabase again and run `dango remote push`."
 )
 
 
@@ -128,7 +129,16 @@ HELPER_REFUSALS = frozenset({64, 65, 66, 67, 75})
 RENDER_TIMEOUT = ch.SUDO_LOCK_WAIT + ch.VERB_BUDGET["render"] + 2 * ch.CALLER_MARGIN
 
 _RETRY_HINT = "Run `dango remote upgrade` to retry once the cause is fixed."
-_DEPLOY_RETRY = "Fix the cause, then re-run `dango deploy`."
+#: The failed deploy already saved .dango/cloud.yml (a DigitalOcean failure removes it again), and
+#: `dango deploy` refuses while it exists.
+_DEPLOY_RETRY = (
+    "Fix the cause, delete .dango/cloud.yml on this machine if it exists, then run "
+    "`dango deploy` again."
+)
+PIN_RECOVERY_BYOS = (
+    f"As root on the server run {_PIN_CMD} if the pin is missing, then delete .dango/cloud.yml "
+    "on this machine and run `dango deploy` again."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +408,7 @@ def prebuild_images(
     *,
     legacy_command: str | None = None,
     own_marker: bool = False,
-    recovery: str = PIN_RECOVERY_DEPLOY,
+    recovery: str = PIN_RECOVERY_BYOS,
 ) -> None:
     """First deploy: pin, render and build through the trusted helper; there is no other build.
 
