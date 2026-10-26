@@ -48,6 +48,7 @@ class FakeServer:
     stop_rc: list[int] = field(default_factory=list)
     target: str | None = None
     raise_on: dict[str, Exception] = field(default_factory=dict)
+    rebuild_pending: bool = False
 
     # --- SSHManager surface ----------------------------------------------------------
     def connect(self, *_a: Any, **_k: Any) -> None:
@@ -77,6 +78,8 @@ class FakeServer:
             if needle in command:
                 self.events.append(f"raised:{needle}")
                 raise exc
+        if "metabase-rebuild-pending" in command:
+            return self._pending(command)
         tag = step_of(command)
         if tag is not None:
             return self._step(tag, command)
@@ -128,6 +131,18 @@ class FakeServer:
             self.events.append("usermod")
             self.in_group = True
             return self._ok()
+        return self._ok()
+
+    def _pending(self, command: str) -> CommandResult:
+        """The root-private flag that a Metabase rebuild still has to be retried."""
+        if "touch" in command:
+            self.rebuild_pending = True
+            self.events.append("pending-set")
+        elif "rm" in command:
+            self.rebuild_pending = False
+            self.events.append("pending-clear")
+        elif self.rebuild_pending:
+            return self._ok("PENDING\n")
         return self._ok()
 
     def _access_probe(self) -> str:
