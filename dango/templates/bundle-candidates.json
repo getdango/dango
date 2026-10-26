@@ -1,0 +1,335 @@
+{
+  "schema_version": 1,
+  "bundle_id": "dango-candidates-2026-10-15",
+  "evidence_date": "2026-10-15",
+  "components": [
+    {
+      "component_id": "lightdash",
+      "version": "2.423.2",
+      "artifact_ref": "sha256:98c04a7d4771084f37532c6fdcb0a93591ffa1a50cebd9b7771bb78bc26d994f",
+      "sha256": "98c04a7d4771084f37532c6fdcb0a93591ffa1a50cebd9b7771bb78bc26d994f",
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [
+        "2026-10-15/native-profile.json#/lightdash"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "node-duckdb",
+      "version": "1.5.2",
+      "artifact_ref": null,
+      "sha256": null,
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [
+        "2026-10-15/native-profile.json#/node_duckdb"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "python-duckdb",
+      "version": "1.5.6",
+      "artifact_ref": null,
+      "sha256": null,
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [
+        "2026-10-15/native-profile.json#/python_duckdb"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "postgresql",
+      "version": "16",
+      "artifact_ref": null,
+      "sha256": null,
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [
+        "2026-10-15/native-profile.json#/postgres"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "garage",
+      "version": "2.3.0",
+      "artifact_ref": "sha256:dac0c92add4f1a0b41035e94b41036a270ffbe88a37c7ac9c3f19e6dc5bdccf2",
+      "sha256": "dac0c92add4f1a0b41035e94b41036a270ffbe88a37c7ac9c3f19e6dc5bdccf2",
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [
+        "2026-10-15/native-profile.json#/garage"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "ducklake-linux_amd64",
+      "version": "1.5.2",
+      "artifact_ref": "https://extensions.duckdb.org/v1.5.2/linux_amd64/ducklake.duckdb_extension.gz",
+      "sha256": "35b62d3364c387f3901be7a39d3f3675df0c010e3c2102eff6ad64691c0b0864",
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [
+        "2026-10-15/extension-downloads.json#/0"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "postgres_scanner-linux_amd64",
+      "version": "1.5.2",
+      "artifact_ref": "https://extensions.duckdb.org/v1.5.2/linux_amd64/postgres_scanner.duckdb_extension.gz",
+      "sha256": "9bba57e93e5e9a4bb32a7cf282bfa1c385f5e113930f334e603d10b430a490cc",
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [
+        "2026-10-15/extension-downloads.json#/1"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "ducklake-osx_arm64",
+      "version": "1.5.6",
+      "artifact_ref": "https://extensions.duckdb.org/v1.5.6/osx_arm64/ducklake.duckdb_extension.gz",
+      "sha256": "fd7fe9bc2602336601c5fdeb5f1574fab6ff0a45d32a9a70694f29eb02827b42",
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [
+        "2026-10-15/extension-downloads.json#/2"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "postgres_scanner-osx_arm64",
+      "version": "1.5.6",
+      "artifact_ref": "https://extensions.duckdb.org/v1.5.6/osx_arm64/postgres_scanner.duckdb_extension.gz",
+      "sha256": "9d5f9f7b9873bfebd161b88675a5dbcc52355046dadbbc38f774db147a824240",
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [
+        "2026-10-15/extension-downloads.json#/3"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "nao-source",
+      "version": "be7fd1cdb076651e1c2959b75048d04400de2e88",
+      "artifact_ref": "https://codeload.github.com/getnao/nao/tar.gz/be7fd1cdb076651e1c2959b75048d04400de2e88",
+      "sha256": "d21ff6a2d5ac6b97cd8e1d438c0886541889c7843b3136246cb583d518984046",
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [
+        "2026-10-15/source-downloads.json#/0"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "lightdash-source",
+      "version": "ee1586b7286b3a11cfc2bda8a322ba292bb65aeb",
+      "artifact_ref": "https://codeload.github.com/lightdash/lightdash/tar.gz/ee1586b7286b3a11cfc2bda8a322ba292bb65aeb",
+      "sha256": "179022514971085fe7daec024fc62f2fdf68dfc4b9390406486e8232d2cecc90",
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [
+        "2026-10-15/source-downloads.json#/1"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "python-observed",
+      "version": "3.11.14",
+      "artifact_ref": null,
+      "sha256": null,
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [
+        "2026-10-13/correction-final.json#/versions/python"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "dlt",
+      "version": "1.31.0",
+      "artifact_ref": null,
+      "sha256": null,
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [
+        "2026-10-13/correction-final.json#/versions/dlt"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "dbt-oss",
+      "version": "2.0.5",
+      "artifact_ref": null,
+      "sha256": null,
+      "edition": "OSS",
+      "license_expression": null,
+      "evidence_refs": [
+        "2026-10-13/correction-final.json#/steps/correction-dbt-alice_a17"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "marimo",
+      "version": "0.24.0",
+      "artifact_ref": null,
+      "sha256": null,
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [],
+      "status": "candidate"
+    },
+    {
+      "component_id": "python-3-14-target",
+      "version": "3.14",
+      "artifact_ref": null,
+      "sha256": null,
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [],
+      "status": "candidate"
+    },
+    {
+      "component_id": "python-3-15-target",
+      "version": "3.15",
+      "artifact_ref": null,
+      "sha256": null,
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [],
+      "status": "candidate"
+    },
+    {
+      "component_id": "duckdb-2-target",
+      "version": null,
+      "artifact_ref": null,
+      "sha256": null,
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [],
+      "status": "candidate"
+    },
+    {
+      "component_id": "ducklake-target",
+      "version": "1.1",
+      "artifact_ref": null,
+      "sha256": null,
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [],
+      "status": "candidate"
+    },
+    {
+      "component_id": "dbt-adbc-target",
+      "version": null,
+      "artifact_ref": null,
+      "sha256": null,
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [],
+      "status": "candidate"
+    },
+    {
+      "component_id": "dagster-target",
+      "version": null,
+      "artifact_ref": null,
+      "sha256": null,
+      "edition": "unspecified",
+      "license_expression": null,
+      "evidence_refs": [],
+      "status": "candidate"
+    }
+  ],
+  "profiles": [
+    {
+      "profile_id": "dated-linux-amd64-candidate",
+      "os": "linux",
+      "architecture": "x86_64",
+      "component_ids": [
+        "lightdash",
+        "node-duckdb",
+        "python-duckdb",
+        "postgresql",
+        "garage",
+        "dlt",
+        "dbt-oss",
+        "marimo",
+        "nao-source",
+        "python-observed",
+        "ducklake-linux_amd64",
+        "postgres_scanner-linux_amd64"
+      ],
+      "status": "candidate",
+      "qualification_receipt": null
+    },
+    {
+      "profile_id": "dated-macos-arm64-candidate",
+      "os": "macos",
+      "architecture": "arm64",
+      "component_ids": [
+        "lightdash",
+        "node-duckdb",
+        "python-duckdb",
+        "postgresql",
+        "garage",
+        "dlt",
+        "dbt-oss",
+        "marimo",
+        "nao-source",
+        "python-observed",
+        "ducklake-osx_arm64",
+        "postgres_scanner-osx_arm64"
+      ],
+      "status": "candidate",
+      "qualification_receipt": null
+    },
+    {
+      "profile_id": "python-3-14-duckdb-2-target",
+      "os": "linux",
+      "architecture": "x86_64",
+      "component_ids": [
+        "lightdash",
+        "node-duckdb",
+        "python-duckdb",
+        "postgresql",
+        "garage",
+        "dlt",
+        "dbt-oss",
+        "marimo",
+        "nao-source",
+        "python-3-14-target",
+        "duckdb-2-target",
+        "ducklake-target",
+        "dbt-adbc-target",
+        "dagster-target"
+      ],
+      "status": "candidate",
+      "qualification_receipt": null
+    },
+    {
+      "profile_id": "python-3-15-duckdb-2-target",
+      "os": "macos",
+      "architecture": "arm64",
+      "component_ids": [
+        "lightdash",
+        "node-duckdb",
+        "python-duckdb",
+        "postgresql",
+        "garage",
+        "dlt",
+        "dbt-oss",
+        "marimo",
+        "nao-source",
+        "python-3-15-target",
+        "duckdb-2-target",
+        "ducklake-target",
+        "dbt-adbc-target",
+        "dagster-target"
+      ],
+      "status": "candidate",
+      "qualification_receipt": null
+    }
+  ]
+}
