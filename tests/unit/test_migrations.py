@@ -336,6 +336,30 @@ class TestApplyAllPending:
         (base / "empty_db").mkdir()
         assert apply_all_pending(tmp_path) == {}
 
+    def test_reserves_metadata_without_suppressing_ordinary_databases(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        base = tmp_path / "migrations"
+        base.mkdir()
+        self._patch_base(monkeypatch, base)
+        for name in ("auth", "scheduler", "metadata"):
+            directory = base / name
+            directory.mkdir()
+            _write_migration(
+                directory, 1, f"Create {name}", f"CREATE TABLE {name}_marker (id INTEGER)"
+            )
+
+        project = tmp_path / "project"
+        results = apply_all_pending(project)
+
+        assert set(results) == {"auth", "scheduler"}
+        assert all(
+            [entry.version for entry in migrations] == [1] for migrations in results.values()
+        )
+        assert (project / ".dango" / "auth.db").exists()
+        assert (project / ".dango" / "scheduler.db").exists()
+        assert not (project / ".dango" / "metadata.db").exists()
+
 
 @pytest.mark.unit
 class TestGetAllStatus:
@@ -356,6 +380,26 @@ class TestGetAllStatus:
         assert len(statuses) == 1
         assert statuses[0].db_name == "auth"
         assert len(statuses[0].pending) == 1
+
+    def test_reserves_metadata_without_suppressing_ordinary_status(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import dango.migrations as mig_mod
+
+        base = tmp_path / "migrations"
+        base.mkdir()
+        monkeypatch.setattr(mig_mod, "get_migrations_base_dir", lambda: base)
+        for name in ("auth", "scheduler", "metadata"):
+            directory = base / name
+            directory.mkdir()
+            _write_migration(directory, 1, f"Create {name}")
+
+        project = tmp_path / "project"
+        statuses = get_all_status(project)
+
+        assert {status.db_name for status in statuses} == {"auth", "scheduler"}
+        assert all([entry.version for entry in status.pending] == [1] for status in statuses)
+        assert not (project / ".dango" / "metadata.db").exists()
 
 
 @pytest.mark.unit

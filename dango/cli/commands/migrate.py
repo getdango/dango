@@ -3,6 +3,8 @@
 CLI commands for database migration management (status, run).
 """
 
+import re
+
 import click
 
 from dango.cli import console
@@ -82,10 +84,31 @@ def migrate_run(ctx: click.Context, db_name: str | None) -> None:
     project_root = require_project_context(ctx)
 
     try:
-        if db_name:
+        if db_name is not None:
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", db_name):
+                console.print(
+                    "[red]Error:[/red] --db must be a simple database name. "
+                    "Metadata migrations are managed by the Dango metadata bootstrap."
+                )
+                raise click.Abort()
+
+            if db_name.casefold() == "metadata":
+                console.print(
+                    "[red]Error:[/red] Metadata migrations are managed by "
+                    "the Dango metadata bootstrap."
+                )
+                raise click.Abort()
+
             from dango.migrations import get_migrations_base_dir
 
-            migrations_dir = get_migrations_base_dir() / db_name
+            base_dir = get_migrations_base_dir()
+            migrations_dir = base_dir / db_name
+            if migrations_dir.resolve() == (base_dir / "metadata").resolve():
+                console.print(
+                    "[red]Error:[/red] Metadata migrations are managed by "
+                    "the Dango metadata bootstrap."
+                )
+                raise click.Abort()
             if not migrations_dir.is_dir():
                 console.print(f"[red]Error:[/red] No migration directory for '{db_name}'")
                 raise click.Abort()
