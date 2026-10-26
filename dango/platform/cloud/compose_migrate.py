@@ -49,6 +49,7 @@ from dango.platform.cloud.compose_steps import (
     refresh_web_unit,
     relay_warnings,
     run_script,
+    upgrade_rebuild,
     web_service,
     write_record,
 )
@@ -59,6 +60,7 @@ from dango.platform.cloud.compose_versions import (
     helper_capable,
     server_version,
 )
+from dango.platform.compose_exec import EXIT_PIN
 
 __all__ = [
     "ACCESS_GROUP",
@@ -72,6 +74,7 @@ __all__ = [
     "enable_fresh",
     "enter_fallback",
     "ensure_pinned",
+    "MetabasePinRequired",
     "needs_restore",
     "fallback_script",
     "helper_capable",
@@ -92,9 +95,17 @@ __all__ = [
     "self_test_script",
     "server_version",
     "terminate_script",
+    "upgrade_rebuild",
 ]
 
 _logger = get_logger(__name__)
+
+
+class MetabasePinRequired(CloudProvisioningError):
+    """The helper refused the Metabase jar pin (render exit 68) before anything was changed.
+
+    Never answered by the group fallback or a legacy build: an administrator pins the digest.
+    """
 
 
 #: Helper exits that mean "the helper refused or is unusable", as opposed to an ordinary failure.
@@ -183,11 +194,16 @@ def _pin_and_render(ssh: Any, warnings: list[str]) -> str | None:
         pin = ssh.exec_command(f"{ch.HELPER_PATH} pin-project {project_id}", timeout=120)
         if not pin.success:
             return detail(pin)
-    for script, timeout in ((render_script(), RENDER_TIMEOUT), (verify_script(), 120)):
-        result = run_script(ssh, script, timeout)
-        if not result.success:
-            return detail(result)
-    return None
+    result = run_script(ssh, render_script(), RENDER_TIMEOUT)
+    if result.exit_code == EXIT_PIN:
+        raise MetabasePinRequired(
+            f"{detail(result)}. As root on the server run "
+            f"`{ch.HELPER_PATH} pin-metabase VERSION SHA256`, then re-run `dango remote upgrade`."
+        )
+    if not result.success:
+        return detail(result)
+    result = run_script(ssh, verify_script(), 120)
+    return None if result.success else detail(result)
 
 
 def pin_and_render(ssh: Any, warnings: list[str]) -> bool:
@@ -288,7 +304,7 @@ def migrate_docker_access(
             tick()
         state = _switch_group(ssh, warnings, version, tick)
         if rebuild:
-            rebuild_metabase(ssh, warnings)
+            rebuild_metabase(ssh, warnings, require_helper=True)
             tick()
     finally:
         if manage_web:
@@ -363,39 +379,36 @@ def enable_fresh(ssh: Any, warnings: list[str], version: str) -> str:
 
 
 def prebuild_images(
-    ssh: Any, warnings: list[str], *, legacy_command: str, own_marker: bool = False
+    ssh: Any, warnings: list[str], *, legacy_command: str | None = None, own_marker: bool = False
 ) -> None:
-    """First deploy: pin, render and build through the helper, else fall back to the group.
+    """First deploy: pin, render and build through the trusted helper; there is no other build.
 
-    A refusal by the helper (or a pin/render failure) falls back with a loud warning and builds the
-    legacy way, but only when this deploy's own ``enable_fresh`` created the marker (*own_marker*).
-    On a server that was already switched the switch is kept and the build raises; an ordinary
-    build failure raises too.
+    A missing helper, a refusal, a timeout or any build failure raises.  A pin refusal raises
+    ``MetabasePinRequired`` without touching Docker access.  Another helper refusal or pin/render
+    failure on a deploy whose own ``enable_fresh`` created the marker (*own_marker*) still returns
+    the account to the group (warning), but the image is not built.  *legacy_command* is unused
+    since 1.0.14: a project-owned recipe is never built on a server.
     """
     from dango.platform.cloud.backup import helper_branch_active, root_helper_timeout
 
-    if helper_branch_active(ssh):
-        reason = _pin_and_render(ssh, warnings)
-        if reason is None:
-            result = ssh.exec_command(
-                f"{ch.HELPER_PATH} build", timeout=root_helper_timeout("build")
-            )
-            if result.success:
-                return
-            if result.exit_code not in HELPER_REFUSALS:
-                raise CloudProvisioningError(f"Docker image build failed:\n{detail(result)}")
-            reason = f"the helper refused the build: {detail(result)}"
-        enter_fallback(
-            ssh, warnings, server_version(ssh), reason, switched=True, own_marker=own_marker
+    if not helper_branch_active(ssh):
+        raise CloudProvisioningError(
+            "Docker image build did not run: the verified Metabase build needs the compose "
+            f"helper, which is not enabled on this server. {_RETRY_HINT}"
         )
-        if not own_marker:
-            raise CloudProvisioningError(
-                f"Docker image build did not run: the compose helper is not usable ({reason}). "
-                f"The helper stays enabled. {_RETRY_HINT}"
-            )
-    result = ssh.exec_command(legacy_command, timeout=900)
-    if not result.success:
-        raise CloudProvisioningError(f"Docker image build failed:\n{detail(result)}")
+    reason = _pin_and_render(ssh, warnings)
+    if reason is None:
+        result = ssh.exec_command(f"{ch.HELPER_PATH} build", timeout=root_helper_timeout("build"))
+        if result.success:
+            return
+        if result.exit_code not in HELPER_REFUSALS:
+            raise CloudProvisioningError(f"Docker image build failed:\n{detail(result)}")
+        reason = f"the helper refused the build: {detail(result)}"
+    enter_fallback(ssh, warnings, server_version(ssh), reason, switched=True, own_marker=own_marker)
+    raise CloudProvisioningError(
+        f"Docker image build did not run: the compose helper is not usable ({reason}). "
+        f"{'' if own_marker else 'The helper stays enabled. '}{_RETRY_HINT}"
+    )
 
 
 def ensure_pinned(ssh: Any, warnings: list[str]) -> None:

@@ -247,6 +247,7 @@ class TestAdminStepErrorHandling:
             ),
             patch("dango.platform.cloud.server_setup.setup_server"),
             patch("dango.platform.cloud.file_sync.sync_project_files"),
+            patch("dango.cli.commands.deploy_provision._prebuild_images"),
             patch("dango.platform.cloud.provisioning.save_provisioning_metadata"),
             patch("dango.cli.commands.deploy_wizard._safe_confirm", return_value=True),
             patch.object(deploy_provision, "_start_services"),

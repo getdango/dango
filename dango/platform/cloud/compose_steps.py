@@ -51,8 +51,19 @@ def write_record(ssh: Any, version: str, access: str) -> None:
         _logger.warning("server_version_record_failed", detail=detail(result))
 
 
-def rebuild_command(compose_project: str) -> str:
-    """Pull and rebuild Metabase: through the helper when it is in use, else the legacy commands."""
+def rebuild_command(compose_project: str, *, require_helper: bool = False) -> str:
+    """Pull and rebuild Metabase: through the helper when it is in use, else the legacy commands.
+
+    With *require_helper* (every 1.0.14 build) there is no legacy branch: without the trusted
+    marker the command exits 68.  The default is only for an explicit downgrade below the helper.
+    """
+    if require_helper:
+        helper = shlex.quote(ch.HELPER_PATH)
+        return (
+            f"if {ch.MARKER_TEST}; then {helper} pull && {helper} up-build; "
+            "else echo 'dango-compose: verified Metabase build requires the compose helper' >&2; "
+            "exit 68; fi"
+        )
     base = (
         f"COMPOSE_PROJECT_NAME={compose_project} docker compose -f {PROJECT_DIR}/docker-compose.yml"
     )
@@ -69,16 +80,48 @@ def rebuild_timeout(helper: bool) -> int:
     return waits + 2 * ch.CALLER_MARGIN
 
 
-def rebuild_metabase(ssh: Any, warnings: list[str]) -> None:
-    """Recreate Metabase (pull and build) through the helper or the legacy commands."""
+def rebuild_metabase(ssh: Any, warnings: list[str], *, require_helper: bool = False) -> None:
+    """Recreate Metabase (pull and build) through the helper or the legacy commands.
+
+    With *require_helper* a failed rebuild raises instead of adding a warning.
+    """
+    from dango.exceptions import CloudProvisioningError
     from dango.platform.cloud.backup import get_remote_compose_project_name, helper_branch_active
 
     project = get_remote_compose_project_name(ssh, PROJECT_DIR)
     result = ssh.exec_command(
-        rebuild_command(project), timeout=rebuild_timeout(helper_branch_active(ssh))
+        rebuild_command(project, require_helper=require_helper),
+        timeout=rebuild_timeout(helper_branch_active(ssh)),
     )
     if not result.success:
+        if require_helper:
+            raise CloudProvisioningError(f"Docker rebuild failed:\n{detail(result)}")
         warnings.append("Docker rebuild did not complete successfully.")
+
+
+def upgrade_rebuild(
+    ssh: Any, warnings: list[str], compose_project: str, version: str | None
+) -> bool:
+    """The Docker rebuild of ``remote upgrade``; True when it succeeded.
+
+    From the helper release on it needs the trusted helper and a failure raises (no unverified
+    image is built); an explicit downgrade below it keeps the legacy command and a warning.
+    """
+    from dango.exceptions import CloudProvisioningError
+    from dango.platform.cloud.backup import helper_branch_active
+    from dango.platform.cloud.compose_versions import helper_capable
+
+    strict = helper_capable(version)
+    result = ssh.exec_command(
+        rebuild_command(compose_project, require_helper=strict),
+        timeout=rebuild_timeout(helper_branch_active(ssh)),
+    )
+    if result.success:
+        return True
+    if strict:
+        raise CloudProvisioningError(f"Docker rebuild failed:\n{detail(result)}")
+    warnings.append("Docker rebuild did not complete successfully.")
+    return False
 
 
 def web_service(ssh: Any, action: str) -> None:

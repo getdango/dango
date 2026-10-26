@@ -7,6 +7,7 @@ group or to a legacy Docker build: compose_exec, migration, first deploy and the
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -23,11 +24,23 @@ from tests.factories.compose_switch_fakes import FakeServer
 
 pytestmark = pytest.mark.unit
 
+
+@pytest.fixture(autouse=True)
+def _trusted_venv() -> Iterator[None]:
+    with patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]):
+        yield
+
+
 LEGACY = "cd /srv/dango/project && sudo -u dango docker compose build"
 
 
 def _legacy_build_ran(srv: FakeServer) -> bool:
-    return any(c == LEGACY or ("docker compose" in c and " build" in c) for c in srv.commands)
+    """A build by the service account's own docker access (never the installed helper script)."""
+    direct = [c for c in srv.commands if "# step:" not in c]  # step scripts embed the helper text
+    return any(
+        c == LEGACY or "up -d --build metabase" in c or "sudo -u dango docker compose" in c
+        for c in direct
+    )
 
 
 def _done(code: int, err: str = "") -> subprocess.CompletedProcess[str]:

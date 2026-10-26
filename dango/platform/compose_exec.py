@@ -39,6 +39,8 @@ _DOCKERFILE_MAX = 64 * 1024
 
 #: Helper exit codes: busy lock; budget expired (124); killed (137, 143).
 EXIT_BUSY = 75
+#: Kept equal to ``server_compose.EXIT_PIN`` (the root renderer's pin refusal).
+EXIT_PIN = 68
 _KILLED = (124, 137, 143)
 
 #: Local compose tokens per verb; ``None`` marks a verb that has no direct form.
@@ -68,6 +70,10 @@ class ComposeInterrupted(RuntimeError):
 
 class ComposeRenderError(RuntimeError):
     """The helper could not render the server compose file."""
+
+
+class ComposePinError(ComposeRenderError):
+    """The helper refused the Metabase jar pin (exit 68): no pin, a mismatch or an unsafe pin."""
 
 
 def uses_helper() -> bool:
@@ -307,6 +313,8 @@ def render(project_root: Path, config: Any, *, force_helper: bool = False) -> No
     )
     if done.returncode == EXIT_BUSY:
         raise ComposeBusy(done.stderr.strip() or "dango-compose: busy")
+    if done.returncode == EXIT_PIN:
+        raise ComposePinError(done.stderr.strip() or "dango-compose: Metabase jar pin refused")
     if done.returncode != 0:
         raise ComposeRenderError(done.stderr.strip() or f"render failed ({done.returncode})")
 
@@ -325,6 +333,12 @@ def main(argv: list[str]) -> int:
     root = Path(rest[0])
     try:
         render(root, load_config(root), force_helper=force)
+    except ComposePinError as exc:
+        print(
+            f"compose_exec: {exc} (as root: dango-compose pin-metabase VERSION SHA256)",
+            file=sys.stderr,
+        )
+        return EXIT_PIN
     except (ComposeRenderError, ComposeBusy, subprocess.TimeoutExpired) as exc:
         print(f"compose_exec: {exc}", file=sys.stderr)
         return 1

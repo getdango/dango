@@ -751,18 +751,6 @@ def _ip_in_cidrs(ip_cidr: str | None, cidrs: list[str]) -> bool:
     return any(address in ipaddress.IPv4Network(c, strict=False) for c in cidrs)
 
 
-def _prebuild_command(compose_proj: str) -> str:
-    """Build the pre-deploy ``docker compose build`` command.
-
-    The variable is passed through ``env`` *after* sudo: ``VAR=x sudo ...`` is dropped by
-    sudo's env_reset, so Compose would fall back to the directory name and build twice.
-    """
-    return (
-        "cd /srv/dango/project && sudo -u dango env "
-        f"COMPOSE_PROJECT_NAME={shlex.quote(compose_proj)} docker compose build"
-    )
-
-
 def _carry_fallback_warnings(setup_warnings: list[str], warnings: list[str]) -> None:
     """Repeat the setup's loud compose-helper and runner-isolation warnings at the end of the deploy."""
     from dango.platform.cloud.compose_migrate import FALLBACK_MARK
@@ -773,20 +761,14 @@ def _carry_fallback_warnings(setup_warnings: list[str], warnings: list[str]) -> 
 
 
 def _prebuild_images(ssh: Any, warnings: list[str], *, own_marker: bool = False) -> None:
-    """Pre-build the Docker images: through the compose helper when it is installed, else legacy.
+    """Pre-build the Docker images through the compose helper; there is no legacy build.
 
-    A helper that cannot pin, render or build falls back to the docker group with a loud warning
-    (added to *warnings*) only when this deploy's own setup wrote the marker (*own_marker*); on a
-    server that was already switched the switch is kept and the deploy stops. An ordinary build
-    failure raises.
+    A missing helper, a refusal or a pin error stops the deploy with a recovery instruction
+    (``MetabasePinRequired`` for a pin refusal); see ``compose_migrate.prebuild_images``.
     """
-    from dango.platform.cloud.backup import get_remote_compose_project_name
     from dango.platform.cloud.compose_migrate import prebuild_images
 
-    compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
-    prebuild_images(
-        ssh, warnings, legacy_command=_prebuild_command(compose_proj), own_marker=own_marker
-    )
+    prebuild_images(ssh, warnings, own_marker=own_marker)
 
 
 def _status(msg: str) -> None:

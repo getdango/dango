@@ -6,13 +6,13 @@ restore, guard coverage of the two Metabase stops, and the client/server version
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from dango.exceptions import CloudProvisioningError
 from dango.platform.cloud import compose_helper as ch
 from dango.platform.cloud.backup import DockerBusyError
 from dango.platform.cloud.upgrade import upgrade_dango
@@ -57,15 +57,13 @@ def test_upgrade_to_the_helper_release_switches_docker_access_before_the_rebuild
     assert result.warnings == []
 
 
-def test_upgrade_rebuild_runs_through_the_helper_with_the_legacy_command_as_fallback() -> None:
+def test_upgrade_rebuild_runs_through_the_helper_with_no_legacy_branch() -> None:
     srv = FakeServer(version="1.0.13")
     run(srv, "1.0.14")
-    cmd = next(c for c in srv.commands if "dango-compose pull" in c)
-    assert "dango-compose up-build" in cmd
-    for then in re.findall(r"then (.*?); else", cmd, re.S):
-        assert "/srv/dango/project" not in then and "sudo -u dango" not in then
-    assert "docker compose -f /srv/dango/project/docker-compose.yml pull" in cmd
-    assert "up -d --build metabase </dev/null" in cmd
+    cmd = next(c for c in srv.commands if "exit 68" in c and "up-build" in c)
+    assert "dango-compose pull" in cmd and "dango-compose up-build" in cmd
+    assert "/srv/dango/project" not in cmd and "sudo -u dango" not in cmd
+    assert "docker compose" not in cmd
 
 
 def test_rebuild_timeout_covers_the_helper_waits() -> None:
@@ -90,13 +88,13 @@ def test_the_web_unit_is_refreshed_before_dango_web_starts() -> None:
     assert srv.events.index(f"write:{WEB_UNIT}") < index(srv, "web-start", index(srv, "pip"))
 
 
-def test_failed_migration_keeps_the_old_path_and_rebuilds_the_legacy_way() -> None:
+def test_failed_migration_keeps_the_group_but_the_rebuild_needs_the_helper() -> None:
     srv = FakeServer(version="1.0.13", fail={"H3": 1})
-    result = run(srv, "1.0.14")
+    with pytest.raises(CloudProvisioningError, match="Docker rebuild failed"):
+        run(srv, "1.0.14")
     assert not srv.marker and srv.in_group
-    assert "legacy:pull" in srv.events and "legacy:up-build" in srv.events
-    assert "helper:pull" not in srv.events
-    assert any("group" in w.lower() for w in result.warnings)
+    assert "strict-refused" in srv.events
+    assert "legacy:pull" not in srv.events and "helper:pull" not in srv.events
     assert "web-start" in srv.events
 
 

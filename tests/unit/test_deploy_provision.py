@@ -349,6 +349,7 @@ class TestProvisionSequence:
             ),
             patch("dango.platform.cloud.server_setup.setup_server") as mock_setup,
             patch("dango.platform.cloud.file_sync.sync_project_files"),
+            patch("dango.cli.commands.deploy_provision._prebuild_images"),
             patch("dango.platform.cloud.provisioning.save_provisioning_metadata"),
             patch("dango.cli.commands.deploy_wizard._safe_confirm", return_value=True),
         ):
@@ -781,6 +782,7 @@ class TestProjectRootResolved:
             ),
             patch("dango.platform.cloud.server_setup.setup_server") as mock_setup,
             patch("dango.platform.cloud.file_sync.sync_project_files"),
+            patch("dango.cli.commands.deploy_provision._prebuild_images"),
             patch("dango.platform.cloud.provisioning.save_provisioning_metadata"),
             patch("dango.cli.commands.deploy_wizard._safe_confirm", return_value=True),
             patch("httpx.get") as mock_get,
@@ -840,6 +842,7 @@ class TestProjectRootResolved:
                 return_value=("pypi", "getdango==1.0.0"),
             ),
             patch("dango.platform.cloud.file_sync.sync_project_files"),
+            patch("dango.cli.commands.deploy_provision._prebuild_images"),
             patch("httpx.get") as mock_get,
             patch("dango.cli.commands.deploy_provision.time.sleep"),
         ):

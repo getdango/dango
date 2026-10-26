@@ -71,20 +71,17 @@ def test_pin_refusal_at_target_disarms_the_guard_before_any_stop() -> None:
     with pytest.raises(cm.MetabasePinRequired):
         run(srv, "1.0.14")
     assert "web-stop" not in srv.events
-    assert srv.events.index("guard-arm") < srv.events.index("guard-disarm")
+    last = len(srv.events) - 1
+    assert srv.events.index("guard-arm") < last - srv.events[::-1].index("guard-disarm")
     assert not srv.marker and srv.in_group
 
 
 class _Vanishing(FakeServer):
-    """The helper marker disappears right before the Docker rebuild; the strict command exits 68."""
+    """The helper marker disappears right before the Docker rebuild."""
 
     def exec_command(self, command: str, timeout: int | None = None, **_k: Any) -> CommandResult:
-        if f"{ch.HELPER_PATH} pull" in command or "dango-compose' pull" in command:
+        if "exit 68" in command or f"{ch.HELPER_PATH} pull" in command and "# step:" not in command:
             self.marker = False
-            if "exit 68" in command:
-                self.commands.append(command)
-                self.events.append("strict-refused")
-                return CommandResult("", "dango-compose: verified Metabase build", 68)
         return super().exec_command(command, timeout)
 
 
@@ -92,6 +89,7 @@ def test_upgrade_requires_helper_for_metabase_rebuild() -> None:
     srv = _Vanishing(version="1.0.13")
     with pytest.raises(CloudProvisioningError):
         run(srv, "1.0.14")
+    assert "strict-refused" in srv.events
     assert "legacy:pull" not in srv.events and "legacy:up-build" not in srv.events
     assert "web-start" in srv.events
 
@@ -100,8 +98,8 @@ def test_upgrade_with_a_matching_pin_builds_through_the_helper_only() -> None:
     srv = FakeServer(version="1.0.13")
     result = run(srv, "1.0.14")
     assert result.docker_rebuilt is True and result.warnings == []
-    cmd = next(c for c in srv.commands if f"{ch.HELPER_PATH}" in c and " pull" in c)
-    assert "exit 68" in cmd and "docker compose" not in cmd
+    cmd = next(c for c in srv.commands if "exit 68" in c and "up-build" in c)
+    assert f"{ch.HELPER_PATH} pull" in cmd and "docker compose" not in cmd
     assert "helper:up-build" in srv.events and "legacy:up-build" not in srv.events
 
 

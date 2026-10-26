@@ -109,7 +109,7 @@ LEGACY = "cd /srv/dango/project && sudo -u dango docker compose build"
 def test_first_deploy_pins_renders_and_builds_through_the_helper() -> None:
     srv = FakeServer(marker=True, in_group=False)
     warnings: list[str] = []
-    cm.prebuild_images(srv, warnings, legacy_command=LEGACY)
+    cm.prebuild_images(srv, warnings)
     assert [e for e in srv.events if e in ("P1", "pin-project", "P2", "P3", "build")] == [
         "P1",
         "pin-project",
@@ -122,52 +122,41 @@ def test_first_deploy_pins_renders_and_builds_through_the_helper() -> None:
 
 
 @pytest.mark.parametrize("code", [64, 65, 66, 67, 75])
-def test_helper_build_refusal_falls_back_to_the_group_and_legacy_build(code: int) -> None:
+def test_helper_build_refusal_falls_back_to_the_group_but_never_builds_the_legacy_way(
+    code: int,
+) -> None:
     srv = FakeServer(marker=True, in_group=False, fail={"build": code})
     warnings: list[str] = []
-    cm.prebuild_images(srv, warnings, legacy_command=LEGACY, own_marker=True)
+    with pytest.raises(CloudProvisioningError, match="did not run"):
+        cm.prebuild_images(srv, warnings, own_marker=True)
     assert not srv.marker and srv.in_group
-    assert srv.commands[-1] == LEGACY
+    assert LEGACY not in srv.commands
     assert warnings and "docker group" in warnings[0]
 
 
 @pytest.mark.parametrize("failing", ["P1", "pin", "P2", "P3"])
-def test_pin_or_render_failure_falls_back_before_building(failing: str) -> None:
+def test_pin_or_render_failure_stops_before_building(failing: str) -> None:
     srv = FakeServer(marker=True, in_group=False, fail={failing: 1})
     warnings: list[str] = []
-    cm.prebuild_images(srv, warnings, legacy_command=LEGACY, own_marker=True)
-    assert "build" not in srv.events
-    assert not srv.marker and srv.in_group and srv.commands[-1] == LEGACY
-    assert warnings
+    with pytest.raises(CloudProvisioningError, match="did not run"):
+        cm.prebuild_images(srv, warnings, own_marker=True)
+    assert "build" not in srv.events and LEGACY not in srv.commands
+    assert not srv.marker and srv.in_group and warnings
 
 
 def test_an_ordinary_build_failure_still_raises() -> None:
     srv = FakeServer(marker=True, in_group=False, fail={"build": 1})
     with pytest.raises(CloudProvisioningError):
-        cm.prebuild_images(srv, [], legacy_command=LEGACY)
+        cm.prebuild_images(srv, [])
     assert srv.marker and "FB" not in srv.events
 
 
-def test_without_the_marker_only_the_legacy_build_runs() -> None:
+def test_without_the_marker_no_build_runs() -> None:
     srv = FakeServer(marker=False, in_group=True)
-    warnings: list[str] = []
-    cm.prebuild_images(srv, warnings, legacy_command=LEGACY)
+    with pytest.raises(CloudProvisioningError, match="needs the compose helper"):
+        cm.prebuild_images(srv, [])
     assert "P1" not in srv.events and "build" not in srv.events
-    assert srv.commands[-1] == LEGACY
-    assert warnings == []
-
-
-def test_legacy_build_failure_raises() -> None:
-    from dango.platform.cloud.ssh import CommandResult
-
-    class Failing(FakeServer):
-        def exec_command(self, command: str, timeout: int | None = None, **_k: Any) -> Any:
-            if command == LEGACY:
-                return CommandResult("", "no network", 1)
-            return super().exec_command(command, timeout)
-
-    with pytest.raises(CloudProvisioningError, match="Docker image build failed"):
-        cm.prebuild_images(Failing(marker=False, in_group=True), [], legacy_command=LEGACY)
+    assert LEGACY not in srv.commands
 
 
 def test_both_deploy_paths_use_the_shared_prebuild() -> None:
@@ -177,7 +166,6 @@ def test_both_deploy_paths_use_the_shared_prebuild() -> None:
     for fn in (dp.run_provisioning, dp.run_byos_setup):
         source = inspect.getsource(fn)
         assert "_prebuild_images(" in source
-        assert "_prebuild_command(" not in source
 
 
 def test_prebuild_images_helper_in_deploy_provision() -> None:

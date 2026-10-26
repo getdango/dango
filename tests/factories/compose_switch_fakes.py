@@ -119,6 +119,9 @@ class FakeServer:
         if f"{ch.HELPER_PATH} pin-project" in command:
             return self._pin(command)
         verbs = _HELPER_VERB.findall(command)
+        if "exit 68" in command and ch.MARKER_TEST in command and not self.marker:
+            self.events.append("strict-refused")  # the helper-only rebuild has no other branch
+            return CommandResult("", "dango-compose: verified Metabase build", 68)
         if verbs and ch.MARKER_TEST in command:
             return self._wrapped(verbs, command)
         if "usermod -aG docker" in command:

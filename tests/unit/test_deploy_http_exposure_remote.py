@@ -98,6 +98,7 @@ def _provision(project_root: Path, config, ssh_client: str):
         ),
         patch("dango.platform.cloud.server_setup.resolve_install_source", return_value="getdango"),
         patch("dango.platform.cloud.file_sync.sync_project_files"),
+        patch("dango.cli.commands.deploy_provision._prebuild_images"),
         patch("dango.platform.cloud.provisioning.save_provisioning_metadata"),
         patch("dango.platform.cloud.backup.get_remote_compose_project_name", return_value="p"),
         patch("dango.cli.commands.deploy_provision._health_check", health),
