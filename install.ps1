@@ -102,7 +102,7 @@ function Test-PythonVersion {
     # Try multiple Python commands in order of preference
     $pythonCmd = $null
     $pythonVersion = $null
-    $commands = @("python3.13", "python3.12", "python3.11", "python3.10", "python3", "python", "py")
+    $commands = @("python3.13", "python3.12", "python3.11", "python3", "python", "py")
 
     foreach ($cmd in $commands) {
         if (Get-Command $cmd -ErrorAction SilentlyContinue) {
@@ -113,8 +113,8 @@ function Test-PythonVersion {
                     $major = [int]$versionParts[0]
                     $minor = [int]$versionParts[1]
 
-                    # Check if version is 3.10-3.13 (matches requires-python >=3.10,<3.14)
-                    if ($major -eq 3 -and $minor -ge 10 -and $minor -le 13) {
+                    # Check if version is 3.11-3.13 (matches requires-python >=3.11,<3.14)
+                    if ($major -eq 3 -and $minor -ge 11 -and $minor -le 13) {
                         $pythonCmd = $cmd
                         $pythonVersion = $version
                         break
@@ -130,9 +130,9 @@ function Test-PythonVersion {
 
     # If no suitable Python found
     if (-not $pythonCmd) {
-        Write-Error-Message "Python 3.10-3.13 not found"
+        Write-Error-Message "Python 3.11-3.13 not found"
         Write-Host ""
-        Write-Host "Dango requires Python 3.10-3.13 (3.12 recommended)"
+        Write-Host "Dango requires Python 3.11-3.13 (3.12 recommended)"
         Write-Host ""
         Write-Host "Install options:"
         Write-Host "  winget install Python.Python.3.12"

@@ -1,6 +1,6 @@
 """tests/unit/test_install_script_python_range.py
 
-Installer interpreter selection: install.sh / install.ps1 accept Python 3.10-3.13 and reject anything else.
+Installer interpreter selection: install.sh / install.ps1 accept Python 3.11-3.13.
 """
 
 import shutil
@@ -45,7 +45,7 @@ def test_install_sh_syntax_valid() -> None:
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize("version", ["3.10", "3.11", "3.12", "3.13"])
+@pytest.mark.parametrize("version", ["3.11", "3.12", "3.13"])
 def test_supported_versions_accepted(tmp_path: Path, version: str) -> None:
     result = _run_check(tmp_path, {"python3": version})
     assert result.returncode == 0, result.stdout + result.stderr
@@ -57,7 +57,20 @@ def test_unsupported_versions_rejected(tmp_path: Path, version: str) -> None:
     result = _run_check(tmp_path, {"python3": version})
     assert result.returncode != 0
     assert "CMD=" not in result.stdout
-    assert "3.10-3.13" in result.stdout
+    assert "3.11-3.13" in result.stdout
+
+
+def test_python310_is_rejected(tmp_path: Path) -> None:
+    result = _run_check(tmp_path, {"python3.10": "3.10", "python3": "3.10"})
+    assert result.returncode != 0
+    assert "CMD=" not in result.stdout
+    assert "Python 3.11-3.13 not found" in result.stdout
+
+
+def test_python311_preferred_to_310(tmp_path: Path) -> None:
+    result = _run_check(tmp_path, {"python3.11": "3.11", "python3.10": "3.10", "python3": "3.10"})
+    assert result.returncode == 0
+    assert "CMD=python3.11 VER=3.11" in result.stdout
 
 
 def test_python313_preferred_over_older(tmp_path: Path) -> None:
@@ -76,5 +89,10 @@ def test_no_stale_python_range_text() -> None:
 
 def test_install_ps1_accepts_313() -> None:
     text = INSTALL_PS1.read_text()
+    assert (
+        '$commands = @("python3.13", "python3.12", "python3.11", "python3", "python", "py")' in text
+    )
+    assert "$minor -ge 11" in text
     assert "$minor -le 13" in text
-    assert '"python3.13"' in text
+    assert 'Write-Error-Message "Python 3.11-3.13 not found"' in text
+    assert 'Write-Host "Dango requires Python 3.11-3.13 (3.12 recommended)"' in text
