@@ -420,3 +420,49 @@ class TestModelRemoveMetabaseRefresh:
         # removal still reports success.
         assert result.exit_code == 0, result.output
         mock_sync.assert_not_called()
+
+
+@pytest.mark.unit
+class TestMigrateRunRouting:
+    """Reserve metadata for the locked bootstrap while keeping ordinary routes."""
+
+    def test_explicit_metadata_route_aborts_before_database_creation(self, tmp_path: Path) -> None:
+        from dango.cli.commands.migrate import migrate
+
+        base = tmp_path / "migrations"
+        metadata = base / "metadata"
+        metadata.mkdir(parents=True)
+        (metadata / "001_marker.py").write_text(
+            "VERSION = 1\nDESCRIPTION = 'Marker'\n"
+            "def upgrade(conn):\n    conn.execute('CREATE TABLE marker (id INTEGER)')\n"
+        )
+        project = tmp_path / "project"
+        with (
+            patch("dango.cli.utils.require_project_context", return_value=project),
+            patch("dango.migrations.get_migrations_base_dir", return_value=base),
+        ):
+            result = CliRunner().invoke(migrate, ["run", "--db", "metadata"])
+
+        assert result.exit_code != 0
+        assert "managed by the Dango metadata bootstrap" in result.output
+        assert not (project / ".dango" / "metadata.db").exists()
+
+    def test_explicit_ordinary_route_still_applies(self, tmp_path: Path) -> None:
+        from dango.cli.commands.migrate import migrate
+
+        base = tmp_path / "migrations"
+        auth = base / "auth"
+        auth.mkdir(parents=True)
+        (auth / "001_marker.py").write_text(
+            "VERSION = 1\nDESCRIPTION = 'Marker'\n"
+            "def upgrade(conn):\n    conn.execute('CREATE TABLE marker (id INTEGER)')\n"
+        )
+        project = tmp_path / "project"
+        with (
+            patch("dango.cli.utils.require_project_context", return_value=project),
+            patch("dango.migrations.get_migrations_base_dir", return_value=base),
+        ):
+            result = CliRunner().invoke(migrate, ["run", "--db", "auth"])
+
+        assert result.exit_code == 0, result.output
+        assert (project / ".dango" / "auth.db").exists()

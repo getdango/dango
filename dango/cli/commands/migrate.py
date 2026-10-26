@@ -83,6 +83,13 @@ def migrate_run(ctx: click.Context, db_name: str | None) -> None:
 
     try:
         if db_name:
+            if db_name == "metadata":
+                console.print(
+                    "[red]Error:[/red] Metadata migrations are managed by "
+                    "the Dango metadata bootstrap."
+                )
+                raise click.Abort()
+
             from dango.migrations import get_migrations_base_dir
 
             migrations_dir = get_migrations_base_dir() / db_name
