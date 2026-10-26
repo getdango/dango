@@ -659,7 +659,7 @@ Version requirements and platform support for this Dango project.
 
 ## Python
 
-- **Required:** Python 3.10, 3.11, 3.12, or 3.13 (`>=3.10,<3.14`)
+- **Required:** Python 3.11, 3.12, or 3.13 (`>=3.11,<3.14`)
 - System Python on macOS is 3.9 — use `python3.11`, `python3.12`, or `python3.13` explicitly
 
 ## Operating Systems
@@ -702,7 +702,7 @@ The `en_core_web_sm` language model is required for PII scanning (data governanc
 
 ## Upgrade Notes
 
-- Pin your Python version in CI/CD — Dango does not yet support Python 3.13+
+- Pin your Python version in CI/CD — Python 3.14+ is not yet supported
 - DuckDB minor version upgrades may require a database re-sync (`dango sync`)
 - dbt and dlt versions are pinned to compatible ranges in `pyproject.toml`
 
