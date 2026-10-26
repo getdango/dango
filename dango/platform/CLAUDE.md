@@ -11,6 +11,7 @@ platform/
 ├── __init__.py          # Re-exports DockerManager, ServiceStatus (unchanged)
 ├── __main__.py          # python -m dango.platform → runs watcher_runner
 ├── docker.py            # DockerManager, ServiceStatus (shared local + cloud)
+├── bundle.py            # Strict candidate manifest loading and qualification checks
 ├── CLAUDE.md            # This file
 │
 ├── common/              # Shared startup logic (local + cloud reuse)
@@ -75,6 +76,7 @@ platform/
 | File | Purpose | Key Symbols |
 |------|---------|-------------|
 | `docker.py` | Docker Compose lifecycle + persisted project-identity (1.0.8-Q9) + collision guard (1.0.8-Q8) | `DockerManager`, `ServiceStatus`, `get_compose_project_name()`, `render_docker_compose()`, `_get_existing_container_working_dirs()`, `_legacy_path_hash()` |
+| `bundle.py` | Strict schema-1 bundle candidates and fail-closed profile admission; packaged data in `templates/bundle-candidates.json` | `BundleManifest`, `BundleComponent`, `BundleProfile`, `BundleValidationError`, `load_bundle_manifest()`, `require_qualified_profile()` |
 | `common/startup.py` | Shared startup helpers | `run_pending_migrations`, `ensure_dbt_schemas`, `check_duckdb_version_alignment`, `ensure_duckdb_driver`, `start_docker_services`, `setup_metabase_if_needed`, `metabase_startup_work_pending`, `wait_for_metabase_if_needed`, `import_dashboards` |
 | `common/metabase_credential_state.py` | Read-only Metabase admin credential classification for `serve` (no repair; at most one health GET + one login) and the server-side repair command | `metabase_admin_credential_state`, `cloud_repair_admin_command` |
 | `common/metabase_credential_migration.py` | Legacy Metabase credential state machine | `prepare_metabase_credential_migration`, `migration_pending`, `complete_metabase_credential_migration` |
@@ -364,6 +366,7 @@ Post-deployment hardening (not automated by Dango):
 
 ## Testing
 
+- **Bundle manifest:** `pytest tests/unit/test_bundle_manifest.py` — strict schema, qualification refusal/fixtures, import safety, and direct wheel/zip resource loading. Candidate validity and a nonempty receipt reference do not authenticate evidence or establish native runtime compatibility.
 - **Scheduling:** `pytest tests/unit/test_scheduler.py tests/unit/test_scheduler_resilience.py tests/unit/test_execution_history.py tests/unit/test_sync_jobs.py tests/unit/test_sync_trigger.py`
 - **Notifications:** `pytest tests/unit/test_webhook.py tests/unit/test_slack_formatter.py`
 - **Local platform:** `pytest tests/unit/test_platform_startup.py tests/unit/test_watcher_lifecycle.py`
