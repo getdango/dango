@@ -426,7 +426,23 @@ class TestModelRemoveMetabaseRefresh:
 class TestMigrateRunRouting:
     """Reserve metadata for the locked bootstrap while keeping ordinary routes."""
 
-    def test_explicit_metadata_route_aborts_before_database_creation(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "db_name",
+        [
+            "metadata",
+            "./metadata",
+            "metadata/",
+            "auth/../metadata",
+            "METADATA",
+            "metadata_alias",
+            "",
+        ],
+    )
+    def test_explicit_metadata_route_aborts_before_database_creation(
+        self, tmp_path: Path, db_name: str
+    ) -> None:
+        import sqlite3
+
         from dango.cli.commands.migrate import migrate
 
         base = tmp_path / "migrations"
@@ -436,24 +452,35 @@ class TestMigrateRunRouting:
             "VERSION = 1\nDESCRIPTION = 'Marker'\n"
             "def upgrade(conn):\n    conn.execute('CREATE TABLE marker (id INTEGER)')\n"
         )
+        (base / "auth").mkdir()
+        (base / "metadata_alias").symlink_to(metadata, target_is_directory=True)
         project = tmp_path / "project"
+        dango_dir = project / ".dango"
+        dango_dir.mkdir(parents=True)
+        dango_db = dango_dir / "dango.db"
+        with sqlite3.connect(dango_db) as conn:
+            conn.execute("CREATE TABLE sentinel (value TEXT)")
+            conn.execute("INSERT INTO sentinel VALUES ('unchanged')")
+        before = dango_db.read_bytes()
         with (
             patch("dango.cli.utils.require_project_context", return_value=project),
             patch("dango.migrations.get_migrations_base_dir", return_value=base),
         ):
-            result = CliRunner().invoke(migrate, ["run", "--db", "metadata"])
+            result = CliRunner().invoke(migrate, ["run", "--db", db_name])
 
         assert result.exit_code != 0
-        assert "managed by the Dango metadata bootstrap" in result.output
-        assert not (project / ".dango" / "metadata.db").exists()
+        assert "managed by the Dango metadata bootstrap" in " ".join(result.output.split())
+        assert list(dango_dir.glob("*.db")) == [dango_db]
+        assert dango_db.read_bytes() == before
 
-    def test_explicit_ordinary_route_still_applies(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("db_name", ["auth", "scheduler", "custom_db2"])
+    def test_explicit_ordinary_route_still_applies(self, tmp_path: Path, db_name: str) -> None:
         from dango.cli.commands.migrate import migrate
 
         base = tmp_path / "migrations"
-        auth = base / "auth"
-        auth.mkdir(parents=True)
-        (auth / "001_marker.py").write_text(
+        directory = base / db_name
+        directory.mkdir(parents=True)
+        (directory / "001_marker.py").write_text(
             "VERSION = 1\nDESCRIPTION = 'Marker'\n"
             "def upgrade(conn):\n    conn.execute('CREATE TABLE marker (id INTEGER)')\n"
         )
@@ -462,7 +489,7 @@ class TestMigrateRunRouting:
             patch("dango.cli.utils.require_project_context", return_value=project),
             patch("dango.migrations.get_migrations_base_dir", return_value=base),
         ):
-            result = CliRunner().invoke(migrate, ["run", "--db", "auth"])
+            result = CliRunner().invoke(migrate, ["run", "--db", db_name])
 
         assert result.exit_code == 0, result.output
-        assert (project / ".dango" / "auth.db").exists()
+        assert (project / ".dango" / f"{db_name}.db").exists()
