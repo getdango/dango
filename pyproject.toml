@@ -7,7 +7,7 @@ name = "getdango"
 version = "1.0.13"
 description = "Open source data platform built with production-grade tools - dlt, dbt, DuckDB, and Metabase"
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "Dango Team"}
@@ -19,7 +19,6 @@ classifiers = [
     "Intended Audience :: Information Technology",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -69,6 +68,8 @@ dependencies = [
     # Plotting libraries for user-written Marimo notebooks (mo.ui.altair_chart/plotly, matplotlib
     # figures); not imported by Dango itself, kept so notebooks work after a plain pip install.
     "matplotlib>=3.8.0",
+    # Security floor for Pillow through the notebook plotting dependency path.
+    "Pillow>=13.0.0",
     "plotly>=5.18.0",
     "altair>=5.2.0",
     "marimo>=0.23.0",             # CVE-2026-39987 fixed in 0.23.0
@@ -151,11 +152,11 @@ exclude_dirs = ["dango/ingestion/dlt_sources", "tests"]
 
 [tool.black]
 line-length = 100
-target-version = ["py310", "py311", "py312", "py313"]
+target-version = ["py311", "py312", "py313"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 exclude = ["dango/ingestion/dlt_sources/"]
 
 [tool.ruff.lint]
@@ -171,10 +172,15 @@ select = [
 ignore = [
     "E501",  # line too long (handled by black)
     "B008",  # do not perform function calls in argument defaults
+    # Existing code uses these Python 3.10-compatible forms; changing the
+    # target to py311 does not require a repository-wide style rewrite.
+    "UP017", # datetime.timezone.utc versus datetime.UTC
+    "UP041", # asyncio.TimeoutError versus built-in TimeoutError
+    "UP042", # str, Enum versus StrEnum
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
