@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import shlex
+from pathlib import Path
 from typing import Any
 
 from dango.logging import get_logger
@@ -17,6 +18,52 @@ from dango.platform.cloud.compose_scripts import PROJECT_DIR, record_script
 _logger = get_logger(__name__)
 
 WEB_UNIT_PATH = "/etc/systemd/system/dango-web.service"
+
+#: Root-private flag: the last strict Metabase rebuild failed, so a same-version re-run repeats it.
+REBUILD_PENDING = f"{ch.COMPOSE_DIR}/metabase-rebuild-pending"
+
+
+def custom_metabase_version(project_root: Path) -> str | None:
+    """The project's ``MB_VERSION`` when it differs from the built-in default; else ``None``.
+
+    A custom version needs an administrator pin on the server, which a new server cannot have.
+    A missing or unusable ``Dockerfile.metabase`` counts as the default (the helper decides later).
+    """
+    from dango.platform.cloud.metabase_pin import DEFAULT_MB_VERSION
+    from dango.platform.compose_exec import ComposeRenderError, _project_mb_version
+
+    try:
+        version = _project_mb_version(project_root / "Dockerfile.metabase")
+    except ComposeRenderError:
+        return None
+    return None if version in (None, DEFAULT_MB_VERSION) else version
+
+
+def mark_rebuild_pending(ssh: Any) -> None:
+    """Record that the strict rebuild failed; a failure to write the flag is only logged."""
+    result = ssh.exec_command(f"touch {REBUILD_PENDING}", timeout=30)
+    if not result.success:
+        _logger.warning("rebuild_pending_flag_failed", detail=detail(result))
+
+
+def clear_rebuild_pending(ssh: Any) -> None:
+    """Drop the flag after a strict rebuild succeeded."""
+    ssh.exec_command(f"rm -f {REBUILD_PENDING}", timeout=30)
+
+
+def rebuild_pending(ssh: Any) -> bool:
+    """True when the last strict Metabase rebuild failed and has not been repeated since."""
+    result = ssh.exec_command(f"test -e {REBUILD_PENDING} && echo PENDING", timeout=30)
+    return bool(result.success and "PENDING" in (result.stdout or ""))
+
+
+def retry_pending_rebuild(ssh: Any, warnings: list[str]) -> None:
+    """Repeat the failed strict rebuild with dango-web stopped; it is started again either way."""
+    web_service(ssh, "stop")
+    try:
+        rebuild_metabase(ssh, warnings, require_helper=True)
+    finally:
+        web_service(ssh, "start")
 
 
 def run_script(ssh: Any, script: str, timeout: int) -> Any:
@@ -95,8 +142,14 @@ def rebuild_metabase(ssh: Any, warnings: list[str], *, require_helper: bool = Fa
     )
     if not result.success:
         if require_helper:
-            raise CloudProvisioningError(f"Docker rebuild failed:\n{detail(result)}")
+            mark_rebuild_pending(ssh)
+            raise CloudProvisioningError(
+                f"Docker rebuild failed:\n{detail(result)}\n"
+                "Run `dango remote upgrade` again to repeat the rebuild."
+            )
         warnings.append("Docker rebuild did not complete successfully.")
+    elif require_helper:
+        clear_rebuild_pending(ssh)
 
 
 def upgrade_rebuild(
@@ -104,22 +157,30 @@ def upgrade_rebuild(
 ) -> bool:
     """The Docker rebuild of ``remote upgrade``; True when it succeeded.
 
-    From the helper release on it needs the trusted helper and a failure raises (no unverified
-    image is built); an explicit downgrade below it keeps the legacy command and a warning.
+    Strict unless the version is positively known to be below the helper release: an unreadable
+    version fails closed.  Strict needs the trusted helper, and a failure raises (no unverified
+    image is built) and is repeated by the next ``remote upgrade``; an explicit downgrade below
+    the helper release keeps the legacy command and a warning.
     """
     from dango.exceptions import CloudProvisioningError
     from dango.platform.cloud.backup import helper_branch_active
-    from dango.platform.cloud.compose_versions import helper_capable
+    from dango.platform.cloud.compose_versions import below_helper_version
 
-    strict = helper_capable(version)
+    strict = not below_helper_version(version)
     result = ssh.exec_command(
         rebuild_command(compose_project, require_helper=strict),
         timeout=rebuild_timeout(helper_branch_active(ssh)),
     )
     if result.success:
+        if strict:
+            clear_rebuild_pending(ssh)
         return True
     if strict:
-        raise CloudProvisioningError(f"Docker rebuild failed:\n{detail(result)}")
+        mark_rebuild_pending(ssh)
+        raise CloudProvisioningError(
+            f"Docker rebuild failed:\n{detail(result)}\n"
+            "Run `dango remote upgrade` again to repeat the rebuild."
+        )
     warnings.append("Docker rebuild did not complete successfully.")
     return False
 

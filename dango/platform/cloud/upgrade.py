@@ -154,6 +154,10 @@ def _switch_at_target(
         return None
     cm.refresh_web_unit(ssh, warnings)  # takes effect at the next restart; never stops dango-web
     if not cm.needs_migration(ssh):
+        if cm.rebuild_pending(ssh):  # the last strict rebuild failed: repeat it
+            guard.arm()
+            cm.retry_pending_rebuild(ssh, warnings)
+            guard.disarm()
         return None
     guard.arm()  # dango-web is stopped inside the migration
     try:

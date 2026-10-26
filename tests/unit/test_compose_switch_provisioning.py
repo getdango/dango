@@ -122,16 +122,15 @@ def test_first_deploy_pins_renders_and_builds_through_the_helper() -> None:
 
 
 @pytest.mark.parametrize("code", [64, 65, 66, 67, 75])
-def test_helper_build_refusal_falls_back_to_the_group_but_never_builds_the_legacy_way(
+def test_helper_build_refusal_stops_the_deploy_without_the_group_or_a_legacy_build(
     code: int,
 ) -> None:
     srv = FakeServer(marker=True, in_group=False, fail={"build": code})
     warnings: list[str] = []
     with pytest.raises(CloudProvisioningError, match="did not run"):
         cm.prebuild_images(srv, warnings, own_marker=True)
-    assert not srv.marker and srv.in_group
+    assert srv.marker and not srv.in_group and "FB" not in srv.events
     assert LEGACY not in srv.commands
-    assert warnings and "docker group" in warnings[0]
 
 
 @pytest.mark.parametrize("failing", ["P1", "pin", "P2", "P3"])
@@ -141,7 +140,7 @@ def test_pin_or_render_failure_stops_before_building(failing: str) -> None:
     with pytest.raises(CloudProvisioningError, match="did not run"):
         cm.prebuild_images(srv, warnings, own_marker=True)
     assert "build" not in srv.events and LEGACY not in srv.commands
-    assert not srv.marker and srv.in_group and warnings
+    assert srv.marker and not srv.in_group and "FB" not in srv.events
 
 
 def test_an_ordinary_build_failure_still_raises() -> None:

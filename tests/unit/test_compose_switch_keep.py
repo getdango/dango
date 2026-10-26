@@ -61,7 +61,8 @@ def test_prebuild_on_a_switched_server_keeps_the_switch_and_stops(fail: dict[str
     warnings: list[str] = []
     with pytest.raises(CloudProvisioningError, match="stays enabled"):
         cm.prebuild_images(srv, warnings)
-    assert_kept(srv, warnings)
+    assert srv.marker and not srv.in_group
+    assert "FB" not in srv.events and "usermod" not in srv.events
     assert LEGACY not in srv.commands
 
 

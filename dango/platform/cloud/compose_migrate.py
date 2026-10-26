@@ -45,9 +45,11 @@ from dango.platform.cloud.compose_steps import (
     detail,
     rebuild_command,
     rebuild_metabase,
+    rebuild_pending,
     rebuild_timeout,
     refresh_web_unit,
     relay_warnings,
+    retry_pending_rebuild,
     run_script,
     upgrade_rebuild,
     web_service,
@@ -89,9 +91,11 @@ __all__ = [
     "rebuild_command",
     "rebuild_timeout",
     "record_script",
+    "rebuild_pending",
     "refresh_web_unit",
     "restore_docker_access",
     "restore_script",
+    "retry_pending_rebuild",
     "self_test_script",
     "server_version",
     "terminate_script",
@@ -108,12 +112,23 @@ class MetabasePinRequired(CloudProvisioningError):
     """
 
 
+_PIN_CMD = f"`{ch.HELPER_PATH} pin-metabase VERSION SHA256`"
+#: Recovery text per caller: only the caller knows which retry actually builds the image.
+PIN_RECOVERY_UPGRADE = f"As root on the server run {_PIN_CMD}, then re-run `dango remote upgrade`."
+PIN_RECOVERY_DEPLOY = f"As root on the server run {_PIN_CMD}, then re-run `dango deploy`."
+PIN_RECOVERY_NEW_SERVER = (
+    "A custom Metabase version needs an administrator pin on an existing server: deploy with the "
+    f"default Metabase version, then as root run {_PIN_CMD} and switch to the custom version."
+)
+
+
 #: Helper exits that mean "the helper refused or is unusable", as opposed to an ordinary failure.
 HELPER_REFUSALS = frozenset({64, 65, 66, 67, 75})
 #: SSH timeout for the render script (helper render budget + sudo lock wait + margin).
 RENDER_TIMEOUT = ch.SUDO_LOCK_WAIT + ch.VERB_BUDGET["render"] + 2 * ch.CALLER_MARGIN
 
 _RETRY_HINT = "Run `dango remote upgrade` to retry once the cause is fixed."
+_DEPLOY_RETRY = "Fix the cause, then re-run `dango deploy`."
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +189,9 @@ def _project_id(ssh: Any) -> str | None:
     return value if isinstance(value, str) and ID_RE.fullmatch(value) else None
 
 
-def _pin_and_render(ssh: Any, warnings: list[str]) -> str | None:
+def _pin_and_render(
+    ssh: Any, warnings: list[str], recovery: str = PIN_RECOVERY_UPGRADE
+) -> str | None:
     """P1 consistency check and pin, P2 render, P3 verify; the failure reason, or None."""
     project_id = _project_id(ssh)
     if project_id is None:
@@ -196,10 +213,7 @@ def _pin_and_render(ssh: Any, warnings: list[str]) -> str | None:
             return detail(pin)
     result = run_script(ssh, render_script(), RENDER_TIMEOUT)
     if result.exit_code == EXIT_PIN:
-        raise MetabasePinRequired(
-            f"{detail(result)}. As root on the server run "
-            f"`{ch.HELPER_PATH} pin-metabase VERSION SHA256`, then re-run `dango remote upgrade`."
-        )
+        raise MetabasePinRequired(f"{detail(result)}. {recovery}")
     if not result.success:
         return detail(result)
     result = run_script(ssh, verify_script(), 120)
@@ -379,24 +393,30 @@ def enable_fresh(ssh: Any, warnings: list[str], version: str) -> str:
 
 
 def prebuild_images(
-    ssh: Any, warnings: list[str], *, legacy_command: str | None = None, own_marker: bool = False
+    ssh: Any,
+    warnings: list[str],
+    *,
+    legacy_command: str | None = None,
+    own_marker: bool = False,
+    recovery: str = PIN_RECOVERY_DEPLOY,
 ) -> None:
     """First deploy: pin, render and build through the trusted helper; there is no other build.
 
-    A missing helper, a refusal, a timeout or any build failure raises.  A pin refusal raises
-    ``MetabasePinRequired`` without touching Docker access.  Another helper refusal or pin/render
-    failure on a deploy whose own ``enable_fresh`` created the marker (*own_marker*) still returns
-    the account to the group (warning), but the image is not built.  *legacy_command* is unused
-    since 1.0.14: a project-owned recipe is never built on a server.
+    A missing helper, a refusal, a timeout or any build failure raises, and the server's Docker
+    access is left as it was: a failed fresh deploy is not put into the docker-group fallback,
+    where dango-web could build Metabase from the project recipe.  Without a rendered, verified
+    build directory the helper cannot start Metabase either.  A pin refusal raises
+    ``MetabasePinRequired`` with the caller's *recovery* text.  *legacy_command* and *own_marker*
+    are unused since 1.0.14 (kept for callers): a project-owned recipe is never built on a server.
     """
     from dango.platform.cloud.backup import helper_branch_active, root_helper_timeout
 
     if not helper_branch_active(ssh):
         raise CloudProvisioningError(
             "Docker image build did not run: the verified Metabase build needs the compose "
-            f"helper, which is not enabled on this server. {_RETRY_HINT}"
+            f"helper, which is not enabled on this server. {_DEPLOY_RETRY}"
         )
-    reason = _pin_and_render(ssh, warnings)
+    reason = _pin_and_render(ssh, warnings, recovery)
     if reason is None:
         result = ssh.exec_command(f"{ch.HELPER_PATH} build", timeout=root_helper_timeout("build"))
         if result.success:
@@ -404,10 +424,9 @@ def prebuild_images(
         if result.exit_code not in HELPER_REFUSALS:
             raise CloudProvisioningError(f"Docker image build failed:\n{detail(result)}")
         reason = f"the helper refused the build: {detail(result)}"
-    enter_fallback(ssh, warnings, server_version(ssh), reason, switched=True, own_marker=own_marker)
     raise CloudProvisioningError(
         f"Docker image build did not run: the compose helper is not usable ({reason}). "
-        f"{'' if own_marker else 'The helper stays enabled. '}{_RETRY_HINT}"
+        f"The helper stays enabled. {_DEPLOY_RETRY}"
     )
 
 

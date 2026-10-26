@@ -527,14 +527,18 @@ def _setup_compose_helper(
         # dango-web is stopped inside the switch: the guard brings it back if this client dies
         guard = UpgradeGuard(ssh, result.warnings)
         guard.arm()
-        cm.migrate_docker_access(
-            ssh,
-            result.warnings,
-            version=version,
-            on_step=guard.rearm,
-            manage_web=True,
-            rebuild=True,
-        )
+        try:
+            cm.migrate_docker_access(
+                ssh,
+                result.warnings,
+                version=version,
+                on_step=guard.rearm,
+                manage_web=True,
+                rebuild=True,
+            )
+        except cm.MetabasePinRequired:
+            guard.disarm()  # refused before dango-web was stopped: nothing needs recovering
+            raise
         guard.disarm()
     else:
         from dango.platform.cloud.backup import helper_branch_active

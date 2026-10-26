@@ -204,6 +204,17 @@ def run_provisioning(
     # BUG-251: Resolve project_root so Path(".").name is never empty
     project_root = project_root.resolve()
 
+    # A custom Metabase version needs an administrator pin that a new server cannot have yet:
+    # refuse it before anything is created, not after the droplet exists.
+    from dango.platform.cloud.compose_migrate import PIN_RECOVERY_NEW_SERVER, MetabasePinRequired
+    from dango.platform.cloud.compose_steps import custom_metabase_version
+
+    custom = custom_metabase_version(project_root)
+    if custom is not None:
+        message = f"Cannot deploy Metabase {custom} to a new DigitalOcean server. {PIN_RECOVERY_NEW_SERVER}"
+        console.print(f"\n[red]Cannot deploy:[/red] {message}")
+        raise CloudProvisioningError(message)
+
     tracker = _ResourceTracker()
     tracker.snapshot_cloud_yml(project_root / ".dango" / "cloud.yml")
 
@@ -384,7 +395,7 @@ def run_provisioning(
         _status("Building Docker images (this may take a few minutes)...")
         ssh.connect(droplet_ip, username="root")
         try:
-            _prebuild_images(ssh, warnings, own_marker=helper_created)
+            _prebuild_images(ssh, warnings, own_marker=helper_created, provider="digitalocean")
         finally:
             ssh.disconnect()
 
@@ -468,6 +479,11 @@ def run_provisioning(
             console.print(
                 "\n[dim]The admin-creation step failed on the server (details above)."
                 "\nRun [bold]dango deploy[/bold] to retry with a fresh server.[/dim]"
+            )
+        elif isinstance(exc, MetabasePinRequired):
+            console.print(
+                "\n[dim]The Metabase build needs an administrator pin (details above). "
+                "This server is removed; pinning cannot be done on it.[/dim]"
             )
         elif isinstance(exc, CloudAPIError) and exc.is_permission_error:
             console.print(
@@ -760,15 +776,20 @@ def _carry_fallback_warnings(setup_warnings: list[str], warnings: list[str]) -> 
     warnings.extend(w for w in setup_warnings if w.startswith(marks))
 
 
-def _prebuild_images(ssh: Any, warnings: list[str], *, own_marker: bool = False) -> None:
+def _prebuild_images(
+    ssh: Any, warnings: list[str], *, own_marker: bool = False, provider: str = "byos"
+) -> None:
     """Pre-build the Docker images through the compose helper; there is no legacy build.
 
     A missing helper, a refusal or a pin error stops the deploy with a recovery instruction
-    (``MetabasePinRequired`` for a pin refusal); see ``compose_migrate.prebuild_images``.
+    (``MetabasePinRequired`` for a pin refusal); see ``compose_migrate.prebuild_images``.  The
+    recovery differs by *provider*: a DigitalOcean server is destroyed when the deploy fails, so
+    pinning on it cannot help.
     """
-    from dango.platform.cloud.compose_migrate import prebuild_images
+    from dango.platform.cloud import compose_migrate as cm
 
-    prebuild_images(ssh, warnings, own_marker=own_marker)
+    recovery = cm.PIN_RECOVERY_NEW_SERVER if provider == "digitalocean" else cm.PIN_RECOVERY_DEPLOY
+    cm.prebuild_images(ssh, warnings, own_marker=own_marker, recovery=recovery)
 
 
 def _status(msg: str) -> None:
