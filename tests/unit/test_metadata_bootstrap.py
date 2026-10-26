@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 
@@ -54,6 +54,27 @@ assert conn.execute('PRAGMA foreign_keys').fetchone()[0] == 1
 conn.close()
 """
 
+SIMULTANEOUS_WORKER = """
+import sqlite3
+import sys
+import time
+from pathlib import Path
+from dango.utils.dango_db import get_connection
+project, role = Path(sys.argv[1]), sys.argv[2]
+(project / (role + '-ready')).touch()
+deadline = time.monotonic() + 10
+while not (project / 'go').exists():
+    assert time.monotonic() < deadline
+    time.sleep(0.001)
+conn = get_connection(project)
+assert conn.row_factory is sqlite3.Row
+assert conn.execute('PRAGMA journal_mode').fetchone()[0] == 'wal'
+assert conn.execute('PRAGMA foreign_keys').fetchone()[0] == 1
+assert conn.execute('PRAGMA busy_timeout').fetchone()[0] == 5000
+assert not conn.in_transaction
+conn.close()
+"""
+
 
 def _wait_for(path: Path) -> None:
     """Wait only for a bounded child-process handshake."""
@@ -64,10 +85,10 @@ def _wait_for(path: Path) -> None:
         time.sleep(0.01)
 
 
-def _start(project: Path, role: str) -> subprocess.Popen[str]:
+def _start(project: Path, role: str, *, worker: str = WORKER) -> subprocess.Popen[str]:
     """Start an independent Python process against a synthetic project."""
     return subprocess.Popen(
-        [sys.executable, "-c", WORKER, str(project), role],
+        [sys.executable, "-c", worker, str(project), role],
         cwd=WORKTREE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -111,6 +132,67 @@ def test_two_processes_initialize_once(tmp_path: Path) -> None:
         _finish(first)
         if second is not None:
             _finish(second)
+
+
+@pytest.mark.parametrize("pair", range(3))
+def test_simultaneous_fresh_first_opens_succeed(tmp_path: Path, pair: int) -> None:
+    project = tmp_path / str(pair)
+    project.mkdir()
+    children = []
+    try:
+        for role in ("first", "second"):
+            children.append(_start(project, role, worker=SIMULTANEOUS_WORKER))
+        for role in ("first", "second"):
+            _wait_for(project / f"{role}-ready")
+        assert not (project / ".dango").exists()
+        (project / "go").touch()
+        for child in children:
+            stdout, stderr = child.communicate(timeout=20)
+            assert child.returncode == 0, stdout + stderr
+        with sqlite3.connect(project / ".dango/dango.db") as conn:
+            assert conn.execute("SELECT version, description FROM _migrations").fetchall() == [
+                (1, DESCRIPTION)
+            ]
+            assert JOURNAL <= _tables(conn)
+        assert not (project / ".dango/metadata.db").exists()
+    finally:
+        for child in children:
+            _finish(child)
+
+
+def test_wal_retry_is_bounded_and_specific() -> None:
+    conn = Mock()
+    conn.execute.side_effect = [sqlite3.OperationalError("database is locked"), None]
+    dango_db._enable_wal(conn, timeout_seconds=1)
+    assert conn.execute.call_args_list == [call("PRAGMA journal_mode=WAL")] * 2
+
+    conn.reset_mock()
+    conn.execute.side_effect = sqlite3.OperationalError("database is locked")
+    started = time.monotonic()
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        dango_db._enable_wal(conn, timeout_seconds=0.03)
+    assert 0.02 <= time.monotonic() - started < 1
+    assert conn.execute.call_count >= 2
+
+    conn.reset_mock()
+    conn.execute.side_effect = sqlite3.OperationalError("disk I/O error")
+    with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
+        dango_db._enable_wal(conn)
+    conn.execute.assert_called_once_with("PRAGMA journal_mode=WAL")
+
+
+def test_wal_setup_failure_closes_caller(tmp_path: Path) -> None:
+    conn = Mock()
+    with patch.object(sqlite3, "connect", return_value=conn) as open_db:
+        with patch.object(
+            dango_db, "_enable_wal", side_effect=sqlite3.OperationalError("database is locked")
+        ):
+            with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+                dango_db.get_connection(tmp_path)
+    open_db.assert_called_once_with(str(tmp_path / ".dango/dango.db"), timeout=0)
+    conn.close.assert_called_once_with()
+    conn.execute.assert_not_called()
+    assert str(tmp_path / ".dango/dango.db") not in dango_db._schema_initialized
 
 
 def test_bootstrap_failure_releases_lock_and_retry_succeeds(
