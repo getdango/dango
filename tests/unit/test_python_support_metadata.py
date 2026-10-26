@@ -3,9 +3,9 @@
 Check package metadata and CI matrices against the supported Python range.
 """
 
+import tomllib
 from pathlib import Path
 
-import tomllib
 import yaml
 from packaging.requirements import Requirement
 from packaging.version import Version
