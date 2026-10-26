@@ -95,19 +95,11 @@ def test_custom_metabase_version_reader(tmp_path: Path) -> None:
 
 
 def _wizard() -> Any:
-    from dango.cli.commands.deploy_wizard import WizardConfig
-
-    return WizardConfig(
-        region="nyc1",
-        size_slug="s-2vcpu-4gb",
-        size_tier=None,
-        domain=None,
-        admin_email="admin@test.com",
-        admin_password="strongpassword123",
-        skip_oauth=True,
-        enable_backups=False,
-        monthly_cost=24,
-    )
+    config = MagicMock()
+    config.region, config.size_slug, config.domain = "nyc1", "s-2vcpu-4gb", None
+    config.admin_email, config.admin_password = "admin@test.com", "strongpassword123"
+    config.enable_backups = False
+    return config
 
 
 def test_digitalocean_refuses_a_custom_version_before_creating_anything(tmp_path: Path) -> None:
