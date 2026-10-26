@@ -154,16 +154,24 @@ def _switch_at_target(
         return None
     cm.refresh_web_unit(ssh, warnings)  # takes effect at the next restart; never stops dango-web
     if not cm.needs_migration(ssh):
+        if cm.rebuild_pending(ssh):  # the last strict rebuild failed: repeat it
+            guard.arm()
+            cm.retry_pending_rebuild(ssh, warnings)
+            guard.disarm()
         return None
     guard.arm()  # dango-web is stopped inside the migration
-    state = cm.migrate_docker_access(
-        ssh,
-        warnings,
-        version=version or "",
-        on_step=guard.rearm,
-        manage_web=True,
-        rebuild=True,
-    )
+    try:
+        state = cm.migrate_docker_access(
+            ssh,
+            warnings,
+            version=version or "",
+            on_step=guard.rearm,
+            manage_web=True,
+            rebuild=True,
+        )
+    except cm.MetabasePinRequired:
+        guard.disarm()  # refused before dango-web was stopped: nothing needs recovering
+        raise
     guard.disarm()  # dango-web was started again; an exception leaves the guard armed
     return state
 
@@ -351,7 +359,6 @@ def upgrade_dango(
     from dango.platform.cloud.backup import (
         ComposeStopError,
         get_remote_compose_project_name,
-        helper_branch_active,
         start_services,
         stop_services,
         verify_health,
@@ -444,16 +451,8 @@ def upgrade_dango(
 
         # 9. Docker rebuild
         _notify(on_progress, "docker_rebuild", "running")
-        docker_rebuilt = False
         compose_project = get_remote_compose_project_name(ssh, _PROJECT_DIR)
-        docker_result = ssh.exec_command(
-            cm.rebuild_command(compose_project),
-            timeout=cm.rebuild_timeout(helper_branch_active(ssh)),
-        )
-        if docker_result.success:
-            docker_rebuilt = True
-        else:
-            warnings.append("Docker rebuild did not complete successfully.")
+        docker_rebuilt = cm.upgrade_rebuild(ssh, warnings, compose_project, new_version)
         _notify(on_progress, "docker_rebuild", "done")
         guard.rearm()
     finally:

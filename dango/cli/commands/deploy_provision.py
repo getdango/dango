@@ -194,6 +194,7 @@ def run_provisioning(
     Raises:
         CloudProvisioningError: On unrecoverable failure (after cleanup).
     """
+    from dango.platform.cloud.compose_migrate import MetabasePinRequired
     from dango.platform.cloud.digitalocean import DigitalOceanClient
     from dango.platform.cloud.size_availability import (
         SizeUnavailableError,
@@ -203,6 +204,8 @@ def run_provisioning(
 
     # BUG-251: Resolve project_root so Path(".").name is never empty
     project_root = project_root.resolve()
+
+    _refuse_new_server(project_root, "DigitalOcean")
 
     tracker = _ResourceTracker()
     tracker.snapshot_cloud_yml(project_root / ".dango" / "cloud.yml")
@@ -384,7 +387,7 @@ def run_provisioning(
         _status("Building Docker images (this may take a few minutes)...")
         ssh.connect(droplet_ip, username="root")
         try:
-            _prebuild_images(ssh, warnings, own_marker=helper_created)
+            _prebuild_images(ssh, warnings, own_marker=helper_created, provider="digitalocean")
         finally:
             ssh.disconnect()
 
@@ -469,6 +472,11 @@ def run_provisioning(
                 "\n[dim]The admin-creation step failed on the server (details above)."
                 "\nRun [bold]dango deploy[/bold] to retry with a fresh server.[/dim]"
             )
+        elif isinstance(exc, MetabasePinRequired):
+            console.print(
+                "\n[dim]The Metabase build needs an administrator pin (details above). "
+                "This server is removed; pinning cannot be done on it.[/dim]"
+            )
         elif isinstance(exc, CloudAPIError) and exc.is_permission_error:
             console.print(
                 "\n[dim]Your DigitalOcean token is missing a permission. Required scopes: "
@@ -526,6 +534,8 @@ def run_byos_setup(
 
     # BUG-251: Resolve project_root so Path(".").name is never empty
     project_root = project_root.resolve()
+
+    _refuse_new_server(project_root, "BYOS")
 
     warnings: list[str] = []
     key_path = Path(config.ssh_key_path).expanduser()
@@ -751,18 +761,6 @@ def _ip_in_cidrs(ip_cidr: str | None, cidrs: list[str]) -> bool:
     return any(address in ipaddress.IPv4Network(c, strict=False) for c in cidrs)
 
 
-def _prebuild_command(compose_proj: str) -> str:
-    """Build the pre-deploy ``docker compose build`` command.
-
-    The variable is passed through ``env`` *after* sudo: ``VAR=x sudo ...`` is dropped by
-    sudo's env_reset, so Compose would fall back to the directory name and build twice.
-    """
-    return (
-        "cd /srv/dango/project && sudo -u dango env "
-        f"COMPOSE_PROJECT_NAME={shlex.quote(compose_proj)} docker compose build"
-    )
-
-
 def _carry_fallback_warnings(setup_warnings: list[str], warnings: list[str]) -> None:
     """Repeat the setup's loud compose-helper and runner-isolation warnings at the end of the deploy."""
     from dango.platform.cloud.compose_migrate import FALLBACK_MARK
@@ -772,21 +770,30 @@ def _carry_fallback_warnings(setup_warnings: list[str], warnings: list[str]) -> 
     warnings.extend(w for w in setup_warnings if w.startswith(marks))
 
 
-def _prebuild_images(ssh: Any, warnings: list[str], *, own_marker: bool = False) -> None:
-    """Pre-build the Docker images: through the compose helper when it is installed, else legacy.
+def _refuse_new_server(project_root: Path, target: str) -> None:
+    """Refuse a custom Metabase version or an unusable local recipe before anything is created."""
+    from dango.platform.cloud.compose_steps import new_server_refusal
 
-    A helper that cannot pin, render or build falls back to the docker group with a loud warning
-    (added to *warnings*) only when this deploy's own setup wrote the marker (*own_marker*); on a
-    server that was already switched the switch is kept and the deploy stops. An ordinary build
-    failure raises.
+    message = new_server_refusal(project_root, target)
+    if message is not None:
+        console.print(f"\n[red]Cannot deploy:[/red] {message}")
+        raise CloudProvisioningError(message)
+
+
+def _prebuild_images(
+    ssh: Any, warnings: list[str], *, own_marker: bool = False, provider: str = "byos"
+) -> None:
+    """Pre-build the Docker images through the compose helper; there is no legacy build.
+
+    A missing helper, a refusal or a pin error stops the deploy with a recovery instruction
+    (``MetabasePinRequired`` for a pin refusal); see ``compose_migrate.prebuild_images``.  The
+    recovery differs by *provider*: a DigitalOcean server is destroyed when the deploy fails, so
+    pinning on it cannot help.
     """
-    from dango.platform.cloud.backup import get_remote_compose_project_name
-    from dango.platform.cloud.compose_migrate import prebuild_images
+    from dango.platform.cloud import compose_migrate as cm
 
-    compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
-    prebuild_images(
-        ssh, warnings, legacy_command=_prebuild_command(compose_proj), own_marker=own_marker
-    )
+    recovery = cm.PIN_RECOVERY_NEW_SERVER if provider == "digitalocean" else cm.PIN_RECOVERY_BYOS
+    cm.prebuild_images(ssh, warnings, own_marker=own_marker, recovery=recovery)
 
 
 def _status(msg: str) -> None:

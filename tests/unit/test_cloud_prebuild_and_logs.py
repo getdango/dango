@@ -1,13 +1,10 @@
 """tests/unit/test_cloud_prebuild_and_logs.py
 
-1.0.13-T19: the deploy pre-build passes COMPOSE_PROJECT_NAME through sudo via env, and
-remote logs resolves the Metabase container by Compose labels. A recording fake SSH is used.
+1.0.13-T19: remote logs resolves the Metabase container by Compose labels. A recording fake SSH is used.
 """
 
 from __future__ import annotations
 
-import re
-import shlex
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -16,10 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from dango.cli.commands import deploy_provision, mcp_remote
-from dango.cli.commands.deploy_provision import _prebuild_command
-from dango.cli.commands.deploy_wizard import BYOSConfig, WizardConfig
-from dango.exceptions import CloudProvisioningError
+from dango.cli.commands import mcp_remote
 
 PROJECT_ID = "31dc6a77"
 PROJECT = f"dango-{PROJECT_ID}"
@@ -72,102 +66,6 @@ class RecordingSSH:
                 return _res(self.stopped)
             return _res(self.containers)
         return _res("4")
-
-
-@pytest.mark.unit
-class TestPrebuildCommand:
-    @pytest.mark.parametrize("name", [PROJECT, "x; rm -rf /", "a b$(id)"])
-    def test_env_form_name_is_one_token(self, name: str) -> None:
-        tokens = shlex.split(_prebuild_command(name).split("&& ", 1)[1])
-        assert tokens == [
-            "sudo",
-            "-u",
-            "dango",
-            "env",
-            f"COMPOSE_PROJECT_NAME={name}",
-            "docker",
-            "compose",
-            "build",
-        ]
-
-    def test_no_var_before_sudo_form_in_module(self) -> None:
-        source = Path(deploy_provision.__file__).read_text()
-        assert not re.search(r"&&\s*COMPOSE_PROJECT_NAME=\S+\s+\"?\s*sudo", source)
-        assert not re.search(r"COMPOSE_PROJECT_NAME=\{?\w+\}?\s+sudo", source)
-
-    def _build_cmd(self, ssh: RecordingSSH) -> str:
-        builds = [c for c in ssh.commands if c.endswith("docker compose build")]
-        assert len(builds) == 1, ssh.commands
-        return builds[0]
-
-    def test_do_flow_uses_env_form(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("DIGITALOCEAN_TOKEN", "test-token")
-        (tmp_path / ".dango").mkdir()
-        config = WizardConfig(
-            region="nyc1",
-            size_slug="s-2vcpu-4gb",
-            size_tier=None,
-            domain=None,
-            admin_email="a@example.com",
-            admin_password="strongpassword123",
-            skip_oauth=True,
-            enable_backups=False,
-            monthly_cost=24,
-        )
-        droplet = {"id": 2, "networks": {"v4": [{"type": "public", "ip_address": "1.2.3.4"}]}}
-        client = MagicMock()
-        client.upload_ssh_key.return_value = {"id": 1}
-        ssh = RecordingSSH()
-        with (
-            patch("dango.platform.cloud.digitalocean.DigitalOceanClient", return_value=client),
-            patch("dango.platform.cloud.ssh.SSHManager", return_value=ssh),
-            patch("dango.platform.cloud.provisioning.provision_droplet", return_value=droplet),
-            patch(
-                "dango.platform.cloud.firewall.create_default_firewall", return_value={"id": "fw"}
-            ),
-            patch("dango.platform.cloud.server_setup.setup_server"),
-            patch("dango.platform.cloud.file_sync.sync_project_files"),
-            patch("dango.platform.cloud.provisioning.save_provisioning_metadata"),
-            patch("dango.cli.commands.deploy_wizard._safe_confirm", return_value=True),
-            patch.object(deploy_provision, "_start_services", side_effect=RuntimeError(STOP)),
-            patch.object(deploy_provision, "time"),
-            patch.object(deploy_provision, "console", MagicMock()),
-            pytest.raises(Exception) as ei,  # noqa: B017 - flow wraps the sentinel
-        ):
-            deploy_provision.run_provisioning(tmp_path, config)
-        assert STOP in str(ei.value)  # flow reached service start, i.e. the build ran
-        cmd = self._build_cmd(ssh)
-        assert f"sudo -u dango env COMPOSE_PROJECT_NAME={PROJECT} docker compose build" in cmd
-
-    def test_byos_flow_uses_env_form(self, tmp_path: Path) -> None:
-        (tmp_path / ".dango").mkdir()
-        key = tmp_path / "key"
-        key.write_text("k")
-        config = BYOSConfig(
-            server_ip="203.0.113.9",
-            ssh_user="root",
-            ssh_key_path=str(key),
-            domain=None,
-            admin_email="a@example.com",
-            admin_password="strongpassword123",
-            skip_oauth=True,
-            push_secrets=False,
-        )
-        ssh = RecordingSSH()
-        with (
-            patch("dango.platform.cloud.ssh.SSHManager", return_value=ssh),
-            patch("dango.platform.cloud.server_setup.setup_server"),
-            patch("dango.platform.cloud.file_sync.sync_project_files"),
-            patch("dango.cli.commands.deploy_wizard._safe_confirm", return_value=True),
-            patch.object(deploy_provision, "_start_services", side_effect=RuntimeError(STOP)),
-            patch.object(deploy_provision, "time"),
-            patch.object(deploy_provision, "console", MagicMock()),
-            pytest.raises((RuntimeError, CloudProvisioningError)) as ei,
-        ):
-            deploy_provision.run_byos_setup(tmp_path, config, non_interactive=True)
-        assert STOP in str(ei.value)  # flow reached service start, i.e. the build ran
-        cmd = self._build_cmd(ssh)
-        assert f"sudo -u dango env COMPOSE_PROJECT_NAME={PROJECT} docker compose build" in cmd
 
 
 @pytest.fixture

@@ -170,11 +170,11 @@ def _provision(
             "_trigger_metabase_setup",
             "_wait_for_metabase",
             "_print_port_notice",
+            "_prebuild_images",
         ):
             enter(patch(f"{_MODULE}.{name}"))
         enter(patch(f"{_MODULE}._health_check", return_value=True))
         enter(patch(f"{_MODULE}._deployer_ip", return_value=None))
-        enter(patch(f"{_MODULE}._prebuild_command", return_value="true"))
         enter(
             patch("dango.platform.cloud.backup.get_remote_compose_project_name", return_value="p")
         )
