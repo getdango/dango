@@ -2,7 +2,7 @@
 DEFAULT_ENDPOINTS = {
     "issues": {
         "data_path": "issues",
-        "api_path": "rest/api/3/search",
+        "api_path": "rest/api/3/search/jql",
         "params": {
             "fields": "*all",
             "expand": "fields,changelog,operations,transitions,names",
