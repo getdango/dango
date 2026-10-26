@@ -57,7 +57,8 @@ def apply_all_pending(project_root: Path) -> dict[str, list[MigrationInfo]]:
     for subdir in sorted(base_dir.iterdir()):
         if not subdir.is_dir():
             continue
-        if subdir.name.startswith("__"):
+        # Metadata migrations run against dango.db under the locked bootstrap.
+        if subdir.name.startswith("__") or subdir.name == "metadata":
             continue
 
         # Check if the subdirectory has any Python migration files
@@ -92,7 +93,8 @@ def get_all_status(project_root: Path) -> list[MigrationStatus]:
     for subdir in sorted(base_dir.iterdir()):
         if not subdir.is_dir():
             continue
-        if subdir.name.startswith("__"):
+        # Metadata migrations run against dango.db under the locked bootstrap.
+        if subdir.name.startswith("__") or subdir.name == "metadata":
             continue
 
         # Check if the subdirectory has any Python migration files
