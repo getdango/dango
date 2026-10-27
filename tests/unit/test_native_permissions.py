@@ -9,6 +9,9 @@ import sys
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
+
+from dango.auth.models import Role, User
 from dango.auth.native_permissions import (
     NativeAccessPlan,
     NativeGrantRecord,
@@ -16,9 +19,6 @@ from dango.auth.native_permissions import (
     NativePolicyError,
     plan_native_access,
 )
-from pydantic import ValidationError
-
-from dango.auth.models import Role, User
 from dango.operations.contracts import OperationContext
 
 pytestmark = pytest.mark.unit
@@ -356,7 +356,17 @@ def test_binding_pending_and_revoked_states_are_consistent():
 
 
 @pytest.mark.parametrize(
-    "value", ["2026-10-28", "2026-10-28T01:00:00", "nonsense", "", "2026-02-30T01:00:00Z", 1, True]
+    "value",
+    [
+        "2026-10-28",
+        "2026-10-28T01:00:00",
+        "nonsense",
+        "",
+        "2026-02-30T01:00:00Z",
+        "2026-10-28T01:00:00+00:60",
+        1,
+        True,
+    ],
 )
 def test_timestamp_strings_require_valid_timezone_aware_values(value):
     with pytest.raises(ValidationError):
@@ -395,7 +405,7 @@ def test_rights_and_normalized_roles_reject_invalid_shapes(model, values, change
         model(**{**values, **changes})
 
 
-def test_errors_and_logs_do_not_expose_authority_payload_or_exception(caplog):
+def test_errors_and_logs_do_not_expose_authority_payload_or_exception(caplog, recwarn):
     secret = "CANARY_PRIVATE_8321"
 
     class BrokenAuthority:
@@ -408,6 +418,9 @@ def test_errors_and_logs_do_not_expose_authority_payload_or_exception(caplog):
     assert secret not in str(error) + repr(error) + caplog.text
     error = _denied(grant_authority=Authority({"token": secret}))
     assert secret not in str(error)
+    malformed = _grant().model_copy(update={"space_grants": {"shared": {"token": secret}}})
+    error = _denied(record=malformed)
+    assert secret not in str(error) + " ".join(str(item.message) for item in recwarn)
     for model, values in (
         (NativeAccessPlan, _PLAN),
         (NativeIdentityBinding, _BINDING),
