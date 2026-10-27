@@ -46,6 +46,36 @@ def _enable_wal(conn: sqlite3.Connection, *, timeout_seconds: float = 5.0) -> No
             time.sleep(min(0.05, remaining))
 
 
+@contextmanager
+def _metadata_setup_lock(
+    db_path: Path, *, timeout_seconds: float = 5.0
+) -> Generator[None, None, None]:
+    """Serialize connection preparation with the persistent metadata lock."""
+    import fcntl
+
+    from dango.exceptions import MigrationApplicationError
+
+    deadline = time.monotonic() + timeout_seconds
+    with (db_path.parent / "metadata-migration.lock").open("a+b") as lock_file:
+        while True:
+            try:
+                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise MigrationApplicationError(
+                        "Timed out waiting for metadata connection setup at "
+                        ".dango/metadata-migration.lock. Wait for the other process to finish "
+                        "and retry. Do not delete the lock file."
+                    ) from None
+                time.sleep(min(0.05, remaining))
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
 def get_dango_db_path(project_root: Path) -> Path:
     """Return the path to ``.dango/dango.db``.
 
@@ -65,8 +95,9 @@ def get_connection(project_root: Path) -> sqlite3.Connection:
     in WAL mode with foreign keys enabled, and ensures all required tables
     are present.
 
-    Simultaneous first opens retry transient WAL setup lock contention for up
-    to five seconds. Normal SQLite busy waiting is restored before legacy setup.
+    Connection preparation waits up to five seconds for the persistent metadata
+    lock, before opening SQLite. WAL setup also bounds transient lock retries;
+    normal SQLite busy waiting is restored before legacy setup.
 
     Callers are responsible for closing the returned connection.  Prefer
     :func:`connect` (context manager) for automatic cleanup.
@@ -80,25 +111,30 @@ def get_connection(project_root: Path) -> sqlite3.Connection:
     db_path = get_dango_db_path(project_root)
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(str(db_path), timeout=0)
+    conn = None
     db_key = str(db_path)
     try:
-        conn.row_factory = sqlite3.Row
-        _enable_wal(conn)
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA foreign_keys=ON")
+        # Open only after acquiring the same persistent inode used by bootstrap.
+        # Competing journal transitions cannot be made safe by SQLite busy waiting.
+        with _metadata_setup_lock(db_path):
+            conn = sqlite3.connect(str(db_path), timeout=0)
+            conn.row_factory = sqlite3.Row
+            _enable_wal(conn)
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute("PRAGMA foreign_keys=ON")
 
-        if db_key not in _schema_initialized:
-            _ensure_schema(conn)
-        # The migration runner uses separate connections. Finish legacy setup
-        # before it writes, and bootstrap even when this process cached setup.
-        conn.commit()
+            if db_key not in _schema_initialized:
+                _ensure_schema(conn)
+            # The runner uses separate connections. Commit before releasing setup
+            # ownership, then let bootstrap acquire the lock without nesting it.
+            conn.commit()
         from dango.migrations.metadata.bootstrap import ensure_metadata_schema
 
         ensure_metadata_schema(project_root)
         _schema_initialized.add(db_key)
     except BaseException:
-        conn.close()
+        if conn is not None:
+            conn.close()
         _schema_initialized.discard(db_key)
         raise
 
