@@ -427,3 +427,56 @@ def test_invalid_timeout_does_not_create_state(tmp_path: Path, timeout: float) -
     with pytest.raises(ValueError, match="finite and nonnegative"):
         ensure_metadata_schema(tmp_path, timeout_seconds=timeout)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_setup_waits_for_metadata_lock_before_wal(tmp_path: Path) -> None:
+    import fcntl
+
+    directory = tmp_path / ".dango"
+    directory.mkdir()
+    lock_path = directory / "metadata-migration.lock"
+    worker = """
+from dango.utils import dango_db
+original_wal = dango_db._enable_wal
+def observed_wal(conn, **kwargs):
+    (project / 'wal-entered').touch()
+    return original_wal(conn, **kwargs)
+dango_db._enable_wal = observed_wal
+""" + SIMULTANEOUS_WORKER.replace(
+        "conn = get_connection(project)",
+        "(project / 'setup-started').touch()\nconn = get_connection(project)",
+    )
+    child = None
+    with lock_path.open("a+b") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        inode = lock_path.stat().st_ino
+        holder = sqlite3.connect(directory / "dango.db", timeout=0)
+        try:
+            holder.execute("CREATE TABLE sentinel (value TEXT)")
+            holder.execute("BEGIN EXCLUSIVE")
+            child = _start(tmp_path, "contender", worker=worker)
+            _wait_for(tmp_path / "contender-ready")
+            (tmp_path / "go").touch()
+            _wait_for(tmp_path / "setup-started")
+            deadline = time.monotonic() + 0.5
+            while not (tmp_path / "wal-entered").exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert not (tmp_path / "wal-entered").exists()
+            assert child.poll() is None
+            holder.rollback()
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+            stdout, stderr = child.communicate(timeout=15)
+            assert child.returncode == 0, stdout + stderr
+            assert (tmp_path / "wal-entered").exists()
+            assert lock_path.stat().st_ino == inode
+            with sqlite3.connect(directory / "dango.db") as conn:
+                assert conn.execute("SELECT version, description FROM _migrations").fetchall() == [
+                    (1, DESCRIPTION)
+                ]
+                assert JOURNAL <= _tables(conn)
+                assert "sentinel" in _tables(conn)
+            assert not (directory / "metadata.db").exists()
+        finally:
+            holder.close()
+            if child is not None:
+                _finish(child)
