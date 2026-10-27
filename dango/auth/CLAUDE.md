@@ -14,6 +14,7 @@ User authentication and access control for Dango. Handles password-based login w
 | `security.py` | 389 | Pure crypto utilities | `hash_password()`, `verify_password()`, `check_password_strength()`, `generate_session_token()`, `generate_api_key()`, `generate_invite_token()`, `generate_recovery_codes()` |
 | `sessions.py` | 289 | High-level session + API key lifecycle | `create_session()`, `validate_session()`, `validate_partial_session()`, `create_api_key()`, `validate_api_key()` |
 | `permissions.py` | 196 | 29 permissions, 3 role mappings | `PERMISSIONS`, `ROLE_PERMISSIONS`, `has_permission()`, `require_permission()` |
+| `native_permissions.py` | 271 | Local native identity records and explicit-grant policy | `NativeIdentityBinding`, `NativeAccessPlan`, `NativeGrantRecord`, `NativeGrantAuthority`, `NativePolicyError`, `plan_native_access()` |
 | `lockout.py` | 459 | Brute-force protection (5 attempts / 15-min, IP-based + user-based) | `record_failed_login()`, `check_account_locked()`, `unlock_account()`, `cleanup_expired_login_attempts()` |
 | `audit.py` | 238 | 45 event types + 1 deprecated alias to `.dango/logs/audit.jsonl` | `AuditEvent`, `log_auth_event()`, `query_audit_log()` |
 | `admin.py` | 139 | Bootstrap + path helpers | `ensure_admin(db_path, email, password=None)`, `SKIP_WIZARD_DEFAULT_ADMIN_EMAIL`, `is_auth_enabled()`, `get_auth_db_path()` |
@@ -28,6 +29,43 @@ User authentication and access control for Dango. Handles password-based login w
 
 - **`sessions.py`** (high-level): Validates timeouts, hashes tokens, orchestrates create/validate flows. Use this from web routes and CLI.
 - **`database.py`** (low-level): Raw SQLite CRUD. Accepts pre-built objects. Only call directly when you need fine-grained control.
+
+### Local Native Permission Planning
+
+`native_permissions.py` defines strict, frozen identity/binding records and a local policy;
+constructing a record or plan never authenticates, provisions or grants access. Import directly
+from this module. No native client or persisted grant source is connected here.
+
+The server must independently inject `NativeGrantAuthority.resolve_grant(actor_id=..., project_id=...)`.
+It returns the current `NativeGrantRecord`, including its permission revision and revocation state;
+it must never select historical grants using a caller's revision. The policy requires an active,
+matching user/context and current actor/project/revision-bound explicit grants. Missing, malformed,
+pending, revoked, stale or insufficient grants deny with a fixed `NativePolicyError.code/action`.
+Request payloads, requested IDs, context construction and global roles never supply scope.
+
+| Local capability / exact required project right | Existing permission gate | Intended project role | Required space right |
+| --- | --- | --- | --- |
+| `dashboard.consume` | `dashboard.view` | `viewer` | `viewer` |
+| `metric.explore` | `dashboard.view` | `interactive_viewer` | `viewer` |
+| `content.write` | `dashboard.create` | `editor` | `editor` |
+| `definition.write` | `dbt.manage` | `editor` | `editor` |
+| `project.admin` | `dashboard.manage` | `admin` | `admin` |
+
+These are normalized local intents, not native API enum spellings or new entries in `PERMISSIONS`.
+Every plan uses organization `member` and only requested spaces, reducing stronger space grants to
+the operation's need. Project rights have no hierarchy; even `project.admin` does not imply another
+right. Viewers explore only with separate explicit `metric.explore` authorization. Definition writes
+require that capability, its exact grant, the existing permission and `definition_write=True`;
+the boolean alone grants nothing. Preview projects/spaces need their own explicit grants.
+
+Binding fields contain secret references only. Active bindings require native IDs and credential
+reference/version; pending bindings may contain nulls before linking. Revoked records require a
+timezone-aware revocation timestamp and other states prohibit it. Credential expiry is nullable
+timezone-aware metadata. Frozen dictionaries remain shallowly mutable: planning revalidates and
+copies current authority fields. Do not expose structured Pydantic errors with their raw inputs.
+The later server integration owns persistence, atomic revision invalidation on revocation, native
+translation/enforcement and reauthorization at use, including results, history and export. A local
+plan is not a reusable access credential or evidence of native access.
 
 ### Session Lifecycle
 
@@ -228,6 +266,7 @@ Session bridging syncs Dango auth state to Metabase so users get single sign-on.
 | Add a new OAuth provider | `oauth_login.py` (new provider class) + `web/routes/auth.py` (routes) | `pytest tests/unit/test_auth_oauth_login.py` |
 | Add a new permission | `permissions.py` (`PERMISSIONS` set + `ROLE_PERMISSIONS` mapping) | `pytest tests/unit/test_auth_permissions.py` |
 | Modify role permissions | `permissions.py` (`ROLE_PERMISSIONS` dict) | `pytest tests/unit/test_auth_permissions.py` |
+| Change local native grant policy | `native_permissions.py` | `pytest tests/unit/test_native_permissions.py` |
 | Add a new audit event | `audit.py` (`AuditEvent` enum) | `pytest tests/unit/test_auth_audit.py` |
 | Debug session issues | `sessions.py` (`validate_session` / `validate_partial_session`) | `pytest tests/unit/test_auth_sessions.py` |
 | Change password policy | `security.py` (`check_password_strength`) | `pytest tests/unit/test_auth_security.py` |
@@ -274,6 +313,11 @@ Session bridging syncs Dango auth state to Metabase so users get single sign-on.
 - `cli/commands/auth.py` (661 lines) — 13 auth subcommands (add-user, list-users, change-role, unlock, etc.)
 
 ## Testing
+
+For local native policy, run `python -m pytest tests/unit/test_native_permissions.py
+tests/unit/test_auth_permissions.py tests/unit/test_auth_models.py
+tests/unit/test_operation_contracts.py -x`. Fixtures independently specify expected grants and
+denials; this checks local policy only, with no persisted authority or native-service admission.
 
 22 test files, 8061 lines total.
 
