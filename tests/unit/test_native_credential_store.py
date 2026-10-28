@@ -10,15 +10,16 @@ import stat
 from pathlib import Path
 from unittest.mock import Mock
 
-import dango.security.native_credentials as credentials
 import pytest
 import yaml
+from pydantic import ValidationError
+
+import dango.security.native_credentials as credentials
 from dango.security.native_credentials import (
     NativeCredentialStore,
     NativeCredentialStoreError,
     SecretRef,
 )
-from pydantic import ValidationError
 
 pytestmark = pytest.mark.unit
 CANARY = "synthetic-native-secret-canary"
@@ -301,4 +302,94 @@ def test_external_root_inside_project_refused(
     monkeypatch.setattr(credentials, "_LOCAL_SECRETS_DIR", project / "secrets/native")
     with pytest.raises(NativeCredentialStoreError):
         NativeCredentialStore(project, cloud_mode=False).save(ACTOR, {"token": CANARY}, "v1")
+    assert not backend.mock_calls
+
+
+def test_project_metadata_symlink_refused(sandbox: tuple[Path, Path, Mock]) -> None:
+    project, root, backend = sandbox
+    target = root.parent / "external-project.yml"
+    target.parent.mkdir(parents=True)
+    metadata = project / ".dango/project.yml"
+    target.write_bytes(metadata.read_bytes())
+    metadata.unlink()
+    metadata.symlink_to(target)
+    with pytest.raises(NativeCredentialStoreError):
+        NativeCredentialStore(project, cloud_mode=False)
+    assert not backend.mock_calls
+
+
+def test_secret_symlink_refused(sandbox: tuple[Path, Path, Mock]) -> None:
+    project, root, _ = sandbox
+    store = NativeCredentialStore(project, cloud_mode=True)
+    ref = store.save(ACTOR, {"token": CANARY}, "v1")
+    secret = next(path for path in root.rglob("*.json") if path.name != "record.json")
+    target = root.parent / "external-secret"
+    target.write_text('{"token":"external-synthetic"}')
+    secret.unlink()
+    secret.symlink_to(target)
+    with pytest.raises(NativeCredentialStoreError):
+        store.load(ref)
+    assert target.read_text() == '{"token":"external-synthetic"}'
+
+
+def test_two_actors_and_serialized_writers(sandbox: tuple[Path, Path, Mock]) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    project, _, _ = sandbox
+    store = NativeCredentialStore(project, cloud_mode=True)
+    other = store.save("other-actor", {"token": "other-synthetic"}, "v1")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(store.save, ACTOR, {"token": str(i)}, str(i)) for i in range(2)]
+        refs = [future.result() for future in futures]
+    resolved = [store.load(ref) for ref in refs]
+    assert sum(value is not None for value in resolved) == 1
+    assert store.load(other) == {"token": "other-synthetic"}
+
+
+@pytest.mark.parametrize("project_data", [None, {}, {"id": ""}, {"id": 1}, {"id": None}])
+def test_missing_or_invalid_persisted_identity(
+    sandbox: tuple[Path, Path, Mock], project_data: object
+) -> None:
+    project, _, backend = sandbox
+    (project / ".dango/project.yml").write_text(yaml.safe_dump({"project": project_data}))
+    with pytest.raises(NativeCredentialStoreError):
+        NativeCredentialStore(project, cloud_mode=False)
+    assert not backend.mock_calls
+
+
+@pytest.mark.parametrize("mode", [0o644, 0o666])
+def test_unsafe_metadata_permissions_refused_before_lookup(
+    sandbox: tuple[Path, Path, Mock], mode: int
+) -> None:
+    project, root, backend = sandbox
+    store = NativeCredentialStore(project, cloud_mode=False)
+    ref = store.save(ACTOR, {"token": CANARY}, "v1")
+    next(root.rglob("record.json")).chmod(mode)
+    backend.get_password.reset_mock()
+    with pytest.raises(NativeCredentialStoreError):
+        store.load(ref)
+    backend.get_password.assert_not_called()
+
+
+@pytest.mark.parametrize("entry", ["lock", "record.json"])
+def test_fifo_refused_without_blocking(sandbox: tuple[Path, Path, Mock], entry: str) -> None:
+    import os
+
+    project, root, _ = sandbox
+    store = NativeCredentialStore(project, cloud_mode=True)
+    ref = store.save(ACTOR, {"token": CANARY}, "v1")
+    actor_dir = next(root.glob("*/*"))
+    target = actor_dir / entry
+    target.unlink()
+    os.mkfifo(target, 0o600)
+    with pytest.raises(NativeCredentialStoreError):
+        store.load(ref)
+
+
+def test_missing_refs_have_no_secret_lookup(sandbox: tuple[Path, Path, Mock]) -> None:
+    project, _, backend = sandbox
+    ref = SecretRef(project_id=PROJECT, actor_id=ACTOR, credential_id="unknown", version="v1")
+    store = NativeCredentialStore(project, cloud_mode=False)
+    assert store.load(ref) is None
+    store.revoke(ref)
     assert not backend.mock_calls
