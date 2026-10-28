@@ -250,7 +250,10 @@ class NativeCredentialStore:
 
     def _record(self, directory: int) -> _Record | None:
         text = _read(directory, "record.json")
-        return None if text is None else _Record.model_validate(json.loads(text))
+        record = None if text is None else _Record.model_validate(json.loads(text))
+        if self.cloud_mode and record is not None and record.backend != "file":
+            raise NativeCredentialStoreError()
+        return record
 
     def _matching(self, directory: int, ref: SecretRef) -> _Record | None:
         record = self._record(directory)

@@ -393,3 +393,20 @@ def test_missing_refs_have_no_secret_lookup(sandbox: tuple[Path, Path, Mock]) ->
     assert store.load(ref) is None
     store.revoke(ref)
     assert not backend.mock_calls
+
+
+def test_cloud_refuses_keyring_record_before_lookup(sandbox: tuple[Path, Path, Mock]) -> None:
+    project, root, backend = sandbox
+    store = NativeCredentialStore(project, cloud_mode=True)
+    ref = store.save(ACTOR, {"token": CANARY}, "v1")
+    path = next(root.rglob("record.json"))
+    record = json.loads(path.read_text())
+    record["backend"] = "keyring"
+    path.write_text(json.dumps(record))
+    with pytest.raises(NativeCredentialStoreError):
+        store.load(ref)
+    with pytest.raises(NativeCredentialStoreError):
+        store.revoke(ref)
+    with pytest.raises(NativeCredentialStoreError):
+        store.save(ACTOR, {"token": CANARY}, "v2")
+    assert not backend.mock_calls
