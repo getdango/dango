@@ -410,3 +410,38 @@ def test_cloud_refuses_keyring_record_before_lookup(sandbox: tuple[Path, Path, M
     with pytest.raises(NativeCredentialStoreError):
         store.save(ACTOR, {"token": CANARY}, "v2")
     assert not backend.mock_calls
+
+
+@pytest.mark.parametrize("operation", ["construct", "load", "save", "revoke"])
+def test_oversized_project_metadata_rejected_before_backend(
+    sandbox: tuple[Path, Path, Mock], operation: str
+) -> None:
+    from dango.config import ConfigLoader
+
+    project, _, backend = sandbox
+    store = NativeCredentialStore(project, cloud_mode=False)
+    ref = store.save(ACTOR, {"token": CANARY}, "v1")
+    backend.reset_mock()
+    oversized = (
+        f"project:\n  id: {PROJECT}\n#"
+        + "padding" * (credentials._LIMIT // 7 + 1)
+        + "\nproject:\n  id: replacement-project\n"
+    )
+    path = project / ".dango/project.yml"
+    path.write_text(oversized, encoding="utf-8")
+    assert path.stat().st_size > credentials._LIMIT
+    assert yaml.safe_load(oversized[: credentials._LIMIT])["project"]["id"] == PROJECT
+    assert yaml.safe_load(path.read_text())["project"]["id"] == "replacement-project"
+    assert ConfigLoader(project).load_yaml(path)["project"]["id"] == "replacement-project"
+    with pytest.raises(NativeCredentialStoreError) as caught:
+        if operation == "construct":
+            NativeCredentialStore(project, cloud_mode=False)
+        elif operation == "load":
+            store.load(ref)
+        elif operation == "save":
+            store.save(ACTOR, {"token": CANARY}, "v2")
+        else:
+            store.revoke(ref)
+    assert caught.value.code == "native_credential_unavailable"
+    assert CANARY not in str(caught.value)
+    assert not backend.mock_calls

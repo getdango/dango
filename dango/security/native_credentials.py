@@ -185,7 +185,10 @@ class NativeCredentialStore:
                 with os.fdopen(fd, "r", encoding="utf-8") as stream:
                     if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
                         raise NativeCredentialStoreError()
-                    data = yaml.safe_load(stream.read(_LIMIT))
+                    text = stream.read(_LIMIT + 1)
+                    if len(text) > _LIMIT:
+                        raise NativeCredentialStoreError()
+                    data = yaml.safe_load(text)
             finally:
                 os.close(metadata)
         finally:
