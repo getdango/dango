@@ -73,7 +73,7 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - The SQL query endpoint and the monitoring and drill-down queries run on a restricted read-only connection that cannot read files. Metabase's DuckDB connection is restricted the same way.
 - SQL in agent-created dbt models is validated: file, URL, settings and environment access is rejected.
 - Source credentials are bound to the host they were configured for.
-- Routes check permissions explicitly: manual source syncs, initial-sync skip and cancel, monitoring runs and table profiling need the matching permission, and webhook URLs are masked for non-admins.
+- Routes check permissions explicitly: manual source syncs, initial-sync controls, monitoring runs and table profiling need the matching permission, and webhook URLs are masked for non-admins.
 - Secrets are redacted from log endpoint responses.
 - Shell use in the scheduled backup and in remote script execution was removed or tightened, and TLS is verified on the server health check.
 
