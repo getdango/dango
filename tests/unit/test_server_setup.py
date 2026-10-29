@@ -325,9 +325,9 @@ class TestSetupSteps:
         result = SetupResult()
         _setup_venv(ssh, result, None)
 
-        # Find the command that has python3 -m venv (skip the test -x check)
+        # Find the command that creates the venv (not the test -x check)
         cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
-        venv_cmds = [c for c in cmds if "python3 -m venv" in c]
+        venv_cmds = [c for c in cmds if "-m venv /srv/dango/venv" in c]
         assert len(venv_cmds) == 1
         assert "pip install" in venv_cmds[0]
         assert "getdango" in venv_cmds[0]

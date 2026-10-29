@@ -17,7 +17,7 @@ from dango.exceptions import CloudError, CloudProvisioningError
 from tests.unit.test_runtime_ownership import _recording_ssh
 
 _VENV_EXEC = re.compile(r"/srv/dango/venv/bin/(python3?|pip|dango)\b")
-_NEW_VENV = "python3 -m venv /srv/dango/venv"
+_NEW_VENV = "-m venv /srv/dango/venv"
 
 
 def _old_venv_runs(commands: list[str]) -> list[str]:
