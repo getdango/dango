@@ -204,7 +204,7 @@ class TestSetup:
         result = SetupResult()
         _setup_venv(ssh, result, None)
         assert not any(_HOST_MARK in c for c in commands)
-        assert "python_venv" in result.steps_skipped
+        assert "python_venv" not in result.steps_completed  # left as it is
 
     def test_setup_rerun_rebuilds_an_untrusted_venv_with_the_ensured_interpreter(self) -> None:
         from dango.platform.cloud.server_setup import SetupResult, _setup_runtime_ownership

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from dango.exceptions import CloudError, CloudProvisioningError
 from dango.platform.cloud import compose_migrate as cm
 from dango.platform.cloud import runner_isolation as ri
+from dango.platform.cloud import server_python as sp
 from dango.platform.cloud.upgrade_caddy import has_ws_auth_endpoint, run_ws_migration
 from dango.platform.cloud.upgrade_guard import UpgradeGuard
 
@@ -279,9 +280,11 @@ def upgrade_dango(
             error_code="DANGO-D022",
         )
 
-    # 3c. Rebuild an untrusted venv at the target version before anything runs it
+    # 3c. Python 3.11+ (1.0.14 on) is ensured before anything is stopped or changed; then an
+    # untrusted venv, or one on an older Python, is rebuilt at the target version
+    python, outdated = sp.prepare_upgrade(ssh, warnings, old_version, target_version, untrusted)
     venv_rebuild: str | None = None
-    if untrusted:
+    if untrusted or outdated:
         _notify(on_progress, "rebuild_venv", "running")
         guard.arm()  # the rebuild stops services; a dead client must not leave them down
         try:
@@ -291,6 +294,8 @@ def upgrade_dango(
                 version=target_version,
                 local_project_root=local_project_root,
                 on_step=guard.rearm,
+                python=python,
+                outdated=outdated,
             )
         except ro.VenvRebuildError as exc:
             raise CloudError(ro.REBUILD_ABORT.format(exc), error_code="DANGO-D023") from exc

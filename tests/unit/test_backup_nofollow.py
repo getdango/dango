@@ -11,6 +11,7 @@ import re
 import shlex
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +19,7 @@ import pytest
 import yaml
 
 from dango.platform.cloud.ssh import CommandResult
+from tests.factories.cloud_factories import host_python_server
 
 _YAML = "url: http://localhost:3000\nadmin:\n  email: a@example.com\n  password: secret-pw\n"
 _OTHER = "token: root-readable-value\n"
@@ -161,6 +163,11 @@ class TestScheduledBackupNoFollow:
 
 @pytest.mark.unit
 class TestSetupAndMigrateRootPython:
+    @pytest.fixture(autouse=True)
+    def _host_python(self) -> Iterator[None]:
+        with host_python_server():
+            yield
+
     def test_spacy_download_runs_isolated_from_root(self) -> None:
         from dango.platform.cloud.server_setup import SetupResult, _setup_venv
 

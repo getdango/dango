@@ -89,7 +89,6 @@ class _Host:
             names=names,
             owner=getpass.getuser(),
             allowed=str(self.usr),
-            denied=(str(self.root / "tmp"), str(self.root / "srv" / "dango")),
             top=str(self.root),
         )
         env = {"PATH": f"{self.bin}:/usr/bin:/bin", "HOME": str(self.root)}
@@ -159,7 +158,7 @@ class TestHostDetection:
         assert host.run() == ""
         assert not trace.exists()
 
-    def test_symlink_into_a_denied_tree_is_passed_over(self, tmp_path: Path) -> None:
+    def test_symlink_out_of_the_allowed_tree_is_passed_over(self, tmp_path: Path) -> None:
         host = _Host(tmp_path)
         real = host.root / "tmp" / "python3.12"
         trace = _fake(real, "3.12.3.final")
@@ -192,12 +191,18 @@ class TestHostDetection:
             os.symlink(path, host.bin / path.name)
         assert host.run() == str(better)
 
-    def test_production_script_checks_root_and_the_denied_trees(self) -> None:
+    @pytest.mark.parametrize("where", ["home/u/bin", "srv/dango/venv/bin", "var/tmp"])
+    def test_other_trees_are_passed_over(self, tmp_path: Path, where: str) -> None:
+        host = _Host(tmp_path)
+        trace = _fake(host.root / where / "python3.12", "3.12.3.final")
+        os.symlink(host.root / where / "python3.12", host.bin / "python3.12")
+        assert host.run() == ""
+        assert not trace.exists()
+
+    def test_production_script_requires_root_and_usr(self) -> None:
         script = _sps().host_python_script()
         assert "! -user root" in script
-        for denied in ("/srv/dango|/srv/dango/*", "/home|/home/*", "/tmp|/tmp/*", "/var/tmp"):
-            assert denied in script
-        assert "/usr/*)" in script
+        assert 'case "$r" in /usr/*) ;; *) continue ;; esac' in script
         assert script.index("! -user root") < script.index('"$r" -I -c')
 
 

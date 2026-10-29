@@ -86,13 +86,21 @@ functional:
     controllable: false
   - host: github.com
     reason: >
-      Two separate download paths: (1) spaCy PII model wheel on first Presidio use
+      Three separate download paths: (1) spaCy PII model wheel on first Presidio use
       (governance/pii_detector.py, github.com/explosion/spacy-models), (2) Metabase
       DuckDB driver on `dango init` if not cached (utils/driver.py,
-      github.com/motherduckdb/metabase_duckdb_driver)
+      github.com/motherduckdb/metabase_duckdb_driver), (3) cloud servers only: the
+      pinned, checksum-verified CPython build for the server venv when the server has
+      no Python 3.11-3.13 (platform/cloud/server_python_scripts.py,
+      github.com/astral-sh/python-build-standalone; downloaded by the server, not the client)
     controllable: false
   - host: objects.githubusercontent.com
-    reason: "GitHub Releases asset CDN — both github.com download paths above redirect here"
+    reason: "GitHub Releases asset CDN — the github.com download paths above redirect here"
+    controllable: false
+  - host: release-assets.githubusercontent.com
+    reason: >
+      GitHub Releases asset CDN (current redirect target for release downloads) — the
+      github.com download paths above redirect here
     controllable: false
 
 notes:

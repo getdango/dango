@@ -21,6 +21,7 @@ from click.testing import CliRunner
 
 from dango.exceptions import CloudAuthError, CloudError, CloudProvisioningError
 from dango.platform.cloud.ssh import CommandResult
+from tests.factories.cloud_factories import host_python_server
 
 _PATCH_BACKUP = "dango.platform.cloud.backup.create_backup"
 _PATCH_WAIT_DROPLET = "dango.platform.cloud.provisioning.wait_for_droplet_ready"
@@ -35,7 +36,10 @@ _PIP = "/srv/dango/venv/bin/pip install"
 
 @pytest.fixture(autouse=True)
 def _trusted_server_venv() -> Any:
-    with patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]):
+    with (
+        patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]),
+        host_python_server(),
+    ):
         yield
 
 

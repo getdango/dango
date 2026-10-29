@@ -20,6 +20,7 @@ from click.testing import CliRunner
 from dango.exceptions import CloudError, CloudProvisioningError
 from dango.platform.cloud.ssh import CommandResult
 from dango.platform.cloud.upgrade_guard import GUARD_ACTION, UpgradeGuard
+from tests.factories.cloud_factories import host_python_server
 
 _GUARD = "dango-upgrade-guard"
 _PATCH_WAIT_DROPLET = "dango.platform.cloud.provisioning.wait_for_droplet_ready"
@@ -185,6 +186,7 @@ class TestRebuildCoverage:
             patch("dango.platform.cloud.backup.verify_health", return_value=True),
             patch("dango.platform.cloud.backup.start_services"),
             patch("dango.platform.cloud.backup.stop_services"),
+            host_python_server(),
         ):
             upgrade_dango(ssh, version="1.2.0")
         assert seen["delta"] == 1

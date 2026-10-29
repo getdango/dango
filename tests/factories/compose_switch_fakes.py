@@ -78,6 +78,10 @@ class FakeServer:
             if needle in command:
                 self.events.append(f"raised:{needle}")
                 raise exc
+        if 'command -v "$n"' in command:  # a root-owned host Python 3.12 (Ubuntu 24.04)
+            return self._ok("/usr/bin/python3.12\n")
+        if "pyvenv.cfg" in command:  # the venv already runs on Python 3.12
+            return self._ok("3.12\n")
         if "metabase-rebuild-pending" in command:
             return self._pending(command)
         tag = step_of(command)

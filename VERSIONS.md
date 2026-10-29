@@ -13,6 +13,7 @@ the tested stack and upgrade process.
 | dbt-core | 1.11.14 | ~=1.11.0 | `pyproject.toml` |
 | dbt-duckdb | 1.11.0 | >=1.11.0,<1.12 | `pyproject.toml` |
 | dlt | 1.28.1 | ~=1.28.0 | `pyproject.toml` |
+| Cloud server venv Python | 3.12.16 (python-build-standalone 20261026) | pinned; used only when the server has no root-owned Python 3.11-3.13 | `dango/platform/cloud/server_python_scripts.py` |
 
 Tested versions are recorded in `constraints.txt` for reproducible installs.
 
