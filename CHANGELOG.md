@@ -42,7 +42,7 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - A server-side guard restarts `dango-web` if an upgrade or resize is interrupted.
 - An open Metabase page recovers on its own after Metabase restarts; the maintenance page has a "Retry now" button.
 - `dango init` asks one telemetry question covering Dango, dbt, dlt and Metabase. Answering no turns all four off, and the Metabase choice is applied when Metabase is set up.
-- `SECURITY.md` explains how to report a vulnerability privately and promises an acknowledgement within 14 days.
+- `SECURITY.md` explains how to report a vulnerability privately and aims to acknowledge a report within 14 days.
 - The README now has a security and limitations section.
 
 ### Changed
