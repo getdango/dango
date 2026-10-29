@@ -165,6 +165,12 @@ exemptions:
     review_by: "v1.1"
 
   # --- Exempt (stable, not modified in v1) ---
+  - file: dango/telemetry.py
+    lines: 539
+    category: exempt
+    reason: "Pre-existing telemetry module exceeds the limit; a cohesive split is deferred to v1.1."
+    review_by: "v1.1"
+
   - file: dango/ingestion/dlt_runner.py
     lines: 3931
     category: exempt
