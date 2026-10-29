@@ -7,13 +7,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.14] - YYYY-MM-DD (unreleased)
+
+This release hardens access control, backups, cloud servers and the Metabase and notebook paths. Read "Upgrade" before installing.
+
+### Upgrade
+
+| Installation | How to upgrade | Restart |
+| --- | --- | --- |
+| Local, recommended | `dango upgrade` | Not automatic: run `dango stop && dango start` afterwards |
+| Local, direct pip | `python -m pip install --upgrade getdango` | Not automatic: run `dango stop && dango start` afterwards (a package install cannot update code a running process has already loaded) |
+| Managed remote | `dango remote upgrade` | Automatic: the command stops, starts and health-checks the services |
+
+Before you upgrade: Python 3.10 is no longer supported. Move to Python 3.11, 3.12 or 3.13 first; Pillow 13.0.0 or newer is now required. If your server uses a custom `MB_VERSION`, an administrator must first pin it with `dango-compose pin-metabase VERSION SHA256` as root on the server (see below).
+
+First-start and upgrade work (each step is safe to retry; restarting, or running `dango remote upgrade` again, finishes anything left pending):
+
+- **Metabase file-access lock.** Existing projects get the Metabase DuckDB connection restricted to the warehouse file at the next `dango start` or service restart (on a server, the restart that `dango remote upgrade` performs).
+- **Metabase duplicate-collection repair.** On the first successful start after upgrading, Dango archives duplicate collection paths that are proven empty and have no children. It never deletes collections; duplicates with content, or whose contents cannot be checked, stay active and are reported in `.dango/state/metabase_collection_repair.json`. Local users must restart Dango after installing the new package for this to run.
+- **Notebook WebSocket route (servers).** `dango remote upgrade` updates the notebook WebSocket route in the server's Caddyfile; if it cannot, it warns and you complete the indicated Caddyfile change. Downgrading a server to 1.0.13 or earlier leaves notebooks unable to connect through the protected route.
+- **Script and notebook isolation, and the Docker helper (servers).** `dango remote upgrade` sets up and verifies the restricted users and the root-owned Docker helper. Until a server has been upgraded, it refuses to run scripts and notebooks instead of running them unisolated.
+- **Interrupted upgrades (servers).** If an upgrade is interrupted while services are stopped, a server-side guard tries to restart `dango-web`; run `dango remote upgrade` again to finish.
+- **Custom Metabase version (servers).** A server with a custom `MB_VERSION` needs an administrator-approved SHA-256 digest for that exact version. The first upgrade attempt reports the missing pin before building. As root on the server run `dango-compose pin-metabase VERSION SHA256` (exact version, verified jar digest), then run `dango remote upgrade` again. Fresh deploys with a custom `MB_VERSION` are refused: deploy the default version, pin the custom jar as root, set the version, then run `dango remote push`.
+- **Existing local projects keep their old `Dockerfile.metabase`**, which is not digest-checked. Re-initialize the project to get the verified template (review local edits first).
+
 ### Added
+
+- **Cloud: script and notebook isolation.** On cloud servers, user scripts and the notebook server run as restricted operating-system users, and a server without isolation set up refuses to run them. Scripts that write to the warehouse show an "Unisolated" badge. `dango remote isolation status|disable|enable` inspects the state and lets an administrator opt out and back in; both changes are written to the audit log, and `dango remote status` shows an `Isolation:` line.
+- `dango remote upload LOCAL [REMOTE]` uploads one file into the server project's `data/` directory.
+- `dango remote power-on` powers on a DigitalOcean server through the API when SSH cannot connect; `dango remote status` and resize report the power state.
+- `dango remote push --allow-empty` overrides the new refusal to mirror an empty local directory over a non-empty server copy.
+- `dango deploy --allow-ip` (repeatable) restricts web access to your address on DigitalOcean deploys without a domain; `--accept-http-exposure` acknowledges serving over plain HTTP. Without a domain, non-interactive deploys now require one of the two, and the deploy summary and `dango remote status` say when the server is HTTP-only. `dango remote domain set` reopens the web ports before requesting a certificate.
+- `dango validate` warns about models that read files or URLs, and about scripts that write to the warehouse or use environment variables they do not declare.
+- A server-side guard restarts `dango-web` if an upgrade or resize is interrupted.
+- An open Metabase page recovers on its own after Metabase restarts; the maintenance page has a "Retry now" button.
+- `dango init` asks one telemetry question covering Dango, dbt, dlt and Metabase. Answering no turns all four off, and the Metabase choice is applied when Metabase is set up.
+- `SECURITY.md` explains how to report a vulnerability privately and aims to acknowledge a report within 14 days.
+- The README now has a security and limitations section.
+
+### Changed
+
+- **Python 3.10 is no longer supported.** Dango requires Python 3.11 to 3.13 (installers, README and CI updated) and Pillow 13.0.0 or newer.
+- **Backups now include all of `data/`, `notebooks/` and `scripts/`**, plus the auth, schedule, monitor, script, PII-override and Dango state files and databases. dlt load packages and WAL/temp files are excluded. Only regular files and directories are copied, and a failed copy now fails the backup instead of producing one without the data.
+- **Restores are stricter.** `dango backup restore` refuses while Dango is running, restores only members of the backup (never `.env` or `.dlt/secrets.toml`), writes files atomically and removes stale WAL files. Server restores never switch authentication off, restore staging is private, and notebooks are replaced without following links.
+- `dango upgrade` copies `.dango/` databases and settings (without the Metabase admin password) to `.dango/backups/pre-upgrade-<timestamp>/` before installing, and keeps the newest three.
+- The Metabase DuckDB driver and the Metabase jar are verified against pinned checksums before use, and the Metabase image build requires the trusted build helper.
+- Cloud servers: files under `/srv/dango` are owned by root, root only installs the requirements you push, steps that read project files run as the service user, and Docker is normally reached through a root-owned helper rather than membership of the `docker` group. A server where the helper cannot be installed keeps the old group access and shows a warning.
+- `dango remote push` refuses to mirror an empty directory over a non-empty server copy, writes project files as the service user, and also pushes `.dango/scripts.yml`.
+- The notebook (Marimo) proxy requires a same-origin request for state-changing calls.
+- The project's own `dbt` is now used for run, docs, validate and the file watcher.
+- Completed dlt load files that contain row data are no longer left on disk after a sync.
+- DigitalOcean errors show the provider's own message, and the required token scopes are listed.
+- Notebook, script and data-changing actions are attributed to the signed-in user in the audit log.
 
 ### Fixed
 
+- **Metabase imports no longer create a duplicate collection on every start.** Collections are matched by their full path, and empty duplicates left by earlier versions are archived (see Upgrade).
+- Validators reject values with a trailing newline, and the CSV loader quotes SQL identifiers.
+- Generated models quote reserved words, and generated YAML escapes template delimiters.
+- Cloud notebooks: the notebook server waits until it is ready under its base URL.
+- Cloud: `dango remote upgrade` and resize recover from an interruption.
+- `dango remote push` and other rsync transfers verify the pinned host key, including on non-standard SSH ports.
+- Failures in cleanup, hooks and crash recording that used to be swallowed are now logged.
+- Runtime dependencies that Dango imports are now declared in the package metadata, and a wheel import check guards this.
+
 ### Security
 
-### Changed
+- Authentication fails closed: an unreadable auth setting no longer turns login off, and WebSocket connections are authenticated. `dango auth disable` keeps working locally.
+- The SQL query endpoint and the monitoring and drill-down queries run on a restricted read-only connection that cannot read files. Metabase's DuckDB connection is restricted the same way.
+- SQL in agent-created dbt models is validated: file, URL, settings and environment access is rejected.
+- Source credentials are bound to the host they were configured for.
+- Routes check permissions explicitly: manual source syncs, initial-sync controls, monitoring runs and table profiling need the matching permission, and webhook URLs are masked for non-admins.
+- Secrets are redacted from log endpoint responses.
+- Shell use in the scheduled backup and in remote script execution was removed or tightened, and TLS is verified on the server health check.
 
 ## [1.0.13] - 2026-10-08
 
