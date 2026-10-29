@@ -98,17 +98,17 @@ jobs:
 
   sast:
     name: SAST (bandit)
-    # Medium+ severity and confidence. Pre-existing findings are pinned in
-    # .github/bandit-baseline.json; a new finding fails the job.
+    # The checker counts occurrences; Bandit's built-in baseline can hide a new
+    # instance of the same finding in an already-listed file.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "bandit[toml]>=1.8.0"
+      - run: pip install "bandit[toml]==1.9.4"
       - name: bandit
-        run: bandit -r dango -c pyproject.toml -ll -ii -b .github/bandit-baseline.json
+        run: python scripts/check_bandit_baseline.py
 
   egress:
     name: Egress allowlist
