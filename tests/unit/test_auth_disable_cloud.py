@@ -52,5 +52,5 @@ class TestAuthDisableCloud:
         out = " ".join(result.output.split())
         assert "All endpoints are now public" not in out
         assert "this machine" in out
-        assert "user management still requires login" in out
+        assert "User management still requires login" in out
         assert "dango auth enable" in out

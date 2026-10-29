@@ -98,9 +98,19 @@ def auth_enable(ctx: click.Context) -> None:
 def auth_disable(ctx: click.Context) -> None:
     """Disable authentication for this project."""
     from dango.auth.admin import is_auth_enabled, set_auth_enabled
-    from dango.cli.utils import confirm, print_info, print_warning, require_project_context
+    from dango.cli.utils import (
+        confirm,
+        print_error,
+        print_info,
+        print_warning,
+        require_project_context,
+    )
+    from dango.config.helpers import is_running_on_cloud
 
     try:
+        if is_running_on_cloud():
+            print_error("Authentication cannot be disabled on a cloud server.")
+            raise click.Abort()
         project_root = require_project_context(ctx)
         if not is_auth_enabled(project_root):
             print_info("Authentication is already disabled.")
@@ -108,7 +118,11 @@ def auth_disable(ctx: click.Context) -> None:
         if not confirm("Disabling auth removes all access control. Continue?"):
             return
         set_auth_enabled(project_root, enabled=False)
-        print_warning("Authentication disabled. All endpoints are now public.")
+        print_warning(
+            "Authentication disabled for requests from this machine (same origin). "
+            "User management still requires login. "
+            "Run 'dango auth enable' to turn it back on."
+        )
     except click.Abort:
         raise
     except Exception as exc:
