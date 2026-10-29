@@ -42,6 +42,8 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - A server-side guard restarts `dango-web` if an upgrade or resize is interrupted.
 - An open Metabase page recovers on its own after Metabase restarts; the maintenance page has a "Retry now" button.
 - `dango init` asks one telemetry question covering Dango, dbt, dlt and Metabase. Answering no turns all four off, and the Metabase choice is applied when Metabase is set up.
+- `SECURITY.md` explains how to report a vulnerability privately and promises an acknowledgement within 14 days.
+- The README now has a security and limitations section.
 
 ### Changed
 
@@ -50,12 +52,13 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - **Restores are stricter.** `dango backup restore` refuses while Dango is running, restores only members of the backup (never `.env` or `.dlt/secrets.toml`), writes files atomically and removes stale WAL files. Server restores never switch authentication off, restore staging is private, and notebooks are replaced without following links.
 - `dango upgrade` copies `.dango/` databases and settings (without the Metabase admin password) to `.dango/backups/pre-upgrade-<timestamp>/` before installing, and keeps the newest three.
 - The Metabase DuckDB driver and the Metabase jar are verified against pinned checksums before use, and the Metabase image build requires the trusted build helper.
-- Cloud servers: files under `/srv/dango` are owned by root, root only installs the requirements you push, steps that read project files run as the service user, and Docker is reached through a root-owned helper rather than membership of the `docker` group.
+- Cloud servers: files under `/srv/dango` are owned by root, root only installs the requirements you push, steps that read project files run as the service user, and Docker is normally reached through a root-owned helper rather than membership of the `docker` group. A server where the helper cannot be installed keeps the old group access and shows a warning.
 - `dango remote push` refuses to mirror an empty directory over a non-empty server copy, writes project files as the service user, and also pushes `.dango/scripts.yml`.
 - The notebook (Marimo) proxy requires a same-origin request for state-changing calls.
 - The project's own `dbt` is now used for run, docs, validate and the file watcher.
 - Completed dlt load files that contain row data are no longer left on disk after a sync.
 - DigitalOcean errors show the provider's own message, and the required token scopes are listed.
+- Notebook, script and data-changing actions are attributed to the signed-in user in the audit log.
 
 ### Fixed
 
@@ -66,6 +69,7 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - Cloud: `dango remote upgrade` and resize recover from an interruption.
 - `dango remote push` and other rsync transfers verify the pinned host key, including on non-standard SSH ports.
 - Failures in cleanup, hooks and crash recording that used to be swallowed are now logged.
+- Runtime dependencies that Dango imports are now declared in the package metadata, and a wheel import check guards this.
 
 ### Security
 
