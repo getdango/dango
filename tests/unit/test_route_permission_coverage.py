@@ -70,7 +70,10 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("GET", "/settings/account"): "own account: HTML shell for the caller's settings",
     # --- own authentication inside the handler ---
     ("POST", "/api/initial-sync/start"): "accepts deploy token or admin session (own check)",
-    ("*", "/ws"): "WebSocket handler authenticates the connection itself before accept",
+    (
+        "*",
+        "/ws",
+    ): "AuthMiddleware authenticates the connection (login and Origin) before the handler",
     ("POST", "/api/internal/schedules/reload"): "loopback-only guard in the handler (tested)",
     ("GET", "/api/internal/scheduler/status"): "loopback-only guard in the handler (tested)",
     # --- catch-all proxies: the upstream (Metabase / dbt docs) is reached only after AuthMiddleware ---
