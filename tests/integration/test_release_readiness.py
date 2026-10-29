@@ -4,30 +4,17 @@ Release-only clean-flow checks: real nginx proxy asset loading, and a
 second-source Metabase schema-sync race. Requires Docker. Not run in normal
 CI — see .github/workflows/release-readiness.yml (workflow_dispatch only).
 
-Note on "the real nginx proxy": ``dango/templates/nginx.conf.j2`` (a path-based
-reverse-proxy config for Metabase) was grepped against the current codebase
-while writing this test and confirmed to be dead code — nothing renders or
-loads it (its own module doc, ``dango/templates/CLAUDE.md``, calls it "not yet
-consumed (placeholder)"). The actual reverse proxy a real ``dango start``
-local project serves ``/metabase/*`` through is FastAPI's own
-``dango/web/routes/metabase_proxy.py``, mounted on the production
-``dango.web.app:app`` ASGI app run for real under uvicorn — this is also the
-exact code path 1.0.8-W's Site URL fix (``_set_metabase_site_url()`` /
-``_should_apply_local_site_url()`` in ``dango/visualization/metabase.py``)
-targets.
+Note on "the real nginx proxy": ``dango/templates/nginx.conf.j2`` is dead code
+(``dango/templates/CLAUDE.md``: "not yet consumed (placeholder)"). The reverse
+proxy a real ``dango start`` serves ``/metabase/*`` through is FastAPI's own
+``dango/web/routes/metabase_proxy.py`` on the production ``dango.web.app:app``,
+the code path 1.0.8-W's Site URL fix targets.
 
-This test starts the real FastAPI server the same way `dango start` does
-(``dango.cli.helpers.process_manager.start_fastapi_server()``, a real uvicorn
-subprocess with ``cwd``/``DANGO_PROJECT_ROOT`` set to the project root — the
-in-process ``dango.web.app.create_app()`` factory cannot be reused for this:
-all of the app's routers are attached via ``include_router()`` at *module*
-level against a single process-wide singleton, and its ``AuthMiddleware`` is
-bound once, at that singleton's first import, to whatever ``project_root``
-was current then — calling ``create_app()`` again produces a bare app with no
-routers at all, confirmed by inspecting ``app.routes`` while writing this
-test) and drives it with a real logged-in ``requests.Session`` against a real
-Metabase Docker container — nothing here is a shortcut around the actual
-local proxy or sync pipeline.
+This test starts the real FastAPI server as `dango start` does
+(``start_fastapi_server()``, a real uvicorn subprocess with
+``DANGO_PROJECT_ROOT`` set; ``create_app()`` cannot be reused because the app's
+routers and ``AuthMiddleware`` bind once, at first import) and drives it with a
+logged-in ``requests.Session`` against a real Metabase Docker container.
 """
 
 from __future__ import annotations
@@ -128,6 +115,25 @@ class TestReleaseReadinessCleanFlow:
     per test (same rationale as the real production `dango start` flow this
     session is meant to validate).
     """
+
+    # The conftest autouse fixtures give every test a fresh in-memory keyring and a new HOME.
+    # The class-scoped ``project`` stores the Metabase admin password once and later tests plus
+    # the uvicorn subprocess must read it back, so override both for this class: one fail-keyring
+    # (what subprocesses inherit) and an unchanged HOME (same ~/.dango/secrets fallback file).
+    @pytest.fixture(autouse=True, scope="class")
+    @classmethod
+    def _isolate_keyring(cls) -> Any:
+        import keyring
+        import keyring.backends.fail
+
+        previous = keyring.get_keyring()
+        keyring.set_keyring(keyring.backends.fail.Keyring())
+        yield
+        keyring.set_keyring(previous)
+
+    @pytest.fixture(autouse=True)
+    def _isolate_home(self) -> None:
+        return None
 
     @pytest.fixture(autouse=True)
     def _skip_if_no_docker(self) -> None:
