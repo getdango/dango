@@ -358,6 +358,8 @@ def packages(rig):
     pnpm = str(rig.root / "tools/exe.linux-x64/pnpm")
     rig.call(
         [
+            "env",
+            "PNPM_CONFIG_CACHE_DIR=" + str(rig.root / "work/pnpm-cache"),
             pnpm,
             "--dir",
             str(project),
@@ -366,8 +368,6 @@ def packages(rig):
             "--config.ignore-scripts=true",
             "--store-dir",
             str(rig.root / "work/store"),
-            "--cache-dir",
-            str(rig.root / "work/pnpm-cache"),
             "--config.manage-package-manager-versions=false",
         ],
         timeout=600,
