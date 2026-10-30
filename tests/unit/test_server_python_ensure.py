@@ -43,9 +43,12 @@ class _FakeServer:
         self.host, self.arch, self.installed = host, arch, installed
         self.install_code, self.probe = install_code, probe
         self.commands: list[str] = []
+        self.install_timeouts: list[int | None] = []
 
     def exec_command(self, command: str, timeout: int | None = None) -> CommandResult:
         self.commands.append(command)
+        if _INSTALL_MARK in command:
+            self.install_timeouts.append(timeout)
         if _HOST_MARK in command:
             return CommandResult(
                 stdout=self.host + "\n" if self.host else "", stderr="", exit_code=0
@@ -108,9 +111,27 @@ class TestEnsure:
         assert server.count(_INSTALL_MARK) == 1
         assert server.count(_CHECK_MARK) == 3  # before, the install itself (marker), after
         assert any("Installed Python 3.12.16" in w for w in warnings)
+        (warning,) = warnings
+        assert "no usable root-owned Python 3.11, 3.12 or 3.13" in warning
+        assert "apt install" not in warning  # 22.04's own venv package would not help
         server.commands.clear()
         assert _sp().ensure_server_python(server, warnings=[]) == _sps().PYTHON_BIN
         assert server.count(_INSTALL_MARK) == 0  # second run installs nothing
+
+    def test_in_range_python_without_venv_is_named_in_the_warning(self) -> None:
+        server = _FakeServer(host="novenv /usr/bin/python3.12")
+        warnings: list[str] = []
+        assert _sp().ensure_server_python(server, warnings=warnings) == _sps().PYTHON_BIN
+        assert server.count(_INSTALL_MARK) == 1  # the host interpreter is not used
+        (warning,) = warnings
+        for phrase in ("/usr/bin/python3.12", "venv", "ensurepip", "apt install python3-venv"):
+            assert phrase in warning, phrase
+
+    def test_install_uses_the_long_ssh_timeout(self) -> None:
+        sp = _sp()
+        server = _FakeServer()
+        sp.ensure_server_python(server, warnings=[])
+        assert server.install_timeouts == [sp.INSTALL_STEP_TIMEOUT]
 
     def test_wrong_installed_version_is_reinstalled(self) -> None:
         server = _FakeServer(installed=True, probe="3.12.15.final")

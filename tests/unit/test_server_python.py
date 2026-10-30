@@ -138,6 +138,18 @@ class TestHostDetection:
         os.symlink(real, host.bin / "python3.12")
         assert host.run() == ""
 
+    def test_in_range_python_without_venv_is_named_but_not_chosen(self, tmp_path: Path) -> None:
+        host = _Host(tmp_path)
+        real = host.usr / "bin" / "python3.12"
+        real.parent.mkdir(parents=True)
+        real.write_text(
+            '#!/bin/sh\ncase "$*" in *ensurepip*) echo "No module named ensurepip" >&2; exit 1;; '
+            'esac\necho "3.12.3.final"\n'
+        )
+        real.chmod(0o755)
+        os.symlink(real, host.bin / "python3")
+        assert host.run() == f"novenv {real}"
+
     def test_writable_parent_is_passed_over_and_never_run(self, tmp_path: Path) -> None:
         host = _Host(tmp_path)
         real = host.usr / "bin" / "python3.12"
@@ -222,10 +234,12 @@ class TestInstallScript:
     @pytest.mark.parametrize("arch", ["x86_64", "aarch64"])
     def test_download_is_https_only_bounded_and_pinned(self, arch: str) -> None:
         script, build = _install(arch)
-        curl = next(line for line in script.splitlines() if line.startswith("curl "))
+        curl = next(line for line in script.splitlines() if "curl --proto" in line)
         for flag in ("--proto '=https'", "--proto-redir '=https'", "--tlsv1.2", "--fail"):
             assert flag in curl
         assert "--max-redirs 3" in curl
+        assert f"--max-time {_sps().DOWNLOAD_MAX_TIME}" in curl
+        assert f"| head -c {build.size + 1} >" in curl  # unknown-length bodies are capped too
         assert f"--max-filesize {build.size + _sps().SIZE_MARGIN}" in curl
         assert build.url in curl
         assert build.url.startswith("https://github.com/astral-sh/python-build-standalone/")
@@ -272,7 +286,7 @@ class TestInstallScript:
 
     def test_staging_is_fresh_private_and_stale_runs_are_cleaned_first(self) -> None:
         script, _build = _install()
-        lock = script.index("flock -w 900 9")
+        lock = script.index(f"flock -w {_sps().LOCK_WAIT} 9")
         stale = script.index("for s in /opt/dango/python/*.tmp; do")
         mktemp = script.index("mktemp -d /opt/dango/python/stage.XXXXXXXXXX.tmp")
         assert lock < stale < mktemp < script.index("curl --proto")  # cleanup only under the lock
@@ -286,6 +300,103 @@ class TestInstallScript:
             assert script.index(step) < replaced
         every_failure = re.findall(r"\|\| \{ rm -rf -- \"\$work\"; echo", script)
         assert len(every_failure) >= 6  # each failure removes its own staging directory
+
+
+# ---------------------------------------------------------------------------
+# Download step: real dash runs with a fake curl (the rest of the script is GNU-only)
+# ---------------------------------------------------------------------------
+
+
+def _download(tmp_path: Path, curl_body: str) -> tuple[subprocess.CompletedProcess[str], Path]:
+    """Run the download step against a fake ``curl`` (pinned size 1000 bytes)."""
+    sps = _sps()
+    build = sps.PythonBuild(url="https://example.invalid/python.tar.gz", size=1000, sha256="0" * 64)
+    bin_dir, work = tmp_path / "bin", tmp_path / "work"
+    bin_dir.mkdir()
+    work.mkdir()
+    curl = bin_dir / "curl"
+    curl.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "{tmp_path}/args"\n{curl_body}\n')
+    curl.chmod(0o755)
+    script = (
+        f"work='{work}'\n"
+        + sps.download_script(build)
+        + 'echo "ok $(wc -c < "$work"/python.tar.gz | tr -d " ")"\n'
+    )
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path)}
+    result = subprocess.run(
+        [_dash(), "-c", script], capture_output=True, text=True, env=env, check=False, timeout=60
+    )
+    return result, work
+
+
+def _last_line(text: str) -> str:
+    lines = text.strip().splitlines()
+    return lines[-1] if lines else ""
+
+
+@pytest.mark.unit
+class TestDownload:
+    def test_exact_size_download_succeeds(self, tmp_path: Path) -> None:
+        result, _work = _download(tmp_path, "head -c 1000 /dev/zero; exit 0")
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "ok 1000"
+        args = (tmp_path / "args").read_text().splitlines()
+        assert "--max-filesize" in args and str(1000 + _sps().SIZE_MARGIN) in args
+        assert "--max-time" in args and str(_sps().DOWNLOAD_MAX_TIME) in args
+        assert "-o" not in args and args[-1] == "https://example.invalid/python.tar.gz"
+
+    @pytest.mark.parametrize(
+        ("code", "message"),
+        [
+            (6, "curl: (6) Could not resolve host: github.com"),
+            (22, "curl: (22) The requested URL returned error: 404"),
+            (35, "curl: (35) OpenSSL SSL_connect: Connection reset by peer"),
+            (28, "curl: (28) Operation timed out after 600000 milliseconds"),
+        ],
+    )
+    def test_failure_keeps_curls_own_error_and_exit_code(
+        self, tmp_path: Path, code: int, message: str
+    ) -> None:
+        result, work = _download(tmp_path, f'echo "{message}" >&2; exit {code}')
+        assert result.returncode == _sps().EXIT_DOWNLOAD
+        last = _last_line(result.stderr)  # what the refusal message shows
+        assert message in last and f"curl exit {code}" in last, result.stderr
+        assert not work.exists()
+
+    def test_max_filesize_is_a_size_refusal(self, tmp_path: Path) -> None:
+        result, work = _download(
+            tmp_path, 'echo "curl: (63) Maximum file size exceeded" >&2; exit 63'
+        )
+        assert result.returncode == _sps().EXIT_SIZE
+        last = _last_line(result.stderr)
+        assert "Maximum file size exceeded" in last and "curl exit 63" in last, result.stderr
+        assert not work.exists()
+
+    def test_unknown_length_body_is_capped_at_one_byte_over_the_pinned_size(
+        self, tmp_path: Path
+    ) -> None:
+        # curl 7.81 ignores --max-filesize without a Content-Length: only the cap stops it
+        result, work = _download(tmp_path, "head -c 5000 /dev/zero; exit 0")
+        assert result.returncode == _sps().EXIT_SIZE
+        assert "size 1001, expected 1000" in _last_line(result.stderr), result.stderr
+        assert not work.exists()
+
+    def test_endless_body_stops_at_the_cap(self, tmp_path: Path) -> None:
+        result, work = _download(tmp_path, "cat /dev/zero; exit $?")
+        assert result.returncode == _sps().EXIT_SIZE, result.stderr
+        assert "1000 bytes" in _last_line(result.stderr), result.stderr
+        assert not work.exists()
+
+    def test_lock_wait_and_download_fit_inside_the_ssh_timeout(self) -> None:
+        from dango.platform.cloud import server_python as sp
+
+        sps = _sps()
+        script = sps.install_script(sps.PYTHON_BUILDS["x86_64"])
+        assert f"flock -w {sps.LOCK_WAIT} 9" in script
+        assert f"--max-time {sps.DOWNLOAD_MAX_TIME} " in script
+        assert (sps.LOCK_WAIT, sps.DOWNLOAD_MAX_TIME, sp.INSTALL_STEP_TIMEOUT) == (120, 600, 1200)
+        # the script prints nothing until it ends: the read timeout must cover the slowest run
+        assert sps.LOCK_WAIT + sps.DOWNLOAD_MAX_TIME + 300 <= sp.INSTALL_STEP_TIMEOUT
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +442,8 @@ class TestConstants:
         assert users == ["runner_isolation.py"], users  # a new one must be added below
         for code in (runner_isolation.record_python(), _sps().PROBE):
             ast.parse(code, feature_version=(3, 10))
-        ast.parse(_sps().PROBE, feature_version=(3, 6))  # run by any candidate interpreter
+        for code in (_sps().PROBE, _sps().VERSION_PROBE):  # run by any candidate interpreter
+            ast.parse(code, feature_version=(3, 6))
 
 
 @pytest.mark.unit

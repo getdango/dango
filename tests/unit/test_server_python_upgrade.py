@@ -29,6 +29,7 @@ def _server(
     venv_python: str = "3.10",
     host: str = "",
     install_code: int = 0,
+    install_error: Exception | None = None,
     extra: dict[str, tuple[str, str, int]] | None = None,
 ) -> tuple[MagicMock, list[str]]:
     """A recording fake server (venv at *installed*, Ubuntu 22.04 style: no host Python)."""
@@ -54,6 +55,8 @@ def _server(
             return CommandResult(stdout="x86_64\n", stderr="", exit_code=0)
         if _INSTALL_MARK in command:
             commands.append(command)
+            if install_error is not None:
+                raise install_error
             state["installed"] = install_code == 0
             return CommandResult(stdout="", stderr="download failed", exit_code=install_code)
         if _CHECK_MARK in command:
@@ -127,13 +130,31 @@ class TestUpgradeOrder:
             _upgrade(ssh, commands)
         message = str(excinfo.value)
         assert excinfo.value.error_code == "DANGO-D024"
-        for phrase in ("Python 3.11, 3.12 or 3.13", "github.com", "not stopped", "keeps running"):
+        for phrase in (
+            "Python 3.11, 3.12 or 3.13",
+            "github.com",
+            "Services were not stopped and Dango was not changed",
+            "keeps running",
+        ):
             assert phrase in message, phrase
+        assert "before any change" not in message  # /opt/dango may have been created
         assert _changes(commands) == [], _changes(commands)
         if untrusted:  # an untrusted venv is never run by root
             assert [c for c in commands if _VENV_EXEC.search(c)] == []
         else:
             assert "Dango 1.0.13 keeps running" in message
+
+    def test_ssh_failure_while_ensuring_python_is_a_python_refusal(self) -> None:
+        from dango.exceptions import CloudSSHError
+
+        ssh, commands = _server(install_error=CloudSSHError("SSH connection failed: timed out"))
+        with pytest.raises(CloudError) as excinfo:
+            _upgrade(ssh, commands)
+        message = str(excinfo.value)
+        assert excinfo.value.error_code == "DANGO-D024"
+        for phrase in ("Python 3.11, 3.12 or 3.13", "timed out", "Services were not stopped"):
+            assert phrase in message, phrase
+        assert _changes(commands) == [], _changes(commands)
 
     def test_failed_build_still_restores_the_old_venv(self) -> None:
         ssh, commands = _server(extra={"-m venv /srv/dango/venv": ("", "no space left", 1)})
