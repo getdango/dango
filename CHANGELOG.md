@@ -68,6 +68,7 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - Generated models quote reserved words, and generated YAML escapes template delimiters.
 - Cloud notebooks: the notebook server waits until it is ready under its base URL.
 - Cloud: `dango remote upgrade` and resize recover from an interruption.
+- Cloud deploy no longer creates a duplicate droplet when DigitalOcean accepts a create request but the reply is lost or fails. Create requests are sent once, and the droplet is found again by its name. Provisioning also waits for the droplet's public IPv4 address, and Caddy stays stopped until its configuration is written.
 - `dango remote push` and other rsync transfers verify the pinned host key, including on non-standard SSH ports.
 - Failures in cleanup, hooks and crash recording that used to be swallowed are now logged.
 - Runtime dependencies that Dango imports are now declared in the package metadata, and a wheel import check guards this.

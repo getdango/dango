@@ -239,7 +239,10 @@ def _setup_caddy(
         " && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt'"
         " | tee /etc/apt/sources.list.d/caddy-stable.list"
         " && apt-get update -qq"
-        " && apt-get install -y -qq caddy",
+        " && apt-get install -y -qq caddy"
+        # The package starts Caddy with its default welcome page; keep it stopped
+        # until the Caddyfile step writes the real configuration.
+        " && systemctl stop caddy",
         step=step,
         timeout=300,
     )
@@ -444,6 +447,9 @@ def _setup_caddyfile(
     changed = _write_remote_config(ssh, "/etc/caddy/Caddyfile", content, step=step)
     if changed:
         _run_checked(ssh, "systemctl reload-or-restart caddy", step=step)
+    else:
+        # A rerun after a failure between the write and the start must not leave Caddy stopped.
+        _run_checked(ssh, "systemctl is-active --quiet caddy || systemctl start caddy", step=step)
     _mark(result, on_progress, step, changed)
 
 
