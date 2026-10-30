@@ -33,7 +33,8 @@ class FakeDigitalOcean:
 
     ``script`` maps ``"POST /droplets"`` (etc.) to a list of outcomes consumed one per POST:
     ``"ok"``, ``("accepted", 502)`` (stored, answer replaced by an HTTP status),
-    ``"accepted_timeout"`` (stored, answer lost), ``("rejected", 502)`` (not stored),
+    ``"accepted_timeout"`` (stored, answer lost), ``"accepted_disconnect"`` (stored, connection
+    closed without a response), ``("rejected", 502)`` (not stored),
     ``"connect_error"`` (request never sent) or ``429``.
     """
 
@@ -84,6 +85,10 @@ class FakeDigitalOcean:
         item = self._store(path, json.loads(request.content))
         if outcome == "accepted_timeout":
             raise httpx.ReadTimeout("no answer", request=request)
+        if outcome == "accepted_disconnect":
+            raise httpx.RemoteProtocolError(
+                "Server disconnected without sending a response.", request=request
+            )
         if isinstance(outcome, tuple) and outcome[0] == "accepted":
             return httpx.Response(outcome[1], json={"message": "upstream error"})
         return httpx.Response(202, json={keys[path]: item})
@@ -148,6 +153,16 @@ class TestDropletCreateIsNotRepeated:
 
     def test_accepted_then_read_timeout_adopts_the_droplet(self, fake_do):
         server = fake_do({"POST /droplets": ["accepted_timeout"]})
+
+        droplet = _client().create_droplet(**_DROPLET_BODY)
+
+        assert server.count("POST", "/droplets") == 1
+        assert len(server.droplets) == 1
+        assert droplet["id"] == server.droplets[0]["id"]
+
+    def test_accepted_then_dropped_connection_adopts_the_droplet(self, fake_do):
+        """RemoteProtocolError/ReadError (the TransportError branch) is also an unknown outcome."""
+        server = fake_do({"POST /droplets": ["accepted_disconnect"]})
 
         droplet = _client().create_droplet(**_DROPLET_BODY)
 
@@ -302,3 +317,64 @@ class TestProvisionDropletEndToEnd:
         assert len(server.droplets) == 2
         assert result["id"] != 1
         assert result["id"] == server.droplets[1]["id"]
+
+
+@pytest.mark.unit
+class TestLookupFailureAndEmptyLookupMessages:
+    def test_dropped_connection_on_the_lookup_gives_the_may_exist_error(self, fake_do):
+        server = fake_do({"POST /droplets": [("accepted", 502)]})
+        real_handle = server.handle
+
+        def drop_lookup(request: httpx.Request) -> httpx.Response:
+            if request.method == "GET":
+                raise httpx.RemoteProtocolError("Server disconnected", request=request)
+            return real_handle(request)
+
+        with patch.object(server, "handle", drop_lookup):
+            with pytest.raises(CloudError, match="may exist; check the DigitalOcean console"):
+                _client().create_droplet(**_DROPLET_BODY)
+
+        assert server.count("POST", "/droplets") == 1
+
+    def test_nothing_found_does_not_claim_nothing_was_created(self, fake_do):
+        fake_do({"POST /droplets": [("rejected", 502)]})
+
+        with pytest.raises(CloudError) as exc_info:
+            _client().create_droplet(**_DROPLET_BODY)
+
+        message = str(exc_info.value)
+        assert "nothing was created" not in message
+        assert "unknown" in message
+        assert "DigitalOcean console" in message
+
+    def test_lookup_is_repeated_once_before_giving_up(self, fake_do):
+        server = fake_do({"POST /droplets": [("rejected", 502)]})
+
+        with pytest.raises(CloudError):
+            _client().create_droplet(**_DROPLET_BODY)
+
+        assert server.count("GET", "/droplets") == 2
+
+    def test_resource_that_appears_on_the_repeat_lookup_is_adopted(self, fake_do):
+        import json
+
+        server = fake_do({"POST /droplets": [("rejected", 502)]})
+        real_handle = server.handle
+        state: dict[str, Any] = {"name": "", "gets": 0}
+
+        def appears_late(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST":
+                state["name"] = json.loads(request.content)["name"]
+            elif request.url.path.endswith("/droplets"):
+                state["gets"] += 1
+                if state["gets"] == 2:
+                    server.droplets.append(
+                        {**_DROPLET_BODY, "id": 77, "name": state["name"], "status": "active"}
+                    )
+            return real_handle(request)
+
+        with patch.object(server, "handle", appears_late):
+            droplet = _client().create_droplet(**_DROPLET_BODY)
+
+        assert droplet["id"] == 77
+        assert server.count("POST", "/droplets") == 1
