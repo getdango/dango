@@ -13,17 +13,29 @@ alone without networking. Roots are read-only, capabilities are dropped, users
 are numeric nonroot identities, and CPU, memory, swap, process counts, temporary
 filesystems and logs are bounded. Failures and stale readiness block later work.
 
-Pinned pnpm derives a dedicated production deployment lock from the frozen lock
-without installation. The job verifies unchanged package resolutions and measures
-selected tarball contents before standard fetching and offline installation with
-lifecycle scripts disabled. Host acquisition paths stay writable by the host user;
-explicit ownership handoffs restore UID501:20 and mode0755 before runtime and
-invalidate readiness so the affected profiles must pass fresh smoke. It counts independent dependency copies, expanded
-images, fixture/build/evidence reserves and 2GiB engineering headroom against
-actual disk space and a 14GB task budget. Frozen layer measurements count every
-planned image before pull: compressed cache plus three independent allocated
-layer copies (immutable layers, decompression staging, container snapshot) and
-64MiB metadata per image. Docker inspect Size is not an expansion bound. An unbounded or oversized graph fails.
+Pinned upstream pnpm12.3.4 first lists its selected production graph directly
+from the frozen lock. Before/after guards reject any dependency or store
+materialization by this graph-only command. This is the actual v12 Rust list
+implementation; the bundled legacy pnpm11 deploy implementation is irrelevant.
+Linux command behavior remains pending until this gate executes in CI.
+
+After the graph-only gate, standard `pnpm fetch --prod` acquires whole-workspace
+production data into pnpm's own store/cache, with lifecycle scripts disabled and
+without importer links. It is not claimed to be selected-graph fetch. The job
+then measures all actual owned data/cache and runner free space before any offline
+installation. Selected archives are checked against frozen integrity; the install
+peak adds four unshared selected dependency copies, two measured-cache rewrite
+copies and 2 GiB compiler/fixture/log allowance, plus the existing 2 GiB engineering
+headroom and frozen image bounds. There is no arbitrary metadata-size prediction.
+The task budget is 14 GB even when the runner has much more free disk.
+
+The explicit writable public-source copy preserves source bytes; a documented
+workspace-warehouse symlink retains `/work/deploy`. Mandatory selected offline
+installation and bounded compilation share the standard pnpm store/cache. No
+resolver, registry, cache writer, source stub or native alias is added. Existing
+ownership handoffs and fresh readiness checks remain mandatory. `pnpm view` is
+not used to warm the install mirror: pinned 12 source fetches view metadata without
+that cache path. Actual Linux graph/fetch/offline behavior and fit remain pending CI.
 The complete unchanged common source remains the compiler alias; no symbols or
 side effects are stubbed. Compiler input metadata is exported.
 

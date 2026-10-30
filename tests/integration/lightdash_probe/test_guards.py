@@ -286,3 +286,71 @@ def test_shared_namespace_rejects_unverified_pg(ci_pg_namespace, defect):
         pg["HostConfig"]["NetworkMode"] = "bridge"
     with pytest.raises(AssertionError):
         rig.shared_network(mode)
+
+
+def test_graph_command_must_not_materialize_before_acquisition(rig):
+    from acquire import no_materialization
+
+    # Exact legitimate directories in frozen Lightdash a0b53b4 public tree.
+    for relative in [
+        "components/DataViz",
+        "ee/features/aiCopilot",
+        "features/dashboard",
+        "features/explorer",
+        "features/funnelBuilder",
+        "features/metricsCatalog",
+        "features/sqlRunner",
+        "features/visualization",
+    ]:
+        (rig.root / "source/packages/frontend/src" / relative / "store").mkdir(parents=True)
+    no_materialization(rig.root)
+    (rig.root / "work/node_modules").mkdir()
+    with pytest.raises(AssertionError, match="Graph command materialized"):
+        no_materialization(rig.root)
+
+
+def test_graph_inventory_accepts_only_frozen_pnpm_resolutions():
+    from acquire import graph_packages
+
+    key = "@duckdb/node-api@2.0.0-r.1"
+    projects = [
+        {
+            "name": "@lightdash/warehouses",
+            "path": "/source/packages/warehouses",
+            "dependencies": {
+                "@duckdb/node-api": {
+                    "from": "@duckdb/node-api",
+                    "version": "2.0.0-r.1",
+                    "path": "/source/node_modules/api",
+                }
+            },
+        }
+    ]
+    assert graph_packages(projects, {"packages": {key: {}}}) == [key]
+    projects[0]["dependencies"]["@duckdb/node-api"]["version"] = "unexpected-version"
+    with pytest.raises(AssertionError, match="absent from frozen lock"):
+        graph_packages(projects, {"packages": {key: {}}})
+
+    projects[0]["dependencies"]["@duckdb/node-api"]["version"] = "2.0.0-r.1"
+    projects[0]["dependencies"]["missing-from"] = {
+        "version": "99.99.99",
+        "path": "/source/node_modules/bad",
+    }
+    with pytest.raises(AssertionError, match="Missing pnpm child identity"):
+        graph_packages(projects, {"packages": {key: {}}})
+    del projects[0]["dependencies"]["missing-from"]
+    peer = {"from": "peer", "version": "1.0.0", "path": "/source/node_modules/peer"}
+    projects[0]["dependencies"]["@duckdb/node-api"]["dependencies"] = {"peer": peer}
+    projects[0]["optionalDependencies"] = {
+        "peer-again": {**peer, "deduped": True, "dedupedDependenciesCount": 0}
+    }
+    projects.append({"name": "@lightdash/common", "path": "/source/packages/common"})
+    projects[0]["dependencies"]["common"] = {
+        "from": "@lightdash/common",
+        "version": "link:../common",
+        "path": "/source/packages/common",
+    }
+    assert graph_packages(projects, {"packages": {key: {}, "peer@1.0.0": {}}}) == [
+        key,
+        "peer@1.0.0",
+    ]

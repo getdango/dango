@@ -14,7 +14,16 @@ import sys
 import time
 from pathlib import Path
 
-from acquire import bytes_used, disk_gate, extensions, handoff, packages, source, tools
+from acquire import (
+    bytes_used,
+    disk_gate,
+    extensions,
+    handoff,
+    no_materialization,
+    packages,
+    source,
+    tools,
+)
 from runtime import GIB, HERE, Rig
 
 
@@ -180,7 +189,10 @@ def execute(root):
         result["smoke"] = "PASS"
         source(rig)
         readiness(rig, "installer")
-        rig.run("installer", ["-c", "sh /scripts/build.sh lock"])
+        no_materialization(root)
+        rig.run("installer", ["-c", "sh /scripts/build.sh graph"])
+        no_materialization(root)
+        result["noninstalling_graph"] = "PASS"
         packages(rig)
         extensions(rig)
         handoff(rig, ["work"], runtime=True)

@@ -175,6 +175,7 @@ def source(rig):
     pin = PINS["lightdash"]
     data = fetch(pin["archive_url"], pin["archive_sha256"])
     info = inventory(data)
+    rig.source_bound = info["allocated_bound"]
     disk_gate(rig, info["allocated_bound"] + len(data), "before-source-extraction")
     unpack(data, rig.root / "source")
     for name, binding in PINS["source"].items():
@@ -187,29 +188,144 @@ def source(rig):
     handoff(rig, ["source"], runtime=True)
 
 
+def no_materialization(root):
+    """Reject pnpm dependency state, while allowing ordinary source store dirs."""
+    forbidden = {"node_modules", ".pnpm", ".modules.yaml", ".pnp.cjs"}
+    found = [
+        str(p.relative_to(root))
+        for name in ["source", "work", "home"]
+        for p in (root / name).rglob("*")
+        if p.name in forbidden
+    ]
+    for relative in ["work/store", "home/data/pnpm/store", "home/.local/share/pnpm/store"]:
+        path = root / relative
+        if path.exists() or path.is_symlink():
+            found.append(relative)
+    assert not found, "Graph command materialized dependencies/store: " + repr(found)
+
+
+def graph_packages(projects, lock):
+    """Validate pinned pnpm list nodes, then count its already-resolved identities."""
+    assert isinstance(projects, list) and projects
+    roots = {p["name"]: p["path"] for p in projects if p.get("name")}
+    assert "@lightdash/warehouses" in roots
+    selected, expanded, deduplicated = set(), set(), set()
+
+    def visit(node):
+        assert isinstance(node, dict), "Invalid pnpm child shape"
+        assert set(node) <= {
+            "from",
+            "version",
+            "resolved",
+            "path",
+            "dependencies",
+            "deduped",
+            "dedupedDependenciesCount",
+        }, "Unhandled pnpm child fields"
+        assert all(isinstance(node.get(k), str) and node[k] for k in ["from", "version", "path"]), (
+            "Missing pnpm child identity"
+        )
+        version = node["version"]
+        identity = (node["from"], version)
+        if version.startswith(("link:", "file:")):
+            assert roots.get(node["from"]) == node["path"], "Unrecognized workspace node"
+        else:
+            key = node["from"] + "@" + version.split("(", 1)[0]
+            assert key in lock["packages"], "Listed package absent from frozen lock: " + key
+            selected.add(key)
+        if node.get("deduped", False):
+            assert node["deduped"] is True
+            deduplicated.add(identity)
+        else:
+            expanded.add(identity)
+        children = node.get("dependencies", {})
+        assert isinstance(children, dict), "Invalid pnpm dependency edges"
+        for child in children.values():
+            visit(child)
+
+    for project in projects:
+        assert set(project) <= {
+            "name",
+            "version",
+            "path",
+            "private",
+            "dependencies",
+            "optionalDependencies",
+        }, "Unhandled pnpm project fields"
+        for field in ["dependencies", "optionalDependencies"]:
+            edges = project.get(field, {})
+            assert isinstance(edges, dict), "Invalid pnpm project edges"
+            for child in edges.values():
+                visit(child)
+    assert deduplicated <= expanded, "Unexpanded deduplicated pnpm node"
+    assert "@duckdb/node-api@2.0.0-r.1" in selected
+    return sorted(selected)
+
+
+def no_importer_links(project, lock):
+    """Verify fetch created only virtual-store state, without project links/bins."""
+    for importer in lock["importers"]:
+        assert not Path(importer).is_absolute() and ".." not in Path(importer).parts
+        modules = project / importer / "node_modules"
+        if importer != ".":
+            assert not modules.exists() and not modules.is_symlink(), (
+                "Fetch linked a workspace importer"
+            )
+        elif modules.exists():
+            for entry in modules.iterdir():
+                assert entry.name == ".pnpm" or (
+                    entry.name in {".modules.yaml", ".pnpm-workspace-state-v1.json"}
+                    and entry.is_file()
+                ), "Fetch linked a root importer/bin"
+                assert not entry.is_symlink(), "Fetch created importer symlink"
+
+
 def packages(rig):
-    """Inventory pnpm's dedicated lock; fetch with standard pnpm, never a resolver."""
+    """Standard production fetch, then actual cache/peak measurement before install."""
     handoff(rig, ["work"], runtime=False)
     original = yaml.safe_load((rig.root / "source/pnpm-lock.yaml").read_text())
-    deployed = yaml.safe_load((rig.root / "work/deploy/pnpm-lock.yaml").read_text())
-    rows = []
-    total = 0
-    archive_bytes = 0
-    for key, record in deployed["packages"].items():
-        resolution = record["resolution"]
-        if "directory" in resolution or key.startswith("file:"):
-            continue  # Unchanged workspace source is already counted separately.
-        assert key in original["packages"]
-        assert resolution == original["packages"][key]["resolution"], (
-            "Deployment changed frozen resolution"
-        )
+    graph_bytes = (rig.root / "work/selected-graph.json").read_bytes()
+    selected = graph_packages(json.loads(graph_bytes), original)
+    project = rig.root / "work/project"
+    disk_gate(rig, rig.source_bound, "before-public-source-copy-and-production-fetch")
+    shutil.copytree(rig.root / "source", project, symlinks=True)
+    # Explicit warehouse workspace path; existing consumer scripts stay unchanged.
+    (rig.root / "work/deploy").symlink_to("project/packages/warehouses", target_is_directory=True)
+    pnpm = str(rig.root / "tools/exe.linux-x64/pnpm")
+    rig.call(
+        [
+            pnpm,
+            "--dir",
+            str(project),
+            "fetch",
+            "--prod",
+            "--config.ignore-scripts=true",
+            "--store-dir",
+            str(rig.root / "work/store"),
+            "--cache-dir",
+            str(rig.root / "work/pnpm-cache"),
+            "--config.manage-package-manager-versions=false",
+        ],
+        timeout=600,
+    )
+    # fetch is whole-workspace production acquisition, not the selected graph.
+    # Count ALL actual fetched data/cache here, before any offline install/build.
+    no_importer_links(project, original)
+    for name, binding in PINS["source"].items():
+        assert digest((project / name).read_bytes()) == binding["after"]
+    disk_gate(rig, 0, "after-whole-production-fetch-before-install")
+    cache = rig.root / "work/pnpm-cache"
+    cache_bytes = bytes_used(cache) if cache.exists() else 0
+    fetched_owned = bytes_used(rig.root)
+    rows, total, archive_bytes = [], 0, 0
+    for key in selected:
+        resolution = original["packages"][key]["resolution"]
         name, version = key.rsplit("@", 1)
         assert "(" not in version and ":" not in version
         url = (
             resolution.get("tarball")
             or f"https://registry.npmjs.org/{name}/-/{name.split('/')[-1]}-{version}.tgz"
         )
-        disk_gate(rig, total * 8 + 2 * GIB + 512 * 1024**2, "before-next-package-inventory")
         data = fetch(url, integrity=resolution["integrity"])
         info = inventory(data)
         archive_bytes += len(data)
@@ -223,39 +339,28 @@ def packages(rig):
                 **info,
             }
         )
-    # Explicit peak: store + virtual store + unshared installation + metadata/temp,
-    # counted as eight independent allocated copies. Reserve 2GiB for fixture,
-    # compiler, dumps, logs, export and extension expansion; no dedup assumed.
-    peak = total * 8 + 2 * GIB + 512 * 1024**2
-    disk_gate(rig, peak, "before-standard-fetch-and-offline-install")
+    # Existing measured fetch data is in owned bytes already. Count four further
+    # unshared selected-install copies, two cache rewrite copies, and 2GiB for
+    # compiler/fixture/snapshots/extensions/logs. Offline forbids new metadata GETs.
+    rig.install_remaining = total * 4 + cache_bytes * 2 + 2 * GIB
+    disk_gate(rig, rig.install_remaining, "actual-fetch-cache-plus-remaining-offline-install-peak")
     (rig.root / "evidence/package-inventory.json").write_text(
         json.dumps(
             {
                 "packages": rows,
-                "compressed_total": archive_bytes,
-                "allocated_bound": total,
-                "peak_remaining": peak,
+                "graph_sha256": digest(graph_bytes),
+                "graph_command_no_materialization": True,
+                "acquisition_scope": "whole-workspace production pnpm fetch; no importer links/lifecycles",
+                "actual_fetched_owned_bytes": fetched_owned,
+                "actual_metadata_cache_bytes": cache_bytes,
+                "remaining_cache_rewrite_bound": cache_bytes * 2,
+                "selected_compressed_total": archive_bytes,
+                "selected_allocated_bound": total,
+                "remaining_offline_install_bound": rig.install_remaining,
             },
             indent=2,
         )
         + "\n"
-    )
-    rig.install_remaining = total * 4 + 2 * GIB + 512 * 1024**2
-    (rig.root / "work/store").mkdir(exist_ok=True)
-    pnpm = str(rig.root / "tools/exe.linux-x64/pnpm")
-    rig.call(
-        [
-            pnpm,
-            "--dir",
-            str(rig.root / "work/deploy"),
-            "fetch",
-            "--prod",
-            "--ignore-scripts",
-            "--store-dir",
-            str(rig.root / "work/store"),
-            "--config.manage-package-manager-versions=false",
-        ],
-        timeout=600,
     )
 
 
