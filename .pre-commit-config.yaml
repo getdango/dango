@@ -4,9 +4,11 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
-        exclude: dango/ingestion/dlt_sources/
+        # Unified patch context spaces are required by the frozen source adaptation.
+        exclude: '(dango/ingestion/dlt_sources/|^tests/integration/lightdash_probe/lightdash\.patch$)'
       - id: end-of-file-fixer
-        exclude: dango/ingestion/dlt_sources/
+        # Official OCI blobs must retain exact bytes for their manifest/config digests.
+        exclude: '(dango/ingestion/dlt_sources/|^tests/integration/lightdash_probe/image-metadata/(node|postgres)-(config|manifest)\.json$)'
       - id: check-yaml
         exclude: tests/fixtures/
       - id: check-added-large-files

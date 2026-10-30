@@ -1,0 +1,124 @@
+{
+  "lightdash": {
+    "tag": "3.86.0",
+    "commit": "a0b53b468314ebb6e42b68c67f1a196f64c00454",
+    "license": "MIT",
+    "archive_url": "https://api.github.com/repos/lightdash/lightdash/tarball/3.86.0",
+    "archive_sha256": "f8f1eea1be992c62feb2d8973a24c0cbc11cdd6cd40ffbc283dd25091ccc7eef"
+  },
+  "source": {
+    "packages/warehouses/package.json": {
+      "before": "a4f3b221500d6077ace52f92fba2a1e867a67b9df999946ee506997fa790abc7",
+      "after": "16f430d72902992aeebf5f21e3cb529f9f58234d401190a668ab2d39567bcf6e"
+    },
+    "pnpm-lock.yaml": {
+      "before": "ba0c298671cd31ee547cf168475461c114b09d77d5b49ab0a9fcf1515a3efe6b",
+      "after": "3a9f2024a694def754540acaef58d3eb6fc18ac9bcd5ad9a6c841f98f8b0fcd0"
+    },
+    "packages/warehouses/src/warehouseClients/DuckdbWarehouseClient.ts": {
+      "before": "0e1b171b8b6b8805125b2f1dfc22ca27128dc18d28eec435ba112ff7908aa76f",
+      "after": "0e1b171b8b6b8805125b2f1dfc22ca27128dc18d28eec435ba112ff7908aa76f"
+    },
+    "packages/common/src/index.ts": {
+      "before": "96cbc289d5f7506a60c8790432b17aa2ba3ff98ee36838ec42bee7d1233e1729",
+      "after": "96cbc289d5f7506a60c8790432b17aa2ba3ff98ee36838ec42bee7d1233e1729"
+    }
+  },
+  "images": {
+    "node": {
+      "ref": "node@sha256:e1582112fb9f152ed38eefcd712efc93fee1becb519fdfa57574d5e07eaa5e7d",
+      "config": "sha256:4d4657ef82b5cf8fd56373dbf8b145cdc6d1d7aabbaca1e6a361efedae04e052",
+      "diff_ids": [
+        "sha256:44a87794b739d471ec360bec56cc0ceac640d06bbf579ee7d9061a0b88d09818",
+        "sha256:23f2aab4f776183294beee7beb650a9359824a3ed980d76afce5e09860af7cee",
+        "sha256:3785b052b3c9f4092084fecd6631da41eaf96a84b856c7f47088d631f26aa2d3",
+        "sha256:70afe7f321fea522177500b2fef4cfc55551ef8714a9256067f3b0dc7ffcd34a",
+        "sha256:96c88215b08ea33ee67c605f7d7ec659cbe961da44a7a1f7115ac0c1ca66edd3"
+      ],
+      "license": "MIT / Debian package licenses",
+      "disk_bound": {
+        "compressed": 81041595,
+        "layer_logical": 230363511,
+        "allocated_layer_upper": 275017728,
+        "measurement": "Frozen manifest compressed-size sum; verified uncompressed layer member logical sizes and per-member 4096-byte allocation upper bound. Identity bound to this exact manifest/config/ordered layers."
+      }
+    },
+    "postgres": {
+      "ref": "postgres@sha256:8d5f8486c9be456cedd25c7acff28cb9ed8f3f23bf9c865a5f899d6ea8efadf0",
+      "config": "sha256:0bc1a3b59e58de4d036b4fdc2340e8b63f8aac637d6b619cf31387eb6d1912b9",
+      "diff_ids": [
+        "sha256:e48af84b2108a5d73effd9e16685b42ac33e7994e606398c46690918f5f3604a",
+        "sha256:2611641010ad2e32b8e8543039ae1aa31c0fad9bf9d85c921eee30ef9ebea988",
+        "sha256:3f42861919a9a13a005d336ea94e458ccf9b1d56c45a03935d2f46198c4f1411",
+        "sha256:d89e77f3fa01774d92c0928654f5600f3a7f69af35e5a42bc44d148af4eb28c3",
+        "sha256:69e36c5c0b913993b5a9ef068a68671362eaf33227da66b2cdb7677f74069952",
+        "sha256:023a997b84daf3f2365c8c8f72316840e12b72a327b2dd4a3c792e0e6cac1b44",
+        "sha256:f6edbf385cf5595543cd33a2e69e811baa0ed62519373bc26e2580f2fc2cfda1",
+        "sha256:cb5b40f8a25c7c71a53c87bb28bf2d35f53f95b95464fe2d47ebcd68dcfd4956",
+        "sha256:6caaa85305f6e4062fa56c4a8cd20873266adda45247a1e5e80df04dc9a01446",
+        "sha256:93584518d9de668ce497d2958904015e964a04652c56d4f81e3b2f7228196928",
+        "sha256:8a55e4cb36208b7e01376f285e3ec71498857d85ab9c602a9a3a1df0e16c58c4",
+        "sha256:e6ba0749a08a782ab42d60e1e7f26a42753b6bf058bbd2b6a388ad1d0d4c6888",
+        "sha256:b9be123313b5b715ae11bcd59edc78413823abaad241cda84a1263c6e379e858",
+        "sha256:c012763d034bccec3408f88a93e45a81d2ac1663394c5741b548ed06cab70bb9"
+      ],
+      "license": "PostgreSQL / Debian package licenses",
+      "disk_bound": {
+        "compressed": 155003113,
+        "layer_logical": 435032886,
+        "allocated_layer_upper": 497881088,
+        "measurement": "Frozen manifest compressed-size sum; verified uncompressed layer member logical sizes and per-member 4096-byte allocation upper bound. Identity bound to this exact manifest/config/ordered layers."
+      }
+    }
+  },
+  "tools": {
+    "exe.linux-x64": {
+      "version": "12.3.4",
+      "url": "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-12.3.4.tgz",
+      "sha256": "9b1c95fc413600ca75a51ebe8332d7019dc3568fd4187f5a5f2df4a156efb65c",
+      "license": "MIT"
+    },
+    "linux-x64": {
+      "version": "0.28.2",
+      "url": "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.2.tgz",
+      "sha256": "9573bb2233aab0f9ea7647d5cca9726113cc1768de61d66b17267f4db84488f6",
+      "license": "MIT"
+    },
+    "npm": {
+      "version": "11.5.1",
+      "url": "https://registry.npmjs.org/npm/-/npm-11.5.1.tgz",
+      "sha256": "f4c82fbff74154f73bd5ce5a2b749700d55eaddebda97b16076bf7033040de34",
+      "license": "Artistic-2.0"
+    }
+  },
+  "extensions": {
+    "ducklake": {
+      "url": "https://extensions.duckdb.org/v2.0.0/linux_amd64/ducklake.duckdb_extension.gz",
+      "sha256": "ff1c730a5d5a7cb14ed9547ba15c259c24805eb4cf12c17727c2a4faffe1ada7",
+      "expanded_sha256": "4b497cf95d768004d34a97e7098d33f687e994dc523945948c321af25061b39b",
+      "license": "MIT",
+      "revision": "417a9117f5"
+    },
+    "postgres_scanner": {
+      "url": "https://extensions.duckdb.org/v2.0.0/linux_amd64/postgres_scanner.duckdb_extension.gz",
+      "sha256": "54b3d751cafc9ffa439886b1607d0ee758dab4dc070f0171e779b95f2f3e554f",
+      "expanded_sha256": "39e661c5cfb678c9472f5acd88235f84f3ef4126e7444c7c8a01214d9b291601",
+      "license": "MIT",
+      "revision": "c0f5a3c0c4"
+    },
+    "httpfs": {
+      "url": "https://extensions.duckdb.org/v2.0.0/linux_amd64/httpfs.duckdb_extension.gz",
+      "sha256": "ee6c7d7e60a5da1b6f6bf6156b4298b55ddce0496a5bfe628bd6ab6d47eb8e3e",
+      "expanded_sha256": "77e6c429aa04f25da7962572f12b19113e0ce46080fa1365ad66017aadcdb68d",
+      "license": "MIT",
+      "revision": "77392a7207"
+    }
+  },
+  "native": {
+    "api_version": "2.0.0-r.1",
+    "platform": "linux_amd64",
+    "engine": "v2.0.0",
+    "libduckdb.so": "1f425596ada498cf1703d98768ba833d79254394c3581e5022b270ec7c2dee07",
+    "duckdb.node": "b7b5aac3daf3aecdd83608a7df7bab58445ab456cc32585e69618e167635d112"
+  }
+}
