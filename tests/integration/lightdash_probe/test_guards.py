@@ -204,3 +204,85 @@ def test_missing_frozen_expansion_bound_refused(rig, monkeypatch):
     monkeypatch.setitem(PINS["images"], "node", node)
     with pytest.raises(AssertionError, match="Missing image expansion bound"):
         acquire.image_disk_bound()
+
+
+@pytest.fixture
+def ci_pg_namespace(rig, monkeypatch):
+    # Public CI41050582181: PG create/inspect33, running inspect46, Node inspect39.
+    rig.pg = "lightdash-r08-2389-postgres-1"
+    rig.label = "lightdash-r08-2389"
+    rig.pg_id = "5c39d3ecf8a5fe9236fc8f76af9ea853cf592772ee773666411a3fa911b717fa"
+    rig.images["postgres"] = {"Id": PINS["images"]["postgres"]["config"]}
+    pg = {
+        "Id": rig.pg_id,
+        "Name": "/" + rig.pg,
+        "Image": PINS["images"]["postgres"]["config"],
+        "Config": {
+            "User": "999:999",
+            "Image": PINS["images"]["postgres"]["ref"],
+            "Labels": {"probe.owner": rig.label},
+        },
+        "State": {
+            "Running": True,
+            "Status": "running",
+            "Paused": False,
+            "Restarting": False,
+            "Dead": False,
+        },
+        "HostConfig": {"NetworkMode": "none", "PortBindings": {}},
+    }
+
+    def inspect(argv, **kwargs):
+        assert argv == ["docker", "inspect", "lightdash-r08-2389-postgres-1"]
+        return subprocess.CompletedProcess(argv, 0, json.dumps([pg]), "")
+
+    monkeypatch.setattr(rig, "call", inspect)
+    return rig, pg, "container:" + rig.pg_id
+
+
+def test_real_ci_canonical_pg_namespace_accepted(ci_pg_namespace):
+    rig, pg, mode = ci_pg_namespace
+    assert mode != "container:" + rig.pg
+    rig.shared_network(mode)
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "wrong-cid",
+        "replacement-id",
+        "other-owner",
+        "other-image",
+        "other-ref",
+        "missing-id",
+        "missing-created-id",
+        "other-name",
+        "stopped",
+        "external-network",
+    ],
+)
+def test_shared_namespace_rejects_unverified_pg(ci_pg_namespace, defect):
+    rig, pg, mode = ci_pg_namespace
+    if defect == "wrong-cid":
+        mode = "container:" + "a" * 64
+    elif defect == "replacement-id":
+        pg["Id"] = "a" * 64
+        mode = "container:" + pg["Id"]
+    elif defect == "other-owner":
+        pg["Config"]["Labels"]["probe.owner"] = "unrelated"
+    elif defect == "other-image":
+        pg["Image"] = "sha256:" + "a" * 64
+    elif defect == "other-ref":
+        pg["Config"]["Image"] = "postgres:latest"
+    elif defect == "missing-id":
+        del pg["Id"]
+    elif defect == "missing-created-id":
+        del rig.pg_id
+    elif defect == "other-name":
+        pg["Name"] = "/unrelated"
+    elif defect == "stopped":
+        pg["State"]["Running"] = False
+    elif defect == "external-network":
+        pg["HostConfig"]["NetworkMode"] = "bridge"
+    with pytest.raises(AssertionError):
+        rig.shared_network(mode)

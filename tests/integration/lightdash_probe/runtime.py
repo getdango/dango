@@ -184,11 +184,34 @@ class Rig:
         args += [PINS["images"]["postgres" if pg else "node"]["ref"], *command]
         return name, args, mounts, network, memory
 
+    def shared_network(self, actual):
+        """Bind a shared namespace to the exact created, owned, running PG ID."""
+        rows = json.loads(self.call(["docker", "inspect", self.pg]).stdout)
+        assert len(rows) == 1, "Expected exactly one owned PG identity"
+        pg = rows[0]
+        assert hasattr(self, "pg_id") and pg.get("Id") == self.pg_id, "Owned PG ID changed/missing"
+        assert len(self.pg_id) == 64 and all(c in "0123456789abcdef" for c in self.pg_id)
+        assert pg.get("Name") == "/" + self.pg, "Owned PG name mismatch"
+        assert pg["Config"]["Labels"].get("probe.owner") == self.label, "Owned PG label mismatch"
+        assert pg["Image"] == self.images["postgres"]["Id"], "Owned PG image mismatch"
+        assert pg["Config"]["Image"] == PINS["images"]["postgres"]["ref"], (
+            "Frozen PG reference mismatch"
+        )
+        assert pg["Config"]["User"] == "999:999", "Owned PG user mismatch"
+        state = pg["State"]
+        assert state["Running"] is True and state["Status"] == "running", "Owned PG not running"
+        assert not any(state.get(k) for k in ["Paused", "Restarting", "Dead"]), (
+            "Owned PG unavailable"
+        )
+        assert pg["HostConfig"]["NetworkMode"] == "none", "Owned PG has external network"
+        assert not pg["HostConfig"]["PortBindings"], "Owned PG has published ports"
+        assert actual == "container:" + self.pg_id, "Shared network is not the exact owned PG ID"
+
     def create(self, role, command):
         """Inspect persisted limits and mounts before any container starts."""
         name, args, mounts, network, memory = self.argv(role, command)
         self.names.append(name)  # Also inspect/clean partial create failures.
-        self.call(args)
+        created_id = self.call(args).stdout.strip()
         info = json.loads(self.call(["docker", "inspect", name]).stdout)[0]
         h = info["HostConfig"]
         assert not info["State"]["Running"] and h["ReadonlyRootfs"]
@@ -204,7 +227,12 @@ class Rig:
         assert h["PidMode"] == "" and h["IpcMode"] == "private"
         assert h["PidsLimit"] == 128 and h["CapDrop"] == ["ALL"]
         assert h["SecurityOpt"] == ["no-new-privileges:true"]
-        assert h["NetworkMode"] == network and not h["PortBindings"]
+        if role in {"producer", "consumer"}:
+            assert network == "container:" + self.pg
+            self.shared_network(h["NetworkMode"])
+        else:
+            assert h["NetworkMode"] == network
+        assert not h["PortBindings"]
         assert h["LogConfig"] == {
             "Type": "json-file",
             "Config": {"max-size": "8m", "max-file": "1"},
@@ -225,6 +253,10 @@ class Rig:
         if running:
             other = json.loads(self.call(["docker", "inspect", running[0]]).stdout)[0]
             assert other["Name"] == "/" + self.pg and other["Config"]["User"] == "999:999"
+        if role == "postgres":
+            assert info["Id"] == created_id and len(created_id) == 64
+            assert all(c in "0123456789abcdef" for c in created_id), "Invalid created PG ID"
+            self.pg_id = created_id
         return name
 
     def run(self, role, command, timeout=900, smoke=False):
