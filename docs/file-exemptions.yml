@@ -303,13 +303,13 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/cloud/digitalocean.py
-    lines: 654
+    lines: 655
     category: exempt
     reason: "TASK-104: Added get_action() and wait_for_action() for resize/migrate action polling. Core DO API client — splitting would fragment related HTTP methods. R9-C added cloud_credentials fallback."
     review_by: "v1.1"
 
   - file: dango/platform/cloud/server_setup.py
-    lines: 803
+    lines: 847
     category: exempt
     reason: "TASK-075e+R9-C: 17 idempotent setup steps + optional UFW. R9-C added resolve_install_source() and system-wide apt lock timeout config. R12-N1 added _normalize_git_url, fuser wait loop, logging."
     review_by: "v1.1"

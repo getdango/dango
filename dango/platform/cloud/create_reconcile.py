@@ -14,12 +14,19 @@ Only requests that provably did not take effect are repeated by the client
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
+
+import httpx
 
 from dango.exceptions import CloudError
 
 __all__ = ["CreateOutcomeUnknown", "reconcile_create", "list_firewalls", "same_public_key"]
+
+
+# One repeat lookup after this pause (same as the 5 s provisioning poll interval).
+_RECHECK_DELAY = 5.0
 
 
 class CreateOutcomeUnknown(Exception):
@@ -47,11 +54,11 @@ def list_firewalls(client: Any) -> list[dict[str, Any]]:
 
     firewalls: list[dict[str, Any]] = []
     path: str | None = "/firewalls"
-    params: dict[str, Any] = {"per_page": 200}
+    params: dict[str, Any] | None = {"per_page": 200}
     while path:
         data: dict[str, Any] = client._request_with_retry("GET", path, params=params).json()
         firewalls.extend(data.get("firewalls", []))
-        params = {}
+        params = None  # None, not {}: an empty dict would replace the next-page query string
         path = _next_page_path(data)
     return firewalls
 
@@ -71,7 +78,7 @@ def reconcile_create(
         find: Returns the existing resources whose name matches.
 
     Raises:
-        CloudError: No match (outcome could not be confirmed), several matches
+        CloudError: No match after two lookups (outcome unknown), several matches
             (IDs listed, nothing adopted), or the lookup itself failed.
     """
     unconfirmed = (
@@ -79,7 +86,11 @@ def reconcile_create(
     )
     try:
         matches = find()
-    except CloudError as exc:
+        if not matches:
+            # The record can appear just after the lost answer; look once more.
+            time.sleep(_RECHECK_DELAY)
+            matches = find()
+    except (CloudError, httpx.HTTPError) as exc:
         raise CloudError(
             f"{unconfirmed} and the lookup failed: {exc}. "
             f"A {kind} named '{name}' may exist; check the DigitalOcean console."
@@ -88,8 +99,9 @@ def reconcile_create(
         return matches[0]
     if not matches:
         raise CloudError(
-            f"{unconfirmed}; no {kind} with that name was found, so nothing was created that "
-            "could be verified. Check the DigitalOcean console before trying again."
+            f"{unconfirmed}; the outcome is unknown. No {kind} named '{name}' was found yet, but it "
+            "may still appear. Check the DigitalOcean console and delete it if it does before "
+            "trying again."
         )
     ids = ", ".join(str(m.get("id")) for m in matches)
     raise CloudError(

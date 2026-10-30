@@ -276,13 +276,13 @@ class DigitalOceanClient:
         """
         sizes: list[dict[str, Any]] = []
         path: str | None = "/sizes"
-        params: dict[str, Any] = {"per_page": 200}
+        params: dict[str, Any] | None = {"per_page": 200}
 
         while path:
             response = self._request_with_retry("GET", path, params=params)
             data: dict[str, Any] = response.json()
             sizes.extend(data.get("sizes", []))
-            params = {}
+            params = None
             path = _next_page_path(data)
 
         return sizes
@@ -357,9 +357,10 @@ class DigitalOceanClient:
         Returns:
             List of ``droplet`` objects.
         """
-        params: dict[str, Any] = {"per_page": 200}
+        first_page: dict[str, Any] = {"per_page": 200}
         if tag_name:
-            params["tag_name"] = tag_name
+            first_page["tag_name"] = tag_name
+        params: dict[str, Any] | None = first_page
 
         droplets: list[dict[str, Any]] = []
         path: str | None = "/droplets"
@@ -368,8 +369,8 @@ class DigitalOceanClient:
             response = self._request_with_retry("GET", path, params=params)
             data: dict[str, Any] = response.json()
             droplets.extend(data.get("droplets", []))
-            # Clear params after first page (next URL already includes them)
-            params = {}
+            # None, not {}: an empty dict would replace the next-page URL's query string
+            params = None
             path = _next_page_path(data)
 
         return droplets
@@ -503,13 +504,13 @@ class DigitalOceanClient:
         """
         keys: list[dict[str, Any]] = []
         path: str | None = "/account/keys"
-        params: dict[str, Any] = {"per_page": 200}
+        params: dict[str, Any] | None = {"per_page": 200}
 
         while path:
             response = self._request_with_retry("GET", path, params=params)
             data: dict[str, Any] = response.json()
             keys.extend(data.get("ssh_keys", []))
-            params = {}
+            params = None
             path = _next_page_path(data)
 
         return keys
