@@ -354,3 +354,79 @@ def test_graph_inventory_accepts_only_frozen_pnpm_resolutions():
         key,
         "peer@1.0.0",
     ]
+
+
+def test_actual_frozen_two_document_lock_layout_and_refusals():
+    import yaml
+    from acquire import frozen_project_lock
+
+    # Schema/native-importer excerpt derived from immutable lock SHA2563a9f2024...
+    text = """---
+lockfileVersion: '9.0'
+importers:
+  .:
+    configDependencies: {}
+    packageManagerDependencies:
+      pnpm:
+        specifier: 12.3.4
+        version: 12.3.4
+packages:
+  pnpm@12.3.4:
+    resolution:
+      integrity: sha512-lhqkH7B32joEpEHZ+OFevAyW2o73ELLrZ7+e58sGEOq9SPH9hfUc/+c4RnhfoPh8VqOocqHYk/hEZ0G1zORUVw==
+    engines:
+      node: '>=18.*'
+    hasBin: true
+snapshots:
+  pnpm@12.3.4:
+    optionalDependencies:
+      '@pnpm/exe.darwin-arm64': 12.3.4
+      '@pnpm/exe.darwin-x64': 12.3.4
+      '@pnpm/exe.linux-arm64': 12.3.4
+      '@pnpm/exe.linux-arm64-musl': 12.3.4
+      '@pnpm/exe.linux-x64': 12.3.4
+      '@pnpm/exe.linux-x64-musl': 12.3.4
+      '@pnpm/exe.win32-arm64': 12.3.4
+      '@pnpm/exe.win32-x64': 12.3.4
+---
+lockfileVersion: '9.0'
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+overrides: {}
+packageExtensionsChecksum: sha256-gmxw0e7pkqpT8MR6Z3qxKwKNWZPNzpYJNWCIv5jjcps=
+pnpmfileChecksum: sha256-o1QtWIlgEjjL8bDSRr9nQwG/oM2WttnwQNHJevp/IMg=
+patchedDependencies: {}
+importers:
+  .:
+    dependencies: {}
+  packages/common:
+    dependencies: {}
+  packages/warehouses:
+    dependencies:
+      '@duckdb/node-api':
+        specifier: 2.0.0-r.1
+        version: 2.0.0-r.1
+packages:
+  '@duckdb/node-api@2.0.0-r.1':
+    resolution:
+      integrity: sha512-SA4oG7X9UNpSJsr99b7rbJxSs7n5KqMEGV1kC04TxdsYHjGH6w4kGEOiC/yXzvgWr6Jd1WRQD9RUPTX6qGdEwg==
+snapshots: {}
+"""
+    parsed = frozen_project_lock(text)
+    assert set(parsed["importers"]) == {".", "packages/common", "packages/warehouses"}
+    assert (
+        parsed["importers"]["packages/warehouses"]["dependencies"]["@duckdb/node-api"]["version"]
+        == "2.0.0-r.1"
+    )
+    assert "@duckdb/node-api@2.0.0-r.1" in parsed["packages"]
+    assert "pnpm@12.3.4" not in parsed["packages"]
+    docs = list(yaml.safe_load_all(text))
+    for malformed in [
+        text + "\n---\nlockfileVersion: 9.0\n",
+        yaml.safe_dump_all([docs[1], docs[1]]),
+        text + "unknown_schema: true\n",
+        text.replace("lockfileVersion: '9.0'", "lockfileVersion: '9.0'\nlockfileVersion: '9.0'", 1),
+    ]:
+        with pytest.raises(AssertionError):
+            frozen_project_lock(malformed)

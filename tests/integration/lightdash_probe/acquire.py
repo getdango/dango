@@ -280,10 +280,74 @@ def no_importer_links(project, lock):
                 assert not entry.is_symlink(), "Fetch created importer symlink"
 
 
+class UniqueLockLoader(yaml.SafeLoader):
+    """Safe PyYAML loader that refuses duplicate mapping keys."""
+
+    def construct_mapping(self, node, deep=False):
+        """Preserve SafeLoader construction after rejecting ambiguous keys."""
+        keys = [self.construct_object(key, deep=deep) for key, _ in node.value]
+        assert len(keys) == len(set(keys)), "Duplicate YAML mapping key"
+        return super().construct_mapping(node, deep=deep)
+
+
+def frozen_project_lock(text):
+    """Read the exact tooling-document then project-document frozen lock layout."""
+    docs = list(yaml.load_all(text, Loader=UniqueLockLoader))
+    assert len(docs) == 2 and all(isinstance(d, dict) for d in docs), (
+        "Expected tooling+project lock documents"
+    )
+    tooling, project = docs
+    assert set(tooling) == {"lockfileVersion", "importers", "packages", "snapshots"}, (
+        "Unhandled tooling lock schema"
+    )
+    assert tooling["lockfileVersion"] == project.get("lockfileVersion") == "9.0"
+    assert set(tooling["importers"]) == {"."}, "Unexpected tooling importer"
+    manager = tooling["importers"]["."]
+    assert set(manager) == {"configDependencies", "packageManagerDependencies"}
+    assert manager["configDependencies"] == {} and set(manager["packageManagerDependencies"]) == {
+        "pnpm"
+    }
+    assert manager["packageManagerDependencies"]["pnpm"] == {
+        "specifier": "12.3.4",
+        "version": "12.3.4",
+    }
+    assert (
+        set(tooling["packages"]) == set(tooling["snapshots"])
+        and "pnpm@12.3.4" in tooling["packages"]
+    )
+    assert set(project) == {
+        "lockfileVersion",
+        "settings",
+        "overrides",
+        "packageExtensionsChecksum",
+        "pnpmfileChecksum",
+        "patchedDependencies",
+        "importers",
+        "packages",
+        "snapshots",
+    }, "Unhandled project lock schema"
+    assert all(
+        isinstance(project[k], dict)
+        for k in [
+            "settings",
+            "overrides",
+            "patchedDependencies",
+            "importers",
+            "packages",
+            "snapshots",
+        ]
+    )
+    assert {".", "packages/warehouses", "packages/common"} <= set(project["importers"]), (
+        "Missing project importers"
+    )
+    assert "@duckdb/node-api@2.0.0-r.1" in project["packages"], "Missing frozen native package"
+    return project
+
+
 def packages(rig):
     """Standard production fetch, then actual cache/peak measurement before install."""
     handoff(rig, ["work"], runtime=False)
-    original = yaml.safe_load((rig.root / "source/pnpm-lock.yaml").read_text())
+    original = frozen_project_lock((rig.root / "source/pnpm-lock.yaml").read_text())
     graph_bytes = (rig.root / "work/selected-graph.json").read_bytes()
     selected = graph_packages(json.loads(graph_bytes), original)
     project = rig.root / "work/project"
