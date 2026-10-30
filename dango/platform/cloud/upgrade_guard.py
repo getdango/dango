@@ -44,7 +44,7 @@ GUARD_ACTION = (
     'pgrep -f "/srv/dango/venv/bin/[p]ip install" >/dev/null || '
     'pgrep -f "[a]pply_all_pending" >/dev/null || '
     'pgrep -f "/srv/dango/venv/bin/[p]ython.* -m (pip|spacy)" >/dev/null || '
-    'pgrep -f "[p]ython3 -m venv /srv/dango" >/dev/null || '
+    'pgrep -f "[p]ython3[.0-9]* (-I )?-m venv /srv/dango" >/dev/null || '
     'pgrep -f "[a]pt-get (install|update)" >/dev/null || '
     'pgrep -f "[u]seradd|[g]roupadd" >/dev/null || '
     'pgrep -f "[v]isudo" >/dev/null || '

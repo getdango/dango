@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
 from dango.platform.cloud.pushed_requirements import install_pushed_requirements
+from dango.platform.cloud.server_python_scripts import link_check_arm
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -52,13 +53,14 @@ _UNTRUSTED = r"\( ! -user root -o \( ! -type l \( -perm -020 -o -perm -002 \) \)
 
 
 def links_outside_script(root: str) -> str:
-    """Shell that prints each symlink under *root* that resolves outside it and ``/usr``,
-    or into ``/usr`` at something another user could write (*root* itself is checked
-    separately)."""
+    """Shell that prints each symlink under *root* that resolves outside it, ``/usr`` and an
+    interpreter Dango installed, or to something there another user could write (*root*
+    itself is checked separately)."""
     return (
         f'find {root} -type l -print0 2>/dev/null | while IFS= read -r -d "" l; do '
         't=$(readlink -f "$l"); '
-        f'case "$t" in ({root}|{root}/*) continue;; (/usr/*) ;; (*) echo "$l -> $t"; continue;; esac; '
+        f'case "$t" in ({root}|{root}/*) continue;; (/usr/*) ;; {link_check_arm()} '
+        '(*) echo "$l -> $t"; continue;; esac; '
         'if [ -e "$t" ] && [ -n "$(find "$t" -maxdepth 0 \\( ! -user root -o \\( -perm -020 -o -perm -002 \\) \\) '
         '-print)" ]; then echo "$l -> $t"; fi; done'
     )
@@ -306,8 +308,9 @@ def rebuild_venv(
     version: str | None,
     local_project_root: Path | None = None,
     on_step: Callable[[], None] | None = None,
+    python: str = "python3",
 ) -> str:
-    """Replace the venv with a fresh root-owned one at the same path.
+    """Replace the venv with a fresh root-owned one at the same path (built by *python*).
 
     The venv is rebuilt at its final path (console-script shebangs embed it): the
     old one is moved aside, a new one created and verified, then the old removed.
@@ -327,7 +330,7 @@ def rebuild_venv(
         raise VenvRebuildError("the current venv could not be moved aside")
     pip = f"{VENV_DIR}/bin/pip"
     steps = [
-        (f"python3 -m venv {VENV_DIR}", 120),
+        (f"{shlex.quote(python)} -I -m venv {VENV_DIR}", 120),
         (f"{pip} install --no-input --upgrade pip -q", 300),
         (f"{pip} install --no-input getdango=={version} -q", 600),
     ]
@@ -379,8 +382,12 @@ def rebuild_untrusted_venv(
     version: str | None,
     local_project_root: Path | None = None,
     on_step: Callable[[], None] | None = None,
+    python: str | Callable[[], str] = "python3",
+    outdated: bool = False,
 ) -> str | None:
-    """Rebuild the venv at *version*, with services stopped, if a non-root user could write it.
+    """Rebuild the venv at *version*, with services stopped, if a non-root user could write it
+    or it is *outdated* (its Python is too old).  *python*, or what it returns (called only
+    when rebuilding, before services stop), is the interpreter the venv is built with.
 
     Run before root executes anything from the venv. *version* must come from the
     client (target or local version), never from the server's metadata alone.
@@ -397,11 +404,12 @@ def rebuild_untrusted_venv(
         findings = venv_trust_findings(ssh)
     except Exception as exc:
         raise VenvRebuildError(f"the venv could not be checked ({type(exc).__name__})") from exc
-    if not findings:
+    if not findings and not outdated:
         return None
     parents = [f for f in findings if f in ("/", "/srv")]
     if parents:  # outside what Dango manages: refuse rather than change the host
         raise VenvRebuildError(_remediation(ssh, parents))
+    interpreter = python if isinstance(python, str) else python()
     stop_services(ssh)
     try:
         lock_srv_dango(ssh)
@@ -411,6 +419,7 @@ def rebuild_untrusted_venv(
             version=version,
             local_project_root=local_project_root,
             on_step=on_step,
+            python=interpreter,
         )
     except VenvRebuildError:
         raise

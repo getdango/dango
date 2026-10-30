@@ -44,8 +44,12 @@ def _recording_ssh(
             return CommandResult(
                 stdout=f"/tmp/dango-req-Ab3dE9fG{state['tmp']:02d}\n", stderr="", exit_code=0
             )
-        if "python3 -m venv /srv/dango/venv" in command:
+        if "-m venv /srv/dango/venv" in command:
             state["rebuilt"] = True
+        if 'command -v "$n"' in command:  # a root-owned host Python 3.12 (Ubuntu 24.04)
+            return CommandResult(stdout="/usr/bin/python3.12\n", stderr="", exit_code=0)
+        if "pyvenv.cfg" in command:
+            return CommandResult(stdout="3.12\n", stderr="", exit_code=0)
         if "DANGO_PROBE_OK" in command:  # the trust probe: trusted unless a test says otherwise
             return CommandResult(stdout="DANGO_PROBE_OK\n", stderr="", exit_code=0)
         return CommandResult(stdout="", stderr="", exit_code=0)
@@ -144,9 +148,7 @@ class TestSetupOwnership:
 
         ssh, commands = _recording_ssh(_FRESH_SERVER)
         result = setup_server(ssh)
-        venv_created = next(
-            i for i, c in enumerate(commands) if "python3 -m venv /srv/dango/venv" in c
-        )
+        venv_created = next(i for i, c in enumerate(commands) if "-m venv /srv/dango/venv" in c)
         later = " ; ".join(commands[venv_created + 1 :])
         assert re.search(r"chown -R root:root /srv/dango/venv\b", later), later
         assert re.search(r"chown root:root /srv/dango(\s|;|&|$)", later), later
@@ -172,7 +174,7 @@ class TestSetupRerunOnOlderServer:
             untrusted_until_rebuild=True,
         )
         _setup_runtime_ownership(ssh, SetupResult(), None)
-        rebuilt = next(i for i, c in enumerate(commands) if "python3 -m venv /srv/dango/venv" in c)
+        rebuilt = next(i for i, c in enumerate(commands) if "-m venv /srv/dango/venv" in c)
         chowned = next(
             i for i, c in enumerate(commands) if "chown -R root:root /srv/dango/venv" in c
         )
@@ -251,7 +253,7 @@ class TestUpgradeVenvRebuild:
         _ssh, commands, result = _run_upgrade("1.0.14", "1.0.15", venv_untrusted=True)
         joined = "\n".join(commands)
         assert re.search(r"mv /srv/dango/venv /srv/dango/venv\.untrusted-\S+", joined), joined
-        assert "python3 -m venv /srv/dango/venv" in joined
+        assert "/usr/bin/python3.12 -I -m venv /srv/dango/venv" in joined
         # The venv is rebuilt at the target version, never one chosen by server metadata.
         assert re.search(r"/srv/dango/venv/bin/pip install .*getdango==1\.0\.15", joined)
         assert '/srv/dango/venv/bin/python -I -c "import dango' in joined
@@ -260,7 +262,7 @@ class TestUpgradeVenvRebuild:
 
     def test_untrusted_venv_is_not_run_by_root_before_the_rebuild(self) -> None:
         _ssh, commands, _result = _run_upgrade("1.0.14", "1.0.15", venv_untrusted=True)
-        rebuilt = next(i for i, c in enumerate(commands) if "python3 -m venv /srv/dango/venv" in c)
+        rebuilt = next(i for i, c in enumerate(commands) if "-m venv /srv/dango/venv" in c)
         before = commands[:rebuilt]
         runs_venv = [
             c for c in before if re.search(r"/srv/dango/venv/bin/(python3?|pip|dango)\b", c)

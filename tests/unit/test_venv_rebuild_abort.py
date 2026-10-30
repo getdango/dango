@@ -16,7 +16,7 @@ from dango.exceptions import CloudError, CloudProvisioningError
 from tests.unit.test_runtime_ownership import _recording_ssh, _run_upgrade
 
 _VENV_EXEC = re.compile(r"/srv/dango/venv/bin/(python3?|pip|dango)\b")
-_FAIL_VENV = {"python3 -m venv /srv/dango/venv": ("", "no space left", 1)}
+_FAIL_VENV = {"-m venv /srv/dango/venv": ("", "no space left", 1)}
 
 
 def _after_restore(commands: list[str]) -> list[str]:

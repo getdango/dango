@@ -20,6 +20,7 @@ from click.testing import CliRunner
 from dango.exceptions import CloudError, CloudProvisioningError
 from dango.platform.cloud.ssh import CommandResult
 from dango.platform.cloud.upgrade_guard import GUARD_ACTION, UpgradeGuard
+from tests.factories.cloud_factories import host_python_server
 
 _GUARD = "dango-upgrade-guard"
 _PATCH_WAIT_DROPLET = "dango.platform.cloud.provisioning.wait_for_droplet_ready"
@@ -78,6 +79,9 @@ _REBUILD_LINES = [
     "cd / && /srv/dango/venv/bin/python -I -m spacy download en_core_web_sm -q",
     "/srv/dango/venv/bin/python -m pip install --upgrade pip",
     "python3 -m venv /srv/dango/venv",
+    "python3 -I -m venv /srv/dango/venv",
+    "/usr/bin/python3.12 -I -m venv /srv/dango/venv",
+    "/opt/dango/python/cpython-3.12.16-20261026/bin/python3.12 -I -m venv /srv/dango/venv",
     "/bin/sh /usr/local/sbin/dango-compose up-build",
     "/bin/sh /usr/local/sbin/dango-compose build",
     "/bin/sh /usr/local/sbin/dango-compose pull",
@@ -182,6 +186,7 @@ class TestRebuildCoverage:
             patch("dango.platform.cloud.backup.verify_health", return_value=True),
             patch("dango.platform.cloud.backup.start_services"),
             patch("dango.platform.cloud.backup.stop_services"),
+            host_python_server(),
         ):
             upgrade_dango(ssh, version="1.2.0")
         assert seen["delta"] == 1

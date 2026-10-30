@@ -14,6 +14,7 @@ is ``"running"``, ``"done"``, or ``"skipped"``.
 
 from __future__ import annotations
 
+import shlex
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -21,6 +22,7 @@ from typing import TYPE_CHECKING
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
 from dango.platform.cloud import compose_migrate as cm
+from dango.platform.cloud import server_python as sp
 from dango.platform.cloud._server_templates import (
     DOCKER_DAEMON_JSON,
     FAIL2BAN_JAIL,
@@ -297,9 +299,10 @@ def _setup_venv(
         pkg = f"getdango=={dango_version}"
     else:
         pkg = "getdango"
+    python = sp.ensure_server_python(ssh, warnings=result.warnings)
     _run_checked(
         ssh,
-        "python3 -m venv /srv/dango/venv"
+        f"{shlex.quote(python)} -I -m venv /srv/dango/venv"
         " && /srv/dango/venv/bin/pip install --upgrade pip -q"
         f" && /srv/dango/venv/bin/pip install '{pkg}' -q",
         step=step,
@@ -497,7 +500,12 @@ def _setup_runtime_ownership(
     step = "runtime_ownership"
     _notify(on_progress, step, "running")
     try:
-        ro.rebuild_untrusted_venv(ssh, result.warnings, version=dango.__version__)
+        ro.rebuild_untrusted_venv(
+            ssh,
+            result.warnings,
+            version=dango.__version__,
+            python=lambda: sp.ensure_server_python(ssh, warnings=result.warnings),
+        )
     except ro.VenvRebuildError as exc:
         raise CloudProvisioningError(
             f"Server setup step '{step}' failed: the venv could not be rebuilt as "

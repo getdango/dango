@@ -12,12 +12,16 @@ import pytest
 
 from dango.exceptions import CloudError
 from dango.platform.cloud.ssh import CommandResult
+from tests.factories.cloud_factories import host_python_server
 
 
 @pytest.fixture(autouse=True)
 def _trusted_server_venv() -> Any:
     """SSH mocks here are loose; the venv trust probe is tested in test_runtime_ownership*."""
-    with patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]):
+    with (
+        patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]),
+        host_python_server(),
+    ):
         yield
 
 

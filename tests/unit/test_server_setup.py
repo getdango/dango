@@ -15,13 +15,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from dango.exceptions import CloudProvisioningError
-from tests.factories.cloud_factories import make_ssh_mock_configurable
+from tests.factories.cloud_factories import host_python_server, make_ssh_mock_configurable
 
 
 @pytest.fixture(autouse=True)
 def _trusted_server_venv() -> Any:
     """SSH mocks here are loose; the venv trust probe is tested in test_runtime_ownership*."""
-    with patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]):
+    with (
+        patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]),
+        host_python_server(),
+    ):
         yield
 
 
@@ -325,9 +328,9 @@ class TestSetupSteps:
         result = SetupResult()
         _setup_venv(ssh, result, None)
 
-        # Find the command that has python3 -m venv (skip the test -x check)
+        # Find the command that creates the venv (not the test -x check)
         cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
-        venv_cmds = [c for c in cmds if "python3 -m venv" in c]
+        venv_cmds = [c for c in cmds if "-m venv /srv/dango/venv" in c]
         assert len(venv_cmds) == 1
         assert "pip install" in venv_cmds[0]
         assert "getdango" in venv_cmds[0]
