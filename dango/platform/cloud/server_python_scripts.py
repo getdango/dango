@@ -31,6 +31,11 @@ MARKER = ".dango-python.sha256"
 DOWNLOAD_HOSTS = "github.com and release-assets.githubusercontent.com"
 #: Room above the pinned size for ``curl --max-filesize`` (the exact size is checked after).
 SIZE_MARGIN = 1024 * 1024
+#: Seconds the install waits for another install's lock, and the download may take.  The
+#: script prints nothing until it ends, so together they stay well inside the SSH read
+#: timeout (``server_python.INSTALL_STEP_TIMEOUT``).
+LOCK_WAIT = 120
+DOWNLOAD_MAX_TIME = 600
 
 
 @dataclass(frozen=True)
@@ -81,6 +86,11 @@ PROBE = (
     "v = sys.version_info\n"
     "print('%d.%d.%d.%s' % (v[0], v[1], v[2], v[3]))\n"
 )
+#: Run only when :data:`PROBE` fails, to name an in-range interpreter that lacks its venv
+#: module (Ubuntu 24.04 without ``python3-venv``); such an interpreter is never chosen.
+VERSION_PROBE = (
+    "import sys\nv = sys.version_info\nprint('%d.%d.%d.%s' % (v[0], v[1], v[2], v[3]))\n"
+)
 
 # Exit codes of the install script (mapped to messages in server_python).
 EXIT_DOWNLOAD = 10
@@ -114,8 +124,9 @@ def host_python_script(
     A candidate is passed over unless its real path is under *allowed*, and the file and
     every directory up to *top* are owned by *owner* and not group/other writable; only then
     does it run :data:`PROBE` (isolated, from ``/``) and report a final release in the
-    accepted range.  *owner*, *allowed* and *top* exist for tests; production uses the
-    defaults.
+    accepted range.  If none is acceptable but a candidate in range failed :data:`PROBE`
+    only for its modules, prints ``novenv <path>`` (for the message; it is not used).
+    *owner*, *allowed* and *top* exist for tests; production uses the defaults.
     """
     allow = f"{shlex.quote(allowed)}/*"
     stay = (
@@ -123,7 +134,9 @@ def host_python_script(
         if top == "/"
         else f'    case "$d" in {shlex.quote(top)}|{shlex.quote(top)}/*) ;; *) ok=0; break ;; esac\n'
     )
+    accepted = "|".join(accepted_versions())
     lines = (
+        "novenv=\n"
         f"for n in {' '.join(shlex.quote(n) for n in names)}; do\n"
         '  p=$(command -v "$n" 2>/dev/null) || continue\n'
         '  case "$p" in /*) ;; *) continue ;; esac\n'
@@ -140,9 +153,14 @@ def host_python_script(
         '    d=${d%/*}; [ -n "$d" ] || d=/\n'
         "  done\n"
         '  [ "$ok" = 1 ] || continue\n'
-        f'  v=$(cd / && "$r" -I -c {shlex.quote(PROBE)} 2>/dev/null) || continue\n'
-        f'  case "$v" in {"|".join(accepted_versions())}) printf "%s\\n" "$r"; exit 0 ;; esac\n'
+        f'  v=$(cd / && "$r" -I -c {shlex.quote(PROBE)} 2>/dev/null) || {{\n'
+        f'    v=$(cd / && "$r" -I -c {shlex.quote(VERSION_PROBE)} 2>/dev/null) &&\n'
+        f'      case "$v" in {accepted}) novenv=${{novenv:-$r}} ;; esac\n'
+        "    continue\n"
+        "  }\n"
+        f'  case "$v" in {accepted}) printf "%s\\n" "$r"; exit 0 ;; esac\n'
         "done\n"
+        '[ -z "$novenv" ] || printf "novenv %s\\n" "$novenv"\n'
         "exit 0\n"
     )
     return lines
@@ -188,6 +206,37 @@ def link_check_arm() -> str:
     )
 
 
+def download_script(build: PythonBuild) -> str:
+    """Download *build* to ``"$work"/python.tar.gz`` and check its size (``sh``, as root).
+
+    ``curl --max-filesize`` refuses a body with a larger ``Content-Length``; a body without
+    one is capped at one byte over the pinned size by ``head -c`` (curl before 8.4 ignores
+    ``--max-filesize`` there).  On failure ``"$work"`` is removed and the last line on
+    stderr keeps curl's own error and exit code; curl exit 63 or a capped body exits with
+    ``EXIT_SIZE``.
+    """
+    archive = '"$work"/python.tar.gz'
+    fail = 'rm -rf -- "$work"; echo'
+    return (
+        "{ curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --silent --show-error"
+        f" --location --max-redirs 3 --max-filesize {build.size + SIZE_MARGIN}"
+        f" --connect-timeout 30 --max-time {DOWNLOAD_MAX_TIME} {shlex.quote(build.url)}"
+        ' 2>"$work"/curl.err; echo "$?" >"$work"/curl.rc; }'
+        f" | head -c {build.size + 1} > {archive}\n"
+        'rc=$(cat "$work"/curl.rc 2>/dev/null) || rc=\n'
+        f"size=$(wc -c < {archive} | tr -d ' ')\n"
+        'if [ "$rc" != 0 ]; then\n'
+        '  err=$(tr -s "\\n" " " < "$work"/curl.err 2>/dev/null) || err=\n'
+        f'  if [ "$rc" = 63 ] || [ "$size" -gt {build.size} ] 2>/dev/null; then\n'
+        f'    {fail} "larger than {build.size} bytes (curl exit $rc: $err)" >&2; exit {EXIT_SIZE}\n'
+        "  fi\n"
+        f'  {fail} "curl exit ${{rc:-unknown}}: $err" >&2; exit {EXIT_DOWNLOAD}\n'
+        "fi\n"
+        f'[ "$size" = {build.size} ] || {{ {fail} "size $size, expected {build.size}" >&2; '
+        f"exit {EXIT_SIZE}; }}\n"
+    )
+
+
 def install_script(build: PythonBuild) -> str:
     """Download, verify and install *build* at :data:`PYTHON_DIR` (``sh``, as root).
 
@@ -221,19 +270,12 @@ def install_script(build: PythonBuild) -> str:
         "done\n"
         f"install -d -o root -g root -m 0755 /opt/dango {PYTHON_HOME} || exit {EXIT_LOCATION}\n"
         f"exec 9>{PYTHON_HOME}/.install.lock || exit {EXIT_LOCATION}\n"
-        f'flock -w 900 9 || {{ echo "another Python install is running" >&2; exit {EXIT_LOCATION}; }}\n'
+        f'flock -w {LOCK_WAIT} 9 || {{ echo "another Python install is running" >&2; exit {EXIT_LOCATION}; }}\n'
         f"for s in {PYTHON_HOME}/*.tmp; do\n"
         '  if [ -e "$s" ] || [ -L "$s" ]; then rm -rf -- "$s"; fi\n'
         "done\n"
         f"work=$(mktemp -d {PYTHON_HOME}/stage.XXXXXXXXXX.tmp) || exit {EXIT_LOCATION}\n"
-        "curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --silent --show-error"
-        f" --location --max-redirs 3 --max-filesize {build.size + SIZE_MARGIN}"
-        " --connect-timeout 30 --max-time 900"
-        f" -o {archive} {shlex.quote(build.url)}"
-        f' || {{ {fail} "download failed" >&2; exit {EXIT_DOWNLOAD}; }}\n'
-        f"size=$(wc -c < {archive} | tr -d ' ')\n"
-        f'[ "$size" = {build.size} ] || {{ {fail} "size $size, expected {build.size}" >&2; '
-        f"exit {EXIT_SIZE}; }}\n"
+        f"{download_script(build)}"
         f"printf '%s  %s\\n' {build.sha256} {archive} | sha256sum -c --status"
         f' || {{ {fail} "SHA-256 mismatch" >&2; exit {EXIT_CHECKSUM}; }}\n'
         f"tar -tzf {archive} > {work}/names && tar -tvzf {archive} > {work}/types"

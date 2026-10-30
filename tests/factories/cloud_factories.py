@@ -29,7 +29,7 @@ HOST_PYTHON = "/usr/bin/python3.12"
 def host_python_server() -> Iterator[None]:
     """Loose SSH mocks: the server has a root-owned Python 3.12 and the venv runs on it."""
     with (
-        patch("dango.platform.cloud.server_python.host_interpreter", return_value=HOST_PYTHON),
+        patch("dango.platform.cloud.server_python.host_probe", return_value=(HOST_PYTHON, None)),
         patch("dango.platform.cloud.server_python.venv_python_in_range", return_value=True),
     ):
         yield

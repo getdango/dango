@@ -16,7 +16,7 @@ import re
 import shlex
 from typing import TYPE_CHECKING
 
-from dango.exceptions import CloudError, CloudProvisioningError
+from dango.exceptions import CloudError, CloudProvisioningError, CloudSSHError
 from dango.platform.cloud import server_python_scripts as sps
 
 if TYPE_CHECKING:
@@ -31,7 +31,10 @@ VENV_CFG = "/srv/dango/venv/pyvenv.cfg"
 
 _PATH_RE = re.compile(r"/[A-Za-z0-9._+/-]+")
 _PROBE_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)\.(\w+)")
-_INSTALL_STEP_TIMEOUT = 1200
+_NOVENV = "novenv "
+#: SSH read timeout for the install script, which prints nothing until it ends: well above
+#: ``sps.LOCK_WAIT + sps.DOWNLOAD_MAX_TIME`` plus the checks and extraction.
+INSTALL_STEP_TIMEOUT = 1200
 
 _CAUSES = {
     sps.EXIT_DOWNLOAD: f"the download from {sps.DOWNLOAD_HOSTS} failed",
@@ -81,13 +84,19 @@ def _in_range(probe_output: str, *, version: str | None = None) -> bool:
     return sps.MIN_PYTHON <= found < sps.MAX_PYTHON
 
 
-def host_interpreter(ssh: SSHManager) -> str | None:
-    """A root-owned host interpreter in range (its resolved path), or ``None``."""
+def host_probe(ssh: SSHManager) -> tuple[str | None, str | None]:
+    """Host interpreters: ``(usable one, in-range one without venv)``; at most one is set.
+
+    The first is the resolved path of a root-owned interpreter in range that the venv can be
+    built from; the second only names one that lacks its venv module (for the message).
+    """
     code, out, _ = _run_sh(ssh, sps.host_python_script())
-    path = out.strip().splitlines()[-1].strip() if code == 0 and out.strip() else ""
-    if path and _PATH_RE.fullmatch(path) and "/../" not in f"{path}/":
-        return path
-    return None
+    line = out.strip().splitlines()[-1].strip() if code == 0 and out.strip() else ""
+    novenv = line.startswith(_NOVENV)
+    path = line[len(_NOVENV) :] if novenv else line
+    if not (path and _PATH_RE.fullmatch(path) and "/../" not in f"{path}/"):
+        return None, None
+    return (None, path) if novenv else (path, None)
 
 
 def server_arch(ssh: SSHManager) -> str:
@@ -111,7 +120,7 @@ def pinned_installed(ssh: SSHManager, build: sps.PythonBuild) -> bool:
 
 def install_pinned(ssh: SSHManager, build: sps.PythonBuild) -> None:
     """Download, verify and install *build*; raises :class:`ServerPythonError` on failure."""
-    code, out, err = _run_sh(ssh, sps.install_script(build), timeout=_INSTALL_STEP_TIMEOUT)
+    code, out, err = _run_sh(ssh, sps.install_script(build), timeout=INSTALL_STEP_TIMEOUT)
     if code == 0:
         return
     cause = _CAUSES.get(code, f"the install failed (exit {code})")
@@ -130,7 +139,7 @@ def ensure_server_python(ssh: SSHManager, *, warnings: list[str]) -> str:
     Raises:
         ServerPythonError: No interpreter could be found or installed (``DANGO-D024``).
     """
-    host = host_interpreter(ssh)
+    host, without_venv = host_probe(ssh)
     if host is not None:
         return host
     build = sps.PYTHON_BUILDS[server_arch(ssh)]
@@ -139,9 +148,14 @@ def ensure_server_python(ssh: SSHManager, *, warnings: list[str]) -> str:
     install_pinned(ssh, build)
     if not pinned_installed(ssh, build):
         raise _refusal(f"the installed interpreter at {sps.PYTHON_DIR} failed its check")
+    why = (
+        f"the server's {without_venv} has no venv/ensurepip module; installing its venv "
+        "package (on Ubuntu: `apt install python3-venv`) avoids this download"
+        if without_venv
+        else f"the server had no usable root-owned Python {sps.SUPPORTED} with venv and ensurepip"
+    )
     warnings.append(
-        f"Installed Python {sps.PYTHON_VERSION} for the Dango venv at {sps.PYTHON_DIR} "
-        f"(the server had no Python {sps.SUPPORTED})."
+        f"Installed Python {sps.PYTHON_VERSION} for the Dango venv at {sps.PYTHON_DIR} ({why})."
     )
     return sps.PYTHON_BIN
 
@@ -192,7 +206,8 @@ def prepare_upgrade(
     in place by pip and needs nothing.
 
     Raises:
-        CloudError: No interpreter (``DANGO-D024``); nothing on the server was changed.
+        CloudError: No interpreter, or the SSH command providing it failed (``DANGO-D024``);
+            services were not stopped and Dango was not changed.
     """
     if not needs_new_python(target_version):
         return LEGACY_PYTHON, False
@@ -202,9 +217,20 @@ def prepare_upgrade(
     try:
         return ensure_server_python(ssh, warnings=warnings), outdated
     except ServerPythonError as exc:
-        current = f"Dango {old_version}" if old_version else "the installed Dango"
-        raise CloudError(
-            f"Upgrade to {target_version} refused before any change: {exc} Services were not "
-            f"stopped and {current} keeps running.",
-            error_code=ERROR_CODE,
-        ) from exc
+        raise _upgrade_refusal(target_version, old_version, str(exc)) from exc
+    except CloudSSHError as exc:
+        cause = (
+            f"The SSH command that provides Python {sps.SUPPORTED} for the Dango venv failed "
+            f"({exc}); an install may still be finishing on the server, so run the command "
+            "again."
+        )
+        raise _upgrade_refusal(target_version, old_version, cause) from exc
+
+
+def _upgrade_refusal(target_version: str, old_version: str | None, cause: str) -> CloudError:
+    current = f"Dango {old_version}" if old_version else "the installed Dango"
+    return CloudError(
+        f"Upgrade to {target_version} refused: {cause} Services were not stopped and Dango "
+        f"was not changed; {current} keeps running.",
+        error_code=ERROR_CODE,
+    )
