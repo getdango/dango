@@ -161,8 +161,13 @@ def q(value: str) -> str:
 
 
 def as_service_user(script: str) -> str:
-    """Command that runs *script* as the service account (never root) via ``runuser``."""
-    return f"runuser -u {SERVICE_USER} -- sh -c {q(script)}"
+    """Command that runs *script* as the service account (never root) via ``runuser``.
+
+    It starts in ``/``: the SSH session's directory (``/root``) is not readable by the service
+    user, and GNU ``find`` exits 1 when it cannot return to its starting directory.  ``/`` is
+    root-owned, so root still runs nothing the service user can write.
+    """
+    return f"cd / && runuser -u {SERVICE_USER} -- sh -c {q(script)}"
 
 
 def runner_dir(srv_dir: str = SRV_DIR) -> str:

@@ -382,7 +382,7 @@ _MUTATORS = re.compile(r"\b(chmod|chown|setfacl|install|mkdir|rm|mv|ln|cp|touch|
 def test_root_steps_never_act_on_project_paths_directly() -> None:
     for step in iso.build_steps():
         if step.run_as == "service":
-            assert step.command.startswith("runuser -u dango -- sh -c ")
+            assert step.command.startswith("cd / && runuser -u dango -- sh -c ")
             assert not re.search(r"\bchown\b", step.script)
             continue
         if step.name == "verify":
