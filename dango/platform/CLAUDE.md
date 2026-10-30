@@ -47,6 +47,7 @@ platform/
 ├── cloud/               # Cloud-only components (TASK-022+)
 │   ├── __init__.py      # Re-exports 69 symbols (clients, provisioning, firewall, backup, deploy, journal, etc.)
 │   ├── digitalocean.py  # DO REST API v2 client (Droplets, SSH Keys, Firewalls)
+│   ├── create_reconcile.py # Look up and adopt a resource by name when a create call's outcome is unknown (1.0.14)
 │   ├── provisioning.py  # Size tiers, regions, provision_droplet() orchestration (TASK-023)
 │   ├── size_availability.py  # Size-in-region availability check (T16)
 │   ├── firewall.py      # Firewall lifecycle, IP allowlisting (TASK-025)
@@ -115,6 +116,7 @@ platform/
 | `notifications/webhook.py` | Event types, config models, event filtering, async sender with retry | `WebhookSender`, `WebhookConfig`, `NotificationConfig`, `EventType`, `EventCategory`, `WebhookPayload` |
 | `notifications/slack.py` | Slack Block Kit formatter for webhook payloads | `format_slack_message` |
 | `cloud/digitalocean.py` | DigitalOcean REST API v2 client | `DigitalOceanClient` |
+| `cloud/create_reconcile.py` | Create POSTs (droplet, firewall, SSH key) are sent once; after a 5xx, timeout or dropped answer the resource is found by its unique name and adopted when exactly one matches (none or several: `CloudError`). 429 and connection failures before sending are still retried | `reconcile_create`, `CreateOutcomeUnknown`, `list_firewalls`, `same_public_key` |
 | `cloud/provisioning.py` | Droplet size tiers, regions, provisioning orchestration | `DropletSizeTier`, `RegionInfo`, `SIZE_TIERS`, `DEFAULT_TIER`, `provision_droplet`, `wait_for_droplet_ready`, `wait_for_ssh`, `suggest_nearest_region`, `save_provisioning_metadata` |
 | `cloud/size_availability.py` | Which DO regions offer a droplet size (wizard region filter + pre-provision check, T16) | `regions_for_size`, `offerable_regions`, `fetch_sizes`, `check_size_in_region`, `SizeUnavailableError` |
 | `cloud/firewall.py` | Firewall lifecycle and IP allowlisting | `create_default_firewall`, `add_allowed_ip`, `restrict_web_to_ips`, `allow_all_web`, `validate_ip_or_cidr`, `save_firewall_metadata` |

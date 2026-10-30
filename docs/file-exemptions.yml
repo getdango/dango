@@ -303,7 +303,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/cloud/digitalocean.py
-    lines: 595
+    lines: 654
     category: exempt
     reason: "TASK-104: Added get_action() and wait_for_action() for resize/migrate action polling. Core DO API client — splitting would fragment related HTTP methods. R9-C added cloud_credentials fallback."
     review_by: "v1.1"
