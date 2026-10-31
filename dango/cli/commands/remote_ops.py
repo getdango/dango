@@ -12,6 +12,7 @@ from __future__ import annotations
 import click
 
 from dango.cli import console
+from dango.cli.commands import remote_report as report
 from dango.cli.commands.remote import remote
 from dango.cli.commands.remote_power import refuse_if_powered_off
 from dango.cli.utils import safe_confirm
@@ -58,7 +59,7 @@ def remote_upgrade(
         try:
             validate_version_string(target_version)
         except Exception as exc:
-            console.print(f"[red]Error:[/red] {exc}")
+            console.print(f"[red]Error:[/red] {report.literal(exc)}")
             raise SystemExit(1) from exc
 
     cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
@@ -113,40 +114,13 @@ def remote_upgrade(
                 byos=getattr(cloud_cfg, "provider", None) == "byos",
             )
 
-        console.print()
         done = "Server configuration checked" if at_target else "Upgrade complete"
-        if result.health_check_passed:
-            console.print(f"[green]{done}.[/green]")
-        else:
-            console.print(f"[yellow]{done} with warnings.[/yellow]")
-
-        console.print(
-            f"  Version: [cyan]{result.old_version}[/cyan] → [cyan]{result.new_version}[/cyan]"
-        )
-        console.print(f"  Duration: {result.duration_seconds}s")
-        if result.backup_path:
-            console.print(f"  Backup: {result.backup_path}")
-        if result.migrations_run:
-            console.print("  Migrations: applied")
-        if result.docker_rebuilt:
-            console.print("  Docker: rebuilt")
-        steps = (result.caddyfile_ws_migration, result.runtime_ownership, result.venv_rebuild)
-        for line in filter(None, (*steps, result.runner_isolation)):
-            console.print(f"  {line}")
-
-        for warning in result.warnings:
-            console.print(f"  [yellow]Warning:[/yellow] {warning}")
-
-        if not result.health_check_passed:
-            console.print(
-                "\n[yellow]Health check failed.[/yellow] "
-                "Run [bold]dango remote rollback[/bold] to restore the previous version."
-            )
+        report.upgrade_result(result, done)
 
     except SystemExit:
         raise
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Upgrade failed: {exc}")
+        report.failure("Upgrade failed", exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -234,7 +208,7 @@ def remote_resize(ctx: click.Context, size: str | None, yes: bool) -> None:
     try:
         validate_size_slug(size)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {report.literal(exc)}")
         raise SystemExit(1) from exc
 
     refuse_if_powered_off(cloud_cfg)  # an interrupted resize leaves the droplet off
@@ -312,17 +286,17 @@ def remote_resize(ctx: click.Context, size: str | None, yes: bool) -> None:
         console.print(f"  Size: [cyan]{result.old_size}[/cyan] → [cyan]{result.new_size}[/cyan]")
         console.print(f"  Duration: {result.duration_seconds}s")
         if result.backup_path:
-            console.print(f"  Backup: {result.backup_path}")
+            report.line(result.backup_path, "  Backup: ")
         if result.dbt_profiles_regenerated:
             console.print("  dbt profiles.yml: regenerated")
 
         for warning in result.warnings:
-            console.print(f"  [yellow]Warning:[/yellow] {warning}")
+            report.warning(warning)
 
     except SystemExit:
         raise
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Resize failed: {exc}")
+        report.failure("Resize failed", exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -377,7 +351,7 @@ def remote_migrate(
     try:
         validate_size_slug(size)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {report.literal(exc)}")
         raise SystemExit(1) from exc
 
     # Require Spaces
@@ -488,12 +462,12 @@ def remote_migrate(
             )
 
         for warning in result.warnings:
-            console.print(f"  [yellow]Warning:[/yellow] {warning}")
+            report.warning(warning)
 
     except SystemExit:
         raise
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Migration failed: {exc}")
+        report.failure("Migration failed", exc)
         raise SystemExit(1) from exc
     finally:
         old_ssh.disconnect()

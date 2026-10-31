@@ -7,8 +7,10 @@ compose runs through ``sudo -n /usr/local/sbin/dango-compose <verb>``; otherwise
 legacy direct ``docker compose`` call is made exactly as before.  Nothing in this
 repository writes the marker yet, so every helper path is inert.
 
-Run as ``python -I -m dango.platform.compose_exec render [--helper] PROJECT_ROOT`` to
-render the server compose file through the helper.
+To render the server compose file through the helper, call ``main(["render", "--helper",
+PROJECT_ROOT])``, as the server's render step does with ``python -I -c``.  Not ``-m``: the
+``dango.platform`` package imports this module first, so runpy adds a RuntimeWarning to every
+error text.
 """
 
 from __future__ import annotations
@@ -247,9 +249,17 @@ def _project_mb_version(path: Path) -> str | None:
         data = os.read(fd, _DOCKERFILE_MAX)
     finally:
         os.close(fd)
+    return mb_version_of(data, path.name)
+
+
+def mb_version_of(data: bytes, name: str = "Dockerfile.metabase") -> str:
+    """The one usable ``ENV MB_VERSION`` of a project Dockerfile's bytes; an error otherwise.
+
+    Shared with the upgrade pre-flight so that it refuses exactly the files the render refuses.
+    """
     version = _mb_version(data.decode("utf-8", errors="replace"))
     if version is None:
-        raise ComposeRenderError(f"{path.name} has no usable ENV MB_VERSION line")
+        raise ComposeRenderError(f"{name} has no usable ENV MB_VERSION line")
     return version
 
 

@@ -52,10 +52,11 @@ def test_marker_is_written_only_after_the_helper_verified() -> None:
 def test_render_runs_in_helper_mode_without_the_marker() -> None:
     srv = FakeServer()
     cm.migrate_docker_access(srv, [], version="1.0.14")
-    render = next(c for c in srv.commands if "compose_exec render" in c)
+    render = next(c for c in srv.commands if "dango.platform.compose_exec import main" in c)
     assert (
         "--helper" in render and "runuser -u dango" in render and "DANGO_CLOUD_MODE=true" in render
     )
+    assert "-m dango.platform.compose_exec" not in render  # runpy would warn: already imported
     assert render.index("cd /") < render.index("runuser")
 
 

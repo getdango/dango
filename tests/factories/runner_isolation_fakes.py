@@ -48,6 +48,8 @@ class RunnerServer(FakeServer):
         if name == "quiesce" and "systemctl stop dango-web" in command:
             self.web_active = False
             self.events.append("web-stop")
+        if "rm -f" in command and "runner/active" in command:  # the marker is taken away
+            self.isolation_marker = None
         if name == "nft_rules":
             self.nft_loaded = True
         elif name == "marker":

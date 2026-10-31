@@ -337,7 +337,12 @@ def isolation_status(ctx: click.Context) -> None:
     console.print(f"  Active marker valid: {yes_no[status.active_marker]}")
     console.print(f"  Disabled marker valid: {yes_no[status.disabled_marker]}")
     console.print(f"  Version record loopback: {status.record}")
-    if status.state == "missing":
+    if status.state == "unsupported":
+        console.print(
+            f"Installed Dango {escape(status.installed or '?')} does not enforce isolation."
+        )
+        console.print("Run [bold]dango remote upgrade[/bold] to enable isolation.")
+    elif status.state == "missing":
         console.print("Run [bold]dango remote upgrade[/bold] to enable isolation.")
     elif status.state == "disabled":
         console.print("Run [bold]dango remote isolation enable[/bold] to turn it back on.")

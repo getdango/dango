@@ -99,6 +99,7 @@ dango/                          # Python package source
 │   │   ├── remote.py           # remote group + push/rollback/firewall/domain
 │   │   ├── remote_env.py       # remote env subgroup (set/get/list/delete)
 │   │   ├── remote_ops.py       # remote upgrade/resize/migrate
+│   │   ├── remote_report.py    # literal (markup-escaped, unwrapped) output helpers for remote upgrade/resize/migrate
 │   │   ├── remote_backup.py    # remote backup subgroup
 │   │   ├── remote_auth.py      # remote auth subgroup (add-user/list-users/remove-user/reset-password)
 │   │   ├── remote_repair.py    # remote repair/reset-metabase

@@ -19,8 +19,10 @@ from dango.exceptions import CloudError, CloudProvisioningError
 from dango.platform.cloud import compose_migrate as cm
 from dango.platform.cloud import runner_isolation as ri
 from dango.platform.cloud import server_python as sp
+from dango.platform.cloud.upgrade_access import switch_at_target
 from dango.platform.cloud.upgrade_caddy import has_ws_auth_endpoint, run_ws_migration
 from dango.platform.cloud.upgrade_guard import UpgradeGuard
+from dango.platform.cloud.upgrade_preflight import check_metabase_pin
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -128,55 +130,6 @@ def _notify(callback: Callable[[str, str], None] | None, step: str, status: str)
         callback(step, status)
 
 
-def _switch_at_target(
-    ssh: SSHManager, warnings: list[str], version: str | None, guard: UpgradeGuard
-) -> str | None:
-    """At the target version: finish the switch to the compose helper if it is not settled.
-
-    Only a server that is not yet settled on the helper has dango-web stopped (for the group
-    removal and process drop) and Metabase recreated; a settled server is not touched.
-    """
-    if cm.below_helper_version(version):
-        # An interrupted downgrade left the helper on under the old code: finish it.
-        if not cm.needs_restore(ssh):
-            return None
-        guard.arm()
-        cm.restore_docker_access(
-            ssh,
-            warnings,
-            version=version or "",
-            manage_web=True,
-            rebuild=True,
-            on_step=guard.rearm,
-        )
-        guard.disarm()  # dango-web was started again; an exception leaves the guard armed
-        return cm.ACCESS_GROUP
-    if not cm.helper_capable(version):
-        return None
-    cm.refresh_web_unit(ssh, warnings)  # takes effect at the next restart; never stops dango-web
-    if not cm.needs_migration(ssh):
-        if cm.rebuild_pending(ssh):  # the last strict rebuild failed: repeat it
-            guard.arm()
-            cm.retry_pending_rebuild(ssh, warnings)
-            guard.disarm()
-        return None
-    guard.arm()  # dango-web is stopped inside the migration
-    try:
-        state = cm.migrate_docker_access(
-            ssh,
-            warnings,
-            version=version or "",
-            on_step=guard.rearm,
-            manage_web=True,
-            rebuild=True,
-        )
-    except cm.MetabasePinRequired:
-        guard.disarm()  # refused before dango-web was stopped: nothing needs recovering
-        raise
-    guard.disarm()  # dango-web was started again; an exception leaves the guard armed
-    return state
-
-
 def upgrade_dango(
     ssh: SSHManager,
     *,
@@ -238,8 +191,9 @@ def upgrade_dango(
     _notify(on_progress, "check_version", "running")
     if untrusted:
         old_version = ro.trusted_metadata_version(ssh, version)
+        shown_version = old_version or ro.installed_version_from_metadata(ssh)  # display only
     else:
-        old_version = ro.valid_version(_get_dango_version(ssh))
+        old_version = shown_version = ro.valid_version(_get_dango_version(ssh))
     _notify(on_progress, "check_version", "done")
 
     # 2. Determine target version
@@ -280,6 +234,9 @@ def upgrade_dango(
             error_code="DANGO-D022",
         )
 
+    # 3b2. A custom Metabase version needs an administrator pin (1.0.14 on): refuse before any change
+    check_metabase_pin(ssh, target_version, old_version, at_target=old_version == target_version)
+
     # 3c. Python 3.11+ (1.0.14 on) is ensured before anything is stopped or changed; then an
     # untrusted venv, or one on an older Python, is rebuilt at the target version
     python, outdated = sp.prepare_upgrade(ssh, warnings, old_version, target_version, untrusted)
@@ -316,9 +273,7 @@ def upgrade_dango(
         # keep the old state (helper on under the old code) from converging
         restore_first = cm.below_helper_version(old_version)
         at_target_access = (
-            _switch_at_target(ssh, at_target_warnings, old_version, guard)
-            if restore_first
-            else None
+            switch_at_target(ssh, at_target_warnings, old_version, guard) if restore_first else None
         )
         ownership_status = ro.secure_runtime(
             ssh,
@@ -328,7 +283,7 @@ def upgrade_dango(
             extra_steps=cm.ownership_steps() if cm.helper_capable(old_version) else (),
         )
         if not restore_first:
-            at_target_access = _switch_at_target(ssh, at_target_warnings, old_version, guard)
+            at_target_access = switch_at_target(ssh, at_target_warnings, old_version, guard)
         isolation_status = ri.enable_in_upgrade(
             ssh, at_target_warnings, old_version, guard, own_guard=True
         )
@@ -480,7 +435,7 @@ def upgrade_dango(
     _notify(on_progress, "verify_health", "done")
 
     return UpgradeResult(
-        old_version=old_version,
+        old_version=shown_version,
         new_version=new_version,
         backup_path=backup_path,
         migrations_run=migrations_run,
