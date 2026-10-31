@@ -324,3 +324,75 @@ def test_reapply_local_returns_the_skipped_directory_warning(
     monkeypatch.setattr(runner_reapply, "_local_executor", lambda: execute)
     notes = runner_reapply.reapply_local(str(tmp_path))
     assert len(notes) == 1 and "notebooks/trapB" in notes[0]
+
+
+# --- scale: the readability test is find's own, not one process per directory ---------------------
+
+
+def _find_has_native_readable_test() -> bool:
+    probe = subprocess.run(["find", "/", "-maxdepth", "0", "-readable"], capture_output=True)
+    return probe.returncode == 0
+
+
+def test_both_scripts_use_the_find_native_readability_test() -> None:
+    for text in (access.notebooks_acl_script(), access.notebooks_report_script()):
+        assert "! -readable -o ! -executable" in text
+        for line in text.splitlines():
+            if "-execdir test" in line:  # the fallback for a find without -readable, nothing else
+                assert line.startswith("  set -- "), line
+            if line.startswith("find -P"):
+                assert '"$@"' in line, line
+
+
+def test_many_directories_cost_no_process_per_directory(tree: Tree) -> None:
+    import time
+
+    count = 1500
+    for i in range(count):
+        (tree.nb / f"d{i}").mkdir()
+    (tree.nb / "d7" / "x.py").write_text("x")
+    tree.tool("test", f'echo x >> {tree.root / "test.log"}\n[ "$@" ]\n')
+    started = time.monotonic()
+    res = tree.acl()
+    assert res.returncode == 0, res.stderr
+    assert time.monotonic() - started < 60
+    assert len(tree.dir_targets()) >= count
+    assert _real(tree.nb / "d7" / "x.py") in tree.file_targets()
+    forks = (
+        (tree.root / "test.log").read_text().count("x") if (tree.root / "test.log").exists() else 0
+    )
+    if _find_has_native_readable_test():  # GNU find: nothing forks per directory, ACL runs batch
+        assert forks == 0, f"{forks} test processes for {count} directories"
+        assert len(tree.log.read_text().splitlines()) < count // 10
+    assert tree.report(foreign=True).returncode == 0
+
+
+# --- AF-11: restored session-cache files are writable too ----------------------------------------
+
+
+def test_restored_marimo_session_files_get_the_notebook_acl(tree: Tree) -> None:
+    sess = tree.nb / "__marimo__" / "session"
+    sess.mkdir(parents=True)
+    cache = sess / "g.py.json"
+    cache.write_text("{}")
+    other = tree.nb / "data.json"
+    other.write_text("{}")
+    shared = sess / "shared.json"
+    shared.write_text("{}")
+    os.link(shared, tree.root / "second-name")
+    res = tree.acl()
+    assert res.returncode == 0, res.stderr
+    assert _real(cache) in tree.file_targets() | tree.targets()
+    assert _real(other) not in tree.targets()  # outside __marimo__ only .py files
+    assert _real(shared) not in tree.targets()  # a file with another hard link is never touched
+    calls = [line for line in tree.log.read_text().splitlines() if line.endswith("g.py.json")]
+    assert calls and calls[0].split("|", 2)[2].startswith("-P -m " + access.NOTEBOOK_FILE_ACL)
+
+
+# --- the warning's advice works for a non-empty folder -------------------------------------------
+
+
+def test_the_skipped_directory_advice_covers_non_empty_mode_000_folders() -> None:
+    text = access.NOTEBOOKS_SKIPPED_WARNING
+    assert "chmod -R u+rwx" in text and "rm -rf" in text
+    assert f"{rs.SRV_DIR}/project" in text
