@@ -45,10 +45,12 @@ ISOLATION_PROBE_CMD = (
     "n=0; for u in dango-run dango-nb; do "
     'getent passwd "$u" >/dev/null 2>&1 && n=$((n+1)); done; echo users=$n; '
     "if [ -f /etc/sudoers.d/dango-runner ]; then echo sudoers=1; else echo sudoers=0; fi; "
-    # the installed version is read from the venv's metadata directory name, never by running it
-    "d=$(ls -d /srv/dango/venv/lib/python3*/site-packages/getdango-*.dist-info 2>/dev/null "
-    "| head -n 1); d=${d##*/getdango-}; d=${d%.dist-info}; "
-    "echo installed=$(printf %s \"$d\" | tr -cd '0-9A-Za-z.+!_-'); "
+    # the installed version is the name of the one metadata directory (never by running the venv);
+    # with several, none is believed (``dists`` says how many)
+    "c=0; for p in /srv/dango/venv/lib/python3*/site-packages/getdango-*.dist-info; do "
+    '[ -d "$p" ] && { c=$((c+1)); d=$p; }; done; echo dists=$c; '
+    'if [ "$c" = 1 ]; then d=${d##*/getdango-}; d=${d%.dist-info}; '
+    "echo installed=$(printf %s \"$d\" | tr -cd '0-9A-Za-z.+!_-'); else echo installed=; fi; "
     "echo ---; "
     f'if safe d "$S" && safe f "$V"; then timeout 5 head -c {_RECORD_MAX_BYTES} "$V" '
     "2>/dev/null; fi; true"
@@ -150,9 +152,13 @@ def parse_isolation_probe(stdout: str) -> IsolationStatus:
     if active is None or disabled is None:
         return IsolationStatus(record=record)
     state = "disabled" if disabled else "on" if active else "missing"
-    installed = _installed_version(values.get("installed"))
+    dists = values.get("dists", "")
+    ambiguous = dists.isdigit() and int(dists) > 1  # several versions on disk: believe none
+    installed = None if ambiguous else _installed_version(values.get("installed"))
     if installed and state != "disabled" and _predates_isolation(installed):
         state = "unsupported"  # never claim what the installed version does not enforce
+    elif ambiguous and state == "on":
+        state = "unknown"
     by, at = _opt_out_info(values.get("disabled_info", "")) if disabled else (None, None)
     if nft is None:
         loopback = record

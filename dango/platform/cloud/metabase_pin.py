@@ -95,11 +95,22 @@ def digest_for_version(version: str, layout: Layout) -> str:
         raise PinError(f"the Metabase pin file is unsafe; {_recovery(version)}")
     with os.fdopen(fd, "rb") as handle:
         data = handle.read(_MAX_RECORD + 1)
+    return parse_pin_record(data, version)
+
+
+def parse_pin_record(data: bytes, version: str) -> str:
+    """The SHA-256 *data* (the pin file's bytes) records for *version*; :class:`PinError` otherwise.
+
+    The one reader of the record format: the server's render uses it, and so does the upgrade
+    pre-flight, so that both accept and refuse exactly the same files.
+    """
+    if len(data) > _MAX_RECORD:
+        raise PinError(f"the Metabase pin file is unsafe; {_recovery(version)}")
     found = _RECORD_RE.fullmatch(data)
     if found is None:
         raise PinError(f"the Metabase pin file is malformed; {_recovery(version)}")
     if found.group(1).decode("ascii") != version:
-        raise missing
+        raise PinError(f"Metabase {version} has no administrator pin; {_recovery(version)}")
     return found.group(2).decode("ascii")
 
 

@@ -249,9 +249,17 @@ def _project_mb_version(path: Path) -> str | None:
         data = os.read(fd, _DOCKERFILE_MAX)
     finally:
         os.close(fd)
+    return mb_version_of(data, path.name)
+
+
+def mb_version_of(data: bytes, name: str = "Dockerfile.metabase") -> str:
+    """The one usable ``ENV MB_VERSION`` of a project Dockerfile's bytes; an error otherwise.
+
+    Shared with the upgrade pre-flight so that it refuses exactly the files the render refuses.
+    """
     version = _mb_version(data.decode("utf-8", errors="replace"))
     if version is None:
-        raise ComposeRenderError(f"{path.name} has no usable ENV MB_VERSION line")
+        raise ComposeRenderError(f"{name} has no usable ENV MB_VERSION line")
     return version
 
 

@@ -45,8 +45,10 @@ class PinServer(FakeServer):
     def _answer(self, command: str) -> CommandResult:
         if "Dockerfile.metabase" in command and "metabase-jar.pin" in command:
             self.events.append("preflight")
-            text = f"helper={int(self.helper_usable)}\npin={self.pin or ''}\n---\n"
-            return CommandResult(text + (self.dockerfile or ""), "", 0)
+            pinhex = (self.pin or "").encode().hex()
+            state = "absent" if self.dockerfile is None else "file"
+            head = f"helper={int(self.helper_usable)}\npinhex={pinhex}\ndockerfile={state}\n---\n"
+            return CommandResult(head + (self.dockerfile or ""), "", 0)
         return super()._answer(command)
 
 
@@ -101,13 +103,13 @@ def test_the_refusal_names_the_direct_file_when_the_helper_cannot_pin_yet() -> N
     with pytest.raises(CloudError) as excinfo:
         upgrade_dango(srv, version="1.0.14")
     message = str(excinfo.value)
-    assert PIN_FILE in message and f"{CUSTOM} <sha256-of-the-jar>" in message
-    assert "pin-metabase" not in message
-    assert "install -d -o root -g root -m 0755 " + ch.COMPOSE_DIR in message
+    assert "s=/srv/dango; d=$s/compose; f=$d/metabase-jar.pin" in message
+    assert f"pin {CUSTOM} <sha256-of-the-jar>" in message
+    assert "pin-metabase" not in message and "\n" not in message
 
 
 def test_a_pin_for_another_version_does_not_count() -> None:
-    srv = custom_server(helper_usable=True, pin=f"v0.62.18 {DIGEST}")
+    srv = custom_server(helper_usable=True, pin=f"v0.62.18 {DIGEST}\n")
     with pytest.raises(CloudError, match=CUSTOM):
         upgrade_dango(srv, version="1.0.14")
     assert srv.version == "1.0.13"
@@ -122,7 +124,7 @@ def test_a_malformed_pin_does_not_count(pin: str) -> None:
 
 
 def test_a_matching_pin_lets_the_upgrade_run() -> None:
-    srv = custom_server(pin=f"{CUSTOM} {DIGEST}")
+    srv = custom_server(pin=f"{CUSTOM} {DIGEST}\n")
     result = upgrade_dango(srv, version="1.0.14")
     assert result.new_version == "1.0.14" and srv.version == "1.0.14"
     assert "preflight" in srv.events and srv.events.index("preflight") < srv.events.index("pip")
@@ -132,7 +134,7 @@ def test_rerunning_after_the_pin_converges() -> None:
     srv = custom_server(helper_usable=True)
     with pytest.raises(CloudError):
         upgrade_dango(srv, version="1.0.14")
-    srv.pin = f"{CUSTOM} {DIGEST}"
+    srv.pin = f"{CUSTOM} {DIGEST}\n"
     result = upgrade_dango(srv, version="1.0.14")
     assert result.new_version == "1.0.14" and srv.marker
 
