@@ -40,19 +40,17 @@ const client = new DuckdbWarehouseClient({
             assert.ok(loaded, `Missing loaded extension ${name}`);
             assert.ok(String(loaded.extension_version).startsWith(pin.revision), `Extension revision ${name}`);
         }
-        const signed = await client.runQuery("SELECT current_setting('allow_unsigned_extensions') AS unsigned");
-        assert.equal(signed.rows[0].unsigned, false);
         const result = await client.runQuery('SELECT SUM(amount)::INTEGER AS total FROM probe.sales.orders');
         assert.equal(Number(result.rows[0].total), 350);
         let readonlyError;
         try {await client.runQuery('UPDATE probe.sales.orders SET amount = 999 WHERE id = 1');}
         catch (e) {readonlyError = e;}
-        assert.ok(readonlyError, 'Read-only attach must refuse UPDATE');
+        assert.ok(readonlyError, 'Actual client must refuse UPDATE');
         const message = String(readonlyError);
-        assert.match(message, /read.only|read only|read-only/i);
+        assert.match(message, /^Error: SQL validation error: only SELECT statements are allowed \(got statement type \d+\)$/);
         for (const value of [secret.readerPassword, secret.wrongPassword, secret.adminPassword])
             assert.ok(!message.includes(value), 'Error exposed a synthetic secret');
-        console.log(JSON.stringify({mode, status: 'PASS_CLIENT_ORACLES', apiVersion: apiManifest.version, engineVersion: api.version(), identity, extensions, result, readonlyError: message}));
+        console.log(JSON.stringify({mode, status: 'PASS_CLIENT_ORACLES', apiVersion: apiManifest.version, engineVersion: api.version(), identity, extensions, result, writeDenialLayer: 'client_sql_validator', writeDenialError: message}));
     }
 })().then(() => process.exit(0), error => {
     const message = String(error);

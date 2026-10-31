@@ -17,4 +17,15 @@ for (const name of ['libduckdb.so','duckdb.node']) {
   visit(root); assert.equal(matches.length,1);
   assert.equal(crypto.createHash('sha256').update(fs.readFileSync(matches[0])).digest('hex'),pins.native[name]);
 }
-console.log(JSON.stringify({native:'PASS',engine:api.version(),package:pins.native.api_version,platform:process.platform,architecture:process.arch}));
+(async () => {
+  const instance = await api.DuckDBInstance.create(':memory:');
+  try {
+    const connection = await instance.connect();
+    try {
+      const settings = await connection.runAndReadAll("SELECT current_setting('allow_unsigned_extensions') AS unsigned");
+      const nativeDefaultAllowUnsignedExtensions = settings.getRowObjects()[0].unsigned;
+      assert.equal(nativeDefaultAllowUnsignedExtensions, false);
+      console.log(JSON.stringify({native:'PASS',engine:api.version(),package:pins.native.api_version,platform:process.platform,architecture:process.arch,nativeDefaultAllowUnsignedExtensions,policyEvidence:'fresh native default instance; frozen actual-client default configuration statically bound, not shared-instance introspection'}));
+    } finally { connection.closeSync(); }
+  } finally { instance.closeSync(); }
+})().catch(error => { console.error(String(error)); process.exitCode = 1; });

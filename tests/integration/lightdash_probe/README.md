@@ -44,11 +44,21 @@ side effects are stubbed. Compiler input metadata is exported.
 A native producer creates a fresh synthetic PostgreSQL-backed DuckLake 1.1 catalog
 with automatic migration disabled and three Parquet-backed amounts totaling 350.
 The actual DuckdbWarehouseClient constructor/query path must identify engine2.x,
-return350, reject UPDATE through READ_ONLY attach and reject a fresh incorrect
+return350, reject UPDATE at its SELECT-only SQL validator and reject a fresh incorrect
 password with an authentication error. A correct-credential control runs again.
 Whole catalog schema/data dumps (only random pg_dump restrict lines normalized),
 catalog version and fixture byte hashes must remain unchanged. Extension and
 native-library pins are checked. The native producer is not consumer evidence.
+
+The signed-extension policy is measured as `allow_unsigned_extensions=false` on a
+fresh native default instance using the same pinned package, image and profile.
+The frozen actual client creates its shared instance with the same default
+configuration and never enables unsigned extensions. This combines native default
+measurement with static configuration evidence; it does not introspect the actual
+Lightdash shared instance. That client's validator blocks settings introspection.
+Its UPDATE refusal proves denial at the client validator, not engine write refusal.
+READ_ONLY ATTACH is static frozen-source evidence; final unchanged catalog/Parquet
+checks separately establish observed non-mutation.
 
 Only random synthetic secrets exist. They are masked before subprocess execution,
 kept out of explicit container environments, checked in raw error/output bytes,
