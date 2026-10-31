@@ -7,8 +7,10 @@ compose runs through ``sudo -n /usr/local/sbin/dango-compose <verb>``; otherwise
 legacy direct ``docker compose`` call is made exactly as before.  Nothing in this
 repository writes the marker yet, so every helper path is inert.
 
-Run as ``python -I -m dango.platform.compose_exec render [--helper] PROJECT_ROOT`` to
-render the server compose file through the helper.
+To render the server compose file through the helper, call ``main(["render", "--helper",
+PROJECT_ROOT])``, as the server's render step does with ``python -I -c``.  Not ``-m``: the
+``dango.platform`` package imports this module first, so runpy adds a RuntimeWarning to every
+error text.
 """
 
 from __future__ import annotations

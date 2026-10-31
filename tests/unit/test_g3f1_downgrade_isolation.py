@@ -7,6 +7,7 @@ removed, the result and ``remote status`` say it is not enforced, and an upgrade
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
@@ -171,8 +172,9 @@ def test_isolation_status_command_names_the_cause_and_the_fix() -> None:
     ssh = Ssh()
     result = invoke(ssh, ["status"])
     assert result.exit_code == 0, result.output
-    assert "Isolation: on" not in result.output
-    assert "1.0.13" in result.output and "dango remote upgrade" in result.output
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "Isolation: on" not in plain
+    assert "1.0.13" in plain and "dango remote upgrade" in plain
     assert ssh.events == []
 
 

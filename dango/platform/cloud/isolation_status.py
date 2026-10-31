@@ -11,6 +11,7 @@ the client parses the output as data.  Collection never raises: anything unreada
 from __future__ import annotations
 
 import json
+import re
 import shlex
 from dataclasses import dataclass
 from typing import Any
@@ -26,7 +27,8 @@ _FIELD_MAX = 120
 # ``dango.platform.run_as`` applies (regular file, uid 0, not group/other-writable, no symlink,
 # inside root-owned closed ``/srv/dango/runner`` and ``/srv/dango``);
 # ``find -maxdepth 0`` without ``-L`` never follows a link.  The firewall table is asked live.
-# The version record is read like the Docker access probe and parsed by the client as data.
+# The version record is read like the Docker access probe and parsed by the client as data; the
+# installed version is only a directory name (its characters are restricted, nothing is executed).
 ISOLATION_PROBE_CMD = (
     "ROOT=0; S=/srv/dango; R=$S/runner; V=$S/server-version.json; "
     'safe() { [ -n "$(find "$2" -maxdepth 0 -type "$1" -uid "$ROOT" ! -perm /022 '
@@ -43,6 +45,10 @@ ISOLATION_PROBE_CMD = (
     "n=0; for u in dango-run dango-nb; do "
     'getent passwd "$u" >/dev/null 2>&1 && n=$((n+1)); done; echo users=$n; '
     "if [ -f /etc/sudoers.d/dango-runner ]; then echo sudoers=1; else echo sudoers=0; fi; "
+    # the installed version is read from the venv's metadata directory name, never by running it
+    "d=$(ls -d /srv/dango/venv/lib/python3*/site-packages/getdango-*.dist-info 2>/dev/null "
+    "| head -n 1); d=${d##*/getdango-}; d=${d%.dist-info}; "
+    "echo installed=$(printf %s \"$d\" | tr -cd '0-9A-Za-z.+!_-'); "
     "echo ---; "
     f'if safe d "$S" && safe f "$V"; then timeout 5 head -c {_RECORD_MAX_BYTES} "$V" '
     "2>/dev/null; fi; true"
@@ -53,7 +59,8 @@ ISOLATION_PROBE_CMD = (
 class IsolationStatus:
     """What the server says about script and notebook isolation (no secrets)."""
 
-    #: ``on``, ``disabled``, ``missing`` or ``unknown``
+    #: ``on``, ``disabled``, ``missing``, ``unsupported`` (the installed Dango predates isolation)
+    #: or ``unknown``
     state: str = "unknown"
     #: ``restricted``, ``unrestricted`` or ``unknown``
     loopback: str = "unknown"
@@ -67,6 +74,8 @@ class IsolationStatus:
     #: who and when, from the opt-out marker (informational, cleaned and bounded)
     disabled_by: str | None = None
     disabled_at: str | None = None
+    #: Dango version installed on the server, from the venv metadata (None when unreadable)
+    installed: str | None = None
 
 
 def _clean(value: object) -> str | None:
@@ -93,6 +102,31 @@ def _flag(values: dict[str, str], key: str) -> bool | None:
     return {"1": True, "0": False}.get(value) if value is not None else None
 
 
+_VERSION_RE = re.compile(r"[0-9][0-9A-Za-z.+!_-]{0,31}")
+
+
+def _installed_version(raw: str | None) -> str | None:
+    """*raw* when it is a version string, else None (it comes from a name the service user may own)."""
+    from packaging.version import InvalidVersion, Version
+
+    if not raw or not _VERSION_RE.fullmatch(raw):
+        return None
+    try:
+        Version(raw)
+    except InvalidVersion:
+        return None
+    return raw
+
+
+def _predates_isolation(version: str) -> bool:
+    """True when *version* is older than the release that has runner isolation."""
+    from packaging.version import Version
+
+    from dango.platform.cloud.compose_versions import MIN_RELEASE
+
+    return Version(version).release < MIN_RELEASE
+
+
 def parse_isolation_probe(stdout: str) -> IsolationStatus:
     """Parse :data:`ISOLATION_PROBE_CMD` output; unreadable output is ``unknown``.
 
@@ -116,6 +150,9 @@ def parse_isolation_probe(stdout: str) -> IsolationStatus:
     if active is None or disabled is None:
         return IsolationStatus(record=record)
     state = "disabled" if disabled else "on" if active else "missing"
+    installed = _installed_version(values.get("installed"))
+    if installed and state != "disabled" and _predates_isolation(installed):
+        state = "unsupported"  # never claim what the installed version does not enforce
     by, at = _opt_out_info(values.get("disabled_info", "")) if disabled else (None, None)
     if nft is None:
         loopback = record
@@ -132,6 +169,7 @@ def parse_isolation_probe(stdout: str) -> IsolationStatus:
         nft=nft,
         disabled_by=by,
         disabled_at=at,
+        installed=installed,
     )
 
 
@@ -158,6 +196,11 @@ def format_isolation_line(status: IsolationStatus) -> str:
         return f"disabled (admin opt-out{who}{when})"
     if status.state == "missing":
         return "NOT enabled: run dango remote upgrade"
+    if status.state == "unsupported":
+        return (
+            f"not enforced: the installed Dango {escape(status.installed or '?')} predates "
+            "isolation (1.0.14): run dango remote upgrade"
+        )
     return "unknown"
 
 

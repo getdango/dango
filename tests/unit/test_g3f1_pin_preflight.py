@@ -153,6 +153,29 @@ def test_a_downgrade_below_the_helper_release_needs_no_pin() -> None:
     assert "preflight" not in srv.events
 
 
+def test_a_server_at_the_target_that_is_not_settled_is_checked_too() -> None:
+    srv = custom_server(version="1.0.14", helper_usable=True)
+    with pytest.raises(CloudError, match=CUSTOM):
+        upgrade_dango(srv, version="1.0.14")
+    assert "web-stop" not in srv.events and "pip" not in srv.events
+
+
+def test_a_settled_server_at_the_target_renders_nothing_so_it_is_not_checked() -> None:
+    srv = custom_server(version="1.0.14", marker=True, in_group=False)
+    srv.record = '{"dango": "1.0.14", "docker_access": "helper"}'
+    result = upgrade_dango(srv, version="1.0.14")
+    assert result.old_version == "1.0.14" == result.new_version
+    assert "preflight" not in srv.events
+
+
+def test_the_probe_is_valid_shell_and_reads_the_pin_only_as_data() -> None:
+    from dango.platform.cloud.upgrade_preflight import PROBE_CMD
+
+    assert subprocess.run(["sh", "-n", "-c", PROBE_CMD], check=False).returncode == 0
+    assert "venv/bin/python" not in PROBE_CMD and "source " not in PROBE_CMD
+    assert PROBE_CMD.index(PIN_FILE) < PROBE_CMD.index("echo ---") < PROBE_CMD.rindex("dd if=")
+
+
 def test_the_dockerfile_cannot_forge_the_pin() -> None:
     """The unpinned server stays refused even if the (service-writable) file imitates the output."""
     forged = f"ENV MB_VERSION={CUSTOM}\n---\npin={CUSTOM} {DIGEST}\n"

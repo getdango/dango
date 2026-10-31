@@ -53,6 +53,8 @@ class _RecordingSSH:
 
     def exec_command(self, command: str, timeout: int | None = None) -> CommandResult:
         self.cmds.append(command)
+        if command.startswith("test -f") and "runner/active" in command:  # no isolation marker
+            return CommandResult(stdout="", stderr="", exit_code=1)
         if command.startswith("systemd-run"):
             unit = re.search(r"--unit=(\S+)", command)
             if unit and unit.group(1) in self.units:

@@ -40,6 +40,7 @@ def remote_upgrade(
     force: bool,
 ) -> None:
     """Upgrade Dango on the remote server."""
+    from rich.markup import escape
     from rich.status import Status
 
     from dango.cli.commands.remote import _load_cloud_config_with_ssh_or_fail
@@ -146,7 +147,7 @@ def remote_upgrade(
     except SystemExit:
         raise
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Upgrade failed: {exc}")
+        console.print(f"[red]Error:[/red] Upgrade failed: {escape(str(exc))}", highlight=False)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()

@@ -102,10 +102,18 @@ def self_test_script() -> str:
 
 
 def render_script() -> str:
-    """Render the server compose file through the helper, as the service account."""
+    """Render the server compose file through the helper, as the service account.
+
+    Runs the entry point with ``-c``: ``-m`` would execute a module the ``dango.platform`` package
+    has already imported, and runpy then adds a RuntimeWarning to the error text.
+    """
+    code = (
+        "import sys; from dango.platform.compose_exec import main; "
+        f'sys.exit(main(["render", "--helper", "{PROJECT_DIR}"]))'
+    )
     return (
         "# step:P2\ncd / && runuser -u dango -- env DANGO_CLOUD_MODE=true "
-        f"{VENV_PYTHON} -I -m dango.platform.compose_exec render --helper {PROJECT_DIR}\n"
+        f"{VENV_PYTHON} -I -c {shlex.quote(code)}\n"
     )
 
 

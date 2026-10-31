@@ -70,7 +70,8 @@ class ServerStatus:
     # Version recorded by the server (root-owned server-version.json); None when unknown
     server_recorded_version: str | None = None
     # Script and notebook isolation: "on (loopback restricted)", "disabled (admin opt-out)",
-    # "NOT enabled: run dango remote upgrade" or "unknown"
+    # "NOT enabled: run dango remote upgrade", "not enforced: ..." (installed Dango predates
+    # it) or "unknown"
     isolation: str = "unknown"
 
 

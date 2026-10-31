@@ -350,8 +350,12 @@ def marker_script(srv_dir: str = SRV_DIR) -> str:
 
 
 def disable_script(srv_dir: str = SRV_DIR) -> str:
-    """Turn isolation off: remove the marker only (users, files and rules stay)."""
-    return _HEAD + f"rm -f {q(marker_path(srv_dir))}\n"
+    """Turn isolation off: remove the marker only (users, files and rules stay).
+
+    Refuses a symlink at the runner directory or the marker, like the scripts that write them.
+    """
+    marker = marker_path(srv_dir)
+    return _HEAD + _guard([runner_dir(srv_dir), marker]) + f"rm -f {q(marker)}\n"
 
 
 def remove_script(srv_dir: str = SRV_DIR) -> str:

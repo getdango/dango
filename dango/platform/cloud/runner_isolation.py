@@ -477,13 +477,17 @@ def enable_in_upgrade(
     *,
     own_guard: bool,
 ) -> str | None:
-    """:func:`enable` for ``remote upgrade``, after Docker access is settled; None below 1.0.14.
+    """:func:`enable` for ``remote upgrade``, after Docker access is settled.
 
+    Below 1.0.14 nothing is enabled: the marker is taken away instead (``isolation_downgrade``).
     The guard is re-armed after every step.  On the at-target path no guard is armed yet
     (*own_guard*): one is armed around the steps.
     """
-    from dango.platform.cloud.compose_versions import helper_capable
+    from dango.platform.cloud.compose_versions import below_helper_version, helper_capable
+    from dango.platform.cloud.isolation_downgrade import demote
 
+    if below_helper_version(version):
+        return demote(ssh, warnings, version or "", guard, own_guard=own_guard)
     if not helper_capable(version):
         return None
     if own_guard:
