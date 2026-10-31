@@ -13,10 +13,26 @@ Usage:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from dango.platform.cloud.ssh import CommandResult
+
+#: Host interpreter the loose fakes report (Ubuntu 24.04 style); real detection is tested in
+#: test_server_python.py.
+HOST_PYTHON = "/usr/bin/python3.12"
+
+
+@contextmanager
+def host_python_server() -> Iterator[None]:
+    """Loose SSH mocks: the server has a root-owned Python 3.12 and the venv runs on it."""
+    with (
+        patch("dango.platform.cloud.server_python.host_probe", return_value=(HOST_PYTHON, None)),
+        patch("dango.platform.cloud.server_python.venv_python_in_range", return_value=True),
+    ):
+        yield
 
 
 def make_ssh_mock() -> MagicMock:
@@ -47,9 +63,17 @@ def make_ssh_mock_configurable(
     results = exec_results or {}
 
     def _exec_side_effect(command: str, **kwargs: object) -> CommandResult:
+        if command.startswith('[ -n "$(find ') and "-user root" in command:
+            # The compose-helper marker probe: absent unless a test says otherwise.
+            for substr, (stdout, stderr, exit_code) in results.items():
+                if substr in command:
+                    return CommandResult(stdout=stdout, stderr=stderr, exit_code=exit_code)
+            return CommandResult(stdout="", stderr="", exit_code=1)
         for substr, (stdout, stderr, exit_code) in results.items():
             if substr in command:
                 return CommandResult(stdout=stdout, stderr=stderr, exit_code=exit_code)
+        if 'command -v "$n"' in command:  # host interpreter detection
+            return CommandResult(stdout=HOST_PYTHON + "\n", stderr="", exit_code=0)
         return CommandResult(stdout="", stderr="", exit_code=0)
 
     ssh = MagicMock()

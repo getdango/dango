@@ -2,7 +2,7 @@
 
 SSH-based server setup orchestration for Dango cloud deployments.
 
-Runs 16 idempotent setup steps on a freshly provisioned Ubuntu 22.04
+Runs 17 idempotent setup steps on a freshly provisioned Ubuntu 22.04
 droplet via an already-connected ``SSHManager``.  Each step checks whether
 the target state already exists before acting, making the entire sequence
 safe to re-run.  Config file templates are in ``_server_templates.py``.
@@ -14,12 +14,15 @@ is ``"running"``, ``"done"``, or ``"skipped"``.
 
 from __future__ import annotations
 
+import shlex
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud import compose_migrate as cm
+from dango.platform.cloud import server_python as sp
 from dango.platform.cloud._server_templates import (
     DOCKER_DAEMON_JSON,
     FAIL2BAN_JAIL,
@@ -29,6 +32,8 @@ from dango.platform.cloud._server_templates import (
     build_caddyfile,
     build_systemd_unit,
 )
+from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
+from dango.platform.cloud.upgrade_guard import UpgradeGuard
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -48,6 +53,8 @@ class SetupResult:
     steps_completed: list[str] = field(default_factory=list)
     steps_skipped: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    #: True when this run's own ``enable_fresh`` wrote the compose helper marker (none before).
+    helper_created: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -211,19 +218,6 @@ def _setup_docker(
     _notify(on_progress, step, "done")
 
 
-def _setup_docker_group(
-    ssh: SSHManager,
-    result: SetupResult,
-    on_progress: Callable[[str, str], None] | None,
-) -> None:
-    """Step 4: Add dango user to docker group."""
-    step = "docker_group"
-    _notify(on_progress, step, "running")
-    _run_checked(ssh, "usermod -aG docker dango", step=step)
-    result.steps_completed.append(step)
-    _notify(on_progress, step, "done")
-
-
 def _setup_caddy(
     ssh: SSHManager,
     result: SetupResult,
@@ -245,7 +239,10 @@ def _setup_caddy(
         " && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt'"
         " | tee /etc/apt/sources.list.d/caddy-stable.list"
         " && apt-get update -qq"
-        " && apt-get install -y -qq caddy",
+        " && apt-get install -y -qq caddy"
+        # The package starts Caddy with its default welcome page; keep it stopped
+        # until the Caddyfile step writes the real configuration.
+        " && systemctl stop caddy",
         step=step,
         timeout=300,
     )
@@ -258,7 +255,10 @@ def _setup_directories(
     result: SetupResult,
     on_progress: Callable[[str, str], None] | None,
 ) -> None:
-    """Step 6: Create /srv/dango directory structure."""
+    """Step 6: Create /srv/dango directory structure (project owned by dango).
+
+    ``/srv/dango`` itself, the venv and backups stay root's; step 17 enforces it.
+    """
     step = "directories"
     _notify(on_progress, step, "running")
     _run_checked(
@@ -268,7 +268,7 @@ def _setup_directories(
         " /srv/dango/project/.dlt"
         " /srv/dango/project/dbt"
         " /srv/dango/backups/deploy"
-        " && chown -R dango:dango /srv/dango",
+        " && chown -R dango:dango /srv/dango/project",
         step=step,
     )
     result.steps_completed.append(step)
@@ -302,9 +302,10 @@ def _setup_venv(
         pkg = f"getdango=={dango_version}"
     else:
         pkg = "getdango"
+    python = sp.ensure_server_python(ssh, warnings=result.warnings)
     _run_checked(
         ssh,
-        "python3 -m venv /srv/dango/venv"
+        f"{shlex.quote(python)} -I -m venv /srv/dango/venv"
         " && /srv/dango/venv/bin/pip install --upgrade pip -q"
         f" && /srv/dango/venv/bin/pip install '{pkg}' -q",
         step=step,
@@ -312,14 +313,14 @@ def _setup_venv(
     )
     # Install spaCy model for PII scanning (best-effort, non-fatal)
     spacy_result = ssh.exec_command(
-        "/srv/dango/venv/bin/python -m spacy download en_core_web_sm -q",
+        f"{ROOT_PYTHON} -m spacy download en_core_web_sm -q",
         timeout=120,
     )
     if not spacy_result.success:
         result.warnings.append(
             "spaCy model 'en_core_web_sm' could not be installed. "
             "PII scanning will be unavailable until installed manually: "
-            "/srv/dango/venv/bin/python -m spacy download en_core_web_sm"
+            f"{ROOT_PYTHON} -m spacy download en_core_web_sm"
         )
     result.steps_completed.append(step)
     _notify(on_progress, step, "done")
@@ -446,6 +447,9 @@ def _setup_caddyfile(
     changed = _write_remote_config(ssh, "/etc/caddy/Caddyfile", content, step=step)
     if changed:
         _run_checked(ssh, "systemctl reload-or-restart caddy", step=step)
+    else:
+        # A rerun after a failure between the write and the start must not leave Caddy stopped.
+        _run_checked(ssh, "systemctl is-active --quiet caddy || systemctl start caddy", step=step)
     _mark(result, on_progress, step, changed)
 
 
@@ -481,6 +485,102 @@ def _setup_unattended_upgrades(
         step=step,
     )
     _mark(result, on_progress, step, changed)
+
+
+def _setup_runtime_ownership(
+    ssh: SSHManager,
+    result: SetupResult,
+    on_progress: Callable[[str, str], None] | None,
+    *,
+    byos: bool = False,
+) -> None:
+    """Step 16: Root-owned /srv/dango and venv, verified.
+
+    On a re-run over an older server, a venv another user could write is rebuilt
+    first, at this client's Dango version (never re-owned as it is). A failed check
+    stops setup, except on BYOS servers, where it becomes a warning with the fix.
+    """
+    import dango
+    from dango.platform.cloud import runtime_ownership as ro
+
+    step = "runtime_ownership"
+    _notify(on_progress, step, "running")
+    try:
+        ro.rebuild_untrusted_venv(
+            ssh,
+            result.warnings,
+            version=dango.__version__,
+            python=lambda: sp.ensure_server_python(ssh, warnings=result.warnings),
+        )
+    except ro.VenvRebuildError as exc:
+        raise CloudProvisioningError(
+            f"Server setup step '{step}' failed: the venv could not be rebuilt as "
+            f"root-owned ({exc}). Setup stopped; re-run it or see the server logs."
+        ) from exc
+    ro.apply_ownership(ssh, result.warnings, cm.ownership_steps(), strict=not byos)
+    result.steps_completed.append(step)
+    _notify(on_progress, step, "done")
+
+
+def _setup_compose_helper(
+    ssh: SSHManager,
+    result: SetupResult,
+    on_progress: Callable[[str, str], None] | None,
+) -> None:
+    """Step 17: Docker access for the service account through the root-owned compose helper.
+
+    Installs and self-tests the helper, then writes the marker.  A server that already has a
+    project (a setup re-run) runs the full switch instead.  If the helper cannot be installed
+    or verified, the account joins the ``docker`` group and a loud warning is recorded; the next
+    ``remote upgrade`` retries.  The service account is never added to the group otherwise.
+    """
+    step = "compose_helper"
+    _notify(on_progress, step, "running")
+    version = cm.server_version(ssh)
+    if ssh.exec_command(f"test -f {cm.PROJECT_DIR}/.dango/project.yml").success:
+        # dango-web is stopped inside the switch: the guard brings it back if this client dies
+        guard = UpgradeGuard(ssh, result.warnings)
+        guard.arm()
+        try:
+            cm.migrate_docker_access(
+                ssh,
+                result.warnings,
+                version=version,
+                on_step=guard.rearm,
+                manage_web=True,
+                rebuild=True,
+            )
+        except cm.MetabasePinRequired:
+            guard.disarm()  # refused before dango-web was stopped: nothing needs recovering
+            raise
+        guard.disarm()
+    else:
+        from dango.platform.cloud.backup import helper_branch_active
+
+        had_marker = helper_branch_active(ssh)
+        access = cm.enable_fresh(ssh, result.warnings, version)
+        result.helper_created = not had_marker and access != cm.ACCESS_GROUP
+    result.steps_completed.append(step)
+    _notify(on_progress, step, "done")
+
+
+def _setup_runner_isolation(
+    ssh: SSHManager,
+    result: SetupResult,
+    on_progress: Callable[[str, str], None] | None,
+) -> None:
+    """Step 18: restricted users for scripts and notebooks (marker last).
+
+    A fatal failure never stops setup: it records a loud warning that isolation is NOT
+    enabled and how to retry; a warning-level failure (no firewall rules) continues.
+    """
+    from dango.platform.cloud import runner_isolation as ri
+
+    step = "runner_isolation"
+    _notify(on_progress, step, "running")
+    ri.enable(ssh, result.warnings)
+    result.steps_completed.append(step)
+    _notify(on_progress, step, "done")
 
 
 def _setup_ufw(
@@ -666,7 +766,6 @@ _SETUP_STEPS: list[
     _setup_apt_packages,
     _setup_dango_user,
     _setup_docker,
-    _setup_docker_group,
     _setup_caddy,
     _setup_directories,
     _setup_venv,
@@ -679,6 +778,9 @@ _SETUP_STEPS: list[
     _setup_caddyfile,
     _setup_fail2ban,
     _setup_unattended_upgrades,
+    _setup_runtime_ownership,
+    _setup_compose_helper,
+    _setup_runner_isolation,
 ]
 
 
@@ -726,6 +828,8 @@ def setup_server(
             _setup_caddyfile(ssh, result, on_progress, domain=domain)
         elif step_fn is _setup_systemd_unit:
             _setup_systemd_unit(ssh, result, on_progress, workers=None)
+        elif step_fn is _setup_runtime_ownership:
+            _setup_runtime_ownership(ssh, result, on_progress, byos=setup_ufw)
         elif step_fn is _setup_venv:
             _setup_venv(
                 ssh,

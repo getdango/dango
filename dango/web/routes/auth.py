@@ -514,6 +514,13 @@ async def revoke_session(session_id: str, request: Request) -> JSONResponse:
         )
 
     invalidate_session(db_path, session_id)
+    log_auth_event(
+        AuditEvent.SESSION_EXPIRED,
+        user_id=user.id,
+        email=user.email,
+        ip=_get_client_ip(request),
+        details={"session_id": session_id, "scope": "own"},
+    )
     return JSONResponse(content={"success": True})
 
 

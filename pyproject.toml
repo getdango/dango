@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "getdango"
-version = "1.0.13"
+version = "1.0.14"
 description = "Open source data platform built with production-grade tools - dlt, dbt, DuckDB, and Metabase"
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "Dango Team"}
@@ -19,7 +19,6 @@ classifiers = [
     "Intended Audience :: Information Technology",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -45,24 +44,32 @@ dependencies = [
     "jinja2>=3.1.4",
     "watchdog>=5.0.0",
     "rich>=13.7.0",
-    "inquirer>=3.4.0",
-    "InquirerPy>=0.3.4",              # used by oauth.py wizards (google_sheets, google_analytics)
+    "inquirer>=3.4.0",            # prompts in most CLI wizards (cli/wizard.py, source_wizard.py, ...)
+    "InquirerPy>=0.3.4",          # used only by cli/commands/oauth.py wizards (google_sheets, google_analytics)
     "requests>=2.33.0",           # CVE-2026-25645 fixed in 2.33.0
     "httpx>=0.27.0,<1.0",            # httpx 1.0 removes TimeoutException
-    "idna>=3.15",                     # CVE fix — transitive via httpx/requests/anyio
+    "idna>=3.15",                     # Not imported; floor pin for a CVE fix in a transitive dep (httpx/requests/anyio)
     "starlette>=1.0.1",               # PYSEC-2026-161 fixed in 1.0.1
-    "fastapi>=0.136.0",               # unpinned from <0.137 (S3-A tested on 0.138.1)
+    "fastapi>=0.136.0",               # unpinned from <0.137 (S3-A tested on 0.138.1); no upper bound, see VERSIONS.md
     "uvicorn[standard]>=0.27.0",
-    "python-multipart>=0.0.27",   # CVE-2026-40347, CVE-2026-42561 fixed in 0.0.27
+    "python-multipart>=0.0.27",   # Not imported by name; FastAPI needs it for File/UploadFile parsing (CSV upload). CVE-2026-40347, CVE-2026-42561 fixed in 0.0.27
     "websockets>=12.0",
     "aiofiles>=23.2.0",
     "psutil>=5.9.0",
     "structlog>=24.1.0",
     "tomlkit>=0.13.0",            # TOML read/write with style preservation (source_wizard, dlt_runner)
+    "tzlocal>=5.4.4",             # local timezone detection in cli/commands/schedule.py
+    "packaging>=26.3",            # version comparison in upgrade, platform and cloud code
+    "pendulum>=3.3.0",            # parsed date types in ingestion/dlt_runner.py (also a dlt dependency)
+    "sqlglot>=30.17",             # SQL validation for /api/query and MCP query (fails closed without it)
 
     # Data governance and notebooks
     "pandas>=2.0.0",
+    # Plotting libraries for user-written Marimo notebooks (mo.ui.altair_chart/plotly, matplotlib
+    # figures); not imported by Dango itself, kept so notebooks work after a plain pip install.
     "matplotlib>=3.8.0",
+    # Security floor for Pillow through the notebook plotting dependency path.
+    "Pillow>=13.0.0",
     "plotly>=5.18.0",
     "altair>=5.2.0",
     "marimo>=0.23.0",             # CVE-2026-39987 fixed in 0.23.0
@@ -74,11 +81,10 @@ dependencies = [
     "cryptography>=46.0.7",  # Token encryption; CVE-2026-26007/34073/39892 fixed in 46.0.7
     "pwdlib[bcrypt]>=0.3.0,<1.0",  # Password hashing (bcrypt)
     "pyotp>=2.9,<3.0",   # TOTP two-factor authentication
-    "toml>=0.10.2",       # TOML file parsing for .dlt/secrets.toml
+    "toml>=0.10.2",       # TOML parsing/writing for .dlt/secrets.toml (config/credentials.py, oauth/storage.py)
 
     # Google API dependencies (for bundled Google Sheets source)
     "google-api-python-client>=2.100.0",  # Google Sheets API
-    "google-auth-oauthlib>=1.0.0",        # OAuth for Google services
     "google-auth>=2.22.0",                # Google authentication
 
     # Cloud deployment
@@ -109,6 +115,7 @@ dev = [
     "types-aiofiles>=23.2.0",
     "pre-commit>=3.6.0",
     "pip-audit>=2.7.0",
+    "bandit[toml]>=1.8.0",        # SAST job in CI (.github/bandit-baseline.json holds pre-existing findings)
 ]
 # Note: dlt distributes sources via `dlt init <source>`, not pip extras.
 # dlt's pip extras are for DESTINATIONS (duckdb, bigquery, etc.) and infrastructure.
@@ -133,18 +140,23 @@ exclude = ["tests", "tests.*"]
 [tool.setuptools.package-data]
 dango = [
     "templates/**/*",
+    "transformation/duckdb_function_allowlist.txt",
     "ingestion/dlt_sources/**/*",
     "web/templates/**/*",
     "web/static/**/*",
 ]
 
+[tool.bandit]
+# CI: bandit -c pyproject.toml -ll -ii -b .github/bandit-baseline.json  (medium+ severity and confidence)
+exclude_dirs = ["dango/ingestion/dlt_sources", "tests"]
+
 [tool.black]
 line-length = 100
-target-version = ["py310", "py311", "py312", "py313"]
+target-version = ["py311", "py312", "py313"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 exclude = ["dango/ingestion/dlt_sources/"]
 
 [tool.ruff.lint]
@@ -160,10 +172,15 @@ select = [
 ignore = [
     "E501",  # line too long (handled by black)
     "B008",  # do not perform function calls in argument defaults
+    # Existing code uses these Python 3.10-compatible forms; changing the
+    # target to py311 does not require a repository-wide style rewrite.
+    "UP017", # datetime.timezone.utc versus datetime.UTC
+    "UP041", # asyncio.TimeoutError versus built-in TimeoutError
+    "UP042", # str, Enum versus StrEnum
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

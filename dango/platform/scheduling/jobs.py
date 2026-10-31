@@ -1147,6 +1147,7 @@ def _write_script_logs(
     run_id: str,
     started_at: datetime,
     error: str | None = None,
+    unisolated: bool = False,
 ) -> None:
     """Write script stdout, stderr, and metadata to log files. Never raises."""
     import json as _json
@@ -1180,6 +1181,7 @@ def _write_script_logs(
             "exit_code": exit_code if exit_code is not None else -1,
             "status": status,
             "error": error,
+            **({"unisolated": True} if unisolated else {}),
         }
         (log_dir / "meta.json").write_text(_json.dumps(meta))
 
@@ -1210,8 +1212,6 @@ def run_scheduled_script(
         script_path: Relative path to script in ``scripts/`` directory.
         **kwargs: Must include ``project_root`` (str).
     """
-    import os
-    import subprocess
     import uuid
 
     project_root = Path(kwargs.get("project_root", "."))
@@ -1235,6 +1235,7 @@ def run_scheduled_script(
     timeout_minutes = int(configured_timeout if configured_timeout is not None else 30)
 
     record_id: int | None = None
+    started: Any = None  # set once the script launched; later exits then carry its isolation label
 
     try:
         # Resolve and validate script path
@@ -1351,30 +1352,18 @@ def run_scheduled_script(
             raise JobCancelledError(f"Script cancelled before launch for {schedule_name}")
 
         # Launch subprocess
-        env = os.environ.copy()
-        env["DANGO_PROJECT_ROOT"] = str(project_root)
-
         _script_timeout = max(timeout_minutes * 60, 60)  # minimum 60s
+        from dango.platform import script_launch
 
-        proc = subprocess.Popen(
-            [sys.executable, str(script_full)],
-            cwd=str(project_root),
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+        started = script_launch.start_script(
+            project_root,
+            script_path,
+            script_full,
+            log=lambda m: log_activity(project_root, "warning", script_label, m),
         )
-
-        try:
-            stdout, stderr = proc.communicate(timeout=_script_timeout)
-        except subprocess.TimeoutExpired:
-            proc.terminate()
-            try:
-                stdout, stderr = proc.communicate(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                stdout, stderr = proc.communicate()
-
+        proc = started.proc
+        stdout, stderr, timed_out = script_launch.communicate_with_timeout(proc, _script_timeout)
+        if timed_out:
             elapsed = time.monotonic() - t0
             _write_script_logs(
                 project_root,
@@ -1388,6 +1377,7 @@ def run_scheduled_script(
                 run_id,
                 started_at,
                 error=f"Script timed out after {_script_timeout}s",
+                unisolated=started.unisolated,
             )
             log_activity(project_root, "error", script_label, "Scheduled script timed out")
             _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
@@ -1436,6 +1426,7 @@ def run_scheduled_script(
             run_id,
             started_at,
             error=error_msg,
+            unisolated=started.unisolated,
         )
 
         if exit_code == 0:
@@ -1526,6 +1517,7 @@ def run_scheduled_script(
                 run_id=run_id,
                 started_at=started_at,
                 error=str(exc) or "Job timed out (APScheduler limit)",
+                unisolated=bool(started and started.unisolated),
             )
         log_activity(project_root, "error", script_label, "Scheduled script timed out")
         _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
@@ -1567,6 +1559,7 @@ def run_scheduled_script(
                 run_id=run_id,
                 started_at=started_at,
                 error=str(exc) or "Script run was cancelled",
+                unisolated=bool(started and started.unisolated),
             )
         log_activity(project_root, "warning", script_label, "Scheduled script cancelled")
         _try_finish_record(project_root, schedule_name, record_id, "record_cancellation")
@@ -1609,6 +1602,7 @@ def run_scheduled_script(
                 run_id=run_id,
                 started_at=started_at,
                 error=error_msg,
+                unisolated=bool(started and started.unisolated),
             )
         log_activity(
             project_root,

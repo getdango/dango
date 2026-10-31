@@ -11,6 +11,8 @@ platform/
 ├── __init__.py          # Re-exports DockerManager, ServiceStatus (unchanged)
 ├── __main__.py          # python -m dango.platform → runs watcher_runner
 ├── docker.py            # DockerManager, ServiceStatus (shared local + cloud)
+├── compose_exec.py      # Compose wrapper: root-owned helper when the marker exists, else direct docker compose
+├── run_as.py            # Runs user code as a restricted OS user when the runner marker exists, else legacy argv/env (inert until wired)
 ├── CLAUDE.md            # This file
 │
 ├── common/              # Shared startup logic (local + cloud reuse)
@@ -45,6 +47,7 @@ platform/
 ├── cloud/               # Cloud-only components (TASK-022+)
 │   ├── __init__.py      # Re-exports 69 symbols (clients, provisioning, firewall, backup, deploy, journal, etc.)
 │   ├── digitalocean.py  # DO REST API v2 client (Droplets, SSH Keys, Firewalls)
+│   ├── create_reconcile.py # Look up and adopt a resource by name when a create call's outcome is unknown (1.0.14)
 │   ├── provisioning.py  # Size tiers, regions, provision_droplet() orchestration (TASK-023)
 │   ├── size_availability.py  # Size-in-region availability check (T16)
 │   ├── firewall.py      # Firewall lifecycle, IP allowlisting (TASK-025)
@@ -54,13 +57,32 @@ platform/
 │   ├── server_status.py # Server resource metrics + service status via SSH (TASK-104)
 │   ├── domain.py        # DNS check, set_domain(), remove_domain() (TASK-027)
 │   ├── backup.py        # SSH-based backup + rollback (TASK-035)
+│   ├── backup_restore.py # Copy helpers for backup/restore (WAL sidecars, fail-on-error, restore as service user)
 │   ├── file_sync.py     # Project file sync: SFTP + rsync (TASK-028)
+│   ├── empty_guard.py   # Refuse an empty-dir rsync --delete mirror (1.0.14)
+│   ├── rsync_transport.py # rsync over ssh verifying the paramiko-pinned host key (1.0.14)
 │   ├── deployer.py      # Push deployment workflow + deploy lock (TASK-030)
 │   ├── deploy_journal.py # Append-only JSONL deployment history (P8-004)
 │   ├── scheduled_backup.py  # Server-side scheduled backup (TASK-103)
 │   ├── resize.py        # In-place resize (power off → resize → power on) (TASK-104)
 │   ├── migrate.py       # Server migration (new droplet via Spaces) (TASK-105)
 │   ├── upgrade.py       # Remote Dango version upgrade (TASK-106)
+│   ├── runtime_ownership.py  # Root-owned /srv/dango + venv, trust probe, venv rebuild (1.0.14)
+│   ├── server_python.py # Python 3.11+ for the server venv: host interpreter or pinned build (1.0.14)
+│   ├── server_python_scripts.py # Shell text + pinned values for that interpreter (detect, check, install)
+│   ├── compose_helper.py # Root-owned compose helper text + install scripts (1.0.14)
+│   ├── compose_migrate.py # Switch Docker access from the docker group to the helper (migration, fallback, downgrade restore)
+│   ├── compose_steps.py   # Shared steps of the switch (run a script as root, dango-web stop/start, Metabase rebuild, version record)
+│   ├── compose_versions.py # Version checks + client/server notices for the switch
+│   ├── compose_scripts.py # Shell scripts + constants for that switch (tagged `# step:XX`)
+│   ├── runner_isolation.py # Plan + failure policy + marker record + setup/upgrade wiring for the restricted runner users
+│   ├── runner_scripts.py  # Shell text: runner users, dirs, sudoers, loopback nft, marker
+│   ├── runner_access_scripts.py # Shell text: ownership check, quiesce, project deny/notebook ACLs (run as dango), verify
+│   ├── runner_persistence.py # Shell text: deny cron/at for the runners, clear crontab/at/linger/user units, checks
+│   ├── runner_reapply.py  # Re-apply the permission steps after deploy, push and restore
+│   ├── server_compose.py # Server render run by the helper (1.0.14)
+│   ├── metabase_pin.py   # Root-owned SHA-256 pin for custom Metabase versions (1.0.14)
+│   ├── pushed_requirements.py # Root installs requirements only from the pusher's local files (1.0.14)
 │   └── _server_templates.py  # Config file templates (incl. build_caddyfile(), backup timer)
 │
 │   # Backwards-compatible shims (re-export from local/)
@@ -75,11 +97,13 @@ platform/
 | File | Purpose | Key Symbols |
 |------|---------|-------------|
 | `docker.py` | Docker Compose lifecycle + persisted project-identity (1.0.8-Q9) + collision guard (1.0.8-Q8) | `DockerManager`, `ServiceStatus`, `get_compose_project_name()`, `render_docker_compose()`, `_get_existing_container_working_dirs()`, `_legacy_path_hash()` |
-| `common/startup.py` | Shared startup helpers | `run_pending_migrations`, `ensure_dbt_schemas`, `check_duckdb_version_alignment`, `ensure_duckdb_driver`, `start_docker_services`, `setup_metabase_if_needed`, `metabase_startup_work_pending`, `wait_for_metabase_if_needed`, `import_dashboards` |
+| `compose_exec.py` | Dango-side compose wrapper. With the marker file (`/srv/dango/compose/active`, root-owned) compose runs through `sudo -n dango-compose <verb>` (caller timeouts raised above helper lock wait + budget; exit 75 -> `ComposeBusy`, 124/137/143 -> `TimeoutExpired`, signalled wrapper -> `ComposeInterrupted`); without it the legacy direct argv is unchanged. The marker is written by `cloud/compose_migrate.py` (setup, `remote upgrade`) | `uses_helper`, `run_compose`, `render`, `render_args`, `effective_timeout`, `ComposeBusy`, `ComposeInterrupted`, `ComposeRenderError` |
+| `common/startup.py` | Shared startup helpers | `run_pending_migrations`, `ensure_dbt_schemas`, `check_duckdb_version_alignment`, `ensure_duckdb_driver`, `start_docker_services`, `setup_metabase_if_needed`, `metabase_startup_work_pending`, `wait_for_metabase_if_needed`, `apply_metabase_duckdb_lock_if_needed`, `import_dashboards` |
 | `common/metabase_credential_state.py` | Read-only Metabase admin credential classification for `serve` (no repair; at most one health GET + one login) and the server-side repair command | `metabase_admin_credential_state`, `cloud_repair_admin_command` |
 | `common/metabase_credential_migration.py` | Legacy Metabase credential state machine | `prepare_metabase_credential_migration`, `migration_pending`, `complete_metabase_credential_migration` |
 | `common/metabase_admin_repair.py` | Automatic data-preserving recovery of a lost Metabase admin credential (offline `reset-password` CLI, never deletes the volume) | `repair_admin_credential`, `describe_repair_outcome` |
 | `local/network.py` | Shared nginx routing (local dev) | `NetworkConfig`, `NginxManager`, `HostsManager` |
+| `local/routing.py` | Read-only `routing.json` access (same file as `NetworkConfig.routing_file`); used by auth-disabled mode | `routing_file_path()`, `get_registered_domains()` |
 | `local/watcher.py` | File change detection | `DebouncedFileHandler`, `FileWatcher`, `MultiTargetWatcher`, `SyncTrigger` |
 | `local/watcher_lifecycle.py` | Watcher subprocess lifecycle | `start_file_watcher`, `stop_file_watcher`, `get_watcher_status`, `get_watcher_pid_file_path` |
 | `local/watcher_runner.py` | Background watcher process | `main` |
@@ -92,6 +116,7 @@ platform/
 | `notifications/webhook.py` | Event types, config models, event filtering, async sender with retry | `WebhookSender`, `WebhookConfig`, `NotificationConfig`, `EventType`, `EventCategory`, `WebhookPayload` |
 | `notifications/slack.py` | Slack Block Kit formatter for webhook payloads | `format_slack_message` |
 | `cloud/digitalocean.py` | DigitalOcean REST API v2 client | `DigitalOceanClient` |
+| `cloud/create_reconcile.py` | Create POSTs (droplet, firewall, SSH key) are sent once; after a 5xx, timeout or dropped answer the resource is found by its unique name and adopted when exactly one matches (none or several: `CloudError`). 429 and connection failures before sending are still retried | `reconcile_create`, `CreateOutcomeUnknown`, `list_firewalls`, `same_public_key` |
 | `cloud/provisioning.py` | Droplet size tiers, regions, provisioning orchestration | `DropletSizeTier`, `RegionInfo`, `SIZE_TIERS`, `DEFAULT_TIER`, `provision_droplet`, `wait_for_droplet_ready`, `wait_for_ssh`, `suggest_nearest_region`, `save_provisioning_metadata` |
 | `cloud/size_availability.py` | Which DO regions offer a droplet size (wizard region filter + pre-provision check, T16) | `regions_for_size`, `offerable_regions`, `fetch_sizes`, `check_size_in_region`, `SizeUnavailableError` |
 | `cloud/firewall.py` | Firewall lifecycle and IP allowlisting | `create_default_firewall`, `add_allowed_ip`, `restrict_web_to_ips`, `allow_all_web`, `validate_ip_or_cidr`, `save_firewall_metadata` |
@@ -100,14 +125,32 @@ platform/
 | `cloud/server_setup.py` | SSH-based server setup orchestration (16 steps + optional UFW for BYOS) + install source detection | `setup_server` (`setup_ufw`, `install_source` params), `SetupResult`, `resolve_install_source` |
 | `cloud/server_status.py` | Server resource metrics, service status, PyPI version check | `ServerStatus`, `ServiceInfo`, `collect_server_status`, `check_latest_pypi_version`, `get_local_resource_usage` |
 | `cloud/domain.py` | DNS check, domain set/remove for HTTPS via Caddy | `check_dns`, `set_domain`, `remove_domain` |
-| `cloud/backup.py` | SSH-based backup and rollback | `create_backup`, `rollback`, `list_local_backups`, `rotate_local_backups`, `BackupManifest`, `BackupResult`, `RestoreResult`, `BACKUP_FILES`, `BACKUP_DIRS`, `SECRET_FILES`, `get_remote_compose_project_name()` |
-| `cloud/file_sync.py` | Project file sync (SFTP + rsync) with change detection | `sync_project_files`, `SyncResult` |
+| `cloud/backup.py` | SSH-based backup and rollback (private staging; only regular files/dirs copied; restores remove live WAL sidecars of `DATABASE_FILES` first and never turn auth off; a failed copy fails the step). Every project path is in `BACKUP_FILES`/`BACKUP_DIRS`/`SECRET_FILES` or `EXCLUDED_PATHS` (test-enforced) | `create_backup`, `rollback`, `wal_sidecar_names`, `list_local_backups`, `rotate_local_backups`, `BackupManifest`, `BackupResult`, `RestoreResult`, `BACKUP_FILES`, `BACKUP_DIRS`, `DATABASE_FILES`, `EXCLUDED_PATHS`, `SECRET_FILES`, `get_remote_compose_project_name()` |
+| `cloud/backup.py` root compose calls | With the helper marker, `stop_services`/`start_services`/volume lookup and the callers in `remote_repair.py` (`start`, `down-volumes`) and `deploy.py destroy` use `server_compose_cmd(...)` (helper verb, else the legacy command unchanged); the timer's `scheduled_backup.py` checks the marker in Python (`uses_helper`) and runs the helper directly. Backup order with the helper: `stop metabase` (busy = abort, nothing stopped), `systemctl stop dango-web`, `stop metabase` again; a busy `start` still starts dango-web and is reported. Timeouts = `root_helper_timeout(verb)` | `DockerBusyError`, `root_helper_timeout`, `DOCKER_BUSY_MESSAGE` |
+| `cloud/backup_restore.py` | Shell copy helpers shared by `backup.py` and `scheduled_backup.py`; restores run as root but write project files as the service user (`runuser -u dango --`), and root writes only the Metabase volume (refusing symlinked destinations) | `wal_sidecar_names`, `restore_file_cmd`, `restore_dir_cmd`, `restore_backup_dir_cmd` (notebooks are replaced, not merged: the old directory is renamed aside into a private `dango-restore-kept-*` directory, put back if the copy fails), `private_dir_cmd` (root-only restore staging/upload under `/srv/dango/.restore`), `restore_volume_file_cmd`, `hand_staging_to_service_user_cmd`, `AS_SERVICE_USER`, `backup_file_cmd`, `backup_dir_cmd`, `prune_backup_staging_cmd`, `owned_data_target`, `BACKUP_EXCLUDES`, `auth_config_keeps_auth_on` |
+| `cloud/file_sync.py` | Project file sync with change detection; project writes run as `dango` via `project_files`, rsync's server side runs as `dango`, and an empty local sync dir over a non-empty server copy is refused unless `allow_empty` | `sync_project_files`, `SyncResult` |
+| `cloud/empty_guard.py` | Refuse `rsync --delete` of an empty local directory over a non-empty server copy | `refuse_empty_mirrors` |
+| `cloud/rsync_transport.py` | rsync with `StrictHostKeyChecking=yes` against SSHManager's known_hosts + port; refuses unpinned hosts; sends a mode-normalised copy (dirs 0755, files 0644/0755), never the project's own modes | `rsync_target`, `_rsync_directory` |
 | `cloud/deployer.py` | Push deployment workflow with deploy lock | `push_deploy`, `DeployLock`, `DeployResult` |
 | `cloud/deploy_journal.py` | Append-only JSONL deployment history | `DeploymentRecord`, `write_local_journal`, `write_remote_journal`, `read_local_journal`, `read_remote_journal`, `get_latest_deployment` |
 | `cloud/scheduled_backup.py` | Server-side scheduled backup to Spaces | `run_scheduled_backup`, `list_spaces_backups`, `restore_from_spaces`, `enable_scheduled_backup`, `disable_scheduled_backup` |
-| `cloud/resize.py` | In-place droplet resize (power off → resize → power on, regenerate dbt profiles) | `resize_droplet`, `ResizeResult`, `validate_size_slug`, `generate_dbt_profiles_yml`, `regenerate_dbt_profiles`, `get_disk_warning` |
+| `cloud/resize.py` | In-place droplet resize (power off → resize → power on, regenerate dbt profiles) | `resize_droplet`, `ResizeResult`, `validate_size_slug`, `generate_dbt_profiles_yml`, `regenerate_dbt_profiles`, `get_disk_warning`, `get_power_state`, `power_on_and_wait` |
 | `cloud/migrate.py` | Server migration via Spaces (new droplet, transfer data, destroy old) | `migrate_server`, `MigrateResult` |
 | `cloud/upgrade.py` | Remote Dango version upgrade (pip install, migrations, Docker rebuild) | `upgrade_dango`, `UpgradeResult`, `validate_version_string`, `check_versions` |
+| `cloud/upgrade_guard.py` | Server-side systemd timer that starts `dango-web` if the upgrading client dies (re-armed per step, waits while a step runs) | `UpgradeGuard` |
+| `cloud/upgrade_preflight.py` | Checks `upgrade_dango` makes before it stops or changes anything: a custom Metabase `MB_VERSION` without an administrator pin (`compose/metabase-jar.pin`) is refused with the full pin command (`DANGO-D025`); uses the server's own parsers (`mb_version_of`, `parse_pin_record`) and a link-safe direct write for servers whose helper cannot pin yet | `check_metabase_pin`, `recovery`, `direct_pin_script` |
+| `cloud/upgrade_access.py` | `upgrade_dango` at the target version: finish the compose-helper switch (or an interrupted downgrade's restore) | `switch_at_target` |
+| `cloud/isolation_downgrade.py` | A downgrade below 1.0.14 removes the runner-isolation marker (nothing else) and says isolation is not enforced; `remote status` also reads the installed version (`unsupported` state) | `demote`, `not_enforced_line` |
+| `cloud/compose_helper.py` | Root-owned compose helper (POSIX sh text, sudoers rule, install scripts, per-verb budgets, `server_compose_cmd`) | `helper_script`, `install_script`, `server_compose_cmd`, `VERB_BUDGET`, `min_caller_timeout` |
+| `cloud/compose_migrate.py` (+ `compose_steps.py`) | Switch to the helper: install + self-test, pin + render, marker last, remove the `docker` group, end processes that hold the gid (T), fallback to the group with a warning (only when the marker did not exist before the command; otherwise the switch is kept), downgrade restore (group back, Metabase volume to uid 999), first-deploy build, version record + client notices | `migrate_docker_access`, `enable_fresh`, `prebuild_images`, `restore_docker_access`, `enter_fallback`, `needs_migration`, `rebuild_command`, `refresh_web_unit`, `ownership_steps`, `client_version_notice` |
+| `cloud/compose_scripts.py` | Shell scripts for the switch (prechecks, self-test, render/verify, consistency check, group removal, process drop, fallback, downgrade restore, marker + version record, ownership step) | `marker_script`, `terminate_script`, `restore_script`, `ownership_steps`, `release_of` |
+| `cloud/runner_isolation.py` (+ `runner_scripts.py`, `runner_access_scripts.py`) | Inert builders for the restricted runner users: ordered step list (marker last, fatal vs warn policy), id rules, marker record read, root scripts (users, dirs, sudoers, nft, marker) and service-user scripts (project deny ACLs, notebook ACL, verify). `enable`/`enable_in_upgrade` run the plan in server setup and `remote upgrade` (ownership check first, no runner process while permissions are written); `runner_reapply` repeats the permission steps after deploy, push and restore | `build_steps`, `enable`, `reapply`, `run_steps`, `read_record`, `assert_runner_ids`, `as_service_user`, `project_permission_script`, `notebooks_acl_script`, `verify_script` |
+| `cloud/server_compose.py` | Server-side compose/Dockerfile render and bounded plugin-jar staging, run by the helper's `render` verb | `main`, `Layout`, `acquire_lock`, `quote_name` |
+| `cloud/metabase_pin.py` | Which SHA-256 the server build accepts for the Metabase jar: compiled default for the default version, else a root-owned `compose/metabase-jar.pin` written by the helper's root-only `pin-metabase VERSION SHA256` verb (missing/mismatched/unsafe pin = render exit 68, build files untouched) | `digest_for_version`, `pin_custom`, `PinError`, `DEFAULT_MB_VERSION`, `DEFAULT_MB_DIGEST` |
+| `cloud/upgrade_caddy.py` | Caddyfile WebSocket-route migration run by `upgrade_dango` | `run_ws_migration`, `has_ws_auth_endpoint` |
+| `cloud/runtime_ownership.py` | Root-owned runtime: composable ownership steps (`OwnershipStep`) + verify script, root installs of pushed requirements only (`check_requirements`), in-place rebuild of a venv a non-root user could write (fails closed: `VenvRebuildError` aborts upgrade/setup) | `ownership_steps`, `build_ownership_script`, `build_verify_script`, `apply_ownership`, `secure_runtime`, `rebuild_untrusted_venv`, `at_target_restart_plan`, `venv_trust_findings`, `VenvRebuildError`, `ROOT_PYTHON` |
+| `cloud/server_python.py` (+ `server_python_scripts.py`) | Interpreter for the server venv (Python 3.11-3.13, `requires-python`): a root-owned host interpreter under `/usr` (judged by owner/mode of every path component before it is run), else the pinned CPython build installed under `/opt/dango/python` (HTTPS download, size + SHA-256 checked before extraction, archive entries restricted, root-owned tree, marker, `mv -T`). Fresh setup builds the venv with it; `remote upgrade` ensures it before any stop/backup/guard and rebuilds a venv whose Python is too old; failures raise `DANGO-D024` | `ensure_server_python`, `prepare_upgrade`, `venv_python_in_range`, `ServerPythonError`, `PYTHON_BUILDS`, `host_python_script`, `install_script`, `link_check_arm` |
+| `cloud/pushed_requirements.py` | Root installs `requirements.txt` / `scripts/requirements.txt` only from the pusher's local copies (private upload), refusing editable, local-path, nested, non-http(s) index and credential-bearing lines | `check_requirements`, `install_pushed_requirements`, `REQUIREMENT_FILES` |
 | `cloud/remote_launch.py` | Shell-script builder to start a command in the background on a remote host with `cd` guard and liveness check (shared by `remote sync` and MCP `remote_sync`) | `build_background_launch` |
 | `cloud/_server_templates.py` | Config file templates (systemd, Caddy, fail2ban, backup timer, etc.) | `build_caddyfile`, `build_systemd_unit`, `SYSTEMD_UNIT`, `CADDYFILE`, `SYSTEMD_BACKUP_SERVICE`, `SYSTEMD_BACKUP_TIMER`, etc. |
 
@@ -336,8 +379,8 @@ dango remote rollback
 ## Remote Server Layout
 
 ```
-/srv/dango/                            # Application root (owner: dango)
-├── project/                           # Synced project files
+/srv/dango/                            # Application root (root:root 0755; runtime_ownership.py)
+├── project/                           # Synced project files (owner: dango)
 │   ├── .dango/                        # Dango state
 │   │   ├── cloud.yml                  # Cloud config (IP, region, size, etc.)
 │   │   ├── state/                     # Runtime state
@@ -346,8 +389,9 @@ dango remote rollback
 │   ├── .env                           # Environment variables
 │   ├── data/warehouse.duckdb          # DuckDB database
 │   └── docker-compose.yml             # Generated Docker Compose
-├── venv/                              # Python virtual environment
-└── backups/deploy/                    # Pre-deploy backups
+├── venv/                              # Python virtual environment (root-owned, no group/other write)
+├── secrets/                           # dango 0700 (Metabase credential fallback)
+└── backups/deploy/                    # Pre-deploy backups (root:dango 0750, files 0600)
 
 /etc/caddy/Caddyfile                   # Reverse proxy (HTTP or HTTPS)
 /etc/systemd/system/dango.service      # Dango systemd unit
@@ -360,7 +404,7 @@ Post-deployment hardening (not automated by Dango):
 
 - **Cloudflare proxy:** Route traffic through Cloudflare for DDoS protection and CDN. Set Caddy to trust Cloudflare IPs for correct client IP logging.
 - **UptimeRobot:** Monitor `/api/health` endpoint for uptime alerts. Free tier supports 5-minute check intervals.
-- **Firewall IP restriction:** Use `dango remote firewall allow-ip` to restrict web access to known IPs during development/staging.
+- **Firewall IP restriction:** Use `dango remote firewall allow-ip` to restrict web access to known IPs during development/staging (no-domain deploys only: with a domain, keep 80/443 open or certificate renewal breaks).
 
 ## Testing
 

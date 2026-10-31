@@ -41,6 +41,17 @@ from dango.cli import console
 @click.option("--server-ip", type=str, default=None, help="Server IP/hostname for --byos.")
 @click.option("--ssh-user", type=str, default="root", help="SSH user for --byos.")
 @click.option("--ssh-key", type=str, default=None, help="SSH key path for --byos.")
+@click.option(
+    "--allow-ip",
+    "allow_ip",
+    multiple=True,
+    help="Without --domain: restrict ports 80/443 to this IPv4 address or CIDR (repeatable).",
+)
+@click.option(
+    "--accept-http-exposure",
+    is_flag=True,
+    help="Without --domain: deploy over plain HTTP with the web ports open to the internet.",
+)
 @click.pass_context
 def deploy(  # noqa: PLR0913
     ctx: click.Context,
@@ -57,6 +68,8 @@ def deploy(  # noqa: PLR0913
     server_ip: str | None,
     ssh_user: str,
     ssh_key: str | None,
+    allow_ip: tuple[str, ...],
+    accept_http_exposure: bool,
 ) -> None:
     """Deploy and manage Dango cloud infrastructure.
 
@@ -66,6 +79,8 @@ def deploy(  # noqa: PLR0913
     Examples:
       dango deploy                              Interactive wizard
       dango deploy --non-interactive            All params via flags/env (DO)
+      dango deploy --non-interactive --allow-ip 203.0.113.7
+                                                No domain: restrict web access
       dango deploy --reconnect --ip X           Reconnect to existing server
       dango deploy --byos --server-ip X         Deploy to your own server
       dango deploy destroy                      Tear down cloud infrastructure
@@ -108,6 +123,8 @@ def deploy(  # noqa: PLR0913
             domain=domain,
             admin_email=admin_email,
             admin_password=admin_password,
+            allow_ip=allow_ip,
+            accept_http_exposure=accept_http_exposure,
         )
         return
 
@@ -121,6 +138,8 @@ def deploy(  # noqa: PLR0913
             admin_email=admin_email,
             admin_password=admin_password,
             skip_backups=skip_backups,
+            allow_ip=allow_ip,
+            accept_http_exposure=accept_http_exposure,
         )
         return
 
@@ -131,11 +150,22 @@ def deploy(  # noqa: PLR0913
 
     choice = click.prompt("  Choice", default="1", show_default=True)
 
+    from dango.cli.commands.deploy_wizard import resolve_exposure_flags
+
+    # Flags given here pre-answer the wizard's web-access question.
+    preset_ips, preset_ack = resolve_exposure_flags(
+        domain=domain,
+        allow_ip=allow_ip,
+        accept_http_exposure=accept_http_exposure,
+        byos=choice == "2",
+        require=False,
+    )
+
     if choice == "2":
         from dango.cli.commands.deploy_provision import run_byos_setup
         from dango.cli.commands.deploy_wizard import run_byos_wizard
 
-        byos_config = run_byos_wizard(project_root)
+        byos_config = run_byos_wizard(project_root, accept_http_exposure=preset_ack, domain=domain)
         try:
             byos_result = run_byos_setup(project_root, byos_config)
         except Exception:
@@ -145,7 +175,9 @@ def deploy(  # noqa: PLR0913
     else:
         from dango.cli.commands.deploy_wizard import run_wizard
 
-        wizard_config = run_wizard(project_root)
+        wizard_config = run_wizard(
+            project_root, allowed_ips=preset_ips, accept_http_exposure=preset_ack, domain=domain
+        )
         _handle_do_deploy_with_config(project_root, wizard_config)
 
 
@@ -158,6 +190,8 @@ def _handle_reconnect(project_root: Path, ip: str | None) -> None:
     """Reconnect to an existing Dango server and write cloud.yml."""
     from dango.config.loader import ConfigLoader
     from dango.config.models import CloudConfig
+    from dango.exceptions import CloudProvisioningError
+    from dango.platform.cloud.project_files import read_project_file
     from dango.platform.cloud.ssh import SSHManager
 
     if not ip:
@@ -178,8 +212,16 @@ def _handle_reconnect(project_root: Path, ip: str | None) -> None:
         raise SystemExit(1) from exc
 
     try:
-        result = ssh.exec_command("cat /srv/dango/project/.dango/project.yml 2>/dev/null | head -5")
-        if not result.success or not result.stdout.strip():
+        try:
+            project_yml = read_project_file(ssh, "/srv/dango/project/.dango/project.yml")
+        except CloudProvisioningError as exc:
+            console.print(
+                "[red]Error:[/red] Server is not a Dango deployment or the project file "
+                f"is unreadable: {exc}"
+            )
+            raise SystemExit(1) from exc
+        head = "\n".join(project_yml.splitlines()[:5])
+        if not head.strip():
             console.print("[red]Error:[/red] Server does not appear to be a Dango deployment.")
             raise SystemExit(1)
     finally:
@@ -203,6 +245,8 @@ def _handle_byos(
     domain: str | None,
     admin_email: str | None,
     admin_password: str | None,
+    allow_ip: tuple[str, ...] = (),
+    accept_http_exposure: bool = False,
 ) -> None:
     """Run BYOS deployment (non-interactive via --byos flag)."""
     from dango.cli.commands.deploy_provision import run_byos_setup
@@ -216,6 +260,8 @@ def _handle_byos(
         domain=domain,
         admin_email=admin_email,
         admin_password=admin_password,
+        allow_ip=allow_ip,
+        accept_http_exposure=accept_http_exposure,
     )
 
     try:
@@ -235,6 +281,8 @@ def _handle_do_deploy(
     admin_email: str | None,
     admin_password: str | None,
     skip_backups: bool,
+    allow_ip: tuple[str, ...] = (),
+    accept_http_exposure: bool = False,
 ) -> None:
     """Run DO deployment (non-interactive mode)."""
     from dango.cli.commands.deploy_wizard import run_non_interactive
@@ -247,6 +295,8 @@ def _handle_do_deploy(
         admin_email=admin_email,
         admin_password=admin_password,
         skip_backups=skip_backups,
+        allow_ip=allow_ip,
+        accept_http_exposure=accept_http_exposure,
     )
     _handle_do_deploy_with_config(project_root, config, non_interactive=True)
 
@@ -272,7 +322,10 @@ def _handle_do_deploy_with_config(
         admin_password=result.admin_password,
         warnings=result.warnings,
         domain=config.domain,
-        backup_enabled=config.enable_backups,
+        backup_enabled=bool(
+            config.enable_backups and config.spaces_access_key and config.spaces_secret_key
+        ),
+        allowed_ips=list(result.allowed_ips),
     )
 
 
@@ -286,6 +339,7 @@ def _print_byos_success(result: Any, config: Any) -> None:
         warnings=result.warnings,
         domain=config.domain,
         backup_enabled=False,
+        byos=True,
     )
 
 
@@ -298,6 +352,8 @@ def _print_deploy_success(
     warnings: list[str],
     domain: str | None = None,
     backup_enabled: bool = False,
+    allowed_ips: list[str] | None = None,
+    byos: bool = False,
 ) -> None:
     """Print deployment success output (shared by DO and BYOS paths)."""
     console.print("\n[bold green]Deployment complete![/bold green]")
@@ -314,11 +370,17 @@ def _print_deploy_success(
             "\n  [bold]Backups:[/bold] Enabled (daily at 02:00 UTC to Spaces). "
             "Run [bold]dango remote backup download[/bold] to save a local copy."
         )
-    else:
+    elif byos:
         console.print(
             "\n  [yellow]Backups:[/yellow] Not configured. Backups are stored on this "
             "server only — if the server is lost, so are your backups. "
             "See https://docs.getdango.dev/deployment/backups for BYOS backup options."
+        )
+    else:
+        console.print(
+            "\n  [yellow]Backups:[/yellow] Not configured. Backups are stored on this "
+            "server only — if the server is lost, so are your backups. "
+            "Add Spaces keys with [bold]dango remote backup enable[/bold]."
         )
     if warnings:
         for w in warnings:
@@ -326,14 +388,30 @@ def _print_deploy_success(
     console.print("\n  Next: Visit the URL above and log in with your admin credentials.")
     console.print("  Sync your data sources from the Sources page.")
     if not domain:
-        console.print(
-            "\n  [yellow]Warning:[/yellow] Running over HTTP (unencrypted)."
-            " Set up a domain for HTTPS: [bold]dango remote domain set <domain>[/bold]"
-        )
+        _print_http_only_block(allowed_ips or [], byos=byos)
 
     import webbrowser
 
     webbrowser.open(url)
+
+
+def _print_http_only_block(allowed_ips: list[str], *, byos: bool) -> None:
+    """State the exposure of a deploy without a domain (plain HTTP)."""
+    if allowed_ips:
+        access = f"restricted to {', '.join(allowed_ips)}"
+    elif byos:
+        access = "OPEN to the internet unless your own firewall restricts ports 80/443"
+    else:
+        access = (
+            "OPEN to the internet "
+            "(restrict it with [bold]dango remote firewall allow-ip <your-ip>[/bold])"
+        )
+    console.print(
+        "\n  [bold red]HTTP only — credentials travel unencrypted.[/bold red]"
+        "\n  Admin password, session cookie and API keys are sent in clear text."
+        f"\n  Web access: {access}"
+        "\n  Next: set up HTTPS with [bold]dango remote domain set <domain>[/bold]"
+    )
 
 
 def _load_deploy_config(ctx: click.Context) -> tuple[Any, Path]:
@@ -478,33 +556,56 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
 
     key_path = _resolve_key_path(cloud_cfg, project_root)
     if key_path.exists():
-        ssh = SSHManager(
-            key_path=key_path,
-            known_hosts_path=key_path.parent / "known_hosts",
-        )
+        ssh = SSHManager(key_path=key_path)
         try:
             ssh.connect(cloud_cfg.droplet_ip)
 
-            # 1. Stop dango-web systemd service
+            # 1. Stop dango-web (the unit is only removed once the Docker teardown succeeded,
+            #    so a failed teardown can be undone by starting it again)
             console.print("Stopping dango-web service...")
             ssh.exec_command("systemctl stop dango-web 2>/dev/null || true", timeout=15)
+
+            # 2. Stop and remove Docker containers, volumes, images
+            _server_project_dir = "/srv/dango/project"
+            from dango.platform.cloud.backup import (
+                DOCKER_BUSY_MESSAGE,
+                get_remote_compose_project_name,
+                helper_branch_active,
+                root_helper_timeout,
+            )
+            from dango.platform.cloud.compose_helper import server_compose_cmd
+            from dango.platform.compose_exec import EXIT_BUSY
+
+            _proj_name = get_remote_compose_project_name(ssh, _server_project_dir)
+            console.print("Stopping Docker services...")
+            down = ssh.exec_command(
+                server_compose_cmd(
+                    "destroy",
+                    legacy=(
+                        f"cd {_server_project_dir} && "
+                        f"COMPOSE_PROJECT_NAME={_proj_name} docker compose down --volumes "
+                        "--rmi local 2>/dev/null || true"
+                    ),
+                ),
+                timeout=root_helper_timeout("destroy") if helper_branch_active(ssh) else 120,
+            )
+            if down.exit_code != 0:
+                # Compose did not finish: leave the server files and the local config for a
+                # retry, and start dango-web again (its unit is still installed).
+                ssh.exec_command("systemctl start dango-web 2>/dev/null || true", timeout=15)
+                detail = (
+                    DOCKER_BUSY_MESSAGE
+                    if down.exit_code == EXIT_BUSY
+                    else f"The Docker teardown failed (exit {down.exit_code}); retry later."
+                )
+                console.print(f"[red]Error:[/red] {detail} dango-web was started again.")
+                raise click.Abort()
+
+            # 2b. Remove the dango-web unit
             ssh.exec_command("systemctl disable dango-web 2>/dev/null || true", timeout=10)
             ssh.exec_command(
                 "rm -f /etc/systemd/system/dango-web.service && systemctl daemon-reload",
                 timeout=10,
-            )
-
-            # 2. Stop and remove Docker containers, volumes, images
-            _server_project_dir = "/srv/dango/project"
-            from dango.platform.cloud.backup import get_remote_compose_project_name
-
-            _proj_name = get_remote_compose_project_name(ssh, _server_project_dir)
-            console.print("Stopping Docker services...")
-            ssh.exec_command(
-                f"cd {_server_project_dir} && "
-                f"COMPOSE_PROJECT_NAME={_proj_name} docker compose down --volumes --rmi local "
-                "2>/dev/null || true",
-                timeout=120,
             )
 
             # 3. Remove all Dango files
@@ -521,6 +622,8 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
             )
 
             console.print("[green]Server cleaned up.[/green]")
+        except click.Abort:
+            raise
         except Exception as exc:
             console.print(
                 f"[yellow]Warning:[/yellow] Could not fully clean up remote server: {exc}"
@@ -724,10 +827,7 @@ def _offer_backup_download(cloud_cfg: Any, project_root: Path) -> None:
     if not key_path.exists():
         return
 
-    ssh = SSHManager(
-        key_path=key_path,
-        known_hosts_path=key_path.parent / "known_hosts",
-    )
+    ssh = SSHManager(key_path=key_path)
 
     server_latest: str | None = None
 

@@ -108,9 +108,12 @@ class TestSerializeEnvFile:
 
 
 def _make_ssh_mock(env_content: str = "") -> MagicMock:
-    """Create a mock SSHManager that returns *env_content* from read_remote_file."""
+    """Create a mock SSHManager whose service-user read returns *env_content*."""
+    from dango.platform.cloud.ssh import CommandResult
+
     ssh = MagicMock()
-    ssh.read_remote_file.return_value = env_content
+    # The .env is read and written as the service user via exec_command.
+    ssh.exec_command.return_value = CommandResult(stdout=env_content, stderr="", exit_code=0)
     ssh.disconnect.return_value = None
     return ssh
 

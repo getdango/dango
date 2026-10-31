@@ -59,11 +59,9 @@ def _make_ssh_manager(cloud_cfg: Any, project_root: Path) -> Any:
     """Create SSHManager from CloudConfig, resolving ssh_key_path."""
     from dango.platform.cloud.ssh import SSHManager
 
-    key_path = _resolve_ssh_key_path(cloud_cfg, project_root)
-    return SSHManager(
-        key_path=key_path,
-        known_hosts_path=key_path.parent / "known_hosts",
-    )
+    # Default known_hosts (~/.dango/known_hosts): the one file paramiko, rsync and
+    # `remote ssh` all verify against.  Pins in <key dir>/known_hosts are still honoured.
+    return SSHManager(key_path=_resolve_ssh_key_path(cloud_cfg, project_root))
 
 
 def _resolve_ssh_key_path(cloud_cfg: Any, project_root: Path) -> Path:
@@ -104,10 +102,13 @@ def remote_status(ctx: click.Context) -> None:
     from rich.panel import Panel
     from rich.table import Table
 
+    from dango.exceptions import CloudSSHError
     from dango.platform.cloud.provisioning import SIZE_TIERS
     from dango.platform.cloud.server_status import (
         check_latest_pypi_version,
+        client_version_warning,
         collect_server_status,
+        local_client_version,
     )
 
     cloud_cfg, project_root = _load_cloud_config_with_ip(ctx)
@@ -116,11 +117,22 @@ def remote_status(ctx: click.Context) -> None:
     try:
         ssh.connect(cloud_cfg.droplet_ip)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
+        from dango.cli.commands.remote_power import POWER_ON_HINT, lookup_power_state
+
+        state = lookup_power_state(cloud_cfg)
+        if state == "off":
+            console.print(f"[red]Error:[/red] Server is powered off. Run: {POWER_ON_HINT}")
+        else:
+            console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
+            if state is None and cloud_cfg.provider != "byos":
+                console.print(f"If the server is powered off: {POWER_ON_HINT}")
         raise SystemExit(1) from exc
 
     try:
         status = collect_server_status(ssh, cloud_cfg)
+    except CloudSSHError as exc:
+        console.print(f"[red]Error:[/red] Could not read server status: {exc}")
+        raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
 
@@ -142,6 +154,13 @@ def remote_status(ctx: click.Context) -> None:
         server_lines.append("  Provider: BYOS")
     if cloud_cfg.domain:
         server_lines.append(f"  Domain: {cloud_cfg.domain}")
+    else:
+        server_lines.append("  [yellow]HTTP only (unencrypted)[/yellow]")
+        if cloud_cfg.provider == "byos":
+            server_lines.append("  Web ports are open in ufw unless you restricted them.")
+        else:
+            server_lines.append("  Web access rules: dango remote firewall list")
+        server_lines.append("  Enable HTTPS: dango remote domain set <domain>")
     console.print(Panel("\n".join(server_lines), title="Server", border_style="blue"))
 
     # --- Services ---
@@ -189,11 +208,27 @@ def remote_status(ctx: click.Context) -> None:
     version_lines = []
     installed = status.dango_version or "N/A"
     version_lines.append(f"  Installed: {installed}")
+    version_lines.append(f"  Recorded: {status.server_recorded_version or 'unknown'}")
+    version_lines.append(f"  Docker access: {status.docker_access}")
+    version_lines.append(f"  Isolation: {status.isolation}")
     if latest_version:
         version_lines.append(f"  Latest (PyPI): {latest_version}")
         if status.dango_version and status.dango_version != latest_version:
             version_lines.append("  [yellow]Update available[/yellow]")
     console.print(Panel("\n".join(version_lines), title="Versions", border_style="blue"))
+    if status.docker_access == "group (fallback)":
+        console.print(
+            "[yellow]Warning:[/yellow] This server could not enable the Docker helper and is "
+            "using group access, which is less isolated. Run `dango remote upgrade` to retry."
+        )
+    elif status.docker_access == "none":
+        console.print(
+            "[red]Error:[/red] The dango service cannot reach Docker. "
+            "Run `dango remote upgrade` to repair it."
+        )
+    client_warning = client_version_warning(status.server_recorded_version, local_client_version())
+    if client_warning:
+        console.print(f"[yellow]Warning:[/yellow] {client_warning}")
 
     # --- Last Deployment ---
     if status.deployed_git_commit or status.deployed_at:
@@ -414,8 +449,20 @@ def remote_ssh(ctx: click.Context) -> None:
     """
     cloud_cfg, project_root = _load_cloud_config_with_ip(ctx)
 
-    key_path = _resolve_ssh_key_path(cloud_cfg, project_root)
-    known_hosts = key_path.parent / "known_hosts"
+    from dango.exceptions import CloudSSHError
+    from dango.platform.cloud.ssh import ensure_host_pinned, ssh_argv_path, ssh_config_path
+
+    manager = _make_ssh_manager(cloud_cfg, project_root)
+    key_path = manager.key_path
+    known_hosts = manager.known_hosts_path
+    try:
+        # One argv element each.  ssh splits an unquoted UserKnownHostsFile value and
+        # expands % and ${VAR} in it; a -i path containing % cannot be used at all.
+        identity_arg = ssh_argv_path(key_path)
+        known_hosts_arg = f'UserKnownHostsFile="{ssh_config_path(known_hosts)}"'
+    except CloudSSHError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise click.Abort() from None
 
     if not key_path.exists():
         console.print(
@@ -424,14 +471,23 @@ def remote_ssh(ctx: click.Context) -> None:
         )
         raise SystemExit(1)
 
+    # OpenSSH reads only `known_hosts`: carry over a pin from the pre-1.0.14 file first so
+    # accept-new never trusts a key anew for a host that is already pinned.
+    known_hosts.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        ensure_host_pinned(known_hosts, manager.legacy_known_hosts_paths, cloud_cfg.droplet_ip)
+    except CloudSSHError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise click.Abort() from None
+
     args = [
         "ssh",
         "-i",
-        str(key_path),
+        identity_arg,
         "-o",
         "StrictHostKeyChecking=accept-new",
         "-o",
-        f"UserKnownHostsFile={known_hosts}",
+        known_hosts_arg,
         f"root@{cloud_cfg.droplet_ip}",
     ]
 
@@ -449,7 +505,10 @@ def remote_ssh(ctx: click.Context) -> None:
 # query command
 # ---------------------------------------------------------------------------
 
-_VENV_PYTHON = "/srv/dango/venv/bin/python3"
+# Isolated (-I): never imports from the working directory or user site.
+_VENV_PYTHON = "/srv/dango/venv/bin/python3 -I"
+# Server-side Dango code runs as the service user from /, never as root in the project.
+_AS_SERVICE_USER = "cd / && runuser -u dango --"
 _AUTH_DB = "/srv/dango/project/.dango/auth.db"
 
 # Python script executed on the remote server via SSH. Creates a temporary
@@ -578,7 +637,7 @@ def remote_query(ctx: click.Context, sql: str, timeout: int) -> None:
     escaped_sql = shlex.quote(sql)
     script = _QUERY_SCRIPT.format(auth_db=_AUTH_DB)
     escaped_script = shlex.quote(script)
-    cmd = f"{_VENV_PYTHON} -c {escaped_script} {escaped_sql} {timeout}"
+    cmd = f"{_AS_SERVICE_USER} {_VENV_PYTHON} -c {escaped_script} {escaped_sql} {timeout}"
 
     try:
         result = ssh.exec_command(cmd, timeout=timeout + 10, check=False)

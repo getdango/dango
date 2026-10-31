@@ -69,9 +69,10 @@ class TestRunDbtSnapshots:
         with patch(
             "dango.transformation.run_dbt_snapshots",
             return_value=(False, "dbt snapshot failed"),
-        ):
-            # Should not raise
+        ) as mock_run:
+            # does-not-raise: failure is logged, not propagated
             _run_dbt_snapshots(project_root)
+        mock_run.assert_called_once()
 
     def test_exception_logged_not_raised(self, project_root):
         """Unexpected exception is logged but does not propagate."""
@@ -84,6 +85,7 @@ class TestRunDbtSnapshots:
         with patch(
             "dango.transformation.run_dbt_snapshots",
             side_effect=RuntimeError("boom"),
-        ):
-            # Should not raise
+        ) as mock_run:
+            # does-not-raise: exception is logged, not propagated
             _run_dbt_snapshots(project_root)
+        mock_run.assert_called_once()

@@ -329,10 +329,12 @@ class TestValidateSelectOnly:
             mcp_server._validate_select_only("SELECT 1; SELECT 2")
 
     def test_allows_select(self) -> None:
-        mcp_server._validate_select_only("SELECT * FROM foo")
+        # does-not-raise: plain SELECT is allowed
+        assert mcp_server._validate_select_only("SELECT * FROM foo") is None
 
     def test_allows_with_cte(self) -> None:
-        mcp_server._validate_select_only("WITH t AS (SELECT 1) SELECT * FROM t")
+        # does-not-raise: CTE SELECT is allowed
+        assert mcp_server._validate_select_only("WITH t AS (SELECT 1) SELECT * FROM t") is None
 
 
 @pytest.mark.unit

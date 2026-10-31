@@ -124,8 +124,12 @@ class TestMetabaseArchiveSanitization:
         ssh = MagicMock()
         ssh.exec_command.return_value = MagicMock(success=True, stdout="", stderr="", exit_code=0)
 
+        def run_checked(_ssh: object, command: str, **_kw: object) -> str:
+            # Backup staging is a private mktemp directory.
+            return "/tmp/dango-backup.Ab3dE6fG\n" if command.startswith("mktemp -d") else ""
+
         with (
-            patch("dango.platform.cloud.backup._run_checked", return_value=""),
+            patch("dango.platform.cloud.backup._run_checked", side_effect=run_checked),
             patch(
                 "dango.platform.cloud.backup._sanitize_remote_metabase_yaml", return_value=None
             ) as sanitize,
@@ -134,12 +138,15 @@ class TestMetabaseArchiveSanitization:
             sanitize.assert_called_once_with(
                 ssh,
                 "/srv/dango/project/.dango/metabase.yml",
-                "/tmp/backup-20260929-010101/.dango/metabase.yml",
+                "/tmp/dango-backup.Ab3dE6fG/backup-20260929-010101/.dango/metabase.yml",
             )
 
         ssh.reset_mock()
-        ssh.exec_command.return_value = MagicMock(
-            success=True, stdout='{"timestamp": "test"}', stderr="", exit_code=0
+        ssh.exec_command.side_effect = lambda command, **_kw: MagicMock(
+            success=True,
+            stdout="/tmp/tmp.private\n" if command == "mktemp -d" else '{"timestamp": "test"}',
+            stderr="",
+            exit_code=0,
         )
         with (
             patch("dango.platform.cloud.backup.create_backup") as create_backup,
@@ -156,9 +163,15 @@ class TestMetabaseArchiveSanitization:
             call_ssh, source, destination = sanitize.call_args.args
             assert call_ssh is ssh
             assert re.fullmatch(
-                r"/tmp/dango-restore-staging-[0-9a-f]{32}/\.dango/metabase\.yml", source
+                r"/srv/dango/\.restore/dango-restore-staging-[0-9a-f]{32}/\.dango/metabase\.yml",
+                source,
             )
-            assert destination == "/srv/dango/project/.dango/metabase.yml"
+            # The root-run sanitizer writes into a fresh private directory, outside
+            # staging; the service user copies it on.
+            assert re.fullmatch(
+                r"/srv/dango/\.restore/dango-restore-meta-[0-9a-f]{32}/metabase\.sanitized\.yml",
+                destination,
+            )
 
     def test_remote_malformed_yaml_warning_never_logs_parser_content(self):
         """Remote sanitization errors report only a generic, non-secret warning."""

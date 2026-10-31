@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -29,6 +31,14 @@ from dango.platform.cloud.deployer import (
 )
 from dango.platform.cloud.ssh import CommandResult
 from tests.factories.cloud_factories import make_ssh_mock
+
+
+@pytest.fixture(autouse=True)
+def _trusted_server_venv() -> Any:
+    """SSH mocks here are loose; the venv trust probe is tested in test_runtime_ownership*."""
+    with patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -109,7 +119,8 @@ class TestLockManagement:
     def test_check_corrupt_lock(self):
         ssh = make_ssh_mock()
         ssh.exec_command.return_value = CommandResult(stdout="not json", stderr="", exit_code=0)
-        assert _check_existing_lock(ssh) is None
+        lock = _check_existing_lock(ssh)
+        assert lock is not None and lock.readable is False
 
     def test_is_lock_expired_true(self):
         past = (datetime.now(tz=timezone.utc) - timedelta(hours=1)).isoformat()
@@ -123,7 +134,8 @@ class TestLockManagement:
 
     def test_is_lock_expired_empty_expiry(self):
         lock = DeployLock(deployer="x", started_at="", expires_at="")
-        assert _is_lock_expired(lock) is True
+        assert _is_lock_expired(lock) is False  # no trusted expiry: only the file age can expire it
+        assert _is_lock_expired(lock, file_age_seconds=10**6) is True
 
     def test_is_lock_expired_handles_utc_suffix(self):
         """Python 3.10 compat: +00:00 suffix is stripped before parsing."""
@@ -274,7 +286,7 @@ class TestSourceValidation:
 
     def test_no_sources_configured(self):
         ssh = make_ssh_mock()
-        ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=1)
+        ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=3)
         errors = _validate_remote_sources(ssh)
         assert errors == []
 
@@ -331,10 +343,12 @@ class TestModelNameValidation:
     """Test _validate_model_names shell safety check."""
 
     def test_valid_names_pass(self):
-        _validate_model_names(["stg_orders", "stg_users", "dim_customer_v2"])
+        # does-not-raise: all names valid
+        assert _validate_model_names(["stg_orders", "stg_users", "dim_customer_v2"]) is None
 
     def test_empty_list_passes(self):
-        _validate_model_names([])
+        # does-not-raise: nothing to validate
+        assert _validate_model_names([]) is None
 
     def test_invalid_name_with_semicolon_raises(self):
         with pytest.raises(CloudProvisioningError, match="Invalid model name"):

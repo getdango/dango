@@ -179,8 +179,10 @@ class TestBackupEnable:
         from dango.platform.cloud.ssh import CommandResult
 
         ssh = _make_ssh_mock()
-        # grep for SPACES_ACCESS_KEY succeeds
-        ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=0)
+        # the service-user read of .env contains SPACES_ACCESS_KEY
+        ssh.exec_command.return_value = CommandResult(
+            stdout="SPACES_ACCESS_KEY=abc\n", stderr="", exit_code=0
+        )
 
         with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
             with patch(_PATCH_LOADER, return_value=_make_loader()):
@@ -198,7 +200,7 @@ class TestBackupEnable:
         from dango.platform.cloud.ssh import CommandResult
 
         ssh = _make_ssh_mock()
-        ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=1)
+        ssh.exec_command.return_value = CommandResult(stdout="FOO=1\n", stderr="", exit_code=0)
 
         with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
             with patch(_PATCH_LOADER, return_value=_make_loader()):

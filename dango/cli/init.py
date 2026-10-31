@@ -137,8 +137,15 @@ class ProjectInitializer:
         # Install pre-push hook if .git exists (non-critical)
         try:
             self._create_pre_push_hook()
-        except Exception:
-            pass  # Never fail init over a convenience hook
+        except Exception as exc:
+            # Never fail init over a convenience hook, but say it is missing
+            from rich.markup import escape
+
+            hook_path = self.project_dir / ".git" / "hooks" / "pre-push"
+            console.print(
+                "[yellow]Could not install the pre-push secret-scanning hook: "
+                f"{escape(str(exc))}. The hook file would be {escape(str(hook_path))}.[/yellow]"
+            )
 
         # Print success message
         self._print_success_message(warnings=warnings, auth_success=auth_success)
@@ -652,7 +659,7 @@ Version requirements and platform support for this Dango project.
 
 ## Python
 
-- **Required:** Python 3.10, 3.11, 3.12, or 3.13 (`>=3.10,<3.14`)
+- **Required:** Python 3.11, 3.12, or 3.13 (`>=3.11,<3.14`)
 - System Python on macOS is 3.9 — use `python3.11`, `python3.12`, or `python3.13` explicitly
 
 ## Operating Systems
@@ -695,7 +702,7 @@ The `en_core_web_sm` language model is required for PII scanning (data governanc
 
 ## Upgrade Notes
 
-- Pin your Python version in CI/CD — Dango does not yet support Python 3.13+
+- Pin your Python version in CI/CD — Python 3.14+ is not yet supported
 - DuckDB minor version upgrades may require a database re-sync (`dango sync`)
 - dbt and dlt versions are pinned to compatible ranges in `pyproject.toml`
 
@@ -988,8 +995,6 @@ custom_sources/
         Returns:
             True if successful, False if driver download failed
         """
-        import urllib.request
-
         from jinja2 import Environment, PackageLoader
 
         console.print("Setting up Metabase with DuckDB support...")
@@ -1020,83 +1025,58 @@ custom_sources/
         plugins_dir = self.project_dir / "metabase-plugins"
         plugins_dir.mkdir(exist_ok=True)
 
-        # Download DuckDB driver (MotherDuck official driver, version-matched)
-        from dango.utils.driver import (
-            METABASE_DUCKDB_DRIVER_VERSION,
-            driver_needs_update,
-            get_duckdb_driver_url,
-            write_driver_version,
+        # Install the pinned, digest-verified MotherDuck driver
+        from rich.progress import (
+            BarColumn,
+            DownloadColumn,
+            Progress,
+            TextColumn,
+            TransferSpeedColumn,
         )
 
-        duckdb_driver_path = plugins_dir / "duckdb.metabase-driver.jar"
-        needs_download = not duckdb_driver_path.exists() or driver_needs_update(plugins_dir)
+        from dango.utils.driver import (
+            DriverFilesystemError,
+            DriverIntegrityError,
+            download_verified_driver,
+            reuse_verified_driver,
+        )
 
-        if needs_download:
-            # Delete stale driver if version mismatch
-            if duckdb_driver_path.exists():
-                duckdb_driver_path.unlink()
+        try:
+            reused = reuse_verified_driver(plugins_dir)
+        except DriverFilesystemError:
+            reused = False  # the download path below reports the local write failure
 
-            driver_url = get_duckdb_driver_url()
-            driver_downloaded = False
+        if reused:
+            console.print("[green]✓[/green] DuckDB driver already exists")
+        else:
+            try:
+                with Progress(
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    DownloadColumn(),
+                    TransferSpeedColumn(),
+                    console=console,
+                ) as progress:
+                    task = progress.add_task("Downloading DuckDB driver", total=None)
 
-            # Retry same URL 3 times (network issues are transient)
-            import time
+                    def _on_chunk(done: int, total: int | None) -> None:
+                        progress.update(task, completed=done, total=total)
 
-            from rich.progress import (
-                BarColumn,
-                DownloadColumn,
-                Progress,
-                TextColumn,
-                TransferSpeedColumn,
-            )
-
-            for attempt in range(3):
-                try:
-                    if attempt > 0:
-                        console.print(f"    Retry {attempt}/2...")
-                        time.sleep(2)  # Wait before retry
-                    with urllib.request.urlopen(driver_url, timeout=120) as response:
-                        total = int(response.headers.get("Content-Length", 0))
-                        with Progress(
-                            TextColumn("[progress.description]{task.description}"),
-                            BarColumn(),
-                            DownloadColumn(),
-                            TransferSpeedColumn(),
-                            console=console,
-                        ) as progress:
-                            task = progress.add_task(
-                                "Downloading DuckDB driver",
-                                total=total if total > 0 else None,
-                            )
-                            with open(duckdb_driver_path, "wb") as f:
-                                while True:
-                                    chunk = response.read(65536)
-                                    if not chunk:
-                                        break
-                                    f.write(chunk)
-                                    progress.advance(task, len(chunk))
-                    write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
-                    console.print(
-                        f"[green]✓[/green] Downloaded DuckDB driver ({duckdb_driver_path.stat().st_size // 1024 // 1024}MB)"
-                    )
-                    driver_downloaded = True
-                    break
-                except Exception:
-                    duckdb_driver_path.unlink(missing_ok=True)
-                    if attempt == 2:  # Last attempt failed
-                        break
-                    continue
-
-            if not driver_downloaded:
-                print_error("✗ Failed to download DuckDB driver (network issue)")
+                    download_verified_driver(plugins_dir, _on_chunk)
+                console.print("[green]✓[/green] Downloaded and verified DuckDB driver")
+            except Exception as exc:
+                if isinstance(exc, DriverIntegrityError):
+                    print_error("✗ DuckDB driver integrity verification failed")
+                elif isinstance(exc, DriverFilesystemError):
+                    print_error("✗ DuckDB driver could not be written locally")
+                else:
+                    print_error("✗ Failed to download DuckDB driver (network issue)")
                 console.print(
                     "    [yellow]Don't worry![/yellow] The driver will be downloaded automatically when you run:"
                 )
                 console.print("    [bold cyan]dango start[/bold cyan]")
                 print_success("Metabase setup complete (driver pending)")
                 return False
-        else:
-            console.print("[green]✓[/green] DuckDB driver already exists")
 
         print_success("Metabase setup complete")
         return True
@@ -1403,14 +1383,14 @@ on-run-end:
                 return True
 
             # Interactive: prompt for admin credentials
-            email_re = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+            email_re = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 
             console.print("  Create the admin account for your project.\n")
 
             # Email
             while True:
                 email = click.prompt("  Admin email")
-                if not email_re.match(email):
+                if not email_re.fullmatch(email):
                     console.print("  [red]Invalid email format.[/red]")
                     continue
                 confirm_email = click.prompt("  Confirm email")
@@ -1590,11 +1570,11 @@ on-run-end:
                 read configured source *type* names for the install ping.
         """
         from dango.telemetry import (
+            apply_all_providers,
             has_recorded_consent,
             is_ci,
             is_telemetry_enabled,
             ping,
-            set_telemetry_enabled,
         )
 
         if is_ci():
@@ -1618,7 +1598,13 @@ on-run-end:
         consent = _ask_telemetry_consent()
         if consent is None:
             return
-        set_telemetry_enabled(consent)
+        results = apply_all_providers(consent, self.project_dir)
+        failed = [name for name, outcome in results.items() if outcome == "failed"]
+        if failed:
+            console.print(
+                f"[yellow]Could not save telemetry setting for: {', '.join(failed)}. "
+                "Run `dango telemetry on|off --all` to retry.[/yellow]"
+            )
         if consent:
             source_types = [s.type.value for s in config.sources.get_enabled_sources()]
             ping("install", source_types=source_types)
@@ -1654,11 +1640,15 @@ def _ask_telemetry_consent() -> bool | None:
     import click
 
     text = (
-        "Help improve Dango by sending anonymous usage data — an install "
-        "ping now, plus a periodic heartbeat (version, OS, configured "
-        "source types) while this project exists. Never source names, "
-        "credentials, or data."
+        "Dango can send anonymous usage data, and the tools it uses report their own telemetry:\n"
+        "  - Dango: an install ping and a periodic heartbeat (version, OS, configured "
+        "source types). Never source names, credentials, or data.\n"
+        "  - dbt: dbt Labs usage statistics (dbt's own anonymous telemetry).\n"
+        "  - dlt: dlthub usage statistics (dlt's own anonymous telemetry).\n"
+        "  - Metabase: Metabase's anonymous usage statistics.\n"
+        "Allow all of the above?"
     )
+    hint = "You can change this any time: dango telemetry on|off --all"
     while True:
         try:
             # No default on purpose — this is a real consent decision, not
@@ -1666,7 +1656,7 @@ def _ask_telemetry_consent() -> bool | None:
             # default keeps re-asking on an empty line until it gets a real
             # answer or a genuine abort (Ctrl+C/EOF), which the except
             # below already handles correctly.
-            result = click.prompt(f"{text} (yes/no)")
+            result = click.prompt(f"{text} (yes/no)   {hint}")
         except Exception:
             return None
         normalised = str(result).lower().strip()

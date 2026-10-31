@@ -17,6 +17,7 @@ Registered as a subgroup of ``remote`` in ``remote.py`` via
 
 from __future__ import annotations
 
+import contextlib
 import shlex
 import uuid
 from pathlib import Path
@@ -26,7 +27,10 @@ import click
 
 from dango.cli import console
 from dango.cli.utils import safe_confirm
-from dango.exceptions import format_structured_error
+from dango.exceptions import CloudProvisioningError, format_structured_error
+from dango.platform.cloud.project_files import read_project_file
+from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
+from dango.utils.env_file import parse_env_file
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -124,7 +128,7 @@ def backup_group(ctx: click.Context) -> None:
     try:
         with Status("[bold blue]Running on-demand backup on server...", console=console):
             result = ssh.exec_command(
-                "/srv/dango/venv/bin/python -m dango.platform.cloud.scheduled_backup",
+                f"{ROOT_PYTHON} -m dango.platform.cloud.scheduled_backup",
                 timeout=900,
             )
 
@@ -243,28 +247,39 @@ def backup_enable(ctx: click.Context) -> None:
       dango remote backup enable
     """
     from dango.platform.cloud._server_templates import (
-        SYSTEMD_BACKUP_SERVICE,
+        SERVER_DANGO_VERSION_COMMAND,
         SYSTEMD_BACKUP_TIMER,
+        backup_service_unit,
     )
 
     cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
 
     try:
         # Verify Spaces credentials exist on server
-        env_check = ssh.exec_command(
-            "grep -q SPACES_ACCESS_KEY /srv/dango/project/.env 2>/dev/null"
-        )
-        if not env_check.success:
+        try:
+            env_text = read_project_file(ssh, "/srv/dango/project/.env")
+        except CloudProvisioningError as exc:
+            console.print(f"[red]Error:[/red] Could not read the server .env file: {exc}")
+            raise SystemExit(1) from exc
+        if not parse_env_file(env_text).get("SPACES_ACCESS_KEY"):
             console.print(
                 "[red]Error:[/red] SPACES_ACCESS_KEY not found in server .env file. "
                 "Add Spaces credentials before enabling scheduled backups."
             )
             raise SystemExit(1)
 
+        # The unit depends on the server's Dango version (how it reads the Spaces keys)
+        version = ssh.exec_command(SERVER_DANGO_VERSION_COMMAND, timeout=30)
+        unit, unit_warning = backup_service_unit(
+            version.stdout.strip() if version.success else None
+        )
+        if unit_warning:
+            console.print(f"[yellow]Warning:[/yellow] {unit_warning}")
+
         # Write systemd unit files
         ssh.write_remote_file(
             "/etc/systemd/system/dango-backup.service",
-            SYSTEMD_BACKUP_SERVICE,
+            unit,
             mode=0o644,
         )
         ssh.write_remote_file(
@@ -402,7 +417,7 @@ def _backup_download_from_server(ctx: click.Context, output: str | None) -> None
     try:
         with Status("[bold blue]Creating backup on server...", console=console):
             create_result = ssh.exec_command(
-                f'{VENV_PYTHON} -c "'
+                f'{ROOT_PYTHON} -c "'
                 "from dango.platform.cloud.scheduled_backup import _create_local_archive; "
                 "import json; "
                 "path, manifest, warnings = _create_local_archive('on-demand'); "
@@ -549,7 +564,7 @@ def backup_restore(ctx: click.Context, source: str, yes: bool, from_local: bool)
         with Status("[bold blue]Restoring from Spaces backup...", console=console):
             # Run restore on the server
             result = ssh.exec_command(
-                f'{VENV_PYTHON} -c "'
+                f'{ROOT_PYTHON} -c "'
                 "from dango.platform.cloud.scheduled_backup import restore_from_spaces; "
                 "from dango.platform.cloud.scheduled_backup import _load_spaces_config; "
                 f"restore_from_spaces(_load_spaces_config(), '{key}')\"",
@@ -604,15 +619,22 @@ def _backup_restore_from_local(ctx: click.Context, source: str, yes: bool) -> No
             return
 
     cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
-    remote_tmp = f"/tmp/dango-restore-{uuid.uuid4().hex}.tar.gz"
+    upload_dir = ""
 
     try:
+        from dango.platform.cloud.backup import make_private_dir, restore_from_archive
+
+        # Root-only directory: the archive holds auth.db (and secrets), so no running
+        # restricted user may read it while it waits for the restore.
+        upload_dir = make_private_dir(ssh, "dango-restore-upload")
+        remote_tmp = f"{upload_dir}/{uuid.uuid4().hex}.tar.gz"
         with Status(f"[bold blue]Uploading {local_path.name}...", console=console):
             ssh.upload_file(local_path, remote_tmp)
+        locked = ssh.exec_command(f"chmod 0600 {shlex.quote(remote_tmp)}")
+        if not locked.success:
+            raise RuntimeError(f"Could not restrict the uploaded archive: {locked.stderr.strip()}")
 
         console.print(f"[green]Uploaded.[/green] Restoring from {local_path.name}...")
-
-        from dango.platform.cloud.backup import restore_from_archive
 
         with Status("[bold blue]Restoring from backup...", console=console):
             result = restore_from_archive(ssh, remote_tmp)
@@ -633,11 +655,11 @@ def _backup_restore_from_local(ctx: click.Context, source: str, yes: bool) -> No
         console.print(f"[red]Error:[/red] {exc}")
         raise SystemExit(1) from exc
     finally:
-        # Clean up remote temp file (best-effort — SSH may already be dead)
-        try:
-            ssh.exec_command(f"rm -f {shlex.quote(remote_tmp)}")
-        except Exception:  # noqa: BLE001
-            pass
+        # Remove the whole upload directory (best-effort: SSH may already be dead; a
+        # directory a dead client leaves behind is swept by the next backup or restore)
+        if upload_dir:
+            with contextlib.suppress(Exception):
+                ssh.exec_command(f"rm -rf {shlex.quote(upload_dir)}")
         ssh.disconnect()
 
 
@@ -789,7 +811,3 @@ def backup_config(ctx: click.Context) -> None:
         console.print(f"    Daily:   {sr.daily}")
         console.print(f"    Weekly:  {sr.weekly}")
         console.print(f"    Monthly: {sr.monthly}")
-
-
-#: Path to venv Python on the remote server.
-VENV_PYTHON = "/srv/dango/venv/bin/python"

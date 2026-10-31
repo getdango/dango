@@ -85,7 +85,8 @@ class TestPrereqCheck:
     def test_valid_project(self, project_root, monkeypatch):
         """Valid project with token passes prereqs."""
         monkeypatch.setenv("DIGITALOCEAN_TOKEN", "test-token")
-        _step_prereqs(project_root)  # Should not raise
+        # does-not-raise: all prerequisites present
+        assert _step_prereqs(project_root) is None
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +105,7 @@ class TestNonInteractive:
             size="s-2vcpu-4gb",
             admin_email="admin@example.com",
             admin_password="strongpassword123",
+            accept_http_exposure=True,
         )
         assert config.region == "nyc1"
         assert config.size_slug == "s-2vcpu-4gb"
@@ -118,6 +120,7 @@ class TestNonInteractive:
             run_non_interactive(
                 project_root,
                 admin_password="strongpassword123",
+                accept_http_exposure=True,
             )
 
     def test_weak_password(self, project_root, monkeypatch):
@@ -128,6 +131,7 @@ class TestNonInteractive:
                 project_root,
                 admin_email="admin@example.com",
                 admin_password="short",
+                accept_http_exposure=True,
             )
 
     def test_invalid_region(self, project_root, monkeypatch):
@@ -139,6 +143,7 @@ class TestNonInteractive:
                 region="invalid-region",
                 admin_email="admin@example.com",
                 admin_password="strongpassword123",
+                accept_http_exposure=True,
             )
 
     def test_invalid_size(self, project_root, monkeypatch):
@@ -150,6 +155,7 @@ class TestNonInteractive:
                 size="invalid-size",
                 admin_email="admin@example.com",
                 admin_password="strongpassword123",
+                accept_http_exposure=True,
             )
 
     def test_defaults_used(self, project_root, monkeypatch):
@@ -159,6 +165,7 @@ class TestNonInteractive:
             project_root,
             admin_email="admin@example.com",
             admin_password="strongpassword123",
+            accept_http_exposure=True,
         )
         # Region should be from suggest_nearest_region (varies by env)
         assert config.region is not None
@@ -172,6 +179,7 @@ class TestNonInteractive:
         config = run_non_interactive(
             project_root,
             admin_email="admin@example.com",
+            accept_http_exposure=True,
         )
         assert config.admin_password == "strongpassword123"
 
@@ -183,6 +191,7 @@ class TestNonInteractive:
                 project_root,
                 admin_email="not-an-email",
                 admin_password="strongpassword123",
+                accept_http_exposure=True,
             )
 
 
@@ -244,6 +253,7 @@ class TestReconnect:
         mock_ssh_cls.return_value = mock_ssh
         mock_result = MagicMock()
         mock_result.success = True
+        mock_result.exit_code = 0
         mock_result.stdout = "project:\n  name: my-project\n"
         mock_ssh.exec_command.return_value = mock_result
 
@@ -274,6 +284,7 @@ class TestReconnect:
         mock_ssh_cls.return_value = mock_ssh
         mock_result = MagicMock()
         mock_result.success = False
+        mock_result.exit_code = 3  # project.yml absent
         mock_result.stdout = ""
         mock_ssh.exec_command.return_value = mock_result
 
@@ -344,6 +355,7 @@ class TestDomainRemoval:
             project_root,
             admin_email="admin@example.com",
             admin_password="strongpassword123",
+            accept_http_exposure=True,
         )
         assert config.domain is None
 

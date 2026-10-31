@@ -5,13 +5,26 @@ Cloud upgrade and rebuild Compose commands must carry the server's Compose proje
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from dango.platform.cloud.ssh import CommandResult
+from tests.factories.cloud_factories import host_python_server
 
-_PROJECT_YML_CMD = "cat /srv/dango/project/.dango/project.yml"
+
+@pytest.fixture(autouse=True)
+def _trusted_server_venv() -> Any:
+    """SSH mocks here are loose; the venv trust probe is tested in test_runtime_ownership*."""
+    with (
+        patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]),
+        host_python_server(),
+    ):
+        yield
+
+
+_PROJECT_YML_CMD = "/srv/dango/project/.dango/project.yml"
 _PROJECT_YML = "project:\n  id: abcdef1234567890\n"
 
 
@@ -35,7 +48,9 @@ def _make_ssh(*, project_yml_ok: bool = True) -> tuple[MagicMock, list[str]]:
 
 
 def _pull_command(commands: list[str]) -> str:
-    matches = [c for c in commands if "pull" in c]
+    matches = [
+        c for c in commands if "pull" in c and "systemd-run" not in c
+    ]  # the guard text names "pull"
     assert len(matches) == 1, matches
     return matches[0]
 
@@ -49,7 +64,7 @@ def test_upgrade_compose_commands_carry_remote_project_name() -> None:
 
     cmd = _pull_command(commands)
     assert cmd.count("COMPOSE_PROJECT_NAME=dango-abcdef12 docker compose") == 2
-    assert cmd.endswith("up -d --build metabase </dev/null")
+    assert cmd.endswith("up -d --build metabase </dev/null; fi")  # legacy branch of the wrapper
 
 
 @pytest.mark.unit

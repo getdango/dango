@@ -9,10 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from starlette.responses import JSONResponse
 
 import dango
+from dango.auth.models import User
+from dango.auth.permissions import require_permission
 from dango.oauth.storage import OAuthStorage
 from dango.web.helpers import (
     check_service_status_async,
@@ -30,7 +32,9 @@ _BACKUP_STALENESS_HOURS = 36
 
 
 @router.get("/api/status", response_model=ServiceHealth)
-async def get_status() -> ServiceHealth:
+async def get_status(
+    _user: User = Depends(require_permission("health.view")),
+) -> ServiceHealth:
     """Get service health status.
 
     Returns health check for Dango API and related services (DuckDB, Metabase, dbt-docs)
@@ -62,7 +66,9 @@ async def get_status() -> ServiceHealth:
 
 
 @router.get("/api/watcher/status", response_model=WatcherStatus)
-async def get_watcher_status_api() -> WatcherStatus:
+async def get_watcher_status_api(
+    _user: User = Depends(require_permission("health.view")),
+) -> WatcherStatus:
     """Get file watcher status.
 
     Returns information about the file watcher including:
@@ -111,7 +117,9 @@ async def get_watcher_status_api() -> WatcherStatus:
 
 
 @router.get("/api/health/platform")
-async def get_platform_health() -> dict[str, Any]:
+async def get_platform_health(
+    _user: User = Depends(require_permission("health.view")),
+) -> dict[str, Any]:
     """Get comprehensive platform health status.
 
     Returns:

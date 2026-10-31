@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
     from dango.config.models import DataSource
 
-_DURATION_PATTERN = re.compile(r"^(\d+)([dwmDWM])$")
+_DURATION_PATTERN = re.compile(r"(\d+)([dwmDWM])")
 _DURATION_MULTIPLIERS = {"d": 1, "w": 7, "m": 30}
 
 
@@ -37,7 +37,7 @@ def _parse_duration(value: str) -> int:
     Raises:
         click.BadParameter: If the format is invalid or value is zero.
     """
-    match = _DURATION_PATTERN.match(value)
+    match = _DURATION_PATTERN.fullmatch(value)
     if not match:
         raise click.BadParameter(
             f"Invalid duration '{value}'. Use format like '7d', '2w', '1m' "
@@ -589,6 +589,7 @@ def _resolve_pipeline_and_dataset_name(src: "DataSource") -> tuple[str, str]:
     ``csv_loader.py``, not dlt) — callers should expect no ``_dlt_pipeline_state``
     table to exist for those, regardless of the names returned here.
     """
+    # Also mirrored by pipeline_names in dango/platform/cloud/restore_pipeline_state.py.
     if src.dlt_native is not None:
         pipeline_name = src.dlt_native.pipeline_name or src.name
         dataset_name = src.dlt_native.dataset_name or f"raw_{src.name}"

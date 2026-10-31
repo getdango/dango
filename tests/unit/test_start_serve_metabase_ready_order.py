@@ -49,6 +49,7 @@ def _run_local(
     project_root: Path,
     wait_result: bool | None | Exception = True,
     work_pending: bool = False,
+    driver_error: BaseException | None = None,
 ) -> tuple[Result, list[str]]:
     """Run ``dango start`` with all external services replaced by ordered fakes."""
     config_loader = MagicMock()
@@ -79,8 +80,9 @@ def _run_local(
         patch(f"{_STARTUP}.metabase_startup_work_pending", return_value=work_pending)
     )
 
-    for quiet in ("rotate_logs", "ensure_dbt_schemas", "ensure_duckdb_driver"):
+    for quiet in ("rotate_logs", "ensure_dbt_schemas"):
         stack.enter_context(patch(f"{_STARTUP}.{quiet}"))
+    stack.enter_context(patch(f"{_STARTUP}.ensure_duckdb_driver", side_effect=driver_error))
     stack.enter_context(patch(f"{_STARTUP}.cleanup_stale_dbt_lock", return_value=False))
 
     with (
@@ -102,6 +104,10 @@ def _run_local(
         patch(
             f"{_STARTUP}.setup_metabase_if_needed",
             side_effect=lambda *_args: events.append("setup") or {"success": True},
+        ),
+        patch(
+            f"{_STARTUP}.apply_metabase_duckdb_lock_if_needed",
+            side_effect=lambda _root: events.append("lock"),
         ),
         patch(
             f"{_STARTUP}.import_dashboards",
@@ -169,6 +175,10 @@ def _run_cloud(
             side_effect=lambda *_args: events.append("setup") or {"success": True},
         ),
         patch(
+            f"{_STARTUP}.apply_metabase_duckdb_lock_if_needed",
+            side_effect=lambda _root: events.append("lock"),
+        ),
+        patch(
             f"{_STARTUP}.import_dashboards",
             side_effect=lambda _root: events.append("import"),
         ),
@@ -193,6 +203,21 @@ def test_wait_runs_after_gitignore_before_migration_and_setup(
     assert events[:5] == ["docker", "gitignore", "wait", "completion", "setup"]
     assert events[-1] == "import"
     assert events.index("setup") < events.index("import")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("run_command", [_run_local, _run_cloud])
+def test_lock_helper_runs_after_credential_migration(
+    tmp_path: Path,
+    run_command: CommandRunner,
+) -> None:
+    """The connection lock is applied after migration and setup, before the dashboard import."""
+    result, events = run_command(tmp_path, True)
+
+    assert result.exit_code == 0, result.output
+    assert events.count("lock") == 1
+    assert events.index("completion") < events.index("setup") < events.index("lock")
+    assert events.index("lock") < events.index("import")
 
 
 @pytest.mark.unit
@@ -241,3 +266,28 @@ def test_cloud_serve_timeout_warns_on_stderr_and_continues(tmp_path: Path) -> No
     assert re.search(r"will\s+retry\s+on\s+the\s+next\s+restart", plain_output)
     assert "completion" in events
     assert "setup" in events
+
+
+@pytest.mark.unit
+class TestStartDriverErrors:
+    """`dango start` turns every driver failure into one clean message and no traceback."""
+
+    @pytest.mark.parametrize(
+        ("error_name", "expected"),
+        [
+            ("DriverIntegrityError", "integrity verification failed"),
+            ("DriverDownloadError", "Failed to download DuckDB driver"),
+            ("DriverFilesystemError", "Could not write the DuckDB driver"),
+        ],
+    )
+    def test_driver_error_is_clean_abort(self, tmp_path, error_name, expected):
+        from dango.utils import driver
+
+        error = getattr(driver, error_name)("detail")
+        result, events = _run_local(tmp_path, driver_error=error)
+        output = _ANSI_RE.sub("", result.output)
+        assert result.exit_code != 0
+        assert expected in output
+        assert "Traceback" not in output
+        assert "docker" not in events
+        assert not isinstance(result.exception, OSError)

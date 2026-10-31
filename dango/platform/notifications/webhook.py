@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 import yaml
@@ -160,6 +161,23 @@ def load_notification_config(project_root: Path) -> NotificationConfig | None:
     except Exception:
         logger.warning("failed_to_load_notification_config", path=str(path), exc_info=True)
         return None
+
+
+def mask_webhook_url(url: str) -> str:
+    """Return ``scheme://host/…<last 4 chars>``; the path of a webhook URL is a bearer secret.
+
+    Userinfo and port are dropped. Returns ``"****"`` for anything without a
+    scheme and host. Never raises.
+    """
+    try:
+        parts = urlsplit(url.strip())
+        host = parts.hostname
+        if not parts.scheme or not host:
+            return "****"
+        host_part = f"[{host}]" if ":" in host else host
+        return f"{parts.scheme}://{host_part}/\u2026{url.strip()[-4:]}"
+    except Exception:
+        return "****"
 
 
 # ---------------------------------------------------------------------------

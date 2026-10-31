@@ -22,6 +22,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from dango.error_format import format_structured_error
+
 __all__ = [
     "DangoError",
     "ConfigError",
@@ -59,6 +61,8 @@ __all__ = [
     "SessionExpiredError",
     "AccountLockedError",
     "AccountDeactivatedError",
+    "NotificationsNotConfiguredError",
+    "AuthDatabaseUnavailableError",
     "CloudError",
     "CloudAPIError",
     "CloudAuthError",
@@ -78,29 +82,6 @@ __all__ = [
 def is_debug_mode() -> bool:
     """Return True when ``DANGO_DEBUG`` is enabled (``1``, ``true``, or ``yes``)."""
     return os.environ.get("DANGO_DEBUG", "").lower() in ("1", "true", "yes")
-
-
-def format_structured_error(
-    what_failed: str,
-    causes: list[str],
-    suggested_fix: str,
-) -> str:
-    """Format a structured error message with what/why/fix sections.
-
-    Args:
-        what_failed: One-line description of the failure.
-        causes: Possible root causes (rendered as a bullet list).
-        suggested_fix: Actionable next step for the user.
-
-    Returns:
-        Multi-line string with three sections: what, causes, fix.
-    """
-    lines = [what_failed, "", "Possible causes:"]
-    for cause in causes:
-        lines.append(f"  - {cause}")
-    lines.append("")
-    lines.append(f"Suggested fix: {suggested_fix}")
-    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -419,6 +400,18 @@ class AccountDeactivatedError(AuthenticationError):
     _default_error_code = "DANGO-S007"
 
 
+class NotificationsNotConfiguredError(DangoError):
+    """No notification webhooks are configured (``POST /api/notifications/test``)."""
+
+    _default_error_code = "DANGO-S008"
+
+
+class AuthDatabaseUnavailableError(DangoError):
+    """Auth is enabled but ``auth.db`` is missing on a cloud server (HTTP 503)."""
+
+    _default_error_code = "DANGO-S009"
+
+
 # ---------------------------------------------------------------------------
 # Cloud exceptions  (DANGO-D***)
 # ---------------------------------------------------------------------------
@@ -461,6 +454,11 @@ class CloudAPIError(CloudError):
             context=ctx if ctx else None,
             user_message=user_message,
         )
+
+    @property
+    def is_permission_error(self) -> bool:
+        """True when DigitalOcean rejected the request with HTTP 403."""
+        return self.status_code == 403
 
 
 class CloudAuthError(CloudError):

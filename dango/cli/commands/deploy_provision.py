@@ -12,18 +12,26 @@ that were created (no orphans).
 
 from __future__ import annotations
 
-import base64
 import re
 import shlex
+import ssl
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from dango.cli import console
 from dango.cli.commands.deploy_wizard import _EMAIL_RE, BYOSConfig, WizardConfig
-from dango.exceptions import CloudProvisioningError
+from dango.exceptions import CloudAPIError, CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.project_files import (
+    AS_DANGO,
+    append_env_line_if_missing,
+    read_project_file,
+    write_project_file,
+)
+from dango.platform.cloud.ssh import CommandResult
 
 _logger = get_logger(__name__)
 
@@ -49,7 +57,10 @@ class _ResourceTracker:
     firewall_id: str | None = None
     ssh_key_id: int | None = None
     spaces_bucket: str | None = None
+    spaces_created: bool = False  # this run created the bucket, so cleanup may delete it
     spaces_client: Any = None  # SpacesClient
+    cloud_yml: Path | None = None  # restored after cleanup (see snapshot_cloud_yml)
+    cloud_yml_before: bytes | None = None
 
     def cleanup(self) -> list[str]:
         """Delete all tracked resources. Returns list of error messages."""
@@ -73,13 +84,58 @@ class _ResourceTracker:
             except Exception as exc:
                 errors.append(f"SSH key {self.ssh_key_id}: {exc}")
 
-        if self.spaces_bucket and self.spaces_client:
+        if self.spaces_bucket and self.spaces_created and self.spaces_client:
             try:
                 self.spaces_client.delete_bucket()
             except Exception as exc:
                 errors.append(f"Spaces bucket {self.spaces_bucket}: {exc}")
 
+        self._restore_cloud_yml(errors)
         return errors
+
+    def snapshot_cloud_yml(self, path: Path) -> None:
+        """Remember cloud.yml as it is before this run writes to it."""
+        self.cloud_yml = path
+        self.cloud_yml_before = path.read_bytes() if path.exists() else None
+
+    def _restore_cloud_yml(self, errors: list[str]) -> None:
+        """Put cloud.yml back, so it never names resources the cleanup just deleted."""
+        if self.cloud_yml is None or errors:
+            return  # a failed delete: cloud.yml is the only record of what is still running
+        try:
+            if self.cloud_yml_before is None:
+                self.cloud_yml.unlink(missing_ok=True)
+            else:
+                self.cloud_yml.write_bytes(self.cloud_yml_before)
+        except OSError as exc:
+            errors.append(f"{self.cloud_yml}: could not restore ({exc}); edit or delete it")
+
+
+def _cleanup_and_report(tracker: _ResourceTracker) -> None:
+    """Delete everything the failed or interrupted run created, naming each resource."""
+    created = [
+        f"{label} {value}"
+        for label, value in (
+            ("droplet", tracker.droplet_id),
+            ("firewall", tracker.firewall_id),
+            ("SSH key", tracker.ssh_key_id),
+            ("Spaces bucket", tracker.spaces_bucket if tracker.spaces_created else None),
+        )
+        if value
+    ]
+    named = ", ".join(created)
+    console.print(f"Cleaning up resources: {named or 'none created yet'}...")
+    errors = tracker.cleanup()
+    if errors:
+        console.print("[yellow]Cleanup errors (delete these in the DigitalOcean console):[/yellow]")
+        for err in errors:
+            console.print(f"  - {err}")
+        if tracker.cloud_yml is not None and tracker.cloud_yml.exists():
+            console.print("Run [bold]dango deploy destroy[/bold] to finish the cleanup.")
+        else:  # nothing recorded locally for destroy to read
+            console.print("Delete the resources named above in the DigitalOcean console.")
+    elif created:
+        console.print("[green]All resources cleaned up.[/green]")
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +155,8 @@ class ProvisionResult:
     url: str = ""
     admin_password: str = ""
     warnings: list[str] = field(default_factory=list)
+    # IPv4 CIDRs the web ports (80/443) were restricted to; empty = open to all
+    allowed_ips: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -136,6 +194,7 @@ def run_provisioning(
     Raises:
         CloudProvisioningError: On unrecoverable failure (after cleanup).
     """
+    from dango.platform.cloud.compose_migrate import MetabasePinRequired
     from dango.platform.cloud.digitalocean import DigitalOceanClient
     from dango.platform.cloud.size_availability import (
         SizeUnavailableError,
@@ -146,7 +205,10 @@ def run_provisioning(
     # BUG-251: Resolve project_root so Path(".").name is never empty
     project_root = project_root.resolve()
 
+    _refuse_new_server(project_root, "DigitalOcean")
+
     tracker = _ResourceTracker()
+    tracker.snapshot_cloud_yml(project_root / ".dango" / "cloud.yml")
 
     try:
         client = DigitalOceanClient()
@@ -198,6 +260,15 @@ def run_provisioning(
         firewall_id: str = fw["id"]
         tracker.firewall_id = firewall_id
 
+        # Web access without a domain: explicit allowlist now, "detect" after SSH connects
+        wants_detect = config.allowed_ips == ["detect"]
+        applied_ips: list[str] = [] if wants_detect else list(config.allowed_ips)
+        if applied_ips:
+            from dango.platform.cloud.firewall import restrict_web_to_ips
+
+            restrict_web_to_ips(client, firewall_id, applied_ips)
+            console.print(f"  Web access restricted to {', '.join(applied_ips)}.")
+
         # --- Sub-step 5: Server setup ---
         _status("Setting up server (installs Docker, Caddy, Python, etc.)...")
         from dango.platform.cloud.server_setup import (
@@ -208,6 +279,9 @@ def run_provisioning(
         install_source = resolve_install_source()
         ssh.connect(droplet_ip, username="root")
         try:
+            deployer_ip = _deployer_ip(ssh) if config.allowed_ips else None
+            if wants_detect:
+                applied_ips = _restrict_to_detected_ip(client, firewall_id, deployer_ip)
             setup_result = setup_server(
                 ssh,
                 on_progress=_setup_progress,
@@ -217,6 +291,8 @@ def run_provisioning(
             if setup_result.warnings:
                 for w in setup_result.warnings:
                     console.print(f"  [yellow]Warning:[/yellow] {w}")
+            setup_notes = list(setup_result.warnings)
+            helper_created = setup_result.helper_created
         finally:
             ssh.disconnect()
 
@@ -241,14 +317,7 @@ def run_provisioning(
         # Pre-create dbt/target so Docker's bind mount doesn't recreate it as root.
         ssh.connect(droplet_ip, username="root")
         try:
-            result = ssh.exec_command("mkdir -p /srv/dango/project/dbt/target", timeout=10)
-            if result.exit_code != 0:
-                _logger.warning("mkdir_dbt_target_failed", stderr=result.stderr)
-            result = ssh.exec_command("chown -R dango:dango /srv/dango/project", timeout=30)
-            if result.exit_code != 0:
-                raise CloudProvisioningError(
-                    f"Failed to set file ownership: {result.stderr.strip()}"
-                )
+            _fix_project_ownership(ssh)
         finally:
             ssh.disconnect()
 
@@ -262,6 +331,7 @@ def run_provisioning(
 
         # --- Sub-step 7: Push secrets ---
         warnings: list[str] = []
+        _carry_fallback_warnings(setup_notes, warnings)
         # Secrets confirmation moved to wizard (push_secrets field).
         if config.push_secrets:
             _status("Pushing secrets to server...")
@@ -317,14 +387,7 @@ def run_provisioning(
         _status("Building Docker images (this may take a few minutes)...")
         ssh.connect(droplet_ip, username="root")
         try:
-            from dango.platform.cloud.backup import get_remote_compose_project_name
-
-            compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
-            result = ssh.exec_command(_prebuild_command(compose_proj), timeout=900)
-            if result.exit_code != 0:
-                raise CloudProvisioningError(
-                    f"Docker image build failed:\n{result.stderr.strip() or result.stdout.strip()}"
-                )
+            _prebuild_images(ssh, warnings, own_marker=helper_created, provider="digitalocean")
         finally:
             ssh.disconnect()
 
@@ -353,15 +416,28 @@ def run_provisioning(
         _status("Configuring Metabase...")
         ssh.connect(droplet_ip, username="root")
         try:
+            # Everything that creates protected paths has run (sync, secrets, first start, auth):
+            # put the runner users' denials back on whatever it left behind.  Before the Metabase
+            # trigger: that restarts dango-web, so it is left stopped here (one start, no restart while it sets up).
+            from dango.platform.cloud import runner_reapply
+
+            runner_reapply.reapply(ssh, warnings, stop_web=True, restart=False)
             _trigger_metabase_setup(ssh, config.admin_email)
         finally:
             ssh.disconnect()
 
         url = f"https://{config.domain}" if config.domain else f"http://{droplet_ip}"
-        _status("Waiting for platform to become ready...")
-        health_ok = _health_check(url, timeout=180, interval=5)
-        if not health_ok:
-            warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
+        if applied_ips and not _ip_in_cidrs(deployer_ip, applied_ips):
+            # The check runs from this machine, which the firewall does not allow.
+            warnings.append(
+                f"Health check skipped: web access is restricted to {', '.join(applied_ips)}. "
+                "Check from an allowed address or run `dango remote status`."
+            )
+        else:
+            _status("Waiting for platform to become ready...")
+            health_ok = _health_check(url, timeout=180, interval=5)
+            if not health_ok:
+                warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
 
         # Wait for Metabase to be ready (Java startup takes ~2 min)
         _status("Waiting for Metabase to initialize...")
@@ -380,6 +456,7 @@ def run_provisioning(
             url=url,
             admin_password=config.admin_password,
             warnings=warnings,
+            allowed_ips=applied_ips,
         )
 
     except SizeUnavailableError as exc:
@@ -395,20 +472,33 @@ def run_provisioning(
                 "\n[dim]The admin-creation step failed on the server (details above)."
                 "\nRun [bold]dango deploy[/bold] to retry with a fresh server.[/dim]"
             )
+        elif isinstance(exc, MetabasePinRequired):
+            console.print(
+                "\n[dim]The Metabase build needs an administrator pin (details above). "
+                "This server is removed; pinning cannot be done on it.[/dim]"
+            )
+        elif isinstance(exc, CloudAPIError) and exc.is_permission_error:
+            console.print(
+                "\n[dim]Your DigitalOcean token is missing a permission. Required scopes: "
+                "droplet (create, read, update, delete, actions), "
+                "firewall (create, read, update, delete), "
+                "ssh_key (create, read, delete), tag (create, read), "
+                "regions/sizes/images (read). Spaces keys are separate.[/dim]"
+            )
+        elif isinstance(exc, CloudAPIError) and exc.status_code and 400 <= exc.status_code < 500:
+            console.print("\n[dim]DigitalOcean rejected the request (see message above).[/dim]")
         else:
             console.print(
                 "\n[dim]This is usually a transient infrastructure issue (not a Dango bug)."
                 "\nRun [bold]dango deploy[/bold] to retry with a fresh server.[/dim]"
             )
-        console.print("Cleaning up resources...")
-        errors = tracker.cleanup()
-        if errors:
-            console.print("[yellow]Cleanup errors:[/yellow]")
-            for err in errors:
-                console.print(f"  - {err}")
-        else:
-            console.print("[green]All resources cleaned up.[/green]")
+        _cleanup_and_report(tracker)
         raise CloudProvisioningError(err_msg) from exc
+    except BaseException:
+        # Ctrl-C / SystemExit: the same cleanup, then the interruption propagates unchanged.
+        console.print("\n[yellow]Interrupted.[/yellow]")
+        _cleanup_and_report(tracker)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -445,6 +535,8 @@ def run_byos_setup(
     # BUG-251: Resolve project_root so Path(".").name is never empty
     project_root = project_root.resolve()
 
+    _refuse_new_server(project_root, "BYOS")
+
     warnings: list[str] = []
     key_path = Path(config.ssh_key_path).expanduser()
     ssh = SSHManager(key_path=key_path)
@@ -467,6 +559,8 @@ def run_byos_setup(
             if setup_result.warnings:
                 for w in setup_result.warnings:
                     console.print(f"  [yellow]Warning:[/yellow] {w}")
+            _carry_fallback_warnings(setup_result.warnings, warnings)
+            helper_created = setup_result.helper_created
         finally:
             ssh.disconnect()
 
@@ -489,14 +583,7 @@ def run_byos_setup(
         # Pre-create dbt/target so Docker's bind mount doesn't recreate it as root.
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            result = ssh.exec_command("mkdir -p /srv/dango/project/dbt/target", timeout=10)
-            if result.exit_code != 0:
-                _logger.warning("mkdir_dbt_target_failed", stderr=result.stderr)
-            result = ssh.exec_command("chown -R dango:dango /srv/dango/project", timeout=30)
-            if result.exit_code != 0:
-                raise CloudProvisioningError(
-                    f"Failed to set file ownership: {result.stderr.strip()}"
-                )
+            _fix_project_ownership(ssh)
         finally:
             ssh.disconnect()
 
@@ -538,14 +625,7 @@ def run_byos_setup(
         _status("Building Docker images (this may take a few minutes)...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            from dango.platform.cloud.backup import get_remote_compose_project_name
-
-            compose_proj = get_remote_compose_project_name(ssh, "/srv/dango/project")
-            result = ssh.exec_command(_prebuild_command(compose_proj), timeout=900)
-            if result.exit_code != 0:
-                raise CloudProvisioningError(
-                    f"Docker image build failed:\n{result.stderr.strip() or result.stdout.strip()}"
-                )
+            _prebuild_images(ssh, warnings, own_marker=helper_created)
         finally:
             ssh.disconnect()
 
@@ -570,6 +650,12 @@ def run_byos_setup(
         _status("Configuring Metabase...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
+            # Everything that creates protected paths has run (sync, secrets, first start, auth):
+            # put the runner users' denials back on whatever it left behind.  Before the Metabase
+            # trigger: that restarts dango-web, so it is left stopped here (one start, no restart while it sets up).
+            from dango.platform.cloud import runner_reapply
+
+            runner_reapply.reapply(ssh, warnings, stop_web=True, restart=False)
             _trigger_metabase_setup(ssh, config.admin_email)
         finally:
             ssh.disconnect()
@@ -613,16 +699,101 @@ def run_byos_setup(
 # ---------------------------------------------------------------------------
 
 
-def _prebuild_command(compose_proj: str) -> str:
-    """Build the pre-deploy ``docker compose build`` command.
+def _fix_project_ownership(ssh: Any) -> None:
+    """Hand the synced project to ``dango`` and pre-create ``dbt/target`` as ``dango``.
 
-    The variable is passed through ``env`` *after* sudo: ``VAR=x sudo ...`` is dropped by
-    sudo's env_reset, so Compose would fall back to the directory name and build twice.
+    File sync uploads as root; dbt and dango-web run as dango.  ``-P`` (never
+    follow symlinks) is chown's default with ``-R``; it is stated explicitly.
+    ``dbt/target`` is pre-created so Docker's bind mount does not create it as root.
     """
-    return (
-        "cd /srv/dango/project && sudo -u dango env "
-        f"COMPOSE_PROJECT_NAME={shlex.quote(compose_proj)} docker compose build"
+    result = ssh.exec_command("chown -R -P dango:dango /srv/dango/project", timeout=30)
+    if result.exit_code != 0:
+        raise CloudProvisioningError(f"Failed to set file ownership: {result.stderr.strip()}")
+    result = ssh.exec_command(f"{AS_DANGO} mkdir -p /srv/dango/project/dbt/target", timeout=10)
+    if result.exit_code != 0:
+        _logger.warning("mkdir_dbt_target_failed", stderr=result.stderr)
+
+
+def _deployer_ip(ssh: Any) -> str | None:
+    """Return the deployer's IPv4 as ``<ip>/32`` as the server sees it, or None.
+
+    Reads ``$SSH_CLIENT`` over the open root session; no third-party lookup.
+    """
+    from dango.exceptions import CloudError
+    from dango.platform.cloud.firewall import validate_ip_or_cidr
+
+    result = ssh.exec_command("echo $SSH_CLIENT", timeout=10)
+    fields = str(result.stdout or "").split()
+    if not fields or "/" in fields[0]:
+        return None
+    try:
+        return validate_ip_or_cidr(fields[0])
+    except CloudError:
+        return None
+
+
+def _restrict_to_detected_ip(client: Any, firewall_id: str, deployer_ip: str | None) -> list[str]:
+    """Apply the ``detect`` choice: restrict 80/443 to *deployer_ip* if known."""
+    if deployer_ip is None:
+        console.print(
+            "  [yellow]Warning:[/yellow] Could not detect your IPv4 address. The server "
+            "serves plain HTTP and its web ports are OPEN to the internet. Restrict them "
+            "with: [bold]dango remote firewall allow-ip <your-ip>[/bold]"
+        )
+        return []
+    from dango.platform.cloud.firewall import restrict_web_to_ips
+
+    restrict_web_to_ips(client, firewall_id, [deployer_ip])
+    console.print(
+        f"  Web access restricted to {deployer_ip} (your address as the server sees it). "
+        "Change it with [bold]dango remote firewall allow-ip[/bold]."
     )
+    return [deployer_ip]
+
+
+def _ip_in_cidrs(ip_cidr: str | None, cidrs: list[str]) -> bool:
+    """Return True if the single address *ip_cidr* (``a.b.c.d/32``) is inside *cidrs*."""
+    import ipaddress
+
+    if ip_cidr is None:
+        return False
+    address = ipaddress.IPv4Address(ip_cidr.split("/")[0])
+    return any(address in ipaddress.IPv4Network(c, strict=False) for c in cidrs)
+
+
+def _carry_fallback_warnings(setup_warnings: list[str], warnings: list[str]) -> None:
+    """Repeat the setup's loud compose-helper and runner-isolation warnings at the end of the deploy."""
+    from dango.platform.cloud.compose_migrate import FALLBACK_MARK
+    from dango.platform.cloud.runner_isolation import ISOLATION_MARK
+
+    marks = (FALLBACK_MARK, ISOLATION_MARK)
+    warnings.extend(w for w in setup_warnings if w.startswith(marks))
+
+
+def _refuse_new_server(project_root: Path, target: str) -> None:
+    """Refuse a custom Metabase version or an unusable local recipe before anything is created."""
+    from dango.platform.cloud.compose_steps import new_server_refusal
+
+    message = new_server_refusal(project_root, target)
+    if message is not None:
+        console.print(f"\n[red]Cannot deploy:[/red] {message}")
+        raise CloudProvisioningError(message)
+
+
+def _prebuild_images(
+    ssh: Any, warnings: list[str], *, own_marker: bool = False, provider: str = "byos"
+) -> None:
+    """Pre-build the Docker images through the compose helper; there is no legacy build.
+
+    A missing helper, a refusal or a pin error stops the deploy with a recovery instruction
+    (``MetabasePinRequired`` for a pin refusal); see ``compose_migrate.prebuild_images``.  The
+    recovery differs by *provider*: a DigitalOcean server is destroyed when the deploy fails, so
+    pinning on it cannot help.
+    """
+    from dango.platform.cloud import compose_migrate as cm
+
+    recovery = cm.PIN_RECOVERY_NEW_SERVER if provider == "digitalocean" else cm.PIN_RECOVERY_BYOS
+    cm.prebuild_images(ssh, warnings, own_marker=own_marker, recovery=recovery)
 
 
 def _status(msg: str) -> None:
@@ -676,20 +847,14 @@ def _push_secrets(
     secrets_path = project_root / ".dlt" / "secrets.toml"
     env_path = project_root / ".env"
 
-    pushed_paths: list[str] = []
+    # Written as the dango user (never through a symlink in the project).
     if secrets_path.exists():
-        content = secrets_path.read_text()
-        ssh.write_remote_file("/srv/dango/project/.dlt/secrets.toml", content, mode=0o600)
-        pushed_paths.append("/srv/dango/project/.dlt/secrets.toml")
+        write_project_file(
+            ssh, "/srv/dango/project/.dlt/secrets.toml", secrets_path.read_text(), mode=0o600
+        )
 
     if env_path.exists():
-        content = env_path.read_text()
-        ssh.write_remote_file("/srv/dango/project/.env", content, mode=0o600)
-        pushed_paths.append("/srv/dango/project/.env")
-
-    if pushed_paths:
-        # chown: best-effort (uses ; true — secrets may have been pushed to a path the user doesn't own)
-        ssh.exec_command(f"chown dango:dango {' '.join(pushed_paths)} 2>/dev/null; true")
+        write_project_file(ssh, "/srv/dango/project/.env", env_path.read_text(), mode=0o600)
 
 
 _ADMIN_SCRIPT_WAIT_SECONDS = 120
@@ -794,65 +959,105 @@ def _build_auth_timeout_script() -> str:
     )
 
 
+def _validate_admin_email(email: str) -> None:
+    """Reject an admin email that could break out of a remote shell string or a ``.env`` line."""
+    if "\n" in email or "'" in email or not _EMAIL_RE.fullmatch(email):
+        raise ValueError(f"Invalid email format: {email!r}")
+
+
+_SERVER_PYTHON = "/srv/dango/venv/bin/python"
+
+
+def _run_remote_script(
+    ssh: Any, script: str, *, purpose: str, timeout: int, python: str = _SERVER_PYTHON
+) -> Any:
+    """Upload *script* to a root-owned private directory, run it as ``dango``, then remove it.
+
+    The server creates the directory (``mktemp -d``, ignoring root's ``TMPDIR``), so no
+    path is predictable or plantable by the ``dango`` user; the directory is checked to
+    be a real directory owned by root with mode 0700 before it is opened up to group
+    ``dango`` (read-only), so root never writes into a location ``dango`` controls. The
+    script may hold a password hash, hence no access for others. Removed even on failure.
+    Any staging problem returns a failing result (the script is not run).
+    """
+    made = ssh.exec_command(f"env -u TMPDIR mktemp -d -t dango-{purpose}.XXXXXXXX", timeout=30)
+    lines = (made.stdout or "").strip().splitlines()
+    directory = lines[0].strip() if lines else ""
+    # Only a directory shaped like the one asked for is ever removed.
+    ours = re.fullmatch(rf"/[^\s]*/dango-{re.escape(purpose)}\.[A-Za-z0-9]{{8}}", directory)
+    if made.exit_code != 0 or len(lines) != 1 or not ours:
+        if ours:
+            ssh.exec_command(f"rm -rf {shlex.quote(directory)}", timeout=30)
+        if made.exit_code != 0:
+            return made
+        return CommandResult(
+            stdout="",
+            stderr=f"Could not stage script: unexpected mktemp output {(made.stdout or '')[:200]!r}",
+            exit_code=1,
+        )
+    path = f"{directory}/{uuid.uuid4().hex}.py"
+    q_dir, q_path = shlex.quote(directory), shlex.quote(path)
+    try:
+        for step in (
+            f'test ! -L {q_dir} && [ "$(stat -c %u:%a {q_dir})" = 0:700 ]',
+            f"chgrp dango {q_dir} && chmod 750 {q_dir}",
+        ):
+            prep = ssh.exec_command(step, timeout=30)
+            if prep.exit_code != 0:
+                return prep
+        ssh.write_remote_file(path, script, mode=0o640)
+        grant = ssh.exec_command(f"chgrp -h dango {q_path}", timeout=30)
+        if grant.exit_code != 0:
+            return grant
+        return ssh.exec_command(f"sudo -u dango {python} {q_path}", timeout=timeout)
+    finally:
+        ssh.exec_command(f"rm -rf {q_dir}", timeout=30)
+
+
 def _create_admin_and_enable_auth(
     ssh: Any,
     email: str,
     password: str,
 ) -> None:
     """Create admin user and enable auth on remote server."""
-    # Validate email (shell injection prevention)
-    if not _EMAIL_RE.match(email):
-        raise ValueError(f"Invalid email format: {email}")
+    _validate_admin_email(email)
 
     # Hash password locally — never send plaintext to remote server
     from dango.auth.security import hash_password
 
     pw_hash = hash_password(password)
 
-    # Build Python script and base64-encode it (avoids shell injection)
+    # Upload the script as a file instead of passing its text on a command line
     script = _build_admin_script(email, pw_hash)
-    encoded = base64.b64encode(script.encode()).decode()
-
-    result = ssh.exec_command(
-        f"sudo -u dango /srv/dango/venv/bin/python3 -c "
-        f"\"import base64; exec(base64.b64decode('{encoded}'))\"",
+    result = _run_remote_script(
+        ssh,
+        script,
+        purpose="admin",
         timeout=_ADMIN_SCRIPT_SSH_TIMEOUT,
+        python="/srv/dango/venv/bin/python3",
     )
     if result.exit_code != 0:
         raise AdminCreationError(
             f"Admin account creation failed:\n{result.stderr or result.stdout}"
         )
 
-    # Persist admin email for systemd service (BUG-100)
-    result = ssh.exec_command(
-        f"grep -q '^DANGO_ADMIN_EMAIL=' /srv/dango/project/.env 2>/dev/null "
-        f"|| echo 'DANGO_ADMIN_EMAIL={email}' >> /srv/dango/project/.env"
-    )
+    # Persist admin email for systemd service (BUG-100), appended as the dango user
+    result = append_env_line_if_missing(ssh, "/srv/dango/project/.env", "DANGO_ADMIN_EMAIL", email)
     if result.exit_code != 0:
         _logger.warning("persist_admin_email_failed", stderr=result.stderr)
-    # chown: best-effort (file may not exist yet on first deploy)
-    ssh.exec_command("chown dango:dango /srv/dango/project/.env 2>/dev/null; true")
 
     # Enable auth
-    ssh.write_remote_file("/srv/dango/project/.dango/auth.yml", "enabled: true\n", mode=0o644)
-    result = ssh.exec_command("chown dango:dango /srv/dango/project/.dango/auth.yml")
-    if result.exit_code != 0:
-        _logger.warning("chown_auth_yml_failed", stderr=result.stderr)
+    write_project_file(ssh, "/srv/dango/project/.dango/auth.yml", "enabled: true\n", mode=0o644)
 
     # Write cloud-specific auth timeouts (30-day session, 60-min idle)
     timeout_script = _build_auth_timeout_script()
-    encoded_timeout = base64.b64encode(timeout_script.encode()).decode()
-    result = ssh.exec_command(
-        f"sudo -u dango /srv/dango/venv/bin/python -c "
-        f"\"import base64; exec(base64.b64decode('{encoded_timeout}'))\"",
-        timeout=15,
-    )
+    result = _run_remote_script(ssh, timeout_script, purpose="auth-timeout", timeout=15)
     if result.exit_code != 0:
         _logger.warning("auth_timeout_config_failed", stderr=result.stderr)
 
     # Ensure the entire .dango/ directory is owned by the dango user so it can
     # create files like dbt.lock in .dango/state/ at runtime.
-    result = ssh.exec_command("chown -R dango:dango /srv/dango/project/.dango")
+    result = ssh.exec_command("chown -R -P dango:dango /srv/dango/project/.dango")
     if result.exit_code != 0:
         _logger.warning("chown_dango_dir_failed", stderr=result.stderr)
 
@@ -865,22 +1070,17 @@ def _trigger_metabase_setup(ssh: Any, admin_email: str) -> None:
     ``setup_metabase_if_needed`` runs with the correct admin email already
     in the environment.
     """
-    # Validate email (shell injection prevention — same as _create_admin_and_enable_auth)
-    if not _EMAIL_RE.match(admin_email):
-        raise ValueError(f"Invalid email format: {admin_email}")
+    _validate_admin_email(admin_email)
 
-    # Ensure admin email is in server .env for Metabase setup
-    result = ssh.exec_command(
-        f"grep -q '^DANGO_ADMIN_EMAIL=' /srv/dango/project/.env 2>/dev/null "
-        f"|| echo 'DANGO_ADMIN_EMAIL={admin_email}' >> /srv/dango/project/.env"
+    # Ensure admin email is in server .env for Metabase setup (appended as dango)
+    result = append_env_line_if_missing(
+        ssh, "/srv/dango/project/.env", "DANGO_ADMIN_EMAIL", admin_email
     )
     if result.exit_code != 0:
         _logger.warning("persist_metabase_email_failed", stderr=result.stderr)
-    # chown: best-effort (file may not exist yet)
-    ssh.exec_command("chown dango:dango /srv/dango/project/.env 2>/dev/null; true")
 
     # Restart dango-web so lifespan re-runs setup_metabase_if_needed
-    result = ssh.exec_command("systemctl restart dango-web", timeout=120)
+    result = ssh.exec_command("systemctl restart dango-web", timeout=190)
     if result.exit_code != 0:
         _logger.warning(
             "metabase_setup_restart_failed",
@@ -897,8 +1097,9 @@ def _setup_backups(
 ) -> None:
     """Set up automated backups: create bucket, write credentials, enable timer."""
     from dango.platform.cloud._server_templates import (
-        SYSTEMD_BACKUP_SERVICE,
+        SERVER_DANGO_VERSION_COMMAND,
         SYSTEMD_BACKUP_TIMER,
+        backup_service_unit,
     )
     from dango.platform.cloud.spaces import SpacesClient
 
@@ -917,7 +1118,7 @@ def _setup_backups(
 
     # Create bucket (idempotent) — skip if reusing an existing bucket
     if not config.spaces_bucket_name:
-        spaces.create_bucket()
+        tracker.spaces_created = bool(spaces.create_bucket())
     else:
         console.print(f"  [dim]Using existing bucket '{bucket_name}'.[/dim]")
 
@@ -929,20 +1130,19 @@ def _setup_backups(
         f"SPACES_BUCKET={bucket_name}\n"
         f"SPACES_REGION={config.region}\n"
     )
-    # Append to existing .env
-    result = ssh.exec_command("cat /srv/dango/project/.env 2>/dev/null || true")
-    existing = result.stdout if result.stdout else ""
-    ssh.write_remote_file("/srv/dango/project/.env", existing + env_lines, mode=0o600)
-    result = ssh.exec_command("chown dango:dango /srv/dango/project/.env")
-    if result.exit_code != 0:
-        _logger.warning("chown_env_file_failed", stderr=result.stderr)
+    # Append to existing .env (read and written as the dango user)
+    existing = read_project_file(ssh, "/srv/dango/project/.env")
+    write_project_file(ssh, "/srv/dango/project/.env", existing + env_lines, mode=0o600)
 
-    # Write systemd timer/service files
-    ssh.write_remote_file(
-        "/etc/systemd/system/dango-backup.service",
-        SYSTEMD_BACKUP_SERVICE,
-        mode=0o644,
+    # Write systemd timer/service files; the unit depends on the server's Dango
+    # version (normally the version just installed, so the current unit)
+    version = ssh.exec_command(SERVER_DANGO_VERSION_COMMAND, timeout=30)
+    unit, unit_warning = backup_service_unit(
+        version.stdout.strip() if version.exit_code == 0 else None
     )
+    if unit_warning:
+        console.print(f"  [yellow]Warning:[/yellow] {unit_warning}")
+    ssh.write_remote_file("/etc/systemd/system/dango-backup.service", unit, mode=0o644)
     ssh.write_remote_file(
         "/etc/systemd/system/dango-backup.timer",
         SYSTEMD_BACKUP_TIMER,
@@ -1050,10 +1250,7 @@ def _generate_cloud_profiles(
             ram_gb = 4
 
     content = generate_dbt_profiles_yml(project_name, vcpus, ram_gb)
-    ssh.write_remote_file("/srv/dango/project/dbt/profiles.yml", content, mode=0o644)
-    result = ssh.exec_command("chown dango:dango /srv/dango/project/dbt/profiles.yml")
-    if result.exit_code != 0:
-        _logger.warning("chown_dbt_profiles_failed", stderr=result.stderr)
+    write_project_file(ssh, "/srv/dango/project/dbt/profiles.yml", content, mode=0o644)
 
 
 def _start_services(ssh: Any) -> None:
@@ -1100,12 +1297,25 @@ def _health_check(url: str, timeout: int = 60, interval: int = 5) -> bool:
     """
     import httpx
 
+    is_https = url.startswith("https://")
+    tls_notice_shown = False
     attempts = timeout // interval
     for _ in range(attempts):
         try:
-            resp = httpx.get(f"{url}/api/health", timeout=5, verify=False)
+            resp = httpx.get(f"{url}/api/health", timeout=5)
             if resp.status_code == 200:
                 return True
+        except (httpx.ConnectError, ssl.SSLError):
+            if is_https:
+                _logger.info("health_check_https_not_ready", url=url)
+                if not tls_notice_shown:
+                    console.print(
+                        "    [dim]HTTPS is not ready yet (certificate may still be "
+                        "issuing); retry in a minute[/dim]"
+                    )
+                    tls_notice_shown = True
+            else:
+                _logger.debug("health_check_poll_error", url=url)
         except Exception:
             _logger.debug("health_check_poll_error", url=url)
         time.sleep(interval)

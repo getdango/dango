@@ -7,9 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import subprocess
-import sys
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -20,6 +17,7 @@ from fastapi.responses import JSONResponse
 from dango.auth.audit import AuditEvent
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
+from dango.platform import run_as, script_launch
 from dango.web.helpers import append_log_entry, get_project_root
 from dango.web.routes.scripts_helpers import (
     _MAX_STDERR_SIZE,
@@ -100,6 +98,9 @@ async def run_script(
             )
         del _running_processes[name]
 
+    # Refuse before a run record exists (D2): a cloud server without isolation
+    run_as.require_isolation_ready()
+
     run_id = str(uuid.uuid4())
     log_dir = _get_log_dir(project_root) / run_id
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -115,18 +116,20 @@ async def run_script(
     (log_dir / "meta.json").write_text(json.dumps(meta))
 
     # Launch subprocess
-    env = os.environ.copy()
-    env["DANGO_PROJECT_ROOT"] = str(project_root)
-    env["DANGO_SCRIPT_RUN_ID"] = run_id
-
     try:
-        proc = subprocess.Popen(
-            [sys.executable, str(script_path)],
-            cwd=str(project_root),
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+        started = script_launch.start_script(
+            project_root,
+            name,
+            script_path,
+            run_id=run_id,
+            log=lambda message: append_log_entry(
+                {
+                    "timestamp": started_at.isoformat(),
+                    "level": "warning",
+                    "source": f"script:{name}",
+                    "message": message,
+                }
+            ),
         )
     except OSError as e:
         return JSONResponse(
@@ -137,6 +140,8 @@ async def run_script(
             },
         )
 
+    proc = started.proc
+    isolation_note: dict[str, Any] = {"unisolated": True} if started.unisolated else {}
     _running_processes[name] = proc
 
     append_log_entry(
@@ -155,6 +160,7 @@ async def run_script(
         project_root,
         script_name=name,
         run_id=run_id,
+        **isolation_note,
     )
 
     loop = asyncio.get_running_loop()
@@ -175,15 +181,19 @@ async def run_script(
             error = None if exit_code == 0 else f"Exit code: {exit_code}"
 
         except asyncio.TimeoutError:
-            proc.terminate()
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    asyncio.shield(communicate_future),
-                    timeout=5,
-                )
-            except asyncio.TimeoutError:
-                proc.kill()
+            if isinstance(proc, script_launch.RunnerProc):
+                await asyncio.to_thread(proc.stop)
                 stdout, stderr = await communicate_future
+            else:
+                proc.terminate()
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        asyncio.shield(communicate_future),
+                        timeout=5,
+                    )
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    stdout, stderr = await communicate_future
 
             finished_at = datetime.now(timezone.utc)
             duration = (finished_at - started_at).total_seconds()
@@ -211,6 +221,7 @@ async def run_script(
                 "status": status,
                 "exit_code": exit_code,
                 "error": error,
+                **isolation_note,
             }
             (log_dir / "meta.json").write_text(json.dumps(meta_update))
 
@@ -255,6 +266,7 @@ async def run_script(
             "status": "started",
             "run_id": run_id,
             "script_name": name,
+            **isolation_note,
         }
     )
 
@@ -294,19 +306,24 @@ async def cancel_script(
 
     already_cancelling = name in _cancelling
 
-    proc.terminate()
+    if not isinstance(proc, script_launch.RunnerProc):
+        proc.terminate()
     _cancelling.add(name)
     loop = asyncio.get_running_loop()
 
     async def _force_kill() -> None:
-        try:
-            await asyncio.wait_for(
-                loop.run_in_executor(None, proc.wait),
-                timeout=5,
-            )
-        except asyncio.TimeoutError:
-            proc.kill()
-            await loop.run_in_executor(None, proc.wait)
+        if isinstance(proc, script_launch.RunnerProc):
+            # The script runs as another uid: stop it through the runner, off the loop.
+            await asyncio.to_thread(proc.stop)
+        else:
+            try:
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, proc.wait),
+                    timeout=5,
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await loop.run_in_executor(None, proc.wait)
 
         _running_processes.pop(name, None)
         _cancelling.discard(name)

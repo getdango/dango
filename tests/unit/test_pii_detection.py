@@ -265,10 +265,13 @@ class TestScanTableForPii:
         ]
         with (
             patch("duckdb.connect", return_value=mock_conn),
-            patch(f"{_PII}._scan_column", return_value={}),
+            patch(f"{_PII}._scan_column", return_value={}) as mock_scan,
             patch(f"{_PII}._cache_findings"),
         ):
-            scan_table_for_pii(Path("/tmp/test"), "shopify", "orders")
+            # does-not-raise: the failing column is dropped, the other column is still scanned
+            result = scan_table_for_pii(Path("/tmp/test"), "shopify", "orders")
+        assert result == []
+        mock_scan.assert_called_once()
 
 
 @pytest.mark.unit
@@ -424,8 +427,12 @@ class TestSendPiiWebhook:
     _findings: list[dict[str, str]] = [{"entity_type": "EMAIL_ADDRESS", "column_name": "email"}]
 
     def test_no_config_returns_silently(self, tmp_path: Path) -> None:
-        with patch(f"{_WH}.load_notification_config", return_value=None):
+        with (
+            patch(f"{_WH}.load_notification_config", return_value=None),
+            patch("httpx.Client") as mock_client_cls,
+        ):
             _send_pii_webhook(tmp_path, ["shopify"], self._findings)
+        mock_client_cls.assert_not_called()
 
     def test_on_governance_false_skips(self, tmp_path: Path) -> None:
         mock_config = MagicMock()
@@ -433,8 +440,10 @@ class TestSendPiiWebhook:
         with (
             patch(f"{_WH}.load_notification_config", return_value=mock_config),
             patch(f"{_WH}.should_notify", return_value=False),
+            patch("httpx.Client") as mock_client_cls,
         ):
             _send_pii_webhook(tmp_path, ["shopify"], self._findings)
+        mock_client_cls.assert_not_called()
 
     def test_successful_send(self, tmp_path: Path) -> None:
         mock_config = MagicMock()
@@ -451,8 +460,10 @@ class TestSendPiiWebhook:
         mock_client.post.assert_called_once()
 
     def test_never_raises_on_failure(self, tmp_path: Path) -> None:
-        with patch(f"{_WH}.load_notification_config", side_effect=RuntimeError("err")):
+        with patch(f"{_WH}.load_notification_config", side_effect=RuntimeError("err")) as mock_load:
+            # does-not-raise: the config-load failure is swallowed
             _send_pii_webhook(tmp_path, ["shopify"], self._findings)
+        mock_load.assert_called_once()
 
     def test_slack_format_dispatch(self, tmp_path: Path) -> None:
         mock_config = MagicMock()

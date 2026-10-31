@@ -12,7 +12,9 @@ from __future__ import annotations
 import click
 
 from dango.cli import console
+from dango.cli.commands import remote_report as report
 from dango.cli.commands.remote import remote
+from dango.cli.commands.remote_power import refuse_if_powered_off
 from dango.cli.utils import safe_confirm
 
 # ---------------------------------------------------------------------------
@@ -42,7 +44,10 @@ def remote_upgrade(
     from rich.status import Status
 
     from dango.cli.commands.remote import _load_cloud_config_with_ssh_or_fail
+    from dango.cli.utils import require_project_context
+    from dango.platform.cloud.runtime_ownership import at_target_restart_plan
     from dango.platform.cloud.upgrade import (
+        PROGRESS_LABELS,
         UpgradeResult,
         check_versions,
         upgrade_dango,
@@ -54,13 +59,12 @@ def remote_upgrade(
         try:
             validate_version_string(target_version)
         except Exception as exc:
-            console.print(f"[red]Error:[/red] {exc}")
+            console.print(f"[red]Error:[/red] {report.literal(exc)}")
             raise SystemExit(1) from exc
 
     cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
 
     try:
-        # Show current vs target version
         console.print("[bold]Checking versions...[/bold]")
         current, latest = check_versions(ssh)
 
@@ -68,19 +72,25 @@ def remote_upgrade(
         console.print(f"  Current version: [cyan]{current or 'unknown'}[/cyan]")
         console.print(f"  Target version:  [cyan]{display_target}[/cyan]")
 
-        if current == display_target:
+        if at_target := current == display_target:  # post-install steps still run, no pip
             console.print("\n[green]Already at target version — no upgrade needed.[/green]")
-            return
 
-        if not latest and target_version is None:
+        if not at_target and not latest and target_version is None:
             console.print(
                 "\n[red]Error:[/red] Could not determine latest version from PyPI. "
                 "Specify a version with --version."
             )
             raise SystemExit(1)
 
+        # At target, only a venv rebuild restarts services: ask first (plain steps need no prompt).
+        if at_target and not yes and (plan := at_target_restart_plan(ssh)):
+            console.print(f"\n{plan}")
+            if not safe_confirm("Rebuild the venv now?", default=False):
+                console.print("[yellow]Cancelled.[/yellow] Nothing changed; use --yes to rebuild.")
+                return
+
         # Confirm
-        if not yes:
+        if not yes and not at_target:
             console.print()
             if skip_backup:
                 console.print("[yellow]Warning:[/yellow] Pre-upgrade backup will be skipped.")
@@ -88,23 +98,11 @@ def remote_upgrade(
                 console.print("[yellow]Upgrade cancelled.[/yellow]")
                 return
 
-        # Execute upgrade
         with Status("[bold blue]Upgrading...", console=console) as status:
 
             def _on_progress(step: str, step_status: str) -> None:
                 if step_status == "running":
-                    labels: dict[str, str] = {
-                        "check_version": "Checking current version...",
-                        "check_pypi": "Checking latest PyPI version...",
-                        "backup": "Creating pre-upgrade backup...",
-                        "stop_services": "Stopping services...",
-                        "pip_install": "Installing new version...",
-                        "migrations": "Running migrations...",
-                        "docker_rebuild": "Rebuilding Docker images...",
-                        "start_services": "Starting services...",
-                        "verify_health": "Verifying health...",
-                    }
-                    status.update(f"[bold blue]{labels.get(step, step)}")
+                    status.update(f"[bold blue]{PROGRESS_LABELS.get(step, step)}")
 
             result: UpgradeResult = upgrade_dango(
                 ssh,
@@ -112,39 +110,17 @@ def remote_upgrade(
                 skip_backup=skip_backup,
                 force=force,
                 on_progress=_on_progress,
+                local_project_root=require_project_context(ctx),
+                byos=getattr(cloud_cfg, "provider", None) == "byos",
             )
 
-        # Show results
-        console.print()
-        if result.health_check_passed:
-            console.print("[green]Upgrade complete.[/green]")
-        else:
-            console.print("[yellow]Upgrade complete with warnings.[/yellow]")
-
-        console.print(
-            f"  Version: [cyan]{result.old_version}[/cyan] → [cyan]{result.new_version}[/cyan]"
-        )
-        console.print(f"  Duration: {result.duration_seconds}s")
-        if result.backup_path:
-            console.print(f"  Backup: {result.backup_path}")
-        if result.migrations_run:
-            console.print("  Migrations: applied")
-        if result.docker_rebuilt:
-            console.print("  Docker: rebuilt")
-
-        for warning in result.warnings:
-            console.print(f"  [yellow]Warning:[/yellow] {warning}")
-
-        if not result.health_check_passed:
-            console.print(
-                "\n[yellow]Health check failed.[/yellow] "
-                "Run [bold]dango remote rollback[/bold] to restore the previous version."
-            )
+        done = "Server configuration checked" if at_target else "Upgrade complete"
+        report.upgrade_result(result, done)
 
     except SystemExit:
         raise
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Upgrade failed: {exc}")
+        report.failure("Upgrade failed", exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -232,12 +208,11 @@ def remote_resize(ctx: click.Context, size: str | None, yes: bool) -> None:
     try:
         validate_size_slug(size)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {report.literal(exc)}")
         raise SystemExit(1) from exc
 
-    # Show current vs new comparison
-    current_tier = get_size_tier(cloud_cfg.size)
-    new_tier = get_size_tier(size)
+    refuse_if_powered_off(cloud_cfg)  # an interrupted resize leaves the droplet off
+    current_tier, new_tier = get_size_tier(cloud_cfg.size), get_size_tier(size)
 
     console.print("[bold]Resize plan:[/bold]")
     if current_tier:
@@ -311,17 +286,17 @@ def remote_resize(ctx: click.Context, size: str | None, yes: bool) -> None:
         console.print(f"  Size: [cyan]{result.old_size}[/cyan] → [cyan]{result.new_size}[/cyan]")
         console.print(f"  Duration: {result.duration_seconds}s")
         if result.backup_path:
-            console.print(f"  Backup: {result.backup_path}")
+            report.line(result.backup_path, "  Backup: ")
         if result.dbt_profiles_regenerated:
             console.print("  dbt profiles.yml: regenerated")
 
         for warning in result.warnings:
-            console.print(f"  [yellow]Warning:[/yellow] {warning}")
+            report.warning(warning)
 
     except SystemExit:
         raise
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Resize failed: {exc}")
+        report.failure("Resize failed", exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -376,7 +351,7 @@ def remote_migrate(
     try:
         validate_size_slug(size)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {report.literal(exc)}")
         raise SystemExit(1) from exc
 
     # Require Spaces
@@ -487,12 +462,12 @@ def remote_migrate(
             )
 
         for warning in result.warnings:
-            console.print(f"  [yellow]Warning:[/yellow] {warning}")
+            report.warning(warning)
 
     except SystemExit:
         raise
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Migration failed: {exc}")
+        report.failure("Migration failed", exc)
         raise SystemExit(1) from exc
     finally:
         old_ssh.disconnect()
