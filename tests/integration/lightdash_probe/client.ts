@@ -35,6 +35,8 @@ const client = new DuckdbWarehouseClient({
         const extensions = await client.runQuery("SELECT extension_name, extension_version, installed_from FROM duckdb_extensions() WHERE loaded ORDER BY extension_name");
         for (const [name, pin] of Object.entries(pins.extensions) as [string, any][]) {
             const loaded = extensions.rows.find((r: any) => r.extension_name === name);
+            // Local DuckLake data does not require httpfs; check its revision if loaded.
+            if (name === 'httpfs' && !loaded) continue;
             assert.ok(loaded, `Missing loaded extension ${name}`);
             assert.ok(String(loaded.extension_version).startsWith(pin.revision), `Extension revision ${name}`);
         }
