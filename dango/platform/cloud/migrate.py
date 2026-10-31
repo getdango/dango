@@ -377,7 +377,8 @@ def migrate_server(
 
         # 9. Restore from archive on new server
         _notify(on_progress, "restore", "running")
-        restore_from_archive(new_ssh, new_archive_path)
+        restored = restore_from_archive(new_ssh, new_archive_path, require_metabase_volume=False)
+        warnings.extend(restored.warnings)
         _notify(on_progress, "restore", "done")
 
         # 10. Configure domain

@@ -93,6 +93,10 @@ class FakeServer:
             return CommandResult("", "", 0 if self.sudoers else 1)
         if command.startswith("test -f") and "project.yml" in command:
             return CommandResult("", "", 0 if self.project else 1)
+        if command.startswith("cat ") and command.endswith("/manifest.json"):
+            return CommandResult("{}", "", 0)  # the archive's manifest lists nothing to check
+        if command.startswith("test -f") and "/metabase/metabase.db" in command:
+            return CommandResult("", "", 1)  # no Metabase data in the archive
         if command == f"{ch.HELPER_PATH} build":
             self.events.append("build")
             return self._bad("build") if "build" in self.fail else self._ok()

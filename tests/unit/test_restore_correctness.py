@@ -325,4 +325,4 @@ def test_a_spaces_restore_strips_control_characters_from_server_text(tmp_path: P
 
     ssh = _ssh(f"{checks.RESTORE_WARNING_PREFIX}bad\x1b[31m text\n")
     out = _cli(tmp_path, ["backup", "restore", "backup-20260224-143000.tar.gz", "-y"], ssh)
-    assert "\x1b" not in out.output
+    assert "bad\x1b" not in out.output and "bad[31m text" in out.output

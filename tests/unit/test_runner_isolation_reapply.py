@@ -187,7 +187,7 @@ def test_the_firewall_unit_loads_early_and_without_default_dependencies() -> Non
 
 # --- the permission steps are re-applied after anything that can recreate protected paths -----------
 
-REAPPLY = ["quiesce", "project_permissions", "notebooks_acl", "verify"]
+REAPPLY = ["quiesce", "project_permissions", "notebooks_acl", "notebooks_report", "verify"]
 
 
 def test_reapply_runs_the_permission_steps_only_when_isolation_is_on() -> None:

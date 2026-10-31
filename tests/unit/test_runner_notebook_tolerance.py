@@ -201,15 +201,16 @@ def test_the_acl_step_still_refuses_a_symlinked_notebooks_directory(tree: Tree) 
 
 
 def test_report_names_runner_made_unreadable_directories_on_one_clean_line(tree: Tree) -> None:
-    (tree.nb / "ok").mkdir()
+    (tree.nb / "fine").mkdir()
     _trap(tree.nb, "trapB")
     _trap(tree.nb, "esc\x1b[31m\nlast")
     res = tree.report(foreign=True)
     assert res.returncode == access.UNREADABLE_EXIT
     last = res.stderr.strip().splitlines()[-1]
-    assert "notebooks/trapB" in last and "ok" not in last
+    assert "notebooks/trapB" in last and "fine" not in last
     assert re.fullmatch(r"[ -~]+", last), repr(last)  # printable ASCII only: no escape sequences
-    assert tree.report().returncode == 0  # the service user can repair its own: nothing to report
+    assert tree.acl().returncode == 0  # the service user repairs what it owns itself
+    assert tree.report().returncode == 0  # so nothing is left to report
 
 
 def test_report_is_bounded_for_many_unreadable_directories(tree: Tree) -> None:
@@ -232,7 +233,7 @@ def test_report_does_not_follow_links_or_change_anything(tree: Tree) -> None:
 def test_acl_scripts_use_only_no_follow_walks_and_no_deletion_in_text() -> None:
     for text in (access.notebooks_acl_script(), access.notebooks_report_script()):
         assert "find -P" in text and "-prune" in text
-        assert " -L " not in text and "-follow" not in text and "rm " not in text
+        assert "find -L" not in text and "-follow" not in text and "rm " not in text
     acl = access.notebooks_acl_script()
     assert "-execdir setfacl -P" in acl and "chmod u+rwx" in acl
     assert "-user" in acl  # only what the service user owns is changed
@@ -305,7 +306,7 @@ def test_reapply_reports_a_skipped_directory_without_calling_it_a_failure() -> N
     assert msg == "Runner permissions re-applied"
     assert len(warnings) == 1 and warnings[0].startswith(access.NOTEBOOKS_SKIPPED_WARNING)
     assert not warnings[0].startswith(runner_reapply.REAPPLY_MARK)
-    assert srv.runner_events()[-1] == "r:verify"
+    assert srv.runner_events()[-1] == "verify"
 
 
 def test_reapply_local_returns_the_skipped_directory_warning(

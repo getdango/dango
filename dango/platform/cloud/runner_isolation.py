@@ -8,10 +8,10 @@ the id rules for the runner users, the marker record and how it is read back, an
 Importing this module has no side effects.  :func:`enable` runs the plan over SSH for server
 setup and ``remote upgrade``; the command line (opt-out, status) comes later.
 
-Failure policy: the marker is the last step and is never reached after a fatal failure.
-A failed ``nftables`` or ``acl`` package install, or failed firewall rules, only means
-``loopback: unrestricted`` plus a warning; everything about files (users, sudoers, deny
-ACLs, notebook ACLs, verification) is fatal.
+Failure policy: the marker is the last step and is never reached after a fatal failure. A failed
+``nftables`` or ``acl`` package install, or failed firewall rules, only means ``loopback:
+unrestricted`` plus a warning, as does the read-only report of skipped notebook directories;
+everything else about files (users, sudoers, deny ACLs, notebook ACLs, verification) is fatal.
 """
 
 from __future__ import annotations
@@ -170,10 +170,13 @@ def build_steps(srv_dir: str = scripts.SRV_DIR) -> list[Step]:
             access.project_permission_script(srv_dir=srv_dir),
             run_as="service",
         ),
+        Step("notebooks_acl", access.notebooks_acl_script(srv_dir=srv_dir), run_as="service"),
         Step(
-            "notebooks_acl",
-            access.notebooks_acl_script(srv_dir=srv_dir),
+            "notebooks_report",
+            access.notebooks_report_script(srv_dir=srv_dir),
             run_as="service",
+            on_failure="warn",
+            warning=access.NOTEBOOKS_SKIPPED_WARNING,
         ),
         Step(
             "nft_rules",
@@ -276,9 +279,7 @@ def read_record(path: str = MARKER, *, trusted_uid: int = _TRUSTED_UID) -> Runne
         return None
 
 
-# ---------------------------------------------------------------------------
-# Running the plan over SSH
-# ---------------------------------------------------------------------------
+# --- Running the plan over SSH ---
 
 #: Start of the loud warning when the steps could not be completed.
 ISOLATION_MARK = "Runner isolation is NOT enabled"

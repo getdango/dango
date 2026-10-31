@@ -26,8 +26,10 @@ from typing import Any
 import click
 
 from dango.cli import console
+from dango.cli.commands import remote_report
 from dango.cli.utils import safe_confirm
 from dango.exceptions import CloudProvisioningError, format_structured_error
+from dango.platform.cloud.backup_restore_checks import RESTORE_WARNING_PREFIX
 from dango.platform.cloud.project_files import read_project_file
 from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
 from dango.utils.env_file import parse_env_file
@@ -489,6 +491,15 @@ def _backup_download_from_server(ctx: click.Context, output: str | None) -> None
 # ---------------------------------------------------------------------------
 
 
+def _server_warnings(stdout: str) -> list[str]:
+    """Warnings a server-side restore printed (marked lines only), without control characters."""
+    return [
+        "".join(c for c in line.removeprefix(RESTORE_WARNING_PREFIX) if c.isprintable())
+        for line in stdout.splitlines()
+        if line.startswith(RESTORE_WARNING_PREFIX)
+    ]
+
+
 def _print_post_restore_credential_guidance() -> None:
     """Print guidance about re-configuring credentials after restore.
 
@@ -567,12 +578,15 @@ def backup_restore(ctx: click.Context, source: str, yes: bool, from_local: bool)
                 f'{ROOT_PYTHON} -c "'
                 "from dango.platform.cloud.scheduled_backup import restore_from_spaces; "
                 "from dango.platform.cloud.scheduled_backup import _load_spaces_config; "
-                f"restore_from_spaces(_load_spaces_config(), '{key}')\"",
+                f"[print('{RESTORE_WARNING_PREFIX}' + w) for w in "
+                f"(restore_from_spaces(_load_spaces_config(), '{key}') or [])]\"",
                 timeout=900,
             )
 
         if result.success:
             console.print(f"[green]Restore complete.[/green] Restored from: {source}")
+            for text in _server_warnings(result.stdout):
+                remote_report.warning(text)
             _print_post_restore_credential_guidance()
         else:
             msg = format_structured_error(
@@ -641,14 +655,15 @@ def _backup_restore_from_local(ctx: click.Context, source: str, yes: bool) -> No
 
         if result.health_check_passed:
             console.print(f"[green]Restore complete.[/green] Restored from: {local_path.name}")
-            _print_post_restore_credential_guidance()
         else:
             console.print(
                 f"[yellow]Restore finished[/yellow] from {local_path.name}, "
                 "but health check did not pass. Check 'dango remote status'."
             )
-            for w in result.warnings:
-                console.print(f"  [yellow]Warning:[/yellow] {w}")
+        for w in result.warnings:
+            remote_report.warning(w)
+        if result.health_check_passed:
+            _print_post_restore_credential_guidance()
     except SystemExit:
         raise
     except Exception as exc:

@@ -291,6 +291,10 @@ class FakeServer:
         if "runuser" in cmd and " cp " in cmd and "/srv/dango/project/data/warehouse.duckdb" in cmd:
             self.live_data = "restored"
             return self._ok()
+        if cmd.startswith("cat ") and cmd.endswith("/manifest.json"):
+            return self._ok("{}")  # the archive's manifest lists nothing to check
+        if cmd.startswith("test -f ") and "/metabase/" in cmd:
+            return self._fail()  # the archive holds no Metabase database
         return self._ok()
 
     def _age(self, path: str) -> int:
