@@ -1076,6 +1076,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> list[str]:
     )
     from dango.platform.cloud.backup_restore import (
         AUTH_CONFIG_FILE,
+        AUTH_CONFIG_SKIPPED_WARNING,
         SAFE_EXTRACT_OPTIONS,
         SANITIZED_METABASE_NAME,
         SERVICE_USER,
@@ -1148,6 +1149,9 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> list[str]:
                 )
             except ValueError:
                 _logger.warning("metabase_restore_metadata_omitted")
+                warnings.append(
+                    "Metabase metadata omitted because its YAML could not be safely sanitized"
+                )
 
         # The old notebooks/ is renamed into a directory no runner can reach, not deleted.
         kept_dir = _private_restore_dir("dango-restore-kept", service_write=True)
@@ -1169,6 +1173,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> list[str]:
                         step="restore_files",
                     )
                     _logger.warning("restore_wal_kept", path=kept)
+                    warnings.append(f"Live database WAL kept (no safety backup): {kept}")
         _run_builder_script(
             set_aside_pipeline_state_cmd(str(staging), str(PROJECT_DIR), stamp),
             step="restore_files",
@@ -1177,6 +1182,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> list[str]:
         if skip_auth_config:
             # A restore never turns authentication off on a server.
             _logger.warning("restore_auth_config_skipped", path=AUTH_CONFIG_FILE)
+            warnings.append(AUTH_CONFIG_SKIPPED_WARNING)
         for fpath in BACKUP_FILES:
             src = staging / fpath
             if src.exists() and not (fpath == AUTH_CONFIG_FILE and skip_auth_config):

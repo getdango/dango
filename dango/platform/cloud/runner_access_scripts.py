@@ -47,9 +47,20 @@ UNREADABLE_EXIT = 9
 #: Start of the warning shown when :func:`notebooks_acl_script` skipped runner-made directories.
 NOTEBOOKS_SKIPPED_WARNING = (
     "Notebook directories the service account cannot read were skipped; isolation is not "
-    "affected. Remove them from a notebook, or as root on the server with rm -rf "
-    f"(paths are relative to {SRV_DIR}/{PROJECT_SUBDIR})"
+    "affected. To remove one, run chmod -R u+rwx on it and delete it from a notebook, or on the "
+    f"server as root run rm -rf {SRV_DIR}/{PROJECT_SUBDIR}/<path> (paths are relative to "
+    f"{SRV_DIR}/{PROJECT_SUBDIR})"
 )
+#: Shell lines that put find's "this directory is not readable and searchable" test in ``$@``.
+#: GNU find tests it inside find (``access(2)``, no process); another find (macOS, BSD) gets the
+#: same test as one ``test`` process per directory, which is correct but slow.
+_UNREADABLE_TEST = [
+    "if find / -maxdepth 0 -readable >/dev/null 2>&1; then",
+    "  set -- '(' ! -readable -o ! -executable ')'",
+    "else",
+    "  set -- ! -execdir test -r '{}' -a -x '{}' ';'",
+    "fi",
+]
 
 
 def project_dir(srv_dir: str = SRV_DIR) -> str:
@@ -107,7 +118,9 @@ def notebooks_acl_script(project: str | None = None, srv_dir: str = SRV_DIR) -> 
     """Notebook-runner ACL on ``notebooks/``, its subdirectories and its ``.py`` files.
 
     Run as the service account; also the re-apply script after a restore recreates the
-    directory.  Only what the service account owns is changed (an ACL on a runner's own file
+    directory.  Files under a ``__marimo__`` directory (the restored session cache) get the
+    file ACL as well as ``.py`` files.  Only what the service account owns, and files with a
+    single link, are changed (an ACL on a runner's own file
     is refused by the kernel and means nothing).  The walk uses ``find -P`` and ``-execdir``
     (``setfacl -P ./name`` in the entry's own directory), so a directory swapped for a link
     after it was listed is never entered by name; the remaining last-component window is closed
@@ -119,7 +132,6 @@ def notebooks_acl_script(project: str | None = None, srv_dir: str = SRV_DIR) -> 
     (:func:`notebooks_report_script` names it).  A ``setfacl`` failure is still fatal.
     """
     proj = project if project is not None else project_dir(srv_dir)
-    shut = "! -execdir test -r {} -a -x {} \\;"
     return (
         "\n".join(
             [
@@ -130,11 +142,15 @@ def notebooks_acl_script(project: str | None = None, srv_dir: str = SRV_DIR) -> 
                 'mkdir -p "$N"',
                 f'setfacl -m {NOTEBOOKS_ACL} "$N"',
                 "me=$(id -u)",
-                f'find -P "$N" -mindepth 1 -type d ! -user "$me" {shut} -prune -o'
-                f' -type d -user "$me" {shut} -execdir chmod u+rwx {{}} \\;',
-                f'find -P "$N" -mindepth 1 -type d {shut} -prune -o'
+                *_UNREADABLE_TEST,
+                'find -P "$N" -mindepth 1 -type d ! -user "$me" "$@" -prune -o'
+                ' -type d -user "$me" "$@" -execdir chmod u+rwx {} \\;',
+                'find -P "$N" -mindepth 1 -type d "$@" -prune -o'
                 f' -type d -user "$me" -execdir setfacl -P -m {NOTEBOOKS_ACL} {{}} + -o'
-                f" -type f -user \"$me\" -name '*.py' -execdir setfacl -P -m {NOTEBOOK_FILE_ACL} {{}} +",
+                f" -type f -user \"$me\" -links 1 -name '*.py'"
+                f" -execdir setfacl -P -m {NOTEBOOK_FILE_ACL} {{}} + -o"
+                f" -type f -user \"$me\" -links 1 -path '*/__marimo__/*'"
+                f" -execdir setfacl -P -m {NOTEBOOK_FILE_ACL} {{}} +",
             ]
         )
         + "\n"
@@ -151,7 +167,6 @@ def notebooks_report_script(project: str | None = None, srv_dir: str = SRV_DIR) 
     are more.
     """
     proj = project if project is not None else project_dir(srv_dir)
-    shut = "! -execdir test -r {} -a -x {} \\;"
     return (
         "\n".join(
             [
@@ -160,7 +175,8 @@ def notebooks_report_script(project: str | None = None, srv_dir: str = SRV_DIR) 
                 f"P={q(proj)}",
                 'N="$P/notebooks"',
                 '{ [ -d "$N" ] && [ ! -L "$N" ]; } || exit 0',
-                f'list=$(find -P "$N" -mindepth 1 -type d {shut} -prune -print | head -n 6)',
+                *_UNREADABLE_TEST,
+                'list=$(find -P "$N" -mindepth 1 -type d "$@" -prune -print | head -n 6)',
                 '[ -n "$list" ] || exit 0',
                 "n=$(printf '%s\\n' \"$list\" | wc -l)",
                 'names=$(printf \'%s\\n\' "$list" | head -n 5 | cut -c "$((${#P} + 2))-"'

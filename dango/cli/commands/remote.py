@@ -40,6 +40,7 @@ from typing import Any
 import click
 
 from dango.cli import console
+from dango.cli.commands import remote_report
 from dango.cli.commands.remote_isolation import isolation_group
 from dango.cli.utils import safe_confirm
 
@@ -270,16 +271,18 @@ def remote_rollback(ctx: click.Context, backup: str | None, yes: bool) -> None:
             result = rollback(ssh, backup_path=backup, on_progress=_on_progress)
 
         console.print("\n[green]Rollback complete.[/green]")
-        console.print(f"  Restored from: [bold]{result.restored_from}[/bold]")
+        console.print(
+            f"  Restored from: [bold]{remote_report.literal(result.restored_from)}[/bold]"
+        )
         console.print(f"  Duration: {result.duration_seconds}s")
         if result.health_check_passed:
             console.print("  Health check: [green]passed[/green]")
         else:
             console.print("  Health check: [yellow]did not pass (services may need time)[/yellow]")
         for warning in result.warnings:
-            console.print(f"  [yellow]Warning:[/yellow] {warning}")
+            remote_report.warning(warning)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Rollback failed: {exc}")
+        remote_report.failure("Rollback failed", exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -436,10 +439,10 @@ def remote_push(
             console.print(f"  Duration: {result.duration_seconds}s")
 
         for warning in result.warnings:
-            console.print(f"  [yellow]Warning:[/yellow] {warning}")
+            remote_report.warning(warning)
 
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Push failed: {exc}")
+        remote_report.failure("Push failed", exc)
         if not dry_run:
             console.print(
                 "[dim]A pre-deploy backup may have been created. "
