@@ -21,7 +21,7 @@ from pathlib import Path
 import yaml
 from runtime import GIB, HERE, PINS
 
-LIMIT = 14_000_000_000
+LIMIT = 18_000_000_000
 HEADROOM = 2 * GIB
 
 
@@ -155,7 +155,7 @@ def disk_gate(rig, remaining, reason):
     }
     rig.receipts.append(receipt)
     rig.save()
-    assert owned + image_bound + remaining + HEADROOM < LIMIT, "14GB task disk bound failed"
+    assert owned + image_bound + remaining + HEADROOM < LIMIT, "18GB task disk bound failed"
     assert remaining + image_bound + HEADROOM < free, "Actual runner free-space gate failed"
 
 

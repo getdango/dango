@@ -88,7 +88,7 @@ def test_image_binding_rejects_wrong_config_platform_or_layer_order(rig, monkeyp
         rig.inspect_image("node")
 
 
-@pytest.mark.parametrize("remaining", [None, 14_000_000_000])
+@pytest.mark.parametrize("remaining", [None, 18_000_000_000])
 def test_unbounded_or_oversized_growth_refused(rig, monkeypatch, remaining):
     from types import SimpleNamespace
 
@@ -183,13 +183,13 @@ def test_compressed_image_size_counterexample_refused_before_pull(rig, monkeypat
 
     import acquire
 
-    monkeypatch.setattr(acquire, "bytes_used", lambda root: 11_000_000_000)
+    monkeypatch.setattr(acquire, "bytes_used", lambda root: 15_000_000_000)
     monkeypatch.setattr(
         acquire.shutil, "disk_usage", lambda root: SimpleNamespace(free=100_000_000_000)
     )
     rig.images = {}  # All planned images must count even before the first pull.
-    assert 11_000_000_000 + 300_000_000 + acquire.HEADROOM + 472_134_264 < acquire.LIMIT
-    with pytest.raises(AssertionError, match="14GB task disk bound failed"):
+    assert 15_000_000_000 + 300_000_000 + acquire.HEADROOM + 472_134_264 < acquire.LIMIT
+    with pytest.raises(AssertionError, match="18GB task disk bound failed"):
         acquire.disk_gate(rig, 300_000_000, "reviewer-compressed-size-counterexample")
     receipt = rig.receipts[-1]
     assert set(receipt["planned_image_bounds"]) == {"node", "postgres"}

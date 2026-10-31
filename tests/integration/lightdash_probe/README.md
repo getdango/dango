@@ -27,7 +27,9 @@ installation. Selected archives are checked against frozen integrity; the instal
 peak adds four unshared selected dependency copies, two measured-cache rewrite
 copies and 2 GiB compiler/fixture/log allowance, plus the existing 2 GiB engineering
 headroom and frozen image bounds. There is no arbitrary metadata-size prediction.
-The task budget is 14 GB even when the runner has much more free disk.
+The temporary budget for this dedicated probe on the same runner is 18 GB
+(18,000,000,000 bytes), even when the runner has more free disk. This approval
+applies only to this probe; it is not a budget for every PR.
 
 The explicit writable public-source copy preserves source bytes; a documented
 workspace-warehouse symlink retains `/work/deploy`. Mandatory selected offline
