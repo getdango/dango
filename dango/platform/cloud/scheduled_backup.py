@@ -1051,8 +1051,13 @@ def download_from_spaces(spaces_config: dict[str, Any], key: str, local_path: Pa
     local_path.write_bytes(data)
 
 
-def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
-    """Download and restore a backup from Spaces. Stops/restarts services."""
+def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> list[str]:
+    """Download and restore a backup from Spaces. Stops/restarts services.
+
+    Returns the warnings (also printed to stderr); the client shows them after a successful
+    restore.  An archive missing a file its manifest lists, or holding Metabase data when the
+    server has no Metabase volume, is refused before anything is stopped or changed.
+    """
     if PROJECT_DIR.is_symlink():
         raise CloudProvisioningError(
             f"{PROJECT_DIR} is a symlink; refusing to restore into it: nothing was restored"
@@ -1084,6 +1089,11 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         unsafe_tree_entries,
         wal_sidecar_names,
     )
+    from dango.platform.cloud.backup_restore_checks import (
+        METABASE_VOLUME_MISSING,
+        check_local_manifest,
+        has_local_h2,
+    )
 
     # Refuse links and special files before touching anything (root reads staged files).
     unsafe = unsafe_tar_members(local_path)
@@ -1093,6 +1103,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
     staging = _private_restore_dir("dango-restore-staging")
     private_dir: Path | None = None
     kept_dir: Path | None = None
+    metabase_vol: str | None = None
     try:
         _run_local(
             ["tar", "-xzf", str(local_path), "-C", str(staging), *SAFE_EXTRACT_OPTIONS.split()],
@@ -1102,9 +1113,15 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
         unsafe = unsafe_tree_entries(staging)
         if unsafe:
             raise CloudProvisioningError(UNSAFE_ARCHIVE_MESSAGE.format(names=", ".join(unsafe)))
+        check_local_manifest(staging)
+        if has_local_h2(staging):
+            metabase_vol = _get_metabase_volume_path()
+            if metabase_vol is None:
+                raise CloudProvisioningError(METABASE_VOLUME_MISSING)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
+    warnings: list[str] = []
 
     copies_started = False
     nothing_stopped = False
@@ -1180,8 +1197,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
 
         # Root writes only the Metabase volume, and never through a symlink.
         h2_restored = False
-        metabase_vol = _get_metabase_volume_path()
-        if metabase_vol and (staging / "metabase").exists():
+        if metabase_vol:
             for h2 in ["metabase.db.mv.db", "metabase.db.trace.db"]:
                 src = staging / "metabase" / h2
                 if src.exists():
@@ -1203,6 +1219,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
 
         for note in runner_reapply.reapply_local():
             print(f"  Warning: {note}", file=sys.stderr)
+            warnings.append(note)
     except Exception:
         if copies_started:
             # A failed copy leaves a partial, root-owned restore; give it back to
@@ -1221,6 +1238,7 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> None:
                 shutil.rmtree(leftover, ignore_errors=True)
         if not nothing_stopped:
             _start_services()
+    return warnings
 
 
 def _private_restore_dir(prefix: str, *, service_write: bool = False) -> Path:

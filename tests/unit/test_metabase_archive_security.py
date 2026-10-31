@@ -158,7 +158,11 @@ class TestMetabaseArchiveSanitization:
             patch("dango.platform.cloud.backup.verify_health", return_value=True),
         ):
             create_backup.return_value.archive_path = "/srv/dango/backups/deploy/safety.tar.gz"
-            restore_from_archive(ssh, "/srv/dango/backups/deploy/backup-20260929-010101.tar.gz")
+            restore_from_archive(
+                ssh,
+                "/srv/dango/backups/deploy/backup-20260929-010101.tar.gz",
+                require_metabase_volume=False,
+            )
             sanitize.assert_called_once()
             call_ssh, source, destination = sanitize.call_args.args
             assert call_ssh is ssh

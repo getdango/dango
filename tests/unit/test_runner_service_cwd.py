@@ -28,7 +28,7 @@ pytestmark = pytest.mark.unit
 
 WRAPPER = "cd / && runuser -u dango -- sh -c "
 SERVICE_STEPS = [s.name for s in ri.build_steps() if s.run_as == "service"]
-REAPPLY_SERVICE_STEPS = ["project_permissions", "notebooks_acl"]
+REAPPLY_SERVICE_STEPS = ["project_permissions", "notebooks_acl", "notebooks_report"]
 
 
 @pytest.fixture(autouse=True)

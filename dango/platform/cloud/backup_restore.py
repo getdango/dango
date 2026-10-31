@@ -18,6 +18,8 @@ import stat
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from dango.platform.cloud.backup_restore_checks import check_staged_manifest
+
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
 
@@ -431,7 +433,8 @@ def extract_checked_archive(
 
     Root later reads staged files, so links and special files are refused outright.
     The archive must also hold ``manifest.json`` and at least one of *content*
-    (paths relative to the archive's top-level directory).  On any failure the
+    (paths relative to the archive's top-level directory), and every file that manifest lists
+    (:func:`backup_restore_checks.check_staged_manifest`).  On any failure the
     staging directory is removed and ``CloudProvisioningError`` is raised.
     """
     from dango.exceptions import CloudProvisioningError
@@ -470,6 +473,8 @@ def extract_checked_archive(
                 "Archive does not look like a Dango backup (unexpected layout): "
                 "nothing was restored"
             )
+        # Every file the manifest lists must have come out of the archive.
+        check_staged_manifest(ssh, staging)
     except BaseException:
         with contextlib.suppress(Exception):  # cleanup: best effort, keep the original error
             ssh.exec_command(f"rm -rf {q_staging}")

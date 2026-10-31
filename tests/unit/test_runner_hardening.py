@@ -98,7 +98,7 @@ def test_notebooks_acl_hands_setfacl_only_names_inside_its_own_directory(box: Bo
             assert "/" not in bare, name
             seen.add(os.path.join(cwd, bare))
     real = os.path.realpath
-    assert seen == {real(nb / "a.py"), real(nb / "sub" / "b.py")}
+    assert seen == {real(nb / "a.py"), real(nb / "sub" / "b.py"), real(nb / "sub")}  # sub: dir ACL
     assert not any("src.py" in c or "custom_sources" in c for c in box.calls())
 
 

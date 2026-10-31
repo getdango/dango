@@ -42,6 +42,14 @@ NOTEBOOKS_ACL = f"u:{NB_USER}:rwx,d:u:{NB_USER}:rwx,d:u:{SERVICE_USER}:rwx,d:m::
 NOTEBOOK_FILE_ACL = f"u:{NB_USER}:rw,m::rw"
 #: Default ACL for the snapshot directory: new files stay readable by group ``dango-nb`` only.
 SNAPSHOT_DEFAULT_ACL = "d:u::rwx,d:g::r-x,d:o::---"
+#: Exit status of :func:`notebooks_report_script` when it found directories that were skipped.
+UNREADABLE_EXIT = 9
+#: Start of the warning shown when :func:`notebooks_acl_script` skipped runner-made directories.
+NOTEBOOKS_SKIPPED_WARNING = (
+    "Notebook directories the service account cannot read were skipped; isolation is not "
+    "affected. Remove them from a notebook, or as root on the server with rm -rf "
+    f"(paths are relative to {SRV_DIR}/{PROJECT_SUBDIR})"
+)
 
 
 def project_dir(srv_dir: str = SRV_DIR) -> str:
@@ -96,15 +104,22 @@ def project_permission_script(project: str | None = None, srv_dir: str = SRV_DIR
 
 
 def notebooks_acl_script(project: str | None = None, srv_dir: str = SRV_DIR) -> str:
-    """Notebook-runner ACL on ``notebooks/`` and its ``.py`` files, run as the service account.
+    """Notebook-runner ACL on ``notebooks/``, its subdirectories and its ``.py`` files.
 
-    Also the re-apply script after a restore recreates the directory.  Existing files are
-    found with ``find -P -type f`` and changed with ``-execdir`` (``setfacl -P ./name`` in the
-    file's own directory), so a directory swapped for a link after it was listed is never
-    entered by name.  The remaining last-component window is closed by running only while no
-    runner process exists (:func:`quiesce_script`).  A ``setfacl`` failure is fatal.
+    Run as the service account; also the re-apply script after a restore recreates the
+    directory.  Only what the service account owns is changed (an ACL on a runner's own file
+    is refused by the kernel and means nothing).  The walk uses ``find -P`` and ``-execdir``
+    (``setfacl -P ./name`` in the entry's own directory), so a directory swapped for a link
+    after it was listed is never entered by name; the remaining last-component window is closed
+    by running only while no runner process exists (:func:`quiesce_script`).
+
+    A path a notebook runner planted never blocks the pass.  A directory the service account owns
+    but cannot read (left that way by a failed restore) gets ``u+rwx`` for its owner and is then
+    processed.  One owned by someone else and unreadable is pruned: not entered, not changed
+    (:func:`notebooks_report_script` names it).  A ``setfacl`` failure is still fatal.
     """
     proj = project if project is not None else project_dir(srv_dir)
+    shut = "! -execdir test -r {} -a -x {} \\;"
     return (
         "\n".join(
             [
@@ -114,7 +129,46 @@ def notebooks_acl_script(project: str | None = None, srv_dir: str = SRV_DIR) -> 
                 'if [ -L "$N" ]; then echo "refusing: $N is a symlink" >&2; exit 3; fi',
                 'mkdir -p "$N"',
                 f'setfacl -m {NOTEBOOKS_ACL} "$N"',
-                f"find -P \"$N\" -type f -name '*.py' -execdir setfacl -P -m {NOTEBOOK_FILE_ACL} {{}} +",
+                "me=$(id -u)",
+                f'find -P "$N" -mindepth 1 -type d ! -user "$me" {shut} -prune -o'
+                f' -type d -user "$me" {shut} -execdir chmod u+rwx {{}} \\;',
+                f'find -P "$N" -mindepth 1 -type d {shut} -prune -o'
+                f' -type d -user "$me" -execdir setfacl -P -m {NOTEBOOKS_ACL} {{}} + -o'
+                f" -type f -user \"$me\" -name '*.py' -execdir setfacl -P -m {NOTEBOOK_FILE_ACL} {{}} +",
+            ]
+        )
+        + "\n"
+    )
+
+
+def notebooks_report_script(project: str | None = None, srv_dir: str = SRV_DIR) -> str:
+    """Name the directories under ``notebooks/`` that :func:`notebooks_acl_script` had to skip.
+
+    Run as the service account after it.  Read-only: it never changes or enters anything.
+    Exits 0 with no output when nothing was skipped; otherwise exits :data:`UNREADABLE_EXIT`
+    and its last line on stderr lists up to five paths (relative to the project, printable
+    characters only, so a hostile name cannot inject terminal escapes) and says when there
+    are more.
+    """
+    proj = project if project is not None else project_dir(srv_dir)
+    shut = "! -execdir test -r {} -a -x {} \\;"
+    return (
+        "\n".join(
+            [
+                "set -eu",
+                SAFE_PATH.rstrip("\n"),
+                f"P={q(proj)}",
+                'N="$P/notebooks"',
+                '{ [ -d "$N" ] && [ ! -L "$N" ]; } || exit 0',
+                f'list=$(find -P "$N" -mindepth 1 -type d {shut} -prune -print | head -n 6)',
+                '[ -n "$list" ] || exit 0',
+                "n=$(printf '%s\\n' \"$list\" | wc -l)",
+                'names=$(printf \'%s\\n\' "$list" | head -n 5 | cut -c "$((${#P} + 2))-"'
+                " | tr '\\n' ',' | tr -c '[:print:]' '?')",
+                "names=${names%,}",
+                '[ "$n" -lt 6 ] || names="$names, and more"',
+                'echo "unreadable: $names" >&2',
+                f"exit {UNREADABLE_EXIT}",
             ]
         )
         + "\n"

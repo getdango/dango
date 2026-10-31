@@ -74,6 +74,12 @@ def make_ssh_mock_configurable(
                 return CommandResult(stdout=stdout, stderr=stderr, exit_code=exit_code)
         if 'command -v "$n"' in command:  # host interpreter detection
             return CommandResult(stdout=HOST_PYTHON + "\n", stderr="", exit_code=0)
+        if command.startswith("cat ") and command.endswith("/manifest.json"):
+            return CommandResult(stdout="{}", stderr="", exit_code=0)  # lists nothing to check
+        if command.startswith("test -f ") and "/metabase/metabase.db" in command:
+            return CommandResult(
+                stdout="", stderr="", exit_code=1
+            )  # no Metabase data in the archive
         return CommandResult(stdout="", stderr="", exit_code=0)
 
     ssh = MagicMock()
