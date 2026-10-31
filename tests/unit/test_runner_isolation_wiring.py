@@ -361,16 +361,18 @@ def test_ownership_steps_do_not_target_runner_paths() -> None:
 def test_downgrade_to_a_build_without_isolation_leaves_a_working_server() -> None:
     """Rollback below 1.0.14 (before the restricted users).
 
-    Assumption: the older code ignores the users, the sudoers file, the ACLs and the marker, because
-    the ACLs only deny the runner users and the older code runs everything as ``dango``.  Nothing
-    destructive is done: no user, file or rule is removed.
+    Assumption: the older code ignores the users, the sudoers file, the ACLs and the rules, because
+    the ACLs only deny the runner users and the older code runs everything as ``dango``.  Only the
+    marker is taken away, so that nothing claims isolation the older code does not enforce; no
+    user, file or rule is removed, and the upgrade to 1.0.14 writes the marker again.
     """
     srv = settled("1.0.14")
     srv.isolation_marker = json.dumps({"schema": 1, "loopback": "restricted"})
     result = run(srv, "1.0.13", force=True)
-    assert srv.runner_events() == [] and result.runner_isolation is None
-    assert srv.isolation_marker is not None
-    destructive = ("userdel", "setfacl -b", "runner/active", "dango-runner", "nft delete")
+    assert "marker" not in srv.runner_events()
+    assert srv.isolation_marker is None
+    assert "not enforced" in (result.runner_isolation or "").lower()
+    destructive = ("userdel", "setfacl -b", "dango-runner", "nft delete")
     assert not [c for c in srv.commands if any(d in c for d in destructive)]
     assert result.health_check_passed and "web-start" in srv.events
 
