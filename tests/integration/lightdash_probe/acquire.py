@@ -35,7 +35,14 @@ def fetch(url, sha256=None, integrity=None, maximum=256 * 1024**2):
     parsed = urllib.parse.urlparse(url)
     assert parsed.scheme == "https" and not parsed.username and not parsed.password
     assert parsed.hostname in {"registry.npmjs.org", "api.github.com", "extensions.duckdb.org"}
-    with urllib.request.urlopen(url, timeout=120) as response:
+    headers = (
+        {"User-Agent": "Dango-Lightdash-Compatibility-Probe/1.0"}
+        if parsed.hostname == "extensions.duckdb.org"
+        else {}
+    )
+    with urllib.request.urlopen(
+        urllib.request.Request(url, headers=headers), timeout=120
+    ) as response:
         data = response.read(maximum + 1)
     assert len(data) <= maximum, "Artifact exceeds predeclared acquisition reserve"
     if sha256:
