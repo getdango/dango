@@ -322,7 +322,7 @@ def main():
                     for stage in [
                         "run generate-api",
                         "run formatter --threads 1 --write ./src/generated",
-                        "exec tsc --build tsconfig.build.json",
+                        "exec tsc --build tsconfig.build.json --singleThreaded",
                         "run postbuild",
                     ]
                 )

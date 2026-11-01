@@ -171,10 +171,17 @@
       "same_normal_stages": [
         "pnpm -F backend run generate-api",
         "pnpm -F backend run formatter --threads 1 --write ./src/generated",
-        "pnpm -F backend exec tsc --build tsconfig.build.json",
+        "pnpm -F backend exec tsc --build tsconfig.build.json --singleThreaded",
         "pnpm -F backend run postbuild"
       ],
       "observed_failure": "CI41287421638: normal formatter stage Killed137; whole cgroup oom1/oom_kill1 at4.5GiB. Individual killed Rust/Node process not separately captured. Single-worker fit remainsUNRUN."
+    },
+    "backend_compiler_control": {
+      "package": "typescript@7.0.2",
+      "source_commit": "2bd066d87f5bafd315be9f40889d0a60b9e58e0b",
+      "command": "pnpm -F backend exec tsc --build tsconfig.build.json --singleThreaded",
+      "effect": "Normal supported build/compiler option; checker pool4->1 and serial workgroups for parsing/binding/diagnostics/emitting; full checks/output retained. No GOMAXPROCS guess or source/type suppression.",
+      "observed_failure": "CI41318651644 after formatter in pnpm recursive exec phase; cgroup OOM at4.5GiB, raw child signal/PID not separately captured. Single-threaded compiler fitUNRUN."
     }
   },
   "runtime": {

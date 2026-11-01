@@ -116,3 +116,11 @@ as serial upstream subcommands, adding only oxfmt0.35.0 `--threads 1` to formatt
 The exact release source applies this flag to Rayon and the Node child-process
 formatter pool. No formatter bypass or source change is used. Individual killed
 process identity was not captured; single-worker fit remains unproved until CI.
+
+CI41318651644 reached the subsequent `pnpm exec tsc` phase after single-worker
+formatting, then the cgroup again recorded OOM. The backend compiler now uses
+TypeScript7.0.2’s supported `--singleThreaded` with the same `--build` config.
+The exact release reduces its checker pool from4to1 and serializes workgroups;
+full diagnostics and emitted outputs remain required. Other targets and hard
+limits are unchanged. Child PID/signal attribution was not separately captured;
+single-threaded compiler fit remains UNRUN pending actual CI.
