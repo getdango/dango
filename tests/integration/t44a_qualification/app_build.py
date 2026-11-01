@@ -25,8 +25,12 @@ def verify_build_update(before, after):
     expected = dict(before["HostConfig"])
     expected.update(NanoCpus=4_000_000_000, Memory=BUILD_MEMORY, MemorySwap=BUILD_MEMORY)
     assert after["HostConfig"] == expected, "Unexpected build profile or security change"
-    for key in ["Id", "Name", "Image", "Config", "Mounts", "State"]:
+    for key in ["Id", "Name", "Image", "Config", "State"]:
         assert after[key] == before[key], "Unexpected container identity/config/state change"
+    # Docker may reorder mounts on update; compare every field and retain duplicates.
+    assert sorted(json.dumps(m, sort_keys=True) for m in after["Mounts"]) == sorted(
+        json.dumps(m, sort_keys=True) for m in before["Mounts"]
+    ), "Unexpected container mount change"
     assert after["State"]["Status"] == "created" and not after["State"]["Running"]
 
 
