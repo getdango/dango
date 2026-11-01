@@ -68,21 +68,40 @@ HostConfig/Config/mount/identity/state field must remain unchanged before start.
 A fresh populated Node permissions/loopback smoke also checks effective cgroup
 CPU/memory/no-swap/pids limits. It then performs the full frozen **offline**
 install with **all lifecycle scripts disabled**, followed by normal upstream
-`formula:build`, `common-build`, and `warehouses-build` commands, serially.
+`formula:build`, `common-build`, `warehouses-build`, `visualization-build`,
+`backend-build`, `frontend-build`, and `cli-build` commands, serially.
+The early three targets passed in CI41286662783; the complete extension is
+UNRUN pending review and actual Ubuntu execution.
 The lock-pinned Linux TypeScript compiler is already acquired and hash-bound.
 No Cypress GUI, canvas/legacy DuckDB rebuild or unpinned binary download runs.
 This deliberately leaves later app-runtime native initialization unproved; unused
-test-tool downloads are not requirements for the current early compiler gate.
+test-tool downloads are not requirements for the app build. Normal build
+commands retain their upstream pre/post hooks; dependency installation lifecycles
+remain disabled.
 Each install/compiler is preceded by30GB/actualdf checks, counting future unshared
 materialization/cache copies and compiler/temp/log peaks separately from2GiB
 headroom. Full command/state/log/event capture precedes exact-owned cleanup;
 only build status, hashes, license provenance and sanitized receipts are exported.
-No frontend, backend, CLI app, Garage or ordinary-actor matrix runs in this stage.
+The result binds every emitted output tree and requires backend server/routes/
+migration, frontend index/build-hash plus JS/CSS assets, visualization CJS/ESM
+and CLI entrypoints. App runtime, Garage and ordinary actors remain UNRUN.
+
+The output/temp allowance is now8GiB:4GiB retained outputs/maps/tsbuildinfo and
+4GiB temporary/compiler/plugin-cache copies, in addition to the unchanged
+unshared materialization/cache-copy bounds and separate2GiB headroom. This is
+a conservative engineering allowance, not an observed full-build measurement.
+Actual frozen source is189,881,078bytes across11,923files; each compiler is
+preceded by fresh owned-byte/image/df checks, and emitted outputs are measured.
+A30GB/df refusal stops before the next command.
 
 The preceding3GiB attempt completed install/formula but the common compiler hit
 an observed container OOM. The fixed compiler binary uses Go1.26.4; its documented
 `GOMEMLIMIT=3500MiB` soft runtime limit leaves room for pnpm/Node overhead under the
-hard4608MiB container ceiling. This is not a guarantee that compilation fits.
+hard4608MiB container ceiling. Node uses the standard
+`NODE_OPTIONS=--max-old-space-size=3500` for the remaining full build, with actual
+heap size and environment checked by a fresh smoke and included in its signature.
+The Go and Node soft limits do not add capacity or guarantee simultaneous fit;
+the container hard aggregate remains4608MiB.
 Compiler commands print own cgroup peak/events/limits before the shell exits;
 the unchanged helper captures full container state/events/logs before removal.
 

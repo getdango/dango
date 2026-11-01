@@ -18,6 +18,9 @@ const crypto = require('node:crypto');
   const [quota, period] = cgroup['cpu.max'].split(/\s+/).map(Number);
   assert.equal(quota / period, 4);
   assert.equal(process.env.GOMEMLIMIT, '3500MiB');
+  assert.equal(process.env.NODE_OPTIONS, '--max-old-space-size=3500');
+  const heapLimit = require('node:v8').getHeapStatistics().heap_size_limit;
+  assert.ok(heapLimit >= 3500 * 1024 * 1024 && heapLimit < 3700 * 1024 * 1024);
   for (const directory of ['/source', '/tools', '/scripts', '/secrets', '/fixture']) {
     assert.equal(fs.readFileSync(directory + '/readiness', 'utf8'), 'populated\n');
     assert.throws(() => fs.writeFileSync(directory + '/must-refuse', 'x'), /EROFS|EACCES/);
@@ -48,5 +51,6 @@ const crypto = require('node:crypto');
   });
   console.log(JSON.stringify({readiness: 'PASS_BUILD_PROFILE', uid: process.getuid(),
     gid: process.getgid(), interfaces: os.networkInterfaces(), node: process.version,
-    cgroup, GOMEMLIMIT: process.env.GOMEMLIMIT}));
+    cgroup, GOMEMLIMIT: process.env.GOMEMLIMIT, NODE_OPTIONS: process.env.NODE_OPTIONS,
+    heap_size_limit: heapLimit}));
 })().catch(error => { console.error(String(error)); process.exitCode = 1; });

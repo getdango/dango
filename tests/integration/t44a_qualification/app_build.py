@@ -1,6 +1,6 @@
 """tests/integration/t44a_qualification/app_build.py
 
-Offline full install without lifecycles, then real early upstream compiler gates.
+Offline full install without lifecycles, then complete normal upstream builds.
 """
 
 import collections
@@ -18,6 +18,17 @@ HERE = Path(__file__).resolve().parent
 GIB = 1024**3
 BUILD_MEMORY = 4608 * 1024**2
 GO_MEMORY = "3500MiB"
+NODE_MEMORY = "--max-old-space-size=3500"
+BUILD_OUTPUT_TEMP = 8 * GIB
+BUILD_COMMANDS = [
+    "formula:build",
+    "common-build",
+    "warehouses-build",
+    "visualization-build",
+    "backend-build",
+    "frontend-build",
+    "cli-build",
+]
 
 
 def verify_build_update(before, after):
@@ -64,7 +75,11 @@ def build_rig(base):
 
         def signature(self, role):
             """Bind readiness to the original paths/flags plus declared update/Go limit."""
-            return sha((super().signature(role) + str(BUILD_MEMORY) + "4CPU" + GO_MEMORY).encode())
+            return sha(
+                (
+                    super().signature(role) + str(BUILD_MEMORY) + "4CPU" + GO_MEMORY + NODE_MEMORY
+                ).encode()
+            )
 
     return BuildRig
 
@@ -121,10 +136,54 @@ def build_remaining(inventory, lock, cache_bytes):
     )
     # Existing content/virtual store is in actual owned bytes. No hardlink credit
     # for two further materialization/staging copies or two cache rewrite copies.
-    # Reserve2GiB for these three compiler outputs/tsbuildinfo, plus the profile's
-    # bounded64MiB tmpfs and8MiB log. Separate2GiB engineering headroom is added
+    # Reserve8GiB:4GiB retained full build outputs/maps/tsbuildinfo plus4GiB
+    # compiler/plugin cache and temporary output copies (not a measured build size).
+    # Add the bounded64MiB tmpfs and8MiB log. Separate2GiB engineering headroom is added
     # by disk_gate, before install and again before EACH actual compiler command.
-    return virtual * 2 + cache_bytes * 2 + 2 * GIB + (64 + 8) * 1024**2
+    return virtual * 2 + cache_bytes * 2 + BUILD_OUTPUT_TEMP + (64 + 8) * 1024**2
+
+
+def build_outputs(project):
+    """Bind complete emitted trees without publishing compiled application bytes."""
+    trees = {}
+    for name in ["formula", "common", "warehouses", "visualization", "backend", "frontend", "cli"]:
+        directory = project / "packages" / name / ("build" if name == "frontend" else "dist")
+        rows = []
+        allocated = 0
+        for path in sorted(directory.rglob("*")):
+            assert not path.is_symlink(), "Unexpected build output symlink"
+            if path.is_file():
+                body = path.read_bytes()
+                rows.append([path.relative_to(directory).as_posix(), len(body), sha(body)])
+                allocated += path.stat().st_blocks * 512
+        assert rows, "Missing build output tree: " + name
+        trees[name] = {
+            "files": len(rows),
+            "bytes": sum(row[1] for row in rows),
+            "allocated_bytes": allocated,
+            "inventory_sha256": sha(json.dumps(rows, separators=(",", ":")).encode()),
+        }
+    entries = [
+        "visualization/dist/cjs/index.js",
+        "visualization/dist/esm/index.js",
+        "backend/dist/index.js",
+        "backend/dist/generated/routes.js",
+        "backend/dist/scripts/migrate/index.js",
+        "frontend/build/index.html",
+        "frontend/build/build-hash.json",
+        "cli/dist/index.js",
+    ]
+    entry_hashes = {}
+    for name in entries:
+        body = (project / "packages" / name).read_bytes()
+        assert body, "Empty build entrypoint: " + name
+        entry_hashes[name] = sha(body)
+    assets = project / "packages/frontend/build/assets"
+    assert any(assets.rglob("*.js")) and any(assets.rglob("*.css")), "Missing frontend assets"
+    assert sum(max(tree["bytes"], tree["allocated_bytes"]) for tree in trees.values()) <= 4 * GIB, (
+        "Build outputs exceed allowance"
+    )
+    return {"trees": trees, "entrypoints_sha256": entry_hashes}
 
 
 def main():
@@ -179,6 +238,7 @@ def main():
         result["source_before"] = source_before
         remaining = build_remaining(inventory, lock, acquire.bytes_used(app / "pnpm-cache"))
         result["remaining_upper"] = remaining
+        result["output_temp_allowance"] = BUILD_OUTPUT_TEMP
         disk_gate(rig, remaining, "before-offline-full-install-license-and-staging")
         resolutions = licenses(project, inventory, app / "notices")
         (root / "evidence/license-resolutions.json").write_text(
@@ -222,19 +282,21 @@ def main():
         )
         existing = image_present(rig, PINS["images"]["node"]["ref"])
         rig.inspect_image("node")
+        environment = (
+            "export GOMEMLIMIT="
+            + GO_MEMORY
+            + " NODE_OPTIONS="
+            + NODE_MEMORY
+            + " PATH=/tools/app-pnpm:$PATH XDG_CACHE_HOME=/home/probe/cache XDG_CONFIG_HOME=/home/probe/config XDG_DATA_HOME=/home/probe/data PNPM_CONFIG_CACHE_DIR=/work/app/pnpm-cache; "
+        )
         rig.run(
             "installer",
-            ["-c", "export GOMEMLIMIT=" + GO_MEMORY + "; node /scripts/app_build_smoke.cjs"],
+            ["-c", environment + "node /scripts/app_build_smoke.cjs"],
             smoke=True,
         )
         rig.smokes["installer"] = rig.signature("installer")
         result["running_build_profile_smoke"] = "PASS"
         pnpm = "/tools/app-pnpm/pnpm --dir /work/app/project"
-        environment = (
-            "export GOMEMLIMIT="
-            + GO_MEMORY
-            + " PATH=/tools/app-pnpm:$PATH XDG_CACHE_HOME=/home/probe/cache XDG_CONFIG_HOME=/home/probe/config XDG_DATA_HOME=/home/probe/data PNPM_CONFIG_CACHE_DIR=/work/app/pnpm-cache; "
-        )
         disk_gate(rig, remaining, "before-offline-full-install-no-lifecycles")
         rig.run(
             "installer",
@@ -250,7 +312,7 @@ def main():
         result["install"] = "PASS_OFFLINE_FULL_NO_LIFECYCLES"
         project = target / "project"
         assert critical(project, lock) == before
-        for command in ["formula:build", "common-build", "warehouses-build"]:
+        for command in BUILD_COMMANDS:
             disk_gate(rig, remaining, "before-normal-" + command)
             rig.run(
                 "installer", ["-c", with_memory_receipt(environment + pnpm + " run " + command)]
@@ -260,10 +322,12 @@ def main():
             assert {
                 name: sha((project / name).read_bytes()) for name in source_before
             } == source_before
-        disk_gate(rig, 0, "after-early-normal-TypeScript-builds")
-        result["status"] = "PASS_EARLY_NORMAL_BUILD_GATE"
+        result["outputs"] = build_outputs(project)
+        disk_gate(rig, 0, "after-complete-normal-app-build")
+        result["status"] = "PASS_COMPLETE_NORMAL_BUILD"
+        result["full_app"] = "BUILD_PASS_RUNTIME_UNRUN"
         result["lifecycles"] = (
-            "ALL unexecuted; no canvas/Cypress/legacy DuckDB download or rebuild. This proves early compilation only; remaining runtime native needs remain gated."
+            "Dependency install lifecycles unexecuted; normal upstream build commands and their pre/post hooks execute offline. No canvas/Cypress/legacy DuckDB install/rebuild. App runtime native initialization remains UNRUN."
         )
     except Exception as error:
         result["error"] = str(error)
@@ -284,7 +348,7 @@ def main():
         result["seconds"] = time.monotonic() - started
         result["secret_files"] = sum(p.is_file() for p in (root / "secrets").rglob("*"))
         (root / "evidence/app-build.json").write_text(json.dumps(result, indent=2) + "\n")
-    assert result["status"] == "PASS_EARLY_NORMAL_BUILD_GATE", result.get("error")
+    assert result["status"] == "PASS_COMPLETE_NORMAL_BUILD", result.get("error")
 
 
 if __name__ == "__main__":

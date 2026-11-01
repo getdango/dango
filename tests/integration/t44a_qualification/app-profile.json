@@ -1,5 +1,5 @@
 {
-  "state": "PLAN_ONLY_NOT_INSTALL_READY",
+  "state": "COMPLETE_NORMAL_BUILD_CANDIDATE_RUNTIME_UNRUN",
   "scope": "First complete adapted Lightdash app slice; no remaining twelve-case harness",
   "limits": {
     "cpus": 4,
@@ -107,10 +107,10 @@
       "memory_MiB": 4608,
       "memory_swap_MiB": 4608,
       "uid_gid": "501:20",
-      "node_heap_MiB": 2048,
+      "node_heap_MiB": 3500,
       "background_services": 0,
       "Go_soft_memory_limit": "3500MiB",
-      "implementation": "Immutable R08 create validates original profile; exact-owned nonrunning container Docker update changes ONLY NanoCpus/Memory/MemorySwap, then full HostConfig/Config/Mounts/identity/state equivalence rechecked before start. Fresh smoke verifies effective cgroup4CPU/4608MiB/swap0/pids128."
+      "implementation": "Immutable R08 create validates original profile; exact-owned nonrunning container Docker update changes ONLY NanoCpus/Memory/MemorySwap, then full HostConfig/Config/Mounts/identity/state equivalence rechecked before start. Fresh smoke verifies effective cgroup4CPU/4608MiB/swap0/pids128. Mount comparison is order independent but retains complete records and multiplicity. Process NODE_OPTIONS3500MiB and GOMEMLIMIT3500MiB are included in readiness signature and freshly checked by smoke."
     },
     "commands_serial": [
       [
@@ -131,18 +131,7 @@
       [
         "pnpm",
         "warehouses-build"
-      ]
-    ],
-    "gates": "Normal tsc common/warehouses must pass before expensive frontend. No source/API patch, type suppression, esbuild substitution, or missing frontend/backend/CLI target accepted. No Dockerfile1.5.x staging. No global cache or ambient provider identity.",
-    "later_full_builder_profile": {
-      "cpus": 4,
-      "memory_MiB": 4608,
-      "memory_swap_MiB": 4608,
-      "uid_gid": "501:20",
-      "node_heap_MiB": 3500,
-      "background_services": 0
-    },
-    "later_commands_pending": [
+      ],
       [
         "pnpm",
         "visualization-build"
@@ -160,9 +149,20 @@
         "cli-build"
       ]
     ],
-    "lifecycle_policy": "ALL lifecycle scripts unexecuted. Only normal early upstream compilation now; required target-platform TypeScript compiler bytes/license/notices are already in verified fetched graph. Later app-runtime native needs stay gated.",
-    "recipe": "app_build.py; executable candidate, install/compile Linux run still UNRUN",
-    "resource_evidence": "Prior3GiB CI41285297561 recorded OOMKilledtrue+oom event duringcommon. Full4.5GiB attemptUNRUN; pinned TS7compiler Go1.26.4 supports GOMEMLIMIT; soft limit is not a hard process guarantee, container hard aggregate remains4608MiB."
+    "gates": "Normal tsc common/warehouses must pass before expensive frontend. No source/API patch, type suppression, esbuild substitution, or missing frontend/backend/CLI target accepted. No Dockerfile1.5.x staging. No global cache or ambient provider identity.",
+    "lifecycle_policy": "Dependency installation uses --ignore-scripts; normal build commands and their usual pre/post hooks run offline. No Cypress GUI or canvas/legacy DuckDB install/rebuild. Actual app runtime native initialization remains UNRUN.",
+    "recipe": "app_build.py; full offline install plus seven serial normal upstream targets. Complete build extension is UNRUN pending review and Ubuntu execution.",
+    "resource_evidence": "CI41286662783 passed offline install/formula/common/warehouses and populated4CPU4608MiB smoke. Full frontend/backend/CLI stillUNRUN. Go3500MiB and Node3500MiB are soft per-runtime limits, not an aggregate guarantee; hard container ceiling remains4608MiB, no other task services.",
+    "remaining_bound": {
+      "unshared_materializations": "2 * frozen inventory allocated-bound per peer-context virtual copy",
+      "cache_rewrites": "2 * actual acquired cache allocation",
+      "full_build_retained_output_upper_bytes": 4294967296,
+      "compiler_plugin_cache_temporary_upper_bytes": 4294967296,
+      "tmpfs_log_bytes": 75497472,
+      "separate_engineering_headroom_bytes": 2147483648,
+      "basis": "8GiB output/temp engineering allowance replaces earlier2GiB; actual frozen source189881078bytes/11923files; outputs/maps/generated API and compiler/cache copies unmeasured until CI. Recheck actual owned allocation/all frozen image bounds/runnerdf before install and every compiler; never treat allowance as observed build size."
+    },
+    "complete_output_proof": "Require visualization CJS+ESM, backend server/generated routes/migration, frontend index/build-hash+JS/CSS assets, CLI entrypoint; record complete seven output-tree file counts/bytes/allocated bytes/content-inventory hashes. No app binaries uploaded; runtime/actor remainsUNRUN."
   },
   "runtime": {
     "postgres": {
