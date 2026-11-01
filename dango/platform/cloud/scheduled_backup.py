@@ -1055,8 +1055,8 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> list[str]:
     """Download and restore a backup from Spaces. Stops/restarts services.
 
     Returns the warnings (also printed to stderr); the client shows them after a successful
-    restore.  An archive missing a file its manifest lists, or holding Metabase data when the
-    server has no Metabase volume, is refused before anything is stopped or changed.
+    restore.  An archive holding Metabase data is refused, before anything is stopped or changed,
+    when the server has no Metabase volume.
     """
     if PROJECT_DIR.is_symlink():
         raise CloudProvisioningError(
@@ -1092,7 +1092,6 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> list[str]:
     )
     from dango.platform.cloud.backup_restore_checks import (
         METABASE_VOLUME_MISSING,
-        check_local_manifest,
         has_local_h2,
     )
 
@@ -1114,7 +1113,6 @@ def restore_from_spaces(spaces_config: dict[str, Any], key: str) -> list[str]:
         unsafe = unsafe_tree_entries(staging)
         if unsafe:
             raise CloudProvisioningError(UNSAFE_ARCHIVE_MESSAGE.format(names=", ".join(unsafe)))
-        check_local_manifest(staging)
         if has_local_h2(staging):
             metabase_vol = _get_metabase_volume_path()
             if metabase_vol is None:

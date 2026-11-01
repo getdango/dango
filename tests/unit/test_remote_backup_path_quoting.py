@@ -49,8 +49,6 @@ class FakeSSH:
     def exec_command(self, command: str, timeout: int | None = None, check: bool = False) -> Any:
         self.commands.append(command)
         stdout = self.ls_output if command.startswith("ls -1t") else ""
-        if command.startswith("cat ") and command.endswith("/manifest.json"):
-            stdout = "{}"
         code = 1 if command.startswith("test -f ") and "/metabase/metabase.db" in command else 0
         return CommandResult(stdout=stdout, stderr="", exit_code=code)
 

@@ -141,7 +141,7 @@ def backup_group(ctx: click.Context) -> None:
         if result.success:
             console.print("[green]Backup completed successfully.[/green]")
             if result.stdout.strip():
-                console.print(result.stdout.strip())
+                remote_report.line(result.stdout.strip(), "")
         else:
             msg = format_structured_error(
                 what_failed="Remote backup failed",
@@ -154,7 +154,8 @@ def backup_group(ctx: click.Context) -> None:
             )
             console.print(f"[red]Error:[/red]\n{msg}")
             if result.stderr.strip():
-                console.print(f"\nServer output:\n{result.stderr.strip()}")
+                console.print("\nServer output:")
+                remote_report.line(result.stderr.strip(), "")
             raise SystemExit(1)
     except SystemExit:
         raise
@@ -224,11 +225,11 @@ def backup_list(ctx: click.Context) -> None:
 
         for b in local_backups:
             size_mb = b["size_bytes"] / (1024 * 1024) if b["size_bytes"] else 0
-            table.add_row("server", b["name"], f"{size_mb:.1f} MB")
+            table.add_row("server", remote_report.literal(b["name"]), f"{size_mb:.1f} MB")
 
         for b in spaces_backups:
             size_mb = b["size_bytes"] / (1024 * 1024) if b["size_bytes"] else 0
-            table.add_row("spaces", b["name"], f"{size_mb:.1f} MB")
+            table.add_row("spaces", remote_report.literal(b["name"]), f"{size_mb:.1f} MB")
 
         console.print(table)
     finally:
@@ -608,7 +609,8 @@ def backup_restore(ctx: click.Context, source: str, yes: bool, from_local: bool)
             )
             console.print(f"[red]Error:[/red]\n{msg}")
             if result.stderr.strip():
-                console.print(f"\nServer output:\n{result.stderr.strip()}")
+                console.print("\nServer output:")
+                remote_report.line(result.stderr.strip(), "")
             raise SystemExit(1)
     except SystemExit:
         raise

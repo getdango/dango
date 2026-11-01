@@ -197,7 +197,7 @@ def _ssh_connect_or_fail(ctx: click.Context) -> tuple[Any, Any, Path]:
     try:
         ssh.connect(cloud_cfg.droplet_ip, username="dango")
     except Exception as exc:
-        console.print(f"[red]Error:[/red] SSH connection failed: {exc}")
+        remote_report.failure("SSH connection failed", exc)
         raise SystemExit(1) from exc
 
     return cloud_cfg, ssh, project_root
@@ -479,7 +479,7 @@ def firewall_list(ctx: click.Context) -> None:
     try:
         fw = get_firewall_rules(client, firewall_id)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to retrieve firewall rules: {exc}")
+        remote_report.failure("Failed to retrieve firewall rules", exc)
         raise SystemExit(1) from exc
 
     rows = format_firewall_rules(fw)
@@ -539,7 +539,7 @@ def firewall_allow_ip(ctx: click.Context, ip_address: str) -> None:
     try:
         fw = add_allowed_ip(client, firewall_id, ip_address)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
 
     console.print(
@@ -580,7 +580,7 @@ def firewall_allow_all(ctx: click.Context) -> None:
     try:
         fw = allow_all_web(client, firewall_id)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
 
     console.print("[green]Firewall updated.[/green] Ports 80/443 are now open to all traffic.")
@@ -670,7 +670,7 @@ def domain_set(ctx: click.Context, domain_name: str) -> None:
         _reopen_web_ports_for_certificate(cloud_cfg)
         result = set_domain(ssh, project_root, domain_name)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -717,7 +717,7 @@ def domain_remove(ctx: click.Context) -> None:
     try:
         result = remove_domain(ssh, project_root)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
