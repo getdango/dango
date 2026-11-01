@@ -69,6 +69,8 @@ platform/
 │   ├── migrate.py       # Server migration (new droplet via Spaces) (TASK-105)
 │   ├── upgrade.py       # Remote Dango version upgrade (TASK-106)
 │   ├── runtime_ownership.py  # Root-owned /srv/dango + venv, trust probe, venv rebuild (1.0.14)
+│   ├── venv_leftovers.py # Best-effort steps around the server venv: optional spaCy model, leftover moved-aside venvs (1.0.14)
+│   ├── srv_preflight.py # BYOS: refuse a dango-owned or writable /srv, /srv/dango before any root setup step (1.0.14)
 │   ├── server_python.py # Python 3.11+ for the server venv: host interpreter or pinned build (1.0.14)
 │   ├── server_python_scripts.py # Shell text + pinned values for that interpreter (detect, check, install)
 │   ├── compose_helper.py # Root-owned compose helper text + install scripts (1.0.14)
@@ -151,10 +153,12 @@ platform/
 | `cloud/metabase_pin.py` | Which SHA-256 the server build accepts for the Metabase jar: compiled default for the default version, else a root-owned `compose/metabase-jar.pin` written by the helper's root-only `pin-metabase VERSION SHA256` verb (missing/mismatched/unsafe pin = render exit 68, build files untouched) | `digest_for_version`, `pin_custom`, `PinError`, `DEFAULT_MB_VERSION`, `DEFAULT_MB_DIGEST` |
 | `cloud/upgrade_caddy.py` | Caddyfile WebSocket-route migration run by `upgrade_dango` | `run_ws_migration`, `has_ws_auth_endpoint` |
 | `cloud/runtime_ownership.py` | Root-owned runtime: composable ownership steps (`OwnershipStep`) + verify script, root installs of pushed requirements only (`check_requirements`), in-place rebuild of a venv a non-root user could write (fails closed: `VenvRebuildError` aborts upgrade/setup) | `ownership_steps`, `build_ownership_script`, `build_verify_script`, `apply_ownership`, `secure_runtime`, `rebuild_untrusted_venv`, `at_target_restart_plan`, `venv_trust_findings`, `VenvRebuildError`, `ROOT_PYTHON` |
+| `cloud/venv_leftovers.py` | Steps around the server venv that never abort a deploy or upgrade: the optional spaCy model (a timeout or failure is a warning naming the retry command) and removal of root-owned `venv.untrusted-*` directories an interrupted rebuild left (only while the current venv has its `dango` script; links and other owners untouched) | `install_spacy_model`, `remove_stale_venvs` |
+| `cloud/srv_preflight.py` | First step of a BYOS setup: `/srv` and `/srv/dango` must be absent or real root-owned directories closed to group/other write (no link), else setup stops before any root step, naming the fix; a check that cannot run also stops | `check_srv_dango`, `preflight_script`, `EXIT_UNSAFE` |
 | `cloud/server_python.py` (+ `server_python_scripts.py`) | Interpreter for the server venv (Python 3.11-3.13, `requires-python`): a root-owned host interpreter under `/usr` (judged by owner/mode of every path component before it is run), else the pinned CPython build installed under `/opt/dango/python` (HTTPS download, size + SHA-256 checked before extraction, archive entries restricted, root-owned tree, marker, `mv -T`). Fresh setup builds the venv with it; `remote upgrade` ensures it before any stop/backup/guard and rebuilds a venv whose Python is too old; failures raise `DANGO-D024` | `ensure_server_python`, `prepare_upgrade`, `venv_python_in_range`, `ServerPythonError`, `PYTHON_BUILDS`, `host_python_script`, `install_script`, `link_check_arm` |
 | `cloud/pushed_requirements.py` | Root installs `requirements.txt` / `scripts/requirements.txt` only from the pusher's local copies (private upload), refusing editable, local-path, nested, non-http(s) index and credential-bearing lines | `check_requirements`, `install_pushed_requirements`, `REQUIREMENT_FILES` |
 | `cloud/remote_launch.py` | Shell-script builder to start a command in the background on a remote host with `cd` guard and liveness check (shared by `remote sync` and MCP `remote_sync`) | `build_background_launch` |
-| `cloud/_server_templates.py` | Config file templates (systemd, Caddy, fail2ban, backup timer, etc.) | `build_caddyfile`, `build_systemd_unit`, `SYSTEMD_UNIT`, `CADDYFILE`, `SYSTEMD_BACKUP_SERVICE`, `SYSTEMD_BACKUP_TIMER`, etc. |
+| `cloud/_server_templates.py` | Config file templates (systemd, Caddy, fail2ban, backup timer, etc.); both Caddyfiles answer a static 503 with `Retry-After` (`handle_errors` for 502/503/504) while dango-web is not up | `build_caddyfile`, `build_systemd_unit`, `SYSTEMD_UNIT`, `CADDYFILE`, `SYSTEMD_BACKUP_SERVICE`, `SYSTEMD_BACKUP_TIMER`, etc. |
 
 ## Import Patterns
 

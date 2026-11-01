@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import contextlib
 import getpass
+import os
 import re
 import shlex
 import subprocess
@@ -47,7 +48,7 @@ class TestPreflightScript:
 
     def test_directory_of_another_owner_is_refused_and_named(self, tmp_path: Path) -> None:
         (tmp_path / "dango").mkdir(mode=0o755)
-        result = _run(self._script(tmp_path / "dango", owner="nobody-here"))
+        result = _run(self._script(tmp_path / "dango", owner=str(os.getuid() + 1)))
         assert result.returncode == 3
         assert str(tmp_path / "dango") in result.stdout
 

@@ -328,6 +328,7 @@ def remote_push(
     """
     from rich.status import Status
 
+    from dango.exceptions import CloudError
     from dango.platform.cloud.deployer import push_deploy
     from dango.utils.git_info import check_git_guardrails, collect_git_info
 
@@ -369,7 +370,11 @@ def remote_push(
             console.print("[yellow]Push cancelled.[/yellow]")
             return
 
-    ssh = _connect_ssh(cloud_cfg, project_root)
+    try:
+        ssh = _connect_ssh(cloud_cfg, project_root)
+    except CloudError as exc:  # e.g. a changed host key: one clean line, like `remote status`
+        console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
+        raise SystemExit(1) from exc
 
     try:
         with Status("[bold blue]Deploying...", console=console) as status:

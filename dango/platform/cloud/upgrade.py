@@ -181,6 +181,7 @@ def upgrade_dango(
 
     # 0. Never run a venv another user could write: check it as data first
     from dango.platform.cloud import runtime_ownership as ro
+    from dango.platform.cloud.venv_leftovers import remove_stale_venvs
 
     try:
         untrusted = ro.venv_is_untrusted(ssh)
@@ -259,6 +260,8 @@ def upgrade_dango(
         finally:
             guard.disarm()
         _notify(on_progress, "rebuild_venv", "done")
+    else:
+        remove_stale_venvs(ssh, warnings)  # no rebuild: nothing else clears an old leftover
 
     # 3. Already at target?  Still finish the Caddyfile WebSocket migration
     # (idempotent) so a re-run can complete a step an earlier run skipped.

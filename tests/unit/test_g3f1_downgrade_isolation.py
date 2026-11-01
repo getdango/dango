@@ -74,7 +74,9 @@ def test_downgrade_removes_only_the_marker() -> None:
     srv = isolated()
     upgrade_dango(srv, version="1.0.13", force=True)
     destructive = ("userdel", "setfacl -b", "dango-runner", "nft delete", "rm -rf")
-    assert not [c for c in srv.commands if any(d in c for d in destructive)]
+    # the leftover-venv sweep (root-owned venv.untrusted-* directories only) runs on every upgrade
+    commands = [c for c in srv.commands if "-name 'venv.untrusted-*'" not in c]
+    assert not [c for c in commands if any(d in c for d in destructive)]
     assert "marker" not in srv.runner_events()
 
 

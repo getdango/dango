@@ -97,7 +97,7 @@ class TestStaleAsideVenvs:
 
         ssh, commands = _recording_ssh(untrusted_until_rebuild=True)
         ro.rebuild_untrusted_venv(ssh, [], version="1.0.15")
-        assert "test -x /srv/dango/venv/bin/dango &&" in _stale_commands(commands)[0]
+        assert '[ -x "$V/bin/dango" ] &&' in _stale_commands(commands)[0]
 
     def test_removal_is_reported_in_a_warning(self) -> None:
         from dango.platform.cloud import runtime_ownership as ro

@@ -75,6 +75,10 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - `dango remote push` and other rsync transfers verify the pinned host key, including on non-standard SSH ports.
 - Failures in cleanup, hooks and crash recording that used to be swallowed are now logged.
 - Runtime dependencies that Dango imports are now declared in the package metadata, and a wheel import check guards this.
+- Cloud: a slow or failed spaCy model download no longer aborts a server venv rebuild or a fresh setup; it becomes a warning with the command to run by hand. Leftover `/srv/dango/venv.untrusted-*` directories from an interrupted rebuild are removed at the start of the next upgrade.
+- Cloud: a BYOS host whose `/srv` or `/srv/dango` already exists and is not a root-owned directory closed to other users is refused before any root setup step. A failed BYOS setup step is now printed (a host without `flock` used to exit with no message).
+- Cloud: while `dango-web` is not running yet (a fresh deploy), Caddy answers a short "Dango is starting" 503 with `Retry-After` instead of a bare 502. After a deploy with a domain, the summary says to point DNS first and how to restart Caddy if HTTPS stays down.
+- `dango remote push` prints one clean line, like `dango remote status`, when the server connection is refused (for example a changed host key). A DigitalOcean create lookup that returns an unexpected answer still reports that the resource may exist.
 
 ### Security
 

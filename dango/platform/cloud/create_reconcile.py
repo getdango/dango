@@ -90,7 +90,8 @@ def reconcile_create(
             # The record can appear just after the lost answer; look once more.
             time.sleep(_RECHECK_DELAY)
             matches = find()
-    except (CloudError, httpx.HTTPError) as exc:
+    except (CloudError, httpx.HTTPError, ValueError, TypeError, AttributeError, KeyError) as exc:
+        # ValueError (a non-JSON 200) and the others (an odd shape) cannot prove the create failed
         raise CloudError(
             f"{unconfirmed} and the lookup failed: {exc}. "
             f"A {kind} named '{name}' may exist; check the DigitalOcean console."

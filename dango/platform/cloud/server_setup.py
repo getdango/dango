@@ -32,8 +32,9 @@ from dango.platform.cloud._server_templates import (
     build_caddyfile,
     build_systemd_unit,
 )
-from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
+from dango.platform.cloud.srv_preflight import check_srv_dango
 from dango.platform.cloud.upgrade_guard import UpgradeGuard
+from dango.platform.cloud.venv_leftovers import install_spacy_model
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -312,16 +313,7 @@ def _setup_venv(
         timeout=300,
     )
     # Install spaCy model for PII scanning (best-effort, non-fatal)
-    spacy_result = ssh.exec_command(
-        f"{ROOT_PYTHON} -m spacy download en_core_web_sm -q",
-        timeout=120,
-    )
-    if not spacy_result.success:
-        result.warnings.append(
-            "spaCy model 'en_core_web_sm' could not be installed. "
-            "PII scanning will be unavailable until installed manually: "
-            f"{ROOT_PYTHON} -m spacy download en_core_web_sm"
-        )
+    install_spacy_model(ssh, result.warnings, timeout=120)
     result.steps_completed.append(step)
     _notify(on_progress, step, "done")
 
@@ -813,6 +805,9 @@ def setup_server(
         CloudProvisioningError: If any step fails.
     """
     result = SetupResult()
+
+    if setup_ufw:  # BYOS: a host with a dango-owned /srv/dango is refused before any root step
+        check_srv_dango(ssh)
 
     # --- Pre-flight checks: RAM and disk ---
     _preflight_check(ssh, result)

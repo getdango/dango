@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from rich.markup import escape
+
 from dango.cli import console
 from dango.cli.commands.deploy_wizard import _EMAIL_RE, BYOSConfig, WizardConfig
 from dango.exceptions import CloudAPIError, CloudProvisioningError
@@ -549,13 +551,17 @@ def run_byos_setup(
         install_source = resolve_install_source()
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            setup_result = setup_server(
-                ssh,
-                on_progress=_setup_progress,
-                domain=config.domain,
-                setup_ufw=True,
-                install_source=install_source,
-            )
+            try:
+                setup_result = setup_server(
+                    ssh,
+                    on_progress=_setup_progress,
+                    domain=config.domain,
+                    setup_ufw=True,
+                    install_source=install_source,
+                )
+            except CloudProvisioningError as exc:
+                console.print(f"\n[red]Server setup failed:[/red] {escape(str(exc))}")
+                raise
             if setup_result.warnings:
                 for w in setup_result.warnings:
                     console.print(f"  [yellow]Warning:[/yellow] {w}")

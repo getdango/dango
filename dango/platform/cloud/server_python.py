@@ -43,7 +43,8 @@ _CAUSES = {
     sps.EXIT_ARCHIVE: "the downloaded archive failed the safety checks",
     sps.EXIT_LOCATION: "/opt/dango could not be used (it must be a root-owned directory "
     "that other users cannot write, not a symbolic link)",
-    sps.EXIT_TOOLS: "a required tool is missing",
+    sps.EXIT_TOOLS: "a required tool is missing (flock (util-linux) is required, as are curl, "
+    "sha256sum, tar, find, readlink and mktemp)",
 }
 
 

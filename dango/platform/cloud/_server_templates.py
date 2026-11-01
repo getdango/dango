@@ -23,6 +23,21 @@ _COMMON_HEADERS = """\
 \t\tPermissions-Policy "interest-cohort=()"
 \t}"""
 
+# While dango-web is not up yet (a fresh deploy, a restart) Caddy has no upstream and would
+# answer its bare 502.  Answer a static 503 with Retry-After instead: no data, no log lines,
+# no version.  The expression form works on every Caddy 2.x that has handle_errors.
+_STARTING_PAGE = (
+    "\thandle_errors {\n"
+    "\t\t@starting expression `{http.error.status_code} == 502"
+    " || {http.error.status_code} == 503 || {http.error.status_code} == 504`\n"
+    "\t\thandle @starting {\n"
+    '\t\t\theader Retry-After "30"\n'
+    '\t\t\theader Cache-Control "no-store"\n'
+    '\t\t\trespond "Dango is starting. Please try again in a minute." 503\n'
+    "\t\t}\n"
+    "\t}\n"
+)
+
 _HSTS_HEADER = '\t\tStrict-Transport-Security "max-age=63072000; includeSubDomains"'
 
 
@@ -77,12 +92,12 @@ def build_caddyfile(domain: str | None = None, marimo_port: int = 7805) -> str:
             "\n\t}",
             f"\n{_HSTS_HEADER}\n\t}}",
         )
-        domain_block = f"{domain} {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{headers}\n}}\n"
+        domain_block = f"{domain} {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{headers}\n{_STARTING_PAGE}}}\n"
         # Block direct IP access — prevent unencrypted credential exposure
         ip_block = ':80 {\n\trespond "Use the configured domain to access this server." 403\n}\n'
         return f"{domain_block}\n{ip_block}"
     # HTTP-only mode (IP access, no HSTS)
-    return f":80 {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{_COMMON_HEADERS}\n}}\n"
+    return f":80 {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{_COMMON_HEADERS}\n{_STARTING_PAGE}}}\n"
 
 
 # Backward-compatible alias — existing code imports ``CADDYFILE`` directly.

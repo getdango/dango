@@ -322,7 +322,11 @@ def rebuild_venv(
     """
     if not version or not VERSION_RE.fullmatch(version):
         raise VenvRebuildError(f"no valid getdango version to install ({version!r})")
+    from dango.platform.cloud.venv_leftovers import install_spacy_model, remove_stale_venvs
+
     tick = on_step or (lambda: None)
+    remove_stale_venvs(ssh, warnings)
+    tick()
     aside = f"{VENV_DIR}.untrusted-{uuid.uuid4().hex[:12]}"
     moved = ssh.exec_command(f"mv {VENV_DIR} {aside}").success
     tick()
@@ -349,7 +353,7 @@ def rebuild_venv(
     )
     tick()
     if verified:
-        ssh.exec_command(f"{ROOT_PYTHON} -m spacy download en_core_web_sm -q", timeout=180)
+        install_spacy_model(ssh, warnings, timeout=180)  # optional: never aborts the rebuild
         tick()
         if local_project_root is not None:
             install_pushed_requirements(ssh, local_project_root, pip, warnings)
