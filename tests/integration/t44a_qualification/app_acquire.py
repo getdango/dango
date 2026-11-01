@@ -120,10 +120,16 @@ def inspect_archive(item, inventory):
                 identity = sha(body)
                 notices[identity] = body
                 row["notices"][member.name] = {"sha256": identity, "bytes": len(body)}
-            if archive.extractfile(member).read(4) == b"\x7fELF":
+            magic = archive.extractfile(member).read(16)
+            if magic.startswith(b"\x7fELF") or name.endswith((".node", ".so")):
                 assert member.size <= 256 * 1024**2, "Native inspection memory bound"
                 body = archive.extractfile(member).read()
-                row["native"][member.name] = {"sha256": sha(body), "bytes": len(body)}
+                row["native"][member.name] = {
+                    "sha256": sha(body),
+                    "bytes": len(body),
+                    "magic_hex": magic.hex(),
+                    "elf": magic.startswith(b"\x7fELF"),
+                }
     return row, notices
 
 
@@ -257,14 +263,35 @@ def main():
             ("cache", cache),
         ]:
             observed[name] = acquire.bytes_used(path) if path.exists() else 0
-        known_native = {p["sha256"] for row in rows for p in row["native"].values()}
+        result["observed_allocated"] = observed
+        known_native = collections.defaultdict(list)
+        for row in rows:
+            for member, identity in row["native"].items():
+                known_native[identity["sha256"]].append(
+                    {"package": row["package"], "member": member, "archive_sha256": row["sha256"]}
+                )
         observed_native = {}
         for suffix in ["*.node", "*.so"]:
             for path in project.rglob(suffix):
                 if path.is_file():
-                    identity = sha(path.read_bytes())
-                    assert identity in known_native, "Uninventoried native output"
-                    observed_native[str(path.relative_to(project))] = identity
+                    body = path.read_bytes()
+                    identity = sha(body)
+                    observed_native[str(path.relative_to(project))] = {
+                        "sha256": identity,
+                        "bytes": len(body),
+                        "magic_hex": body[:16].hex(),
+                        "elf": body.startswith(b"\x7fELF"),
+                        "archive_members": known_native.get(identity, []),
+                    }
+        result["observed_native"] = observed_native
+        result["uninventoried_native"] = [
+            path for path, identity in observed_native.items() if not identity["archive_members"]
+        ]
+        # Persist sizes and every inspected path/hash/magic BEFORE the refusal.
+        (root / "evidence/app-acquisition.json").write_text(json.dumps(result, indent=2) + "\n")
+        assert not result["uninventoried_native"], "Uninventoried native output: " + repr(
+            result["uninventoried_native"]
+        )
         result.update(
             status="PASS_FULL_DEV_ACQUISITION_ONLY",
             observed_allocated=observed,
