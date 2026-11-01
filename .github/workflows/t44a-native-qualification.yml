@@ -38,6 +38,9 @@ jobs:
       - name: Fresh running Python smoke and real offline dbt diagnostic
         run: |
           env -i PATH="$PATH" PROBE_HEAD="$GITHUB_SHA" python candidate/tests/integration/t44a_qualification/run.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline"
+      - name: Measured full development acquisition only, no install or build
+        run: |
+          env -i PATH="$PATH" python candidate/tests/integration/t44a_qualification/app_acquire.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline"
       - name: Publish only sanitized diagnostic evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -50,5 +53,7 @@ jobs:
             ${{ runner.temp }}/t44a03/evidence/manifest.json
             ${{ runner.temp }}/t44a03/evidence/run_results.json
             ${{ runner.temp }}/t44a03/evidence/catalog.json
+            ${{ runner.temp }}/t44a03/evidence/app-acquisition.json
+            ${{ runner.temp }}/t44a03/evidence/app-package-inventory.json
           if-no-files-found: error
           retention-days: 7

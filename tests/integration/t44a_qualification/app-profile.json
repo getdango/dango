@@ -1,0 +1,260 @@
+{
+  "state": "PLAN_ONLY_NOT_INSTALL_READY",
+  "scope": "First complete adapted Lightdash app slice; no remaining twelve-case harness",
+  "limits": {
+    "cpus": 4,
+    "memory_MiB": 4608,
+    "task_bytes": 30000000000,
+    "headroom_bytes": 2147483648
+  },
+  "lightdash": {
+    "tag": "3.86.0",
+    "commit": "a0b53b468314ebb6e42b68c67f1a196f64c00454",
+    "archive": {
+      "sha256": "f8f1eea1be992c62feb2d8973a24c0cbc11cdd6cd40ffbc283dd25091ccc7eef",
+      "bytes": 48054804
+    },
+    "source_allocated_upper": 272576512,
+    "permitted_diff": [
+      "packages/warehouses/package.json",
+      "pnpm-lock.yaml"
+    ],
+    "adapted_lock_sha256": "3a9f2024a694def754540acaef58d3eb6fc18ac9bcd5ad9a6c841f98f8b0fcd0",
+    "lock_importers": 17,
+    "lock_packages": 3389,
+    "lock_snapshots": 3465,
+    "license": "Root MIT excludes backend/src/ee. Retain separate development/testing license; no enterprise license/features or compiled distribution."
+  },
+  "garage": {
+    "version": "2.5.0",
+    "binary_url": "https://garagehq.deuxfleurs.fr/_releases/v2.5.0/x86_64-unknown-linux-musl/garage",
+    "binary": {
+      "sha256": "2ff667286217cd73ebcb1c03af993822365000441dfe31a80cb64c5189a9dea8",
+      "bytes": 69426824
+    },
+    "binary_execution": "UNRUN",
+    "source_url": "https://git.deuxfleurs.fr/Deuxfleurs/garage/archive/v2.5.0.tar.gz",
+    "source": {
+      "sha256": "f6ae76cd694b0dd4a625dfd6b167da73a339ababc88b32cd61434fe3af076d51",
+      "bytes": 47074181
+    },
+    "source_allocated_upper": 64135168,
+    "license": "AGPL-3.0; exact source LICENSE retained with source/Cargo.lock; bundled dependency notices must remain available",
+    "license_file": {
+      "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
+      "bytes": 34523
+    },
+    "source_lock": {
+      "sha256": "d7d15e571ad5274e849a264a04e08e7e15d49ba42d352cc7325b2847d582e61b",
+      "bytes": 138933
+    },
+    "command": [
+      "/tools/garage",
+      "-c",
+      "/scripts/garage.toml",
+      "server",
+      "--single-node",
+      "--default-bucket"
+    ],
+    "initialization": "Read synthetic mode0600 access/secret keys into documented GARAGE_DEFAULT_ACCESS_KEY/GARAGE_DEFAULT_SECRET_KEY and GARAGE_DEFAULT_BUCKET inside the owned container, never child-console/inspect values. GARAGE_DEFAULT_ACCESS_KEY starts GK plus32hex. Config rpc_secret_file is supported.",
+    "bucket": "t44a-results",
+    "smoke": "Using the app identity and its shared PG namespace, real authenticated S3 PUT fixed synthetic bytes then GET exactbytes/sha and delete via locked @aws-sdk/client-s3. Wrong synthetic secret must fail authorization. No unauthenticated HTTP substitute."
+  },
+  "acquisition": {
+    "tool": "Exact upstream pnpm12.3.4+sha512 from R08; no new resolver/cache writer",
+    "source": "Exact source + reviewed two-file patch and after hashes; retain root/EE licenses",
+    "fetch": [
+      "pnpm",
+      "--dir",
+      "/work/project",
+      "fetch",
+      "--config.ignore-scripts=true",
+      "--store-dir",
+      "/work/store",
+      "--config.manage-package-manager-versions=false"
+    ],
+    "environment": {
+      "PNPM_CONFIG_CACHE_DIR": "/work/pnpm-cache"
+    },
+    "scope": "WHOLE workspace development+production fetch; no --prod and no selected-closure claim. Acquisition public network/minimal credential-free environment; no lifecycle scripts/importer links.",
+    "preinstall_gates": [
+      "Assert source/lock unchanged and no importer links/lifecycle execution; inspect actual whole fetched store/cache/allocated owned bytes and actual runner df.",
+      "Inventory all exact lock-integrity archives/platform variants and retained license/notice/package metadata before installation; report unhandled/non-registry entry instead of guessing. Locked node@runtime24.22.1 is a platform-variant artifact with its own pinned sha256, not an npmsha512 entry.",
+      "Native allowBuilds are not permission for unpinned network during offline install. First freeze/download/inspect required lifecycle binaries and normal upstream cache/config entrypoints; missing identity/license/offline route blocks install.",
+      "Count all actual acquired source/store/cache/artifacts plus conservative future unshared install/compiler/temp/output/data/log copies + all frozen image compressed/expanded/cache/snapshot copies + >=2GiB headroom <=30e9 and actual df before install AND every build. Missing measured bound blocks stage."
+    ],
+    "closure_status": "Full lock identities frozen; full-dev acquired archive/license/expanded and lifecycle closure NOT YET complete. Do not run install from this plan.",
+    "observed_lifecycle_packages": {
+      "canvas@3.2.1": "prebuild-install -r napi || node-gyp rebuild; targetNAPI7 and platform bytes not yet frozen",
+      "duckdb@1.4.2": "node-pre-gyp install --fallback-to-build; legacy transitive package is not the qualification consumer engine",
+      "cypress@15.18.1": "postinstall invokes external Cypress acquisition; not silently skipped in complete standard install",
+      "@sentry/cli@2.58.5": "optional locked platform package preferred; standard install.js CDN fallback must not run unpinned"
+    },
+    "checkpoint": {
+      "recipe": "app_acquire.py after actual dbt diagnostic PASS",
+      "state": "IMPLEMENTED_NOT_EXECUTED",
+      "target_inventory_records_static": 3087,
+      "metadata_hook_sha256": "a3542d5889601238cbf1b0d246bf674301bfa0cd96b6d9f040d1c97afa7f20c8",
+      "parser_tool": "Exact R08 PyYAML6.0.3 wheel SHAba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc; verified zip-import pure Python, no pip installation",
+      "before_fetch_bound": "Measured archive allocations include per-member4KiB metadata. Count content store + each peer-context virtual-store copy + full temporary extraction + two compressed cache/temp copies + retained notices/evidence; add actual whole task, planned frozen image expansions and >=2GiBheadroom. Enforce30GB AND actual runnerdf BEFORE standardfetch.",
+      "after_fetch": "Record actual whole task/content store/expanded virtual store/cache sizes and native identities; require frozen hook/source/package/lock unchanged and no importer links.",
+      "next_install": "Always BLOCKED pending license gaps, lifecycle-native bytes and full install/compiler/runtime fit. No installer/build command in recipe."
+    }
+  },
+  "build": {
+    "profile": {
+      "cpus": 4,
+      "memory_MiB": 4608,
+      "memory_swap_MiB": 4608,
+      "uid_gid": "501:20",
+      "node_heap_MiB": 3500,
+      "background_services": 0
+    },
+    "commands_serial": [
+      [
+        "pnpm",
+        "install",
+        "--offline",
+        "--frozen-lockfile"
+      ],
+      [
+        "pnpm",
+        "formula:build"
+      ],
+      [
+        "pnpm",
+        "common-build"
+      ],
+      [
+        "pnpm",
+        "warehouses-build"
+      ],
+      [
+        "pnpm",
+        "visualization-build"
+      ],
+      [
+        "pnpm",
+        "backend-build"
+      ],
+      [
+        "pnpm",
+        "frontend-build"
+      ],
+      [
+        "pnpm",
+        "cli-build"
+      ]
+    ],
+    "gates": "Normal tsc common/warehouses must pass before expensive frontend. No source/API patch, type suppression, esbuild substitution, or missing frontend/backend/CLI target accepted. No Dockerfile1.5.x staging. No global cache or ambient provider identity."
+  },
+  "runtime": {
+    "postgres": {
+      "cpus": 0.5,
+      "memory_MiB": 512,
+      "uid_gid": "999:999",
+      "network": "none"
+    },
+    "garage": {
+      "cpus": 0.25,
+      "memory_MiB": 256,
+      "uid_gid": "501:20",
+      "network": "container:<exact owned running PG CID>"
+    },
+    "app": {
+      "cpus": 2.25,
+      "memory_MiB": 2560,
+      "uid_gid": "501:20",
+      "network": "container:<exact owned running PG CID>"
+    },
+    "actor": {
+      "cpus": 1,
+      "memory_MiB": 1024,
+      "uid_gid": "501:20",
+      "network": "container:<exact owned running PG CID>"
+    },
+    "aggregate": {
+      "cpus": 4,
+      "memory_MiB": 4352
+    },
+    "security": "Fresh populated RUNNING smoke for changed effective profiles, numeric users, RO root/inputs and actual failed writes, RW home/work/PG/Garagedata, authenticated PGSELECT1/S3PUTGET, only loopback interface/route and numeric nonloopback refusal. capdropALL/no-new-privileges/pids128/equal memoryswap/bounded tmpfs+logs. No published ports, host socket or external runtime network. Material changes invalidate smoke.",
+    "environment": {
+      "NODE_ENV": "production",
+      "PORT": "8080",
+      "SITE_URL": "http://127.0.0.1:8080",
+      "NATS_ENABLED": "false",
+      "SCHEDULER_ENABLED": "false",
+      "S3_ENDPOINT": "http://127.0.0.1:3900",
+      "S3_BUCKET": "t44a-results",
+      "S3_REGION": "garage",
+      "S3_FORCE_PATH_STYLE": "true",
+      "S3_AUTH_MODE": "default",
+      "S3_USE_CREDENTIALS_FROM": "env",
+      "RESULTS_S3_ENDPOINT": "http://127.0.0.1:3900"
+    },
+    "secret_configuration": "Fresh synthetic LIGHTDASH_SECRET, PGCONNECTIONURI to separate task-owned lightdash PG database, S3_ACCESS_KEY/S3_SECRET_KEY loaded from mode0600 files inside process before exec; no provider/home/keyring config, no secret values in argv/public artifacts. Exact app env enum/default validity must pass affected code review.",
+    "commands": [
+      [
+        "pnpm",
+        "-F",
+        "backend",
+        "migrate-production"
+      ],
+      [
+        "pnpm",
+        "backend-start"
+      ]
+    ],
+    "assert_complete_app": "Actual production backend with built frontend/build/index.html and asset200 plus authenticated ordinary query completion. No HTML-only acceptance.",
+    "mode": "Omit LIGHTDASH_MODE to use the source normal DEFAULT; never DEMO/PR bypass modes."
+  },
+  "manifest_bridge": {
+    "genuine_cli_output": "dbt-oss 2.0.8",
+    "normal_environment": {
+      "LIGHTDASH_DBT_VERSION": "dbt-oss 2.0.8"
+    },
+    "non_interactive": true,
+    "source_result": "Known version is returned unchanged. Supported-version classifier returns null; normal warning and fallback SupportedDbtVersions.V1_12 occur. isDbtFusion=false. Preserve genuine verboseVersion and explicit warning; no forged dbt2 string. Runtime compatibility UNRUN.",
+    "command_template": [
+      "node",
+      "/work/project/packages/cli/dist/index.js",
+      "--non-interactive",
+      "deploy",
+      "--project",
+      "<owned project uuid>",
+      "--project-dir",
+      "/work/dbt-project",
+      "--target-path",
+      "/work/dbt-project/target",
+      "--skip-dbt-compile",
+      "--skip-warehouse-catalog"
+    ],
+    "prerequisites": "Use normal CLI login/config with synthetic app PAT and real project. Genuine dbt-generated schema YAML adds id/order_date/amount types and total_amount SUM metric, then actual seed/build regenerates original manifest/run_results/catalog. Never edit artifact bytes. No select/exclude/selector/models flags.",
+    "connection": {
+      "type": "duckdb",
+      "connectionType": "ducklake",
+      "catalog": {
+        "type": "postgres",
+        "host": "127.0.0.1",
+        "port": 5432,
+        "database": "probe",
+        "user": "<synthetic>",
+        "password": "<synthetic from file>"
+      },
+      "dataPath": {
+        "type": "local",
+        "path": "/fixture/data"
+      },
+      "catalogAlias": "lake",
+      "schema": "sales",
+      "threads": 2
+    }
+  },
+  "first_slice_oracles": [
+    "Normal migration/start/front-end assets, authentic app actor login/invite/member-editor roles and actual warehouse connection.",
+    "Ordinary actor total metric350; Septemberdatefilter300 with completed query UUID/generatedSQL/result body; admin/directSQL or created job not sufficient.",
+    "Existing owner-accessible private saved chart results POST/api/v1/saved/<uuid>/results returns403 to distinct authenticated ordinary editor;401/404/bootstrap failure not accepted.",
+    "Spec1.1 and physicalParquet unchanged under read-only appconsumer; raw secret checks before sanitization and capture fullState/HostConfig/logs/events before exact owned cleanup."
+  ],
+  "stop": "First material acquisition/resource/build/source/API/auth/oracle failure retains concrete receipts; no source patch or matrix expansion."
+}

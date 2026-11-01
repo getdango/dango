@@ -10,7 +10,7 @@ This is fresh Python3.14.10 readiness, not reuse of an old smoke PASS. One3CPU/3
 Python profile plus one1CPU/768MiB PG profile stays under4CPU/4.5GiB. The tiny
 readiness bootstrap installs only the frozen offline wheel closure after a basic
 populated Python/permissions/network smoke; then real Python DuckDB/postgres_scanner→PG authentication
-must pass before the dbt/native fixture. No full Lightdash source is staged.
+must pass before the dbt/native fixture. This first phase stages no full Lightdash source.
 
 Public acquisition has a minimal environment and exact size/hash pins. The
 pre-install gate counts all planned frozen image expansions/caches/snapshots,
@@ -36,6 +36,26 @@ The app stage requires frozen Garage plus real PUT/GET smoke, NATS explicitly
 disabled, and normal common/warehouse TypeScript builds before frontend work.
 No source/API patch, proprietary dbt substitution or client validator bypass is
 part of this experiment. No compiled app or private historical evidence is uploaded.
+
+After the real dbt gate passes, the next checkpoint acquires the complete frozen
+Lightdash development graph with standard pnpm12.3.4 `fetch`, with dependency
+lifecycle scripts disabled. This is acquisition, not an app install/build. The
+unchanged `.pnpmfile.cjs` metadata hook is separately hash-bound; ignoring lifecycle
+scripts does not disable that trusted hook. Integrity-bound Linux/x64/glibc archive
+inspection retains notices and native hashes before fetch. The acquisition fit
+gate counts content-store, every expanded peer-context virtual-store copy, a full
+temporary extraction copy and two compressed cache/temp copies, without hardlink
+credit, plus measured owned bytes/images and2GiB headroom against30GB and actualdf.
+Each measured archive member includes its existing4KiB metadata allowance in each
+copy. Actual whole-store/cache/virtual-store sizes are measured after fetch, and
+project importer links or changed frozen source inputs fail the checkpoint.
+
+Only acquisition results and package size/license/native hashes join the public
+allowlist. Original notices and fetched bytes stay in owned runner scratch for
+the next gate; source archives and compiled apps are not uploaded. Missing licenses,
+external lifecycle binaries and the full remaining install/compiler/runtime peak
+still block installation. `app-profile.json` and `garage.toml` are proposed future
+profiles, not executed app/Garage evidence or an installation approval.
 
 AI assistance and authority: Codex authored this scratch qualification recipe under
 the human-approved T44A batch. Independent review and coordinator verification are
