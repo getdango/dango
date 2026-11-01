@@ -64,13 +64,14 @@ def main():
     )
     (project / "profiles.yml").write_text(
         "probe:\n  target: dev\n  outputs:\n    dev:\n      type: duckdb\n"
-        "      path: ':memory:'\n      database: lake\n      schema: sales\n      threads: 2\n"
+        "      path: ':memory:'\n      database: memory\n      schema: sales\n      threads: 2\n"
         "      extensions: [postgres_scanner, ducklake]\n      settings:\n"
         "        memory_limit: 512MB\n        max_temp_directory_size: 512MB\n"
         "        temp_directory: /work/duckdb-temp\n"
     )
     (project / "catalogs.yml").write_text(
-        "catalogs:\n  - name: lake\n    type: ducklake\n    config:\n      duckdb:\n"
+        "catalogs:\n  - name: lake\n    type: ducklake\n    table_format: default\n"
+        "    config:\n      duckdb:\n"
         f"        metadata_path: '{metadata}'\n        data_path: /fixture/data\n"
         "        catalog_database: lake\n        automatic_migration: false\n"
         "        data_inlining_row_limit: 0\n"
@@ -83,7 +84,14 @@ def main():
         "select 1 as failure where version() not like 'v2.%' or "
         "(select sum(amount) from {{ ref('orders') }}) <> 350\n"
     )
-    common = ["--project-dir", str(project), "--profiles-dir", str(project)]
+    common = [
+        "--project-dir",
+        str(project),
+        "--profiles-dir",
+        str(project),
+        "--no-version-check",
+        "--no-send-anonymous-usage-stats",
+    ]
     version = subprocess.run(
         ["/work/venv/bin/dbt", "--version"], capture_output=True, text=True, check=True
     )
