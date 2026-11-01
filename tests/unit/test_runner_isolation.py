@@ -84,7 +84,7 @@ def test_step_order_puts_the_marker_last_after_verify() -> None:
 def test_failure_policy_is_declared_per_step() -> None:
     steps = {s.name: s for s in iso.build_steps()}
     warn = {n for n, s in steps.items() if s.on_failure == "warn"}
-    assert warn == {"acl_package", "nftables_package", "nft_rules"}
+    assert warn == {"acl_package", "nftables_package", "nft_rules", "notebooks_report"}
     assert steps["nft_rules"].requires == ("nftables_package",)
     assert steps["marker"].requires == ("verify",)
     for name in ("users", "sudoers", "project_permissions", "notebooks_acl", "verify", "marker"):
@@ -92,6 +92,7 @@ def test_failure_policy_is_declared_per_step() -> None:
     assert {n for n, s in steps.items() if s.run_as == "service"} == {
         "project_permissions",
         "notebooks_acl",
+        "notebooks_report",
     }
 
 

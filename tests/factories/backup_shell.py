@@ -254,6 +254,7 @@ def run_spaces_restore(
     fail_cp_match: str | None = None,
     events: list[str] | None = None,
     stop_error: Exception | None = None,
+    returned: list[list[str]] | None = None,
 ) -> tuple[Path, list[str]]:
     """Run ``restore_from_spaces`` for an archive built from ``tmp_path/top``.
 
@@ -262,7 +263,7 @@ def run_spaces_restore(
     real under :func:`shim_env` (only the final project ``chown`` is skipped).
     Returns the shim dir (for :func:`cp_log`) and the event list: ``stop``/``start``
     for the services, ``run: <cmd>`` for ``_run_local`` and ``sh: <cmd>`` for
-    ``subprocess.run``.  Pass *events* to keep them when the restore raises.
+    ``subprocess.run``.  Pass *events* to keep them when the restore raises; *returned* collects the warnings it returns.
     """
     import tarfile
     from unittest.mock import patch
@@ -321,7 +322,9 @@ def run_spaces_restore(
         ),
         patch(f"{sb}.subprocess.run", side_effect=shell),
     ):
-        scheduled_backup.restore_from_spaces({}, f"backups/{top}.tar.gz")
+        outcome = scheduled_backup.restore_from_spaces({}, f"backups/{top}.tar.gz")
+        if returned is not None:
+            returned.append(outcome)
     return shim_dir, events
 
 

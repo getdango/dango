@@ -32,6 +32,11 @@ def warning(text: object) -> None:
     console.print(f"  [yellow]Warning:[/yellow] {literal(text)}", highlight=False, soft_wrap=True)
 
 
+def error(text: object) -> None:
+    """Print ``Error: <text>`` literally."""
+    console.print(f"[red]Error:[/red] {literal(text)}", highlight=False, soft_wrap=True)
+
+
 def failure(what: str, exc: object) -> None:
     """Print ``Error: <what>: <exc>``."""
     console.print(

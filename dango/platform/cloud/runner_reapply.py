@@ -32,7 +32,9 @@ _STEP_TIMEOUT = 120
 
 
 def reapply_steps(srv_dir: str = scripts.SRV_DIR, *, stop_web: bool = False) -> list[ri.Step]:
-    """Quiesce, project permissions, notebook ACLs, verify (no marker, no packages, no users)."""
+    """Quiesce, project permissions, notebook ACLs and their report, verify (no marker or users)."""
+    plan = ri.build_steps(srv_dir)
+    notebook = [s for s in plan if s.name in ("notebooks_acl", "notebooks_report")]
     return [
         ri.Step("quiesce", access.quiesce_script(stop_web=stop_web)),
         ri.Step(
@@ -40,7 +42,7 @@ def reapply_steps(srv_dir: str = scripts.SRV_DIR, *, stop_web: bool = False) -> 
             access.project_permission_script(srv_dir=srv_dir),
             run_as="service",
         ),
-        ri.Step("notebooks_acl", access.notebooks_acl_script(srv_dir=srv_dir), run_as="service"),
+        *notebook,
         ri.Step("verify", access.verify_script(srv_dir=srv_dir)),
     ]
 
@@ -79,6 +81,7 @@ def reapply(
     if not outcome.enabled:
         warnings.append(_warning(outcome))
         return _warning(outcome)
+    warnings.extend(w for w in outcome.warnings if w not in warnings)
     return "Runner permissions re-applied"
 
 
@@ -111,7 +114,7 @@ def reapply_local(srv_dir: str = scripts.SRV_DIR) -> list[str]:
         return []
     outcome = ri.run_steps(reapply_steps(srv_dir), _local_executor())
     if outcome.enabled:
-        return []
+        return list(outcome.warnings)
     text = _warning(outcome)
     _logger.warning("runner_permissions_not_reapplied", detail=text)
     return [text]

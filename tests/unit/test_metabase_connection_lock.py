@@ -356,7 +356,7 @@ class TestRestoreRelock:
             _server(tmp_path, project, mb_volume),
             patch("dango.platform.cloud.backup._get_metabase_volume_path", return_value=None),
         ):
-            restore_from_archive(ssh, _archive(tmp_path))
+            restore_from_archive(ssh, _archive(tmp_path), require_metabase_volume=False)
 
         assert _marker(project).is_file()  # the H2 (and its lock) was not replaced
 

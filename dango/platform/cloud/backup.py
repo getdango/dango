@@ -52,6 +52,7 @@ from dango.platform.cloud.backup_restore import (
     skipped_warning,
     wal_sidecar_names,
 )
+from dango.platform.cloud.backup_restore_checks import METABASE_VOLUME_MISSING, staged_h2_command
 from dango.platform.cloud.compose_helper import (
     CALLER_MARGIN,
     MARKER_TEST,
@@ -948,9 +949,15 @@ def restore_from_archive(
     archive_path: str,
     *,
     on_progress: Callable[[str, str], None] | None = None,
+    require_metabase_volume: bool = True,
     _start_time: float | None = None,
 ) -> RestoreResult:
-    """Low-level restore from an archive path.  Used by rollback() and Spaces restore."""
+    """Low-level restore from an archive path.  Used by rollback() and Spaces restore.
+
+    A backup that holds Metabase's database is refused, before anything changes, when the
+    server has no Metabase volume to restore it into; ``require_metabase_volume=False``
+    (a migration onto a fresh server) restores the rest and records a warning instead.
+    """
     if _start_time is None:
         _start_time = time.monotonic()
     warnings: list[str] = []
@@ -977,6 +984,16 @@ def restore_from_archive(
         staging,
         [METABASE_CONFIG_FILE, *BACKUP_FILES, *BACKUP_DIRS, "metabase"],
     )
+    metabase_vol: str | None = None
+    try:
+        has_h2 = ssh.exec_command(staged_h2_command(staging)).success
+        if has_h2:
+            metabase_vol = _get_metabase_volume_path(ssh)
+            if metabase_vol is None and require_metabase_volume:
+                raise CloudProvisioningError(METABASE_VOLUME_MISSING)
+    except BaseException:
+        _remove_leftovers(ssh, [staging])
+        raise
     try:
         _notify(on_progress, "extract_archive", "done")
 
@@ -1096,7 +1113,6 @@ def restore_from_archive(
             _notify(on_progress, "restore_files", "done")
 
             _notify(on_progress, "restore_metabase", "running")
-            metabase_vol = _get_metabase_volume_path(ssh)
             if metabase_vol:
                 h2_cmds = [
                     restore_volume_file_cmd(f"{staging}/metabase/{h2}", metabase_vol, h2)
@@ -1104,7 +1120,7 @@ def restore_from_archive(
                 ]
                 h2_cmds.append(clear_metabase_lock_state_cmd(PROJECT_DIR))
                 _run_checked(ssh, " && ".join(h2_cmds), step="restore_metabase", timeout=300)
-            else:
+            elif has_h2:
                 warnings.append("Metabase Docker volume not found — H2 restore skipped")
             _notify(on_progress, "restore_metabase", "done")
 

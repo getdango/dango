@@ -40,6 +40,7 @@ from typing import Any
 import click
 
 from dango.cli import console
+from dango.cli.commands import remote_report
 from dango.cli.commands.remote_isolation import isolation_group
 from dango.cli.utils import safe_confirm
 
@@ -196,7 +197,7 @@ def _ssh_connect_or_fail(ctx: click.Context) -> tuple[Any, Any, Path]:
     try:
         ssh.connect(cloud_cfg.droplet_ip, username="dango")
     except Exception as exc:
-        console.print(f"[red]Error:[/red] SSH connection failed: {exc}")
+        remote_report.failure("SSH connection failed", exc)
         raise SystemExit(1) from exc
 
     return cloud_cfg, ssh, project_root
@@ -270,16 +271,18 @@ def remote_rollback(ctx: click.Context, backup: str | None, yes: bool) -> None:
             result = rollback(ssh, backup_path=backup, on_progress=_on_progress)
 
         console.print("\n[green]Rollback complete.[/green]")
-        console.print(f"  Restored from: [bold]{result.restored_from}[/bold]")
+        console.print(
+            f"  Restored from: [bold]{remote_report.literal(result.restored_from)}[/bold]"
+        )
         console.print(f"  Duration: {result.duration_seconds}s")
         if result.health_check_passed:
             console.print("  Health check: [green]passed[/green]")
         else:
             console.print("  Health check: [yellow]did not pass (services may need time)[/yellow]")
         for warning in result.warnings:
-            console.print(f"  [yellow]Warning:[/yellow] {warning}")
+            remote_report.warning(warning)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Rollback failed: {exc}")
+        remote_report.failure("Rollback failed", exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -436,10 +439,10 @@ def remote_push(
             console.print(f"  Duration: {result.duration_seconds}s")
 
         for warning in result.warnings:
-            console.print(f"  [yellow]Warning:[/yellow] {warning}")
+            remote_report.warning(warning)
 
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Push failed: {exc}")
+        remote_report.failure("Push failed", exc)
         if not dry_run:
             console.print(
                 "[dim]A pre-deploy backup may have been created. "
@@ -476,7 +479,7 @@ def firewall_list(ctx: click.Context) -> None:
     try:
         fw = get_firewall_rules(client, firewall_id)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to retrieve firewall rules: {exc}")
+        remote_report.failure("Failed to retrieve firewall rules", exc)
         raise SystemExit(1) from exc
 
     rows = format_firewall_rules(fw)
@@ -536,7 +539,7 @@ def firewall_allow_ip(ctx: click.Context, ip_address: str) -> None:
     try:
         fw = add_allowed_ip(client, firewall_id, ip_address)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
 
     console.print(
@@ -577,7 +580,7 @@ def firewall_allow_all(ctx: click.Context) -> None:
     try:
         fw = allow_all_web(client, firewall_id)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
 
     console.print("[green]Firewall updated.[/green] Ports 80/443 are now open to all traffic.")
@@ -667,7 +670,7 @@ def domain_set(ctx: click.Context, domain_name: str) -> None:
         _reopen_web_ports_for_certificate(cloud_cfg)
         result = set_domain(ssh, project_root, domain_name)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -714,7 +717,7 @@ def domain_remove(ctx: click.Context) -> None:
     try:
         result = remove_domain(ssh, project_root)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
