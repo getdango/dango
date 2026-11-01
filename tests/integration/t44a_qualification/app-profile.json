@@ -87,7 +87,7 @@
     "observed_lifecycle_packages": {
       "canvas@3.2.1": "prebuild-install -r napi || node-gyp rebuild; targetNAPI7 and platform bytes not yet frozen",
       "duckdb@1.4.2": "node-pre-gyp install --fallback-to-build; legacy transitive package is not the qualification consumer engine",
-      "cypress@15.18.1": "postinstall invokes external Cypress acquisition; not silently skipped in complete standard install",
+      "cypress@15.18.1": "Unused GUI/test binary: lifecycle explicitly UNEXECUTED in no-script offline install. Not a human requirement for the app build.",
       "@sentry/cli@2.58.5": "optional locked platform package preferred; standard install.js CDN fallback must not run unpinned"
     },
     "checkpoint": {
@@ -103,19 +103,21 @@
   },
   "build": {
     "profile": {
-      "cpus": 4,
-      "memory_MiB": 4608,
-      "memory_swap_MiB": 4608,
+      "cpus": 3,
+      "memory_MiB": 3072,
+      "memory_swap_MiB": 3072,
       "uid_gid": "501:20",
-      "node_heap_MiB": 3500,
-      "background_services": 0
+      "node_heap_MiB": 2048,
+      "background_services": 0,
+      "implementation": "Unchanged frozen R08 installer; fresh populated running smoke required."
     },
     "commands_serial": [
       [
         "pnpm",
         "install",
         "--offline",
-        "--frozen-lockfile"
+        "--frozen-lockfile",
+        "--ignore-scripts"
       ],
       [
         "pnpm",
@@ -128,7 +130,18 @@
       [
         "pnpm",
         "warehouses-build"
-      ],
+      ]
+    ],
+    "gates": "Normal tsc common/warehouses must pass before expensive frontend. No source/API patch, type suppression, esbuild substitution, or missing frontend/backend/CLI target accepted. No Dockerfile1.5.x staging. No global cache or ambient provider identity.",
+    "later_full_builder_profile": {
+      "cpus": 4,
+      "memory_MiB": 4608,
+      "memory_swap_MiB": 4608,
+      "uid_gid": "501:20",
+      "node_heap_MiB": 3500,
+      "background_services": 0
+    },
+    "later_commands_pending": [
       [
         "pnpm",
         "visualization-build"
@@ -146,7 +159,8 @@
         "cli-build"
       ]
     ],
-    "gates": "Normal tsc common/warehouses must pass before expensive frontend. No source/API patch, type suppression, esbuild substitution, or missing frontend/backend/CLI target accepted. No Dockerfile1.5.x staging. No global cache or ambient provider identity."
+    "lifecycle_policy": "ALL lifecycle scripts unexecuted. Only normal early upstream compilation now; required target-platform TypeScript compiler bytes/license/notices are already in verified fetched graph. Later app-runtime native needs stay gated.",
+    "recipe": "app_build.py; executable candidate, install/compile Linux run still UNRUN"
   },
   "runtime": {
     "postgres": {

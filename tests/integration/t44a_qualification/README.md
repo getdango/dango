@@ -57,6 +57,24 @@ external lifecycle binaries and the full remaining install/compiler/runtime peak
 still block installation. `app-profile.json` and `garage.toml` are proposed future
 profiles, not executed app/Garage evidence or an installation approval.
 
+The next gated stage resolves `pause@0.0.1` from its original MIT Readme and
+`buffers@0.1.1` from the original author's fixed license-addition commit, whose
+implementation matches the published archive. Exact notice/source hashes are in
+`license-provenance.json`; neither published package reports an npm gitHead.
+The existing3CPU/3GiB installer profile runs a fresh populated Node permissions/
+loopback smoke, alone with no PG. It then performs the full frozen **offline**
+install with **all lifecycle scripts disabled**, followed by normal upstream
+`formula:build`, `common-build`, and `warehouses-build` commands, serially.
+The lock-pinned Linux TypeScript compiler is already acquired and hash-bound.
+No Cypress GUI, canvas/legacy DuckDB rebuild or unpinned binary download runs.
+This deliberately leaves later app-runtime native initialization unproved; unused
+test-tool downloads are not requirements for the current early compiler gate.
+Each install/compiler is preceded by30GB/actualdf checks, counting future unshared
+materialization/cache copies and compiler/temp/log peaks separately from2GiB
+headroom. Full command/state/log/event capture precedes exact-owned cleanup;
+only build status, hashes, license provenance and sanitized receipts are exported.
+No frontend, backend, CLI app, Garage or ordinary-actor matrix runs in this stage.
+
 AI assistance and authority: Codex authored this scratch qualification recipe under
 the human-approved T44A batch. Independent review and coordinator verification are
 required before publication/execution; no merge or product change is authorized.
