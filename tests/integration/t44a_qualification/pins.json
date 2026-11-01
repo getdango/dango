@@ -1,0 +1,274 @@
+{
+  "baseline_commit": "00177c877757be1ed3bb3992eb4290c222e197d2",
+  "baseline_runtime_sha256": "5952fd865c30ec55ee3a9b4afe3ff7fe83f969529e45d1bec130cd912ccb1a3c",
+  "artifacts": [
+    {
+      "file": "dbt_oss-2.0.8-cp310-abi3-manylinux_2_28_x86_64.whl",
+      "url": "https://github.com/dbt-labs/dbt/releases/download/v2.0.8/dbt_oss-2.0.8-cp310-abi3-manylinux_2_28_x86_64.whl",
+      "sha256": "6a9df409a6953b33af6f9827d8663e5b55a84b5ae84b2a453154a9c58097f9e6",
+      "compressed": 69149130,
+      "expanded_upper": 218804224,
+      "kind": "wheel",
+      "name": "dbt-oss",
+      "version": "2.0.8",
+      "license": "Apache-2.0 (exact OSS source LICENSE)",
+      "notice_hashes": {}
+    },
+    {
+      "file": "duckdb-2.0.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/cc/33/01ad2535ee897db2bad70cbc800655167c53afd0b955eed84f0759c2f417/duckdb-2.0.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "ab51ec57d329d6f3df37c0287b55d71c3fc07bb54b61d1afed09104f953b1431",
+      "compressed": 24371005,
+      "expanded_upper": 69607424,
+      "kind": "wheel",
+      "name": "duckdb",
+      "version": "2.0.0",
+      "license": "MIT + bundled notices",
+      "notice_hashes": {
+        "duckdb/experimental/spark/LICENSE": "ff5aa49c52e9830627582e9854fa76827d19c3b040b856162d172d72a9e95067",
+        "duckdb-2.0.0.dist-info/licenses/": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "duckdb-2.0.0.dist-info/licenses/LICENSE": "075c33400ffcb0c586dd106a029d3e733e9da3693f8fcb9cebfc651c8a2f14e3"
+      }
+    },
+    {
+      "file": "mashumaro-3.23-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/4e/eb/2c5e2b0df54c9c979d45bfa4820687ab24797fe1ad42d4fdfc0c8ece59f1/mashumaro-3.23-py3-none-any.whl",
+      "sha256": "a671279ce93119d41c54adcd767753ae68adb32b9473de2f9d5d1720d2376231",
+      "compressed": 78621,
+      "expanded_upper": 811008,
+      "kind": "wheel",
+      "name": "mashumaro",
+      "version": "3.23",
+      "license": "Apache-2.0",
+      "notice_hashes": {
+        "mashumaro-3.23.dist-info/licenses/LICENSE": "a769736570209708705e78bc1626294303f4bf605526c9e22bf60f5d20d27e57"
+      }
+    },
+    {
+      "file": "msgpack-1.2.4-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/39/8f/bf975b5d2111e4954a0f8567fc6b60bab22c8766dd4fa509af1334c91a4f/msgpack-1.2.4-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "5d65b791ce4283e02b6267742ad540899155e1b32887b9cbdda47f38f5a076b5",
+      "compressed": 465078,
+      "expanded_upper": 1736704,
+      "kind": "wheel",
+      "name": "msgpack",
+      "version": "1.2.4",
+      "license": "Apache-2.0",
+      "notice_hashes": {
+        "msgpack-1.2.4.dist-info/licenses/": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "msgpack-1.2.4.dist-info/licenses/COPYING": "492dedba85da5872f78e6091bcd1fea474d660d35acb4dee964b8aab3f007427"
+      }
+    },
+    {
+      "file": "typing_extensions-4.16.0-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl",
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+      "compressed": 45571,
+      "expanded_upper": 237568,
+      "kind": "wheel",
+      "name": "typing_extensions",
+      "version": "4.16.0",
+      "license": "PSF-2.0",
+      "notice_hashes": {
+        "typing_extensions-4.16.0.dist-info/licenses/LICENSE": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf"
+      }
+    },
+    {
+      "file": "cpython-3.14.10+20261026-x86_64-unknown-linux-gnu-install_only.tar.gz",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-x86_64-unknown-linux-gnu-install_only.tar.gz",
+      "sha256": "1b38024924eb7f4cf0cab45d7b871d1f1991354190fccd2625ac7529a43786e2",
+      "compressed": 76564514,
+      "expanded_upper": 299630592,
+      "kind": "python",
+      "license": "PSF-2.0 + bundled component notices",
+      "notice_hashes": {
+        "python/lib/python3.14/LICENSE.txt": "b0e25a78cffb43f4d92de8b61ccfa1f1f98ecbc22330b54b5251e7b6ba010231",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/AUTHORS.txt": "4eb1fb1705e2def898e81bcba19c3aac80620d27ba3569d6a6df7b4629d1b5c2",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/LICENSE.txt": "634300a669d49aeae65b12c6c48c924c51a4cdf3d1ff086dc3456dc8bcaa2104",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/cachecontrol/LICENSE.txt": "86eeee87be2a43f3ff1f56496f451f69243926f025fedbb033666c304c4c161b",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/certifi/LICENSE": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/distlib/LICENSE.txt": "808e10c8a6ab8deb149ff9b3fb19f447a808094606d712a9ca57fead3552599d",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/distro/LICENSE": "cb5e8e7e5f4a3988e1063c142c60dc2df75605f4c46515e776e3aca6df976e14",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/idna/LICENSE.md": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/msgpack/COPYING": "492dedba85da5872f78e6091bcd1fea474d660d35acb4dee964b8aab3f007427",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/packaging/LICENSE": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/packaging/LICENSE.APACHE": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/packaging/LICENSE.BSD": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/pkg_resources/LICENSE": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/platformdirs/LICENSE": "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/pygments/LICENSE": "a9d66f1d526df02e29dce73436d34e56e8632f46c275bbdffc70569e882f9f17",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/pyproject_hooks/LICENSE": "1b22b049b5267d6dfc23a67bf4a84d8ec04b9fdfb1a51d360e42b4342c8b4154",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/requests/LICENSE": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/resolvelib/LICENSE": "f388fd38cad13112c1dc0f669bbe80e7f84541edbafb72f3030d2ca7642c3c9d",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/rich/LICENSE": "deed7c17a4318158190a3ea239cc879a5a50271cebb98ae7025f48fbe58dca15",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/tomli/LICENSE": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/tomli_w/LICENSE": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/truststore/LICENSE": "33be7b7e8fa4fd19b1760e1a8ed8a668bdab852c91b692dd41424bcb725a9fca",
+        "python/lib/python3.14/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/urllib3/LICENSE.txt": "130e3a64d5fdd5d096a752694634a7d9df284469de86e5732100268041e3d686",
+        "python/lib/python3.14/site-packages/pip/_vendor/cachecontrol/LICENSE.txt": "86eeee87be2a43f3ff1f56496f451f69243926f025fedbb033666c304c4c161b",
+        "python/lib/python3.14/site-packages/pip/_vendor/certifi/LICENSE": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7",
+        "python/lib/python3.14/site-packages/pip/_vendor/distlib/LICENSE.txt": "808e10c8a6ab8deb149ff9b3fb19f447a808094606d712a9ca57fead3552599d",
+        "python/lib/python3.14/site-packages/pip/_vendor/distro/LICENSE": "cb5e8e7e5f4a3988e1063c142c60dc2df75605f4c46515e776e3aca6df976e14",
+        "python/lib/python3.14/site-packages/pip/_vendor/idna/LICENSE.md": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04",
+        "python/lib/python3.14/site-packages/pip/_vendor/msgpack/COPYING": "492dedba85da5872f78e6091bcd1fea474d660d35acb4dee964b8aab3f007427",
+        "python/lib/python3.14/site-packages/pip/_vendor/packaging/LICENSE": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48",
+        "python/lib/python3.14/site-packages/pip/_vendor/packaging/LICENSE.APACHE": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+        "python/lib/python3.14/site-packages/pip/_vendor/packaging/LICENSE.BSD": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5",
+        "python/lib/python3.14/site-packages/pip/_vendor/packaging/licenses/__init__.py": "fc9c745d1883ff9f296a5b169f22eb2ee879f59a4608f20f5cb29d668f4e26f4",
+        "python/lib/python3.14/site-packages/pip/_vendor/packaging/licenses/_spdx.py": "596ec35e2ca0ebcba9fd8343ff0a51625af548786257815f24b41f7e08613314",
+        "python/lib/python3.14/site-packages/pip/_vendor/pkg_resources/LICENSE": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741",
+        "python/lib/python3.14/site-packages/pip/_vendor/platformdirs/LICENSE": "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6",
+        "python/lib/python3.14/site-packages/pip/_vendor/pygments/LICENSE": "a9d66f1d526df02e29dce73436d34e56e8632f46c275bbdffc70569e882f9f17",
+        "python/lib/python3.14/site-packages/pip/_vendor/pyproject_hooks/LICENSE": "1b22b049b5267d6dfc23a67bf4a84d8ec04b9fdfb1a51d360e42b4342c8b4154",
+        "python/lib/python3.14/site-packages/pip/_vendor/requests/LICENSE": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+        "python/lib/python3.14/site-packages/pip/_vendor/resolvelib/LICENSE": "f388fd38cad13112c1dc0f669bbe80e7f84541edbafb72f3030d2ca7642c3c9d",
+        "python/lib/python3.14/site-packages/pip/_vendor/rich/LICENSE": "deed7c17a4318158190a3ea239cc879a5a50271cebb98ae7025f48fbe58dca15",
+        "python/lib/python3.14/site-packages/pip/_vendor/tomli/LICENSE": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe",
+        "python/lib/python3.14/site-packages/pip/_vendor/tomli_w/LICENSE": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe",
+        "python/lib/python3.14/site-packages/pip/_vendor/truststore/LICENSE": "33be7b7e8fa4fd19b1760e1a8ed8a668bdab852c91b692dd41424bcb725a9fca",
+        "python/lib/python3.14/site-packages/pip/_vendor/urllib3/LICENSE.txt": "130e3a64d5fdd5d096a752694634a7d9df284469de86e5732100268041e3d686"
+      },
+      "member_hashes": {
+        "python/bin/idle3.14": "b5f1229959ef0f3ad4ae8166c7c2c9315ce4ac48b52d83e1a63f200a12f433eb",
+        "python/bin/pip": "6b2d4f132bd52fbd90053369933e659411b42edd81e06f866c810870ef5de515",
+        "python/bin/pip3": "6b2d4f132bd52fbd90053369933e659411b42edd81e06f866c810870ef5de515",
+        "python/bin/pip3.14": "6b2d4f132bd52fbd90053369933e659411b42edd81e06f866c810870ef5de515",
+        "python/bin/pydoc3.14": "7888559d571099a0b03578410400ab7fe848267f2f0adbf2b977f985ed198dbc",
+        "python/bin/python3.14": "a3c5f01bf9e5cd625b74fd700bb58a579c82df228c50b57d2485d006582a8b01",
+        "python/bin/python3.14-config": "59c6c4ff47e12b1f08d2088fec869525d42272ef99dfa7db38416b4b341103ba"
+      }
+    },
+    {
+      "file": "dbc-linux-amd64-0.3.1.tar.gz",
+      "url": "https://github.com/columnar-tech/dbc/releases/download/v0.3.1/dbc-linux-amd64-0.3.1.tar.gz",
+      "sha256": "d394fe15226c3db4a980568f2b3aff049c58ef2badea6cbb711bc4cf3b7b2ed7",
+      "compressed": 4335865,
+      "expanded_upper": 10805248,
+      "kind": "dbc",
+      "license": "Apache-2.0",
+      "notice_hashes": {
+        "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+      },
+      "member_hashes": {
+        "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "README.md": "dfad4acaa8fee636d6eb2a707730a4528ece56ede20cfc8914fc85ff561427bd",
+        "dbc.bash": "74d8e1c5355309dca27bbce994d1296c92fc066014fdcd55fad2c9b94993627c",
+        "dbc.fish": "3d4c663a27e59c7702a10cc760cee788bbc10ce78423a7576f42c5a632825394",
+        "dbc.zsh": "b0dbf83f019762cee5a7b7ad627f5e0449ad7d7e665dddc70ff855e99e378787",
+        "dbc_linux_amd64.sig": "b94c8514c420b86b9caf8af35e0522644d2b84fe7a68cc2a991449e91420f7e2",
+        "dbc": "7230646b5b4787d3037edf1e47fa7a1d246e6b7176ee77288000362a269049b2"
+      }
+    },
+    {
+      "file": "duckdb_linux_amd64_v2.0.0.tar.gz",
+      "url": "https://dbc-cdn.columnar.tech/duckdb/v2.0.0/duckdb_linux_amd64_v2.0.0.tar.gz",
+      "sha256": "3320bb08fa1654bfbd41a8fde4043785e9859efda3fb0d7bd0469788984a7da2",
+      "compressed": 27416478,
+      "expanded_upper": 96002048,
+      "kind": "driver",
+      "license": "MIT",
+      "notice_hashes": {
+        "LICENSE": "075c33400ffcb0c586dd106a029d3e733e9da3693f8fcb9cebfc651c8a2f14e3"
+      },
+      "member_hashes": {
+        "LICENSE": "075c33400ffcb0c586dd106a029d3e733e9da3693f8fcb9cebfc651c8a2f14e3",
+        "libduckdb.so": "1f425596ada498cf1703d98768ba833d79254394c3581e5022b270ec7c2dee07",
+        "libduckdb.so.sig": "28f3886a514c60c75e50f258ea741c445b12246f184d98f30d9ffb328a7e9dc0",
+        "MANIFEST": "8907f144a94543ed57c9ccee8158121e4e2a953874e1d1ee511bac13aed2f254"
+      }
+    }
+  ],
+  "images": {
+    "node": {
+      "ref": "node@sha256:e1582112fb9f152ed38eefcd712efc93fee1becb519fdfa57574d5e07eaa5e7d",
+      "config": "sha256:4d4657ef82b5cf8fd56373dbf8b145cdc6d1d7aabbaca1e6a361efedae04e052",
+      "diff_ids": [
+        "sha256:44a87794b739d471ec360bec56cc0ceac640d06bbf579ee7d9061a0b88d09818",
+        "sha256:23f2aab4f776183294beee7beb650a9359824a3ed980d76afce5e09860af7cee",
+        "sha256:3785b052b3c9f4092084fecd6631da41eaf96a84b856c7f47088d631f26aa2d3",
+        "sha256:70afe7f321fea522177500b2fef4cfc55551ef8714a9256067f3b0dc7ffcd34a",
+        "sha256:96c88215b08ea33ee67c605f7d7ec659cbe961da44a7a1f7115ac0c1ca66edd3"
+      ],
+      "license": "MIT / Debian package licenses",
+      "disk_bound": {
+        "compressed": 81041595,
+        "layer_logical": 230363511,
+        "allocated_layer_upper": 275017728,
+        "measurement": "Frozen manifest compressed-size sum; verified uncompressed layer member logical sizes and per-member 4096-byte allocation upper bound. Identity bound to this exact manifest/config/ordered layers."
+      }
+    },
+    "postgres": {
+      "ref": "postgres@sha256:8d5f8486c9be456cedd25c7acff28cb9ed8f3f23bf9c865a5f899d6ea8efadf0",
+      "config": "sha256:0bc1a3b59e58de4d036b4fdc2340e8b63f8aac637d6b619cf31387eb6d1912b9",
+      "diff_ids": [
+        "sha256:e48af84b2108a5d73effd9e16685b42ac33e7994e606398c46690918f5f3604a",
+        "sha256:2611641010ad2e32b8e8543039ae1aa31c0fad9bf9d85c921eee30ef9ebea988",
+        "sha256:3f42861919a9a13a005d336ea94e458ccf9b1d56c45a03935d2f46198c4f1411",
+        "sha256:d89e77f3fa01774d92c0928654f5600f3a7f69af35e5a42bc44d148af4eb28c3",
+        "sha256:69e36c5c0b913993b5a9ef068a68671362eaf33227da66b2cdb7677f74069952",
+        "sha256:023a997b84daf3f2365c8c8f72316840e12b72a327b2dd4a3c792e0e6cac1b44",
+        "sha256:f6edbf385cf5595543cd33a2e69e811baa0ed62519373bc26e2580f2fc2cfda1",
+        "sha256:cb5b40f8a25c7c71a53c87bb28bf2d35f53f95b95464fe2d47ebcd68dcfd4956",
+        "sha256:6caaa85305f6e4062fa56c4a8cd20873266adda45247a1e5e80df04dc9a01446",
+        "sha256:93584518d9de668ce497d2958904015e964a04652c56d4f81e3b2f7228196928",
+        "sha256:8a55e4cb36208b7e01376f285e3ec71498857d85ab9c602a9a3a1df0e16c58c4",
+        "sha256:e6ba0749a08a782ab42d60e1e7f26a42753b6bf058bbd2b6a388ad1d0d4c6888",
+        "sha256:b9be123313b5b715ae11bcd59edc78413823abaad241cda84a1263c6e379e858",
+        "sha256:c012763d034bccec3408f88a93e45a81d2ac1663394c5741b548ed06cab70bb9"
+      ],
+      "license": "PostgreSQL / Debian package licenses",
+      "disk_bound": {
+        "compressed": 155003113,
+        "layer_logical": 435032886,
+        "allocated_layer_upper": 497881088,
+        "measurement": "Frozen manifest compressed-size sum; verified uncompressed layer member logical sizes and per-member 4096-byte allocation upper bound. Identity bound to this exact manifest/config/ordered layers."
+      }
+    }
+  },
+  "extensions": {
+    "ducklake": {
+      "url": "https://extensions.duckdb.org/v2.0.0/linux_amd64/ducklake.duckdb_extension.gz",
+      "sha256": "ff1c730a5d5a7cb14ed9547ba15c259c24805eb4cf12c17727c2a4faffe1ada7",
+      "expanded_sha256": "4b497cf95d768004d34a97e7098d33f687e994dc523945948c321af25061b39b",
+      "license": "MIT",
+      "revision": "417a9117f5",
+      "compressed": 17217388,
+      "expanded_upper": 54882304
+    },
+    "postgres_scanner": {
+      "url": "https://extensions.duckdb.org/v2.0.0/linux_amd64/postgres_scanner.duckdb_extension.gz",
+      "sha256": "54b3d751cafc9ffa439886b1607d0ee758dab4dc070f0171e779b95f2f3e554f",
+      "expanded_sha256": "39e661c5cfb678c9472f5acd88235f84f3ef4126e7444c7c8a01214d9b291601",
+      "license": "MIT",
+      "revision": "c0f5a3c0c4",
+      "compressed": 18910802,
+      "expanded_upper": 59224064
+    },
+    "httpfs": {
+      "url": "https://extensions.duckdb.org/v2.0.0/linux_amd64/httpfs.duckdb_extension.gz",
+      "sha256": "ee6c7d7e60a5da1b6f6bf6156b4298b55ddce0496a5bfe628bd6ab6d47eb8e3e",
+      "expanded_sha256": "77e6c429aa04f25da7962572f12b19113e0ce46080fa1365ad66017aadcdb68d",
+      "license": "MIT",
+      "revision": "77392a7207",
+      "compressed": 8657469,
+      "expanded_upper": 26939392
+    }
+  },
+  "limits": {
+    "task_bytes": 30000000000,
+    "headroom_bytes": 2147483648,
+    "max_cpus": 4,
+    "max_ram": 4831838208
+  },
+  "configuration": "Existing immutable R08 Rig flags3CPU/3GiB Python +1CPU/768MiB PG; new Python and changed inputs require fresh RUNNING smoke, no reused smoke PASS.",
+  "source_contracts": {
+    "dbt_commit": "43918198c2f02366ceb33f60006812872b0bab40",
+    "catalog_name": "model_config.rs117-118 +catalog_name; profiles.rs405 database override",
+    "dbt_license_url": "https://raw.githubusercontent.com/dbt-labs/dbt/43918198c2f02366ceb33f60006812872b0bab40/LICENSE",
+    "dbt_license_sha256": "aaec0fc491a8093b76b7301f6168b9ac05b0fd20e8ea717f7d90691b3b7d8772",
+    "dbc_commit": "b18d74e (v0.3.1 source archive)",
+    "dbc_install": "install.go86 local tar.gz;115-143 normal signature; config default ADBC_DRIVER_PATH",
+    "adbc": "driver MANIFEST duckdb_adbc_init v1.1.0"
+  },
+  "full_app_gate": "UNRUN; requires frozen Garage2.5.0 + real S3 PUT/GET; NATS disabled; normal common/warehouses tsc before frontend. This workflow stops after dbt diagnostic."
+}
