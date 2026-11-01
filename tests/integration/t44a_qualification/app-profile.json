@@ -103,13 +103,14 @@
   },
   "build": {
     "profile": {
-      "cpus": 3,
-      "memory_MiB": 3072,
-      "memory_swap_MiB": 3072,
+      "cpus": 4,
+      "memory_MiB": 4608,
+      "memory_swap_MiB": 4608,
       "uid_gid": "501:20",
       "node_heap_MiB": 2048,
       "background_services": 0,
-      "implementation": "Unchanged frozen R08 installer; fresh populated running smoke required."
+      "Go_soft_memory_limit": "3500MiB",
+      "implementation": "Immutable R08 create validates original profile; exact-owned nonrunning container Docker update changes ONLY NanoCpus/Memory/MemorySwap, then full HostConfig/Config/Mounts/identity/state equivalence rechecked before start. Fresh smoke verifies effective cgroup4CPU/4608MiB/swap0/pids128."
     },
     "commands_serial": [
       [
@@ -160,7 +161,8 @@
       ]
     ],
     "lifecycle_policy": "ALL lifecycle scripts unexecuted. Only normal early upstream compilation now; required target-platform TypeScript compiler bytes/license/notices are already in verified fetched graph. Later app-runtime native needs stay gated.",
-    "recipe": "app_build.py; executable candidate, install/compile Linux run still UNRUN"
+    "recipe": "app_build.py; executable candidate, install/compile Linux run still UNRUN",
+    "resource_evidence": "Prior3GiB CI41285297561 recorded OOMKilledtrue+oom event duringcommon. Full4.5GiB attemptUNRUN; pinned TS7compiler Go1.26.4 supports GOMEMLIMIT; soft limit is not a hard process guarantee, container hard aggregate remains4608MiB."
   },
   "runtime": {
     "postgres": {

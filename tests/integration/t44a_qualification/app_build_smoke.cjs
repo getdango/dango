@@ -9,6 +9,15 @@ const crypto = require('node:crypto');
 (async () => {
   assert.equal(process.getuid(), 501);
   assert.equal(process.getgid(), 20);
+  const cgroup = Object.fromEntries(['memory.max', 'memory.swap.max', 'memory.peak',
+    'memory.events', 'cpu.max', 'pids.max'].map(name => [name,
+    fs.readFileSync('/sys/fs/cgroup/' + name, 'utf8').trim()]));
+  assert.equal(cgroup['memory.max'], String(4608 * 1024 * 1024));
+  assert.equal(cgroup['memory.swap.max'], '0');
+  assert.equal(cgroup['pids.max'], '128');
+  const [quota, period] = cgroup['cpu.max'].split(/\s+/).map(Number);
+  assert.equal(quota / period, 4);
+  assert.equal(process.env.GOMEMLIMIT, '3500MiB');
   for (const directory of ['/source', '/tools', '/scripts', '/secrets', '/fixture']) {
     assert.equal(fs.readFileSync(directory + '/readiness', 'utf8'), 'populated\n');
     assert.throws(() => fs.writeFileSync(directory + '/must-refuse', 'x'), /EROFS|EACCES/);
@@ -38,5 +47,6 @@ const crypto = require('node:crypto');
     socket.setTimeout(2000, () => { socket.destroy(); reject(new Error('Expected immediate refusal')); });
   });
   console.log(JSON.stringify({readiness: 'PASS_BUILD_PROFILE', uid: process.getuid(),
-    gid: process.getgid(), interfaces: os.networkInterfaces(), node: process.version}));
+    gid: process.getgid(), interfaces: os.networkInterfaces(), node: process.version,
+    cgroup, GOMEMLIMIT: process.env.GOMEMLIMIT}));
 })().catch(error => { console.error(String(error)); process.exitCode = 1; });

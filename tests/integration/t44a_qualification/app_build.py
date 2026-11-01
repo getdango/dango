@@ -16,6 +16,62 @@ from run import PINS, disk_gate, image_present, sha
 
 HERE = Path(__file__).resolve().parent
 GIB = 1024**3
+BUILD_MEMORY = 4608 * 1024**2
+GO_MEMORY = "3500MiB"
+
+
+def verify_build_update(before, after):
+    """Permit only the approved CPU/memory update on the same unstarted object."""
+    expected = dict(before["HostConfig"])
+    expected.update(NanoCpus=4_000_000_000, Memory=BUILD_MEMORY, MemorySwap=BUILD_MEMORY)
+    assert after["HostConfig"] == expected, "Unexpected build profile or security change"
+    for key in ["Id", "Name", "Image", "Config", "Mounts", "State"]:
+        assert after[key] == before[key], "Unexpected container identity/config/state change"
+    assert after["State"]["Status"] == "created" and not after["State"]["Running"]
+
+
+def build_rig(base):
+    """Keep immutable launch validation, then explicitly update and reverify limits."""
+
+    class BuildRig(base):
+        """Only the installer role may use the approved larger resource profile."""
+
+        def create(self, role, command):
+            """Validate original flags first; update exact owned ID before start."""
+            assert role == "installer", "No background service in build profile"
+            name = super().create(role, command)
+            before = json.loads(self.call(["docker", "inspect", name]).stdout)[0]
+            assert before["Name"] == "/" + name
+            assert before["Config"]["Labels"]["probe.owner"] == self.label
+            assert before["State"]["Status"] == "created" and not before["State"]["Running"]
+            self.call(
+                [
+                    "docker",
+                    "update",
+                    "--cpus=4",
+                    "--memory=" + str(BUILD_MEMORY),
+                    "--memory-swap=" + str(BUILD_MEMORY),
+                    before["Id"],
+                ]
+            )
+            after = json.loads(self.call(["docker", "inspect", before["Id"]]).stdout)[0]
+            verify_build_update(before, after)
+            return name
+
+        def signature(self, role):
+            """Bind readiness to the original paths/flags plus declared update/Go limit."""
+            return sha((super().signature(role) + str(BUILD_MEMORY) + "4CPU" + GO_MEMORY).encode())
+
+    return BuildRig
+
+
+def with_memory_receipt(command):
+    """Read own cgroup counters before PID1 exits, preserving original command status."""
+    return (
+        command + "; code=$?; for metric in memory.max memory.swap.max memory.peak "
+        'memory.events cpu.max; do printf "CGROUP %s\\n" "$metric"; '
+        'cat "/sys/fs/cgroup/$metric"; done; exit "$code"'
+    )
 
 
 def licenses(project, inventory, destination):
@@ -80,7 +136,7 @@ def main():
     assert sha((base / "acquire.py").read_bytes()) == ACQUIRE
     sys.path.insert(0, str(base))
     runtime = importlib.import_module("runtime")
-    rig = runtime.Rig(root, {})
+    rig = build_rig(runtime.Rig)(root, {})
     rig.label = "t44a03-build-" + str(time.time_ns())
     rig.receipts = json.loads((root / "evidence/commands.json").read_text())
     rig.docker_root = Path(
@@ -162,19 +218,29 @@ def main():
         )
         existing = image_present(rig, PINS["images"]["node"]["ref"])
         rig.inspect_image("node")
-        rig.run("installer", ["-c", "node /scripts/app_build_smoke.cjs"], smoke=True)
+        rig.run(
+            "installer",
+            ["-c", "export GOMEMLIMIT=" + GO_MEMORY + "; node /scripts/app_build_smoke.cjs"],
+            smoke=True,
+        )
         rig.smokes["installer"] = rig.signature("installer")
         result["running_build_profile_smoke"] = "PASS"
         pnpm = "/tools/app-pnpm/pnpm --dir /work/app/project"
-        environment = "export PATH=/tools/app-pnpm:$PATH XDG_CACHE_HOME=/home/probe/cache XDG_CONFIG_HOME=/home/probe/config XDG_DATA_HOME=/home/probe/data PNPM_CONFIG_CACHE_DIR=/work/app/pnpm-cache; "
+        environment = (
+            "export GOMEMLIMIT="
+            + GO_MEMORY
+            + " PATH=/tools/app-pnpm:$PATH XDG_CACHE_HOME=/home/probe/cache XDG_CONFIG_HOME=/home/probe/config XDG_DATA_HOME=/home/probe/data PNPM_CONFIG_CACHE_DIR=/work/app/pnpm-cache; "
+        )
         disk_gate(rig, remaining, "before-offline-full-install-no-lifecycles")
         rig.run(
             "installer",
             [
                 "-c",
-                environment
-                + pnpm
-                + " install --offline --frozen-lockfile --ignore-scripts --store-dir /work/app/store --config.manage-package-manager-versions=false",
+                with_memory_receipt(
+                    environment
+                    + pnpm
+                    + " install --offline --frozen-lockfile --ignore-scripts --store-dir /work/app/store --config.manage-package-manager-versions=false"
+                ),
             ],
         )
         result["install"] = "PASS_OFFLINE_FULL_NO_LIFECYCLES"
@@ -182,7 +248,9 @@ def main():
         assert critical(project, lock) == before
         for command in ["formula:build", "common-build", "warehouses-build"]:
             disk_gate(rig, remaining, "before-normal-" + command)
-            rig.run("installer", ["-c", environment + pnpm + " run " + command])
+            rig.run(
+                "installer", ["-c", with_memory_receipt(environment + pnpm + " run " + command)]
+            )
             result["build"][command] = "PASS"
             assert critical(project, lock) == before
             assert {

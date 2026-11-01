@@ -61,8 +61,12 @@ The next gated stage resolves `pause@0.0.1` from its original MIT Readme and
 `buffers@0.1.1` from the original author's fixed license-addition commit, whose
 implementation matches the published archive. Exact notice/source hashes are in
 `license-provenance.json`; neither published package reports an npm gitHead.
-The existing3CPU/3GiB installer profile runs a fresh populated Node permissions/
-loopback smoke, alone with no PG. It then performs the full frozen **offline**
+The build uses the approved4CPU/4608MiB profile, alone with no PG. The immutable
+R08 helper first validates its created, unstarted original profile; a standard
+exact-owned `docker update` changes only CPU/memory/equal-swap, then every other
+HostConfig/Config/mount/identity/state field must remain unchanged before start.
+A fresh populated Node permissions/loopback smoke also checks effective cgroup
+CPU/memory/no-swap/pids limits. It then performs the full frozen **offline**
 install with **all lifecycle scripts disabled**, followed by normal upstream
 `formula:build`, `common-build`, and `warehouses-build` commands, serially.
 The lock-pinned Linux TypeScript compiler is already acquired and hash-bound.
@@ -74,6 +78,13 @@ materialization/cache copies and compiler/temp/log peaks separately from2GiB
 headroom. Full command/state/log/event capture precedes exact-owned cleanup;
 only build status, hashes, license provenance and sanitized receipts are exported.
 No frontend, backend, CLI app, Garage or ordinary-actor matrix runs in this stage.
+
+The preceding3GiB attempt completed install/formula but the common compiler hit
+an observed container OOM. The fixed compiler binary uses Go1.26.4; its documented
+`GOMEMLIMIT=3500MiB` soft runtime limit leaves room for pnpm/Node overhead under the
+hard4608MiB container ceiling. This is not a guarantee that compilation fits.
+Compiler commands print own cgroup peak/events/limits before the shell exits;
+the unchanged helper captures full container state/events/logs before removal.
 
 AI assistance and authority: Codex authored this scratch qualification recipe under
 the human-approved T44A batch. Independent review and coordinator verification are
