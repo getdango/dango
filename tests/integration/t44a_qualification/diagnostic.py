@@ -88,7 +88,7 @@ def main():
         ["/work/venv/bin/dbt", "--version"], capture_output=True, text=True, check=True
     )
     print(version.stdout + version.stderr)
-    assert re.search(r"^dbt 2\.0\.8(?:\s|$)", version.stdout + version.stderr, re.MULTILINE), (
+    assert re.search(r"^dbt-oss 2\.0\.8(?:\s|$)", version.stdout + version.stderr, re.MULTILINE), (
         "Unexpected actual OSS CLI version"
     )
     for command in [["build", "--help"], ["seed", *common], ["build", *common, "--write-catalog"]]:
