@@ -29,6 +29,15 @@ PROFILES = {
 }
 
 
+def active_host_config(config):
+    """Docker reports enabled OOM killing as either false or null after start."""
+    value = config["OomKillDisable"]
+    assert value is False or value is None, "Active container OOM killer must remain enabled"
+    normalized = dict(config)
+    normalized["OomKillDisable"] = False
+    return normalized
+
+
 def runtime_rig(base):
     """Reuse launch/capture/cleanup; audit only exact owned nonrunning limit updates."""
 
@@ -99,7 +108,9 @@ def runtime_rig(base):
                 assert sorted(json.dumps(m, sort_keys=True) for m in info["Mounts"]) == sorted(
                     json.dumps(m, sort_keys=True) for m in self.objects[other_name][1]["Mounts"]
                 )
-                assert info["HostConfig"] == self.objects[other_name][1]["HostConfig"]
+                assert active_host_config(info["HostConfig"]) == active_host_config(
+                    self.objects[other_name][1]["HostConfig"]
+                ), "Active container HostConfig changed beyond Docker's enabled-OOM default"
                 assert info["Config"] == self.objects[other_name][1]["Config"]
                 active.append(other_component)
             active.append(component)
