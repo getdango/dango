@@ -108,3 +108,11 @@ the unchanged helper captures full container state/events/logs before removal.
 AI assistance and authority: Codex authored this scratch qualification recipe under
 the human-approved T44A batch. Independent review and coordinator verification are
 required before publication/execution; no merge or product change is authorized.
+
+CI41287421638 completed the early targets and visualization, then the backend
+formatter hit the4.5GiB cgroup OOM limit. The backend recipe preserves normal
+API generation, formatting, TypeScript compilation and postbuild asset copying
+as serial upstream subcommands, adding only oxfmt0.35.0 `--threads 1` to formatting.
+The exact release source applies this flag to Rayon and the Node child-process
+formatter pool. No formatter bypass or source change is used. Individual killed
+process identity was not captured; single-worker fit remains unproved until CI.

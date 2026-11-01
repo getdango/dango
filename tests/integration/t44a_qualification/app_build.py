@@ -314,9 +314,20 @@ def main():
         assert critical(project, lock) == before
         for command in BUILD_COMMANDS:
             disk_gate(rig, remaining, "before-normal-" + command)
-            rig.run(
-                "installer", ["-c", with_memory_receipt(environment + pnpm + " run " + command)]
-            )
+            build = pnpm + " run " + command
+            if command == "backend-build":
+                # Preserve all upstream stages; documented flag bounds both formatter pools.
+                build = " && ".join(
+                    pnpm + " -F backend " + stage
+                    for stage in [
+                        "run generate-api",
+                        "run formatter --threads 1 --write ./src/generated",
+                        "exec tsc --build tsconfig.build.json",
+                        "run postbuild",
+                    ]
+                )
+            result.setdefault("build_commands", {})[command] = build
+            rig.run("installer", ["-c", with_memory_receipt(environment + build)])
             result["build"][command] = "PASS"
             assert critical(project, lock) == before
             assert {
