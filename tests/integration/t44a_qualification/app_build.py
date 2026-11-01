@@ -31,10 +31,11 @@ BUILD_COMMANDS = [
 ]
 
 
-def verify_build_update(before, after):
+def verify_build_update(before, after, cpus=4, memory=BUILD_MEMORY):
     """Permit only the approved CPU/memory update on the same unstarted object."""
     expected = dict(before["HostConfig"])
-    expected.update(NanoCpus=4_000_000_000, Memory=BUILD_MEMORY, MemorySwap=BUILD_MEMORY)
+    assert 0 < cpus <= 4 and 0 < memory <= BUILD_MEMORY
+    expected.update(NanoCpus=int(cpus * 10**9), Memory=memory, MemorySwap=memory)
     assert after["HostConfig"] == expected, "Unexpected build profile or security change"
     for key in ["Id", "Name", "Image", "Config", "State"]:
         assert after[key] == before[key], "Unexpected container identity/config/state change"

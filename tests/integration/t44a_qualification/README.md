@@ -70,8 +70,7 @@ CPU/memory/no-swap/pids limits. It then performs the full frozen **offline**
 install with **all lifecycle scripts disabled**, followed by normal upstream
 `formula:build`, `common-build`, `warehouses-build`, `visualization-build`,
 `backend-build`, `frontend-build`, and `cli-build` commands, serially.
-The early three targets passed in CI41286662783; the complete extension is
-UNRUN pending review and actual Ubuntu execution.
+All seven targets passed in CI41319819062; app runtime remains UNRUN.
 The lock-pinned Linux TypeScript compiler is already acquired and hash-bound.
 No Cypress GUI, canvas/legacy DuckDB rebuild or unpinned binary download runs.
 This deliberately leaves later app-runtime native initialization unproved; unused
@@ -115,7 +114,7 @@ API generation, formatting, TypeScript compilation and postbuild asset copying
 as serial upstream subcommands, adding only oxfmt0.35.0 `--threads 1` to formatting.
 The exact release source applies this flag to Rayon and the Node child-process
 formatter pool. No formatter bypass or source change is used. Individual killed
-process identity was not captured; single-worker fit remains unproved until CI.
+process identity was not captured; single-worker formatting passed in the later complete-build run.
 
 CI41318651644 reached the subsequent `pnpm exec tsc` phase after single-worker
 formatting, then the cgroup again recorded OOM. The backend compiler now uses
@@ -123,4 +122,32 @@ TypeScript7.0.2’s supported `--singleThreaded` with the same `--build` config.
 The exact release reduces its checker pool from4to1 and serializes workgroups;
 full diagnostics and emitted outputs remain required. Other targets and hard
 limits are unchanged. Child PID/signal attribution was not separately captured;
-single-threaded compiler fit remains UNRUN pending actual CI.
+single-threaded backend compilation passed in CI41319819062.
+
+The first running-app candidate starts only after actual complete-build PASS.
+It preserves old owned fixture state, creates fresh synthetic PG credentials,
+and runs real dbt again with column and SUM-metric YAML; generated artifacts
+are never edited. Frozen Garage2.5.0 serves real authenticated PUT/GET and a
+wrong-secret403 before normal production migrations and backend startup.
+Fresh populated runtime smokes cover numeric users, RO failures, RW paths,
+authenticated PG/SCRAM, effective limits and loopback-only networking.
+
+Runtime runs PG512MiB/.5CPU, Garage256MiB/.25CPU, app2560MiB/2.25CPU and
+actor1024MiB/1CPU (4352MiB/4CPU total), with no build or fixture overlap.
+The immutable launcher and existing full-object update verifier are reused;
+all actual service objects are created while only PG runs and started through
+an exact-ID/role/resource gate. No socket, published ports, external network,
+privilege or source/API change is introduced. Fresh measured runtime peak
+projection is15,718,926,905bytes including separate2GiB headroom; actual
+30GB/df gates remain mandatory. Completed build copies are not reserved again.
+
+The normal built CLI deploys authentic metadata using the honest known-version
+setting `LIGHTDASH_DBT_VERSION=dbt-oss 2.0.8`; its warning/fallback remains visible.
+A normal owner registers/creates the project and invites a distinct ordinary
+member/editor. That editor must complete async metric queries350 and September300
+with query UUIDs, generated SQL and actual rows. An owner-accessible private chart
+must return403 to the editor, rather than401/404. Built frontend assets and normal
+backend migrations/start are required. Whole catalog dump equality (only random
+psql restrict-token lines normalized) and every Parquet hash must remain unchanged.
+The complete runtime candidate is UNRUN until reviewed Ubuntu execution; this is
+not a claim that app native initialization or the remaining12case matrix passed.

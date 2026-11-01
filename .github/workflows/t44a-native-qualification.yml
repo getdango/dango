@@ -41,9 +41,12 @@ jobs:
       - name: Measured full development acquisition only, no install or build
         run: |
           env -i PATH="$PATH" python candidate/tests/integration/t44a_qualification/app_acquire.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline"
-      - name: Fresh populated installer smoke, offline install and early normal compilers
+      - name: Fresh populated installer smoke, offline install and complete normal app build
         run: |
           env -i PATH="$PATH" python candidate/tests/integration/t44a_qualification/app_build.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline"
+      - name: Fresh runtime profiles, real S3 and first ordinary full-app slice
+        run: |
+          env -i PATH="$PATH" python candidate/tests/integration/t44a_qualification/app_runtime.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline"
       - name: Publish only sanitized diagnostic evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -60,5 +63,8 @@ jobs:
             ${{ runner.temp }}/t44a03/evidence/app-package-inventory.json
             ${{ runner.temp }}/t44a03/evidence/app-build.json
             ${{ runner.temp }}/t44a03/evidence/license-resolutions.json
+            ${{ runner.temp }}/t44a03/evidence/app-runtime.json
+            ${{ runner.temp }}/t44a03/evidence/app-slice.json
+            ${{ runner.temp }}/t44a03/evidence/garage-LICENSE.txt
           if-no-files-found: error
           retention-days: 7

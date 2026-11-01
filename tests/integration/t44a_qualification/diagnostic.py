@@ -80,6 +80,17 @@ def main():
         "id,order_date,amount\n1,2026-09-01,100\n2,2026-09-15,200\n3,2026-10-01,50\n"
     )
     (project / "models/orders.sql").write_text("select * from {{ ref('input') }}\n")
+    # Real dbt parses this YAML into authentic manifest/catalog metadata for the app.
+    (project / "models/schema.yml").write_text(
+        "version: 2\nmodels:\n  - name: orders\n    columns:\n"
+        "      - name: id\n        data_type: INTEGER\n"
+        "      - name: order_date\n        data_type: DATE\n"
+        "        config:\n          meta:\n            dimension:\n"
+        "              type: date\n              time_intervals: [RAW, DAY]\n"
+        "      - name: amount\n        data_type: INTEGER\n"
+        "        config:\n          meta:\n            metrics:\n"
+        "              total_amount:\n                type: sum\n"
+    )
     (project / "tests/engine_and_total.sql").write_text(
         "select 1 as failure where version() not like 'v2.%' or "
         "(select sum(amount) from {{ ref('orders') }}) <> 350\n"

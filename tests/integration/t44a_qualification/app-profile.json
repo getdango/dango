@@ -1,5 +1,5 @@
 {
-  "state": "COMPLETE_NORMAL_BUILD_CANDIDATE_RUNTIME_UNRUN",
+  "state": "FIRST_RUNNING_APP_SLICE_CANDIDATE_UNRUN",
   "scope": "First complete adapted Lightdash app slice; no remaining twelve-case harness",
   "limits": {
     "cpus": 4,
@@ -83,7 +83,7 @@
       "Native allowBuilds are not permission for unpinned network during offline install. First freeze/download/inspect required lifecycle binaries and normal upstream cache/config entrypoints; missing identity/license/offline route blocks install.",
       "Count all actual acquired source/store/cache/artifacts plus conservative future unshared install/compiler/temp/output/data/log copies + all frozen image compressed/expanded/cache/snapshot copies + >=2GiB headroom <=30e9 and actual df before install AND every build. Missing measured bound blocks stage."
     ],
-    "closure_status": "Full lock identities frozen; full-dev acquired archive/license/expanded and lifecycle closure NOT YET complete. Do not run install from this plan.",
+    "closure_status": "CI41283907587 wholedevacquisitionPASS; exactmissingnoticesresolved; CI41319819062 full frozen offlineinstall --ignore-scripts and all7normal buildsPASS. No required install-lifecycle execution. Runtime initialization remains to be observed.",
     "observed_lifecycle_packages": {
       "canvas@3.2.1": "prebuild-install -r napi || node-gyp rebuild; targetNAPI7 and platform bytes not yet frozen",
       "duckdb@1.4.2": "node-pre-gyp install --fallback-to-build; legacy transitive package is not the qualification consumer engine",
@@ -92,13 +92,13 @@
     },
     "checkpoint": {
       "recipe": "app_acquire.py after actual dbt diagnostic PASS",
-      "state": "IMPLEMENTED_NOT_EXECUTED",
+      "state": "PASS_FULL_DEV_ACQUISITION_AND_COMPLETE_NORMAL_BUILD_OBSERVED",
       "target_inventory_records_static": 3087,
       "metadata_hook_sha256": "a3542d5889601238cbf1b0d246bf674301bfa0cd96b6d9f040d1c97afa7f20c8",
       "parser_tool": "Exact R08 PyYAML6.0.3 wheel SHAba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc; verified zip-import pure Python, no pip installation",
       "before_fetch_bound": "Measured archive allocations include per-member4KiB metadata. Count content store + each peer-context virtual-store copy + full temporary extraction + two compressed cache/temp copies + retained notices/evidence; add actual whole task, planned frozen image expansions and >=2GiBheadroom. Enforce30GB AND actual runnerdf BEFORE standardfetch.",
       "after_fetch": "Record actual whole task/content store/expanded virtual store/cache sizes and native identities; require frozen hook/source/package/lock unchanged and no importer links.",
-      "next_install": "Always BLOCKED pending license gaps, lifecycle-native bytes and full install/compiler/runtime fit. No installer/build command in recipe."
+      "next_install": "Closed by actual offlinefullinstallPASS; newruntime stages onlyafter freshreview/profile/smoke/fit. No network or unpinned runtime lifecycle fallback."
     }
   },
   "build": {
@@ -151,8 +151,8 @@
     ],
     "gates": "Normal tsc common/warehouses must pass before expensive frontend. No source/API patch, type suppression, esbuild substitution, or missing frontend/backend/CLI target accepted. No Dockerfile1.5.x staging. No global cache or ambient provider identity.",
     "lifecycle_policy": "Dependency installation uses --ignore-scripts; normal build commands and their usual pre/post hooks run offline. No Cypress GUI or canvas/legacy DuckDB install/rebuild. Actual app runtime native initialization remains UNRUN.",
-    "recipe": "app_build.py; full offline install plus seven serial normal upstream targets. Complete build extension is UNRUN pending review and Ubuntu execution.",
-    "resource_evidence": "CI41286662783 passed offline install/formula/common/warehouses and populated4CPU4608MiB smoke. Full frontend/backend/CLI stillUNRUN. Go3500MiB and Node3500MiB are soft per-runtime limits, not an aggregate guarantee; hard container ceiling remains4608MiB, no other task services.",
+    "recipe": "CI41319819062 PASS_COMPLETE_NORMAL_BUILD: all7normal targets, full emitted trees and required entrypoints; app runtime remainsUNRUN.",
+    "resource_evidence": "CI41319819062 PASS_COMPLETE_NORMAL_BUILD: all7normal targets, fresh4CPU4608MiB smoke, exactfulltrees/entrypoints, cleanup0secrets. Node3500MiB/Go3500MiB softlimits and backendworkercontrols retained. Runtime remainsUNRUN.",
     "remaining_bound": {
       "unshared_materializations": "2 * frozen inventory allocated-bound per peer-context virtual copy",
       "cache_rewrites": "2 * actual acquired cache allocation",
@@ -242,7 +242,25 @@
       ]
     ],
     "assert_complete_app": "Actual production backend with built frontend/build/index.html and asset200 plus authenticated ordinary query completion. No HTML-only acceptance.",
-    "mode": "Omit LIGHTDASH_MODE to use the source normal DEFAULT; never DEMO/PR bypass modes."
+    "mode": "Omit LIGHTDASH_MODE to use the source normal DEFAULT; never DEMO/PR bypass modes.",
+    "recipe": "app_runtime.py after actual complete buildPASS; no actualruntime until affected review.",
+    "fresh_fixture": "Old owned PGDATA/fixture/dbtproject/installedADBC moved to prior-* ownedwork paths, not deleted. Fresh synthetic PGpassword/PGDATA and real dbt seed/build regenerate authentic YAML-driven columns andSUMmetric; no artifact editing.",
+    "limits_transition": "Immutable R08 creates and validates original unstarted object while only PG runs; reused verify_build_update audits exactly CPU/memory/equal-swap changes, all other HostConfig/Config/completeMountrecords/ID/name/image/labels/state unchanged. Fresh populated runtime smokes. Precreate actual3services while onlyPG runs, then exact-ID/role/aggregate start gate permits at most1PG+1Garage+1app+1actor; no concurrent build/fixture.",
+    "node_heaps_MiB": {
+      "garage_launcher": 128,
+      "app_launcher_and_backend": 2048,
+      "actor_and_CLI": 640
+    },
+    "remaining_runtime_bound": {
+      "future_bytes": 5432535189,
+      "completed_build_owned_bytes": 5449949184,
+      "all_frozen_image_bound": 2688958884,
+      "headroom": 2147483648,
+      "projected_total": 15718926905,
+      "actual_df_prior": 86129496064,
+      "method": "Fresh PGdata1GiB+512MiBWAL; dbt512MiB spill; fresh exactdriver expansion; Garage512MiBdata; app/results1GiB; actorcache1GiB; bounded4tmpfs+PGsocket+logs; Garagebinary+source+installationcopy. Completedbuild alreadyactualowned, no futurebuildcopies counted again. Fresh30GB/headroom+actualdf gates beforestage/fixture/runtime and finalmeasurement."
+    },
+    "evidence": "Actualstatus/log/events/State/HostConfig captured before inherited exact-owned cleanup. Dynamic PAT/cookies stayinmemory; rawCLIoutputcheckedagainststatic+dynamicsecrets; allowlistedstatus/results/hashes only. Cleanup stillrunsifexportfails."
   },
   "manifest_bridge": {
     "genuine_cli_output": "dbt-oss 2.0.8",
