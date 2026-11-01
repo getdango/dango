@@ -209,3 +209,25 @@ def test_spaces_restore_returns_the_wal_auth_and_metabase_notes(tmp_path: Path) 
     assert "warehouse.duckdb.wal" in text and "pre-restore" in text
     assert "auth.yml" in text
     assert "Metabase metadata" in text
+
+
+# --- the on-demand backup prints the server's text literally -------------------------------------
+
+
+def test_on_demand_backup_prints_server_output_literally(tmp_path: Path) -> None:
+    line = "  Warning: Not backed up: notebooks/a[/] (a link or special file)"
+    out = _invoke(tmp_path, ["backup"], _ssh(stdout=f"Backup complete in 1s\n{line}\n"))
+    assert out.exit_code == 0, out.output
+    assert "Backup completed successfully" in out.output and "notebooks/a[/]" in out.output
+
+
+def test_failed_backup_and_restore_print_server_errors_literally(tmp_path: Path) -> None:
+    err = "boom in notebooks/a[/] and [bold]x[/bold]"
+    out = _invoke(tmp_path, ["backup"], _ssh(stderr=err, code=1))
+    assert out.exit_code == 1 and err in out.output
+    out = _invoke(
+        tmp_path,
+        ["backup", "restore", "backup-20260224-143000.tar.gz", "-y"],
+        _ssh(stderr=err, code=1),
+    )
+    assert out.exit_code == 1 and err in out.output

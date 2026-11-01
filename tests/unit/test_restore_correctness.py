@@ -53,18 +53,16 @@ def _extract(tmp_path: Path, archive: Path) -> Path:
     return staging
 
 
-# --- AF-13: the manifest's file list is enforced -------------------------------------------------
+# --- the manifest's file list is not enforced: names in it can come from file names ---------------
 
-
-def test_manifest_listing_a_file_the_archive_lacks_is_refused_and_staging_removed(
-    tmp_path: Path,
-) -> None:
-    archive = _make_archive(
-        tmp_path, ["notebooks/a.py"], ["data/warehouse.duckdb", "notebooks/a.py"]
-    )
-    with pytest.raises(CloudProvisioningError, match=r"data/warehouse\.duckdb"):
-        _extract(tmp_path, archive)
-    assert not (tmp_path / "stage").exists()
+#: Fixed names a notebook directory called ``x<newline>.dango`` leaves in an SSH-made manifest.
+FRAGMENTS = [
+    ".dango/pii-overrides.yml",
+    "dbt/packages.yml",
+    "metabase/metabase.db.mv.db",
+    "data/warehouse.duckdb",
+    "notebooks/a",
+]
 
 
 def test_a_complete_archive_extracts(tmp_path: Path) -> None:
@@ -72,107 +70,23 @@ def test_a_complete_archive_extracts(tmp_path: Path) -> None:
     assert (_extract(tmp_path, archive) / "data" / "warehouse.duckdb").is_file()
 
 
-def test_documented_optional_files_may_be_absent(tmp_path: Path) -> None:
-    from dango.platform.cloud import backup_restore_checks as checks
-
-    assert "metabase/metabase.db.trace.db" in checks.OPTIONAL_MANIFEST_FILES
-    archive = _make_archive(
-        tmp_path,
-        ["notebooks/a.py"],
-        ["notebooks/a.py", "metabase/metabase.db.trace.db"],
-    )
+def test_names_in_the_manifest_cannot_make_a_backup_unrestorable(tmp_path: Path) -> None:
+    present = ["notebooks/a.py", "notebooks/x\n.dango/pii-overrides.yml"]
+    archive = _make_archive(tmp_path, present, [*present, *FRAGMENTS])
     assert (_extract(tmp_path, archive) / "notebooks" / "a.py").is_file()
 
 
-@pytest.mark.parametrize("raw", ["{}", '{"files": []}', '{"timestamp": "t"}'])
-def test_manifests_without_a_file_list_still_restore(tmp_path: Path, raw: str) -> None:
-    archive = _make_archive(tmp_path, ["notebooks/a.py"], None, raw_manifest=raw)
-    assert (_extract(tmp_path, archive) / "notebooks" / "a.py").is_file()
-
-
-@pytest.mark.parametrize("raw", ["not json", "[]", '{"files": "x"}', '{"files": [1]}'])
-def test_an_unreadable_manifest_is_refused(tmp_path: Path, raw: str) -> None:
-    archive = _make_archive(tmp_path, ["notebooks/a.py"], None, raw_manifest=raw)
-    with pytest.raises(CloudProvisioningError, match="manifest"):
-        _extract(tmp_path, archive)
-    assert not (tmp_path / "stage").exists()
-
-
-def test_the_refusal_names_a_bounded_number_of_files(tmp_path: Path) -> None:
-    from dango.platform.cloud.backup import BACKUP_FILES
-
-    listed = list(BACKUP_FILES)
-    archive = _make_archive(tmp_path, ["data/warehouse.duckdb"], ["data/warehouse.duckdb", *listed])
-    with pytest.raises(CloudProvisioningError) as exc:
-        _extract(tmp_path, archive)
-    text = str(exc.value)
-    assert str(len(listed)) in text and "more" in text and text.count(".dango/") <= 5
-
-
-HOSTILE_NAMES = [
-    "notebooks/a",  # the fragment a newline in a file name leaves in a manifest
-    "notebooks/a b\nc.py",
-    "notebooks/esc\x1b[31m.py",
-    "notebooks/ spaced name.py",
-    "notebooks/-leading-dash.py",
-    "notebooks/a[/].py",
-]
-
-
-def test_a_notebook_file_name_cannot_make_a_backup_unrestorable(tmp_path: Path) -> None:
-    """Only fixed-name entries are enforced; names a notebook user picks are never trusted."""
-    archive = _make_archive(
-        tmp_path, ["data/warehouse.duckdb"], ["data/warehouse.duckdb", *HOSTILE_NAMES]
-    )
-    assert (_extract(tmp_path, archive) / "data" / "warehouse.duckdb").is_file()
-
-
-def test_the_real_file_with_a_newline_in_its_name_restores(tmp_path: Path) -> None:
-    name = "notebooks/a b\nc.py"
-    archive = _make_archive(
-        tmp_path, ["data/warehouse.duckdb", name], ["data/warehouse.duckdb", "notebooks/a", name]
-    )
-    assert (_extract(tmp_path, archive) / name).is_file()
-
-
-def test_the_local_check_ignores_names_a_notebook_user_picks(tmp_path: Path) -> None:
-    from dango.platform.cloud.backup_restore_checks import check_local_manifest
-
-    stage = tmp_path / "stage"
-    (stage / "data").mkdir(parents=True)
-    (stage / "data" / "warehouse.duckdb").write_text("x")
-    files = [{"path": p, "size_bytes": 1} for p in ["data/warehouse.duckdb", *HOSTILE_NAMES]]
-    (stage / "manifest.json").write_text(json.dumps({"files": files}))
-    check_local_manifest(stage)
-    (stage / "data" / "warehouse.duckdb").unlink()
-    with pytest.raises(CloudProvisioningError, match=r"data/warehouse\.duckdb"):
-        check_local_manifest(stage)
-
-
-def test_a_missing_metabase_database_listed_in_the_manifest_is_refused(tmp_path: Path) -> None:
-    archive = _make_archive(
-        tmp_path, ["notebooks/a.py"], ["notebooks/a.py", "metabase/metabase.db.mv.db"]
-    )
-    with pytest.raises(CloudProvisioningError, match=r"metabase\.db\.mv\.db"):
-        _extract(tmp_path, archive)
-
-
-def test_the_spaces_restore_refuses_an_incomplete_archive_before_stopping_anything(
-    tmp_path: Path,
-) -> None:
+def test_the_spaces_restore_accepts_the_same_manifest(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()
     top = "backup-20260101-000000"
-    (tmp_path / top).mkdir()
-    (tmp_path / top / "notebooks").mkdir()
+    (tmp_path / top / "notebooks").mkdir(parents=True)
     (tmp_path / top / "notebooks" / "a.py").write_text("x")
-    (tmp_path / top / "manifest.json").write_text(
-        json.dumps({"files": [{"path": "data/warehouse.duckdb", "size_bytes": 1}]})
-    )
+    files = [{"path": p, "size_bytes": 1} for p in FRAGMENTS]
+    (tmp_path / top / "manifest.json").write_text(json.dumps({"files": files}))
     events: list[str] = []
-    with pytest.raises(CloudProvisioningError, match=r"data/warehouse\.duckdb"):
-        run_spaces_restore(tmp_path, project, top, events=events)
-    assert "stop" not in events
+    run_spaces_restore(tmp_path, project, top, events=events)
+    assert "start" in events and (project / "notebooks" / "a.py").read_text() == "x"
 
 
 # --- AF-14: a missing Metabase volume is a refusal, not a silent skip ----------------------------
