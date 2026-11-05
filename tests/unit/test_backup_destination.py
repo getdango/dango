@@ -116,11 +116,11 @@ class _FakeSpaces:
     """Records what a scheduled backup does against Spaces."""
 
     instances: list[_FakeSpaces] = []
+    uploaded: dict[str, bytes] = {}
 
     def __init__(self, **kwargs: object) -> None:
         self.kwargs = kwargs
         self.bucket = str(kwargs["bucket"])
-        self.uploaded: dict[str, bytes] = {}
         _FakeSpaces.instances.append(self)
 
     def upload(self, key: str, fileobj: io.BufferedReader, content_type: str = "") -> None:
@@ -145,6 +145,7 @@ def _scheduled_run(tmp_path: Path, project: Path) -> object:
     archive = backups / "backup-20261101-020000.tar.gz"
     archive.write_bytes(b"archive-bytes")
     _FakeSpaces.instances = []
+    _FakeSpaces.uploaded = {}
     with (
         patch(f"{_SB}.PROJECT_DIR", project),
         patch(f"{_SB}.BACKUP_DIR", backups),
@@ -169,11 +170,12 @@ class TestDeployedServerUploads:
         assert result.error is None
         assert result.spaces_key == "backups/backup-20261101-020000.tar.gz"
         assert not any("Spaces not configured" in w for w in result.warnings)
-        client = _FakeSpaces.instances[0]
-        assert client.kwargs["bucket"] == "my-bucket"
-        assert client.kwargs["region"] == "sgp1"
-        assert client.kwargs["access_key"] == "ak"
-        assert client.uploaded == {"backups/backup-20261101-020000.tar.gz": b"archive-bytes"}
+        assert _FakeSpaces.instances
+        for client in _FakeSpaces.instances:
+            assert client.kwargs["bucket"] == "my-bucket"
+            assert client.kwargs["region"] == "sgp1"
+            assert client.kwargs["access_key"] == "ak"
+        assert _FakeSpaces.uploaded == {"backups/backup-20261101-020000.tar.gz": b"archive-bytes"}
         assert result.off_site is True
         assert result.spaces_bucket == "my-bucket"
 
@@ -207,10 +209,8 @@ class TestOffsiteLine:
 
         assert not offsite_line("my-bucket", verified=False).startswith("Off-site: yes")
 
-    def test_the_module_entry_point_prints_the_line(self, tmp_path: Path) -> None:
-        import runpy
-
-        from dango.platform.cloud.scheduled_backup import ScheduledBackupResult
+    def test_the_module_entry_point_prints_the_line(self) -> None:
+        from dango.platform.cloud.scheduled_backup import ScheduledBackupResult, main
 
         result = ScheduledBackupResult(archive_path="/x/a.tar.gz", off_site=True)
         result.spaces_bucket = "my-bucket"
@@ -218,10 +218,20 @@ class TestOffsiteLine:
         with (
             patch(f"{_SB}.run_scheduled_backup", return_value=result),
             patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(a))),
-            pytest.raises(SystemExit),
         ):
-            runpy.run_module("dango.platform.cloud.scheduled_backup", run_name="__main__")
+            assert main() == 0
         assert "Off-site: yes (Spaces my-bucket)" in printed
+
+    def test_a_local_only_run_prints_no(self) -> None:
+        from dango.platform.cloud.scheduled_backup import ScheduledBackupResult, main
+
+        printed: list[str] = []
+        with (
+            patch(f"{_SB}.run_scheduled_backup", return_value=ScheduledBackupResult()),
+            patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(a))),
+        ):
+            assert main() == 0
+        assert any(line.startswith("Off-site: NO") for line in printed)
 
 
 # ---------------------------------------------------------------------------
@@ -460,9 +470,9 @@ class TestCloudYmlStaysLocal:
             )
         )
 
-        skipped = _extract_archive(archive, project)
+        not_written = _extract_archive(archive, project)
 
-        assert skipped == []
+        assert not_written == []
         assert (project / ".dango" / "project.yml").read_text() == "restored: true\n"
         assert (project / ".dango" / "cloud.yml").read_text() == (
             "droplet_id: 111\nfirewall_id: fw-local\n"

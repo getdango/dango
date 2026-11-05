@@ -33,6 +33,14 @@ def _ok(stdout: str = "") -> CommandResult:
     return CommandResult(stdout=stdout, stderr="", exit_code=0)
 
 
+def _do_cfg() -> MagicMock:
+    """A DigitalOcean deployment config with a Spaces bucket."""
+    cfg = MagicMock(provider="digitalocean", region="nyc1")
+    cfg.spaces.bucket = "my-bucket"
+    cfg.spaces.region = "nyc3"
+    return cfg
+
+
 def _patch_cloud(ssh: MagicMock, tmp_path: Path):
     return (
         patch(
@@ -102,12 +110,14 @@ class TestBackupEnable:
             return _ok("1.0.14")
 
         ssh.exec_command.side_effect = fake
-        with patch("dango.cli.utils.load_cloud_config_with_ssh", return_value=(MagicMock(), ssh)):
+        with patch("dango.cli.utils.load_cloud_config_with_ssh", return_value=(_do_cfg(), ssh)):
             result = CliRunner().invoke(backup_enable)
         return result, [c.args[0] for c in ssh.exec_command.call_args_list]
 
     def test_key_present_is_read_as_service_user(self, tmp_path: Path) -> None:
-        result, commands = self._run(tmp_path, "FOO=1\nSPACES_ACCESS_KEY=abc\n")
+        result, commands = self._run(
+            tmp_path, "FOO=1\nSPACES_ACCESS_KEY=abc\nSPACES_SECRET_KEY=def\n"
+        )
         assert result.exit_code == 0, result.output
         assert not any("grep -q SPACES_ACCESS_KEY" in c for c in commands)
         reads = [c for c in commands if f"{_PROJECT}/.env" in c]
@@ -208,14 +218,14 @@ class TestBackupEnableEdges:
         ssh.exec_command.side_effect = lambda c, *a, **k: _ok(
             env_text if "exec cat" in c else "1.0.14"
         )
-        with patch("dango.cli.utils.load_cloud_config_with_ssh", return_value=(MagicMock(), ssh)):
+        with patch("dango.cli.utils.load_cloud_config_with_ssh", return_value=(_do_cfg(), ssh)):
             return CliRunner().invoke(backup_enable)
 
     @pytest.mark.parametrize(
         ("env_text", "ok"),
         [
-            ("SPACES_ACCESS_KEY = x\n", True),
-            ("SPACES_ACCESS_KEY='x'\n", True),
+            ("SPACES_ACCESS_KEY = x\nSPACES_SECRET_KEY=y\n", True),
+            ("SPACES_ACCESS_KEY='x'\nSPACES_SECRET_KEY=y\n", True),
             ("SPACES_ACCESS_KEY=\n", False),
             ("SPACES_ACCESS_KEY_OLD=x\n", False),
         ],
@@ -227,7 +237,7 @@ class TestBackupEnableEdges:
     def test_unreadable_env_is_a_clean_error(self) -> None:
         ssh = MagicMock()
         ssh.exec_command.return_value = CommandResult(stdout="", stderr="denied", exit_code=1)
-        with patch("dango.cli.utils.load_cloud_config_with_ssh", return_value=(MagicMock(), ssh)):
+        with patch("dango.cli.utils.load_cloud_config_with_ssh", return_value=(_do_cfg(), ssh)):
             result = CliRunner().invoke(backup_enable)
         assert result.exit_code == 1
         assert "Error" in result.output and "Traceback" not in result.output

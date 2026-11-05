@@ -271,14 +271,8 @@ class TestDestructiveCommandsRemindAboutSecrets:
         cfg = make_cfg(tmp_path=tmp_path)
         ssh = MagicMock()
         ssh.connect.side_effect = OSError("no route")
-        result = invoke(
-            remote,
-            ["backup", "restore", "backup-20261101-020000.tar.gz"],
-            tmp_path,
-            cfg,
-            ssh,
-            input="n\n",
-        )
+        result = invoke(remote, ["resize", "s-4vcpu-8gb"], tmp_path, cfg, ssh, input="n\n")
         flat = plain(result.output)
         assert "NOT in backups" in flat
+        assert "Could not read the server" in flat
         assert "cancelled" in flat.lower()

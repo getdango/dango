@@ -31,7 +31,8 @@ METABASE_VOLUME_MISSING = (
 def spaces_restore_script(key: str) -> str:
     """Python source the client runs on the server for a Spaces restore.
 
-    Prints each warning as one ``RESTORE_WARNING_PREFIX`` line; a failure prints one
+    Prints each warning as one ``RESTORE_WARNING_PREFIX`` line and, after a successful restore, the
+    secret names the archive's manifest lists (one ``RESTORE_SECRETS_PREFIX`` line); a failure prints one
     ``RESTORE_ERROR_PREFIX`` line (the message on a single line) and exits 1, so the client shows
     the cause instead of a traceback.  *key* has been checked by the caller.
     """
@@ -45,6 +46,15 @@ def spaces_restore_script(key: str) -> str:
         "except Exception as exc:\n"
         f"    print({RESTORE_ERROR_PREFIX!r} + ' '.join(str(exc).split()))\n"
         "    sys.exit(1)\n"
+        # After a successful restore: the secret names the archive lists (never a reason to fail).
+        "try:\n"
+        "    from dango.platform.cloud.backup_destination import secrets_marker_line\n"
+        "    from dango.platform.cloud.scheduled_backup import BACKUP_DIR\n"
+        f"    marker = secrets_marker_line(BACKUP_DIR / {key.rsplit('/', 1)[-1]!r})\n"
+        "    if marker:\n"
+        "        print(marker)\n"
+        "except Exception:\n"
+        "    pass\n"
     )
 
 

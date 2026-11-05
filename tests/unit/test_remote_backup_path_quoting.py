@@ -104,9 +104,12 @@ def test_restore_local_uses_generated_remote_name(name: str, tmp_path: Path) -> 
     assert pattern.match(remote)
     assert restored == [remote]
     directory = remote.rsplit("/", 1)[0]
-    assert len(ssh.commands) == 3
-    assert "mkdir -m 0700" in ssh.commands[0] and directory in ssh.commands[0]
-    assert ssh.commands[1:] == [f"chmod 0600 {remote}", f"rm -rf {directory}"]
+    # the two reads that list the secret names for the reminder come first
+    reads, commands = ssh.commands[:2], ssh.commands[2:]
+    assert all(c.startswith("runuser -u dango -- sh -c") for c in reads)
+    assert len(commands) == 3
+    assert "mkdir -m 0700" in commands[0] and directory in commands[0]
+    assert commands[1:] == [f"chmod 0600 {remote}", f"rm -rf {directory}"]
     assert all(name not in c for c in ssh.commands)
 
 

@@ -33,6 +33,7 @@ from dango.platform.cloud.backup import (
     _sanitized_metabase_yaml_text,
     wal_sidecar_names,
 )
+from dango.platform.cloud.backup_destination import CLOUD_CONFIG_FILE
 from dango.platform.cloud.backup_restore import (
     AUTH_CONFIG_FILE,
     AUTH_CONFIG_MAX_BYTES,
@@ -261,6 +262,9 @@ def _extract_archive(
         carried = {(project_root / _member_rel_path(m.name)).resolve() for m in members}
         for member in members:
             rel_path = _member_rel_path(member.name)
+            if rel_path == CLOUD_CONFIG_FILE:  # an older archive's copy describes the server
+                console.print(f"[dim]Kept this machine's {CLOUD_CONFIG_FILE} (not restored).[/dim]")
+                continue
             if not _is_backup_member(rel_path):
                 rejected.append(rel_path)
                 continue

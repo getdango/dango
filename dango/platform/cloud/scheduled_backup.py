@@ -26,6 +26,11 @@ from typing import Any
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.backup_destination import (
+    local_secret_names,
+    offsite_line,
+    validated_destination,
+)
 from dango.platform.cloud.compose_helper import COMPOSE_DIR, HELPER_PATH, SRV_DIR
 from dango.platform.compose_exec import EXIT_BUSY, uses_helper
 from dango.platform.docker import get_compose_project_name
@@ -56,6 +61,9 @@ class ScheduledBackupResult:
     duration_seconds: float = 0.0
     error: str | None = None
     warnings: list[str] = field(default_factory=list)
+    #: True only when the archive reached Spaces and its size was confirmed.
+    off_site: bool = False
+    spaces_bucket: str = ""
 
 
 @dataclass(frozen=True)
@@ -710,6 +718,9 @@ def _create_local_archive(
             "dango_version": dango_version,
             "files": files,
             "total_size_bytes": total_size,
+            # Names only, never values: a restore tells the user what to re-enter.
+            "secret_names": local_secret_names(PROJECT_DIR),
+            "secrets_included": include_secrets,
         }
         manifest_json = json.dumps(manifest, indent=2)
         (staging / "manifest.json").write_text(manifest_json)
@@ -750,7 +761,15 @@ def _verify_upload(spaces_config: dict[str, Any], key: str, local_size: int) -> 
 
 
 def _load_spaces_config() -> dict[str, Any]:
-    """Load Spaces config from cloud.yml on the server. Returns {bucket, region}."""
+    """Return the Spaces destination ``{bucket, region}`` this server uploads to.
+
+    One source of truth: the server ``.env`` (``SPACES_BUCKET`` / ``SPACES_REGION``, written by
+    ``dango deploy`` and ``dango remote backup enable``), with ``.dango/cloud.yml`` as a
+    fallback.  Root reads both as data and checks the names before they are used.
+    """
+    env = read_env_values(PROJECT_DIR / ".env", ("SPACES_BUCKET", "SPACES_REGION"))
+    if env.get("SPACES_BUCKET"):
+        return validated_destination(env["SPACES_BUCKET"], env.get("SPACES_REGION"), source=".env")
     cloud_yml = PROJECT_DIR / ".dango" / "cloud.yml"
     if not cloud_yml.exists():
         raise CloudProvisioningError("cloud.yml not found — Spaces not configured")
@@ -762,10 +781,9 @@ def _load_spaces_config() -> dict[str, Any]:
     spaces = data.get("spaces")
     if not spaces or not spaces.get("bucket"):
         raise CloudProvisioningError("Spaces not configured in cloud.yml. Set spaces.bucket first.")
-    return {
-        "bucket": spaces["bucket"],
-        "region": spaces.get("region") or data.get("region", "nyc1"),
-    }
+    return validated_destination(
+        spaces["bucket"], spaces.get("region") or data.get("region"), source="cloud.yml"
+    )
 
 
 def _load_backup_config() -> dict[str, Any]:
@@ -982,8 +1000,8 @@ def _run_scheduled_backup() -> ScheduledBackupResult:
 
         try:
             spaces_config = _load_spaces_config()
-        except CloudProvisioningError:
-            result.warnings.append("Spaces not configured — local-only backup")
+        except CloudProvisioningError as exc:
+            result.warnings.append(f"Spaces not configured — local-only backup ({exc})")
             _write_health_status(success=True)
             result.duration_seconds = round(time.monotonic() - start_time, 1)
             return result
@@ -994,7 +1012,9 @@ def _run_scheduled_backup() -> ScheduledBackupResult:
         key = _upload_to_spaces(archive_path, spaces_config)
         result.spaces_key = key
         local_size = archive_path.stat().st_size
-        if not _verify_upload(spaces_config, key, local_size):
+        result.spaces_bucket = spaces_config["bucket"]
+        result.off_site = _verify_upload(spaces_config, key, local_size)
+        if not result.off_site:
             result.warnings.append("Upload verification failed — size mismatch")
         deleted = _apply_retention(
             spaces_config,
@@ -1308,12 +1328,18 @@ def is_scheduled_backup_enabled() -> bool:
     return r.returncode == 0 and "active" in r.stdout
 
 
-if __name__ == "__main__":
+def main() -> int:
+    """Run one backup, print the outcome and whether it left the server; return the exit code."""
     backup_result = run_scheduled_backup()
     if backup_result.error:
         print(f"Backup failed: {backup_result.error}", file=sys.stderr)
-        sys.exit(1)
+        return 1
     print(f"Backup complete in {backup_result.duration_seconds}s: {backup_result.archive_path}")
     for w in backup_result.warnings:
         print(f"  Warning: {w}")
-    sys.exit(0)
+    print(offsite_line(backup_result.spaces_bucket or None, verified=backup_result.off_site))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -105,14 +105,19 @@ def _enable(installed: str) -> tuple[MagicMock, str]:
         if "import dango" in command:
             return CommandResult(stdout=f"{installed}\n", stderr="", exit_code=0)
         if "exec cat" in command:  # the service-user read of the server .env
-            return CommandResult(stdout="SPACES_ACCESS_KEY=k\n", stderr="", exit_code=0)
+            return CommandResult(
+                stdout="SPACES_ACCESS_KEY=k\nSPACES_SECRET_KEY=s\n", stderr="", exit_code=0
+            )
         return CommandResult(stdout="", stderr="", exit_code=0)
 
     ssh = MagicMock()
     ssh.exec_command.side_effect = _exec
+    cloud_cfg = MagicMock(provider="digitalocean", region="nyc1")
+    cloud_cfg.spaces.bucket = "my-bucket"
+    cloud_cfg.spaces.region = "nyc3"
     with patch(
         "dango.cli.commands.remote_backup._load_cloud_config_with_ssh_or_fail",
-        return_value=(MagicMock(), ssh),
+        return_value=(cloud_cfg, ssh),
     ):
         result = CliRunner().invoke(backup_group, ["enable"], catch_exceptions=False)
     return ssh, result.output

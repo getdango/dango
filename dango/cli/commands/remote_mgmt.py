@@ -102,6 +102,7 @@ def remote_status(ctx: click.Context) -> None:
     from rich.panel import Panel
     from rich.table import Table
 
+    from dango.cli.commands import backup_notices
     from dango.exceptions import CloudSSHError
     from dango.platform.cloud.provisioning import SIZE_TIERS
     from dango.platform.cloud.server_status import (
@@ -130,6 +131,7 @@ def remote_status(ctx: click.Context) -> None:
 
     try:
         status = collect_server_status(ssh, cloud_cfg)
+        backup_lines = backup_notices.backup_status_lines(ssh)
     except CloudSSHError as exc:
         console.print(f"[red]Error:[/red] Could not read server status: {exc}")
         raise SystemExit(1) from exc
@@ -203,6 +205,7 @@ def remote_status(ctx: click.Context) -> None:
         data_lines.append("  Last sync: N/A")
     if data_lines:
         console.print(Panel("\n".join(data_lines), title="Data", border_style="blue"))
+    console.print(Panel("\n".join(backup_lines), title="Backups", border_style="blue"))
 
     # --- Versions ---
     version_lines = []

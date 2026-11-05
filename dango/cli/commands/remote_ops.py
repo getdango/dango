@@ -12,6 +12,7 @@ from __future__ import annotations
 import click
 
 from dango.cli import console
+from dango.cli.commands import backup_notices
 from dango.cli.commands import remote_report as report
 from dango.cli.commands.remote import remote
 from dango.cli.commands.remote_power import refuse_if_powered_off
@@ -242,6 +243,7 @@ def remote_resize(ctx: click.Context, size: str | None, yes: bool) -> None:
         "Expect 1-3 minutes of downtime."
     )
 
+    backup_notices.print_secrets_reminder(cloud_cfg, project_root)
     if not yes:
         if not safe_confirm("\nProceed with resize?"):
             console.print("[yellow]Resize cancelled.[/yellow]")

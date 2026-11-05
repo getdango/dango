@@ -26,6 +26,7 @@ import yaml
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud.backup_destination import CLOUD_CONFIG_FILE, server_secret_names
 from dango.platform.cloud.backup_restore import (
     AS_SERVICE_USER,
     AUTH_CONFIG_FILE,
@@ -164,7 +165,6 @@ BACKUP_FILES = [
     ".dango/monitors.yml",
     ".dango/scripts.yml",
     ".dango/pii-overrides.yml",
-    ".dango/cloud.yml",
     ".dango/logs/audit.jsonl",
     ".dango/logs/activity.jsonl",
     "dbt/profiles.yml",
@@ -200,6 +200,10 @@ DATABASE_FILES = (
 #: project can contain is either backed up or listed here (tests enforce it).
 EXCLUDED_PATHS: dict[str, str] = {
     ".dango/backups": "backups themselves (would nest archives)",
+    CLOUD_CONFIG_FILE: (
+        "local deployment state (droplet, firewall and key ids); a restore would overwrite the "
+        "laptop's copy"
+    ),
     ".dango/cloud_key": "per-machine deploy credential",
     ".dango/credentials": "per-machine credentials",
     ".dango/secrets": "per-machine secrets",
@@ -381,6 +385,9 @@ class BackupManifest:
     total_size_bytes: int = 0
     git_commit: str | None = None
     git_branch: str | None = None
+    #: Names (never values) of the server ``.env`` variables and ``secrets.toml`` keys.
+    secret_names: list[str] = field(default_factory=list)
+    secrets_included: bool = False
 
 
 @dataclass
@@ -723,6 +730,8 @@ def _create_archive(
             total_size_bytes=total_size,
             git_commit=git_commit,
             git_branch=git_branch,
+            secret_names=server_secret_names(ssh),
+            secrets_included=include_secrets,
         )
         manifest_json = json.dumps(asdict(manifest), indent=2)
         _run_checked(
