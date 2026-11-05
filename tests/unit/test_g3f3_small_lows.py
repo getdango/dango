@@ -88,6 +88,29 @@ def test_byos_setup_prints_the_failed_setup_step(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_byos_setup_prints_an_error_from_a_later_step(tmp_path: Path) -> None:
+    from dango.cli.commands import deploy_provision
+
+    config = MagicMock(ssh_key_path="~/.ssh/k", server_ip="10.0.0.9", ssh_user="root", domain=None)
+    setup = MagicMock(warnings=[], helper_created=False)
+    with (
+        patch.object(deploy_provision, "_refuse_new_server"),
+        patch("dango.platform.cloud.ssh.SSHManager"),
+        patch("dango.platform.cloud.server_setup.resolve_install_source", return_value=None),
+        patch("dango.platform.cloud.server_setup.setup_server", return_value=setup),
+        patch(
+            "dango.platform.cloud.file_sync.sync_project_files",
+            side_effect=CloudProvisioningError("the file sync step broke"),
+        ),
+        patch.object(deploy_provision.console, "print") as out,
+        pytest.raises(CloudProvisioningError),
+    ):
+        deploy_provision.run_byos_setup(tmp_path, config, non_interactive=True)
+    printed = " ".join(str(c.args[0]) for c in out.call_args_list if c.args)
+    assert "the file sync step broke" in printed
+
+
+@pytest.mark.unit
 def test_push_with_a_changed_host_key_prints_one_clean_line(tmp_path: Path) -> None:
     from dango.cli.commands.remote import remote
 

@@ -22,8 +22,23 @@ from dango.platform.cloud.ssh import CommandResult
 _ME = getpass.getuser()
 
 
-def _run(script: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["sh", "-c", script], capture_output=True, text=True, check=False)
+def _run(script: str, path: str | None = None) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "PATH": path} if path else None
+    return subprocess.run(
+        ["sh", "-c", script], capture_output=True, text=True, check=False, env=env
+    )
+
+
+def _ls_with_acl(directory: Path) -> str:
+    """A PATH whose ``ls -ld`` shows the ``+`` of an extended or default ACL (as GNU ls does)."""
+    shim = directory / "bin"
+    shim.mkdir()
+    fake = shim / "ls"
+    fake.write_text(
+        '#!/bin/sh\nfor last; do :; done\necho "drwxr-xr-x+ 2 root root 4096 Oct 31 $last"\n'
+    )
+    fake.chmod(0o755)
+    return f"{shim}{os.pathsep}{os.environ['PATH']}"
 
 
 @pytest.mark.unit
@@ -78,6 +93,40 @@ class TestPreflightScript:
         srv.chmod(0o777)
         assert _run(self._script(srv, srv / "dango")).returncode == 3
 
+    def test_the_unsafe_path_is_printed_first_then_its_listing(self, tmp_path: Path) -> None:
+        srv = tmp_path / "srv"
+        (srv / "dango").mkdir(parents=True)
+        for path in (srv, srv / "dango"):
+            path.chmod(0o755)
+        (srv / "dango").chmod(0o775)
+        result = _run(self._script(srv, srv / "dango"))
+        assert result.returncode == 3
+        lines = result.stdout.strip().splitlines()
+        assert lines[0] == str(srv / "dango"), lines
+        assert lines[-1].endswith(str(srv / "dango")), lines
+
+    def test_an_extended_or_default_acl_is_refused(self, tmp_path: Path) -> None:
+        target = tmp_path / "dango"
+        target.mkdir(mode=0o755)
+        result = _run(self._script(target), path=_ls_with_acl(tmp_path))
+        assert result.returncode == 3, result.stdout
+        assert result.stdout.splitlines()[0] == str(target)
+
+    def test_acl_check_does_not_depend_on_getfacl(self) -> None:
+        from dango.platform.cloud.srv_preflight import preflight_script
+
+        assert "getfacl" not in preflight_script()
+
+    def test_a_listing_that_cannot_be_read_fails_the_check(self, tmp_path: Path) -> None:
+        target = tmp_path / "dango"
+        target.mkdir(mode=0o755)
+        shim = tmp_path / "bin"
+        shim.mkdir()
+        (shim / "ls").write_text("#!/bin/sh\nexit 1\n")
+        (shim / "ls").chmod(0o755)
+        result = _run(self._script(target), path=f"{shim}{os.pathsep}{os.environ['PATH']}")
+        assert result.returncode not in (0,)
+
     def test_default_paths_are_srv_and_srv_dango(self) -> None:
         from dango.platform.cloud.srv_preflight import preflight_script
 
@@ -92,14 +141,16 @@ def _is_check(command: str) -> bool:
     return shlex.quote(preflight_script()) in command
 
 
-def _byos_ssh(unsafe: bool) -> tuple[MagicMock, list[str]]:
+def _byos_ssh(unsafe: bool, bad_path: str = "/srv/dango") -> tuple[MagicMock, list[str]]:
     commands: list[str] = []
 
     def _exec(command: str, **kwargs: object) -> CommandResult:
         commands.append(command)
         if unsafe and _is_check(command):
             return CommandResult(
-                stdout="drwxr-xr-x 2 dango dango 4096 Oct 31 /srv/dango\n", stderr="", exit_code=3
+                stdout=f"{bad_path}\ndrwxr-xr-x 2 dango dango 4096 Oct 31 {bad_path}\n",
+                stderr="",
+                exit_code=3,
             )
         return CommandResult(stdout="", stderr="", exit_code=0)
 
@@ -116,10 +167,33 @@ class TestByosSetupRefuses:
         ssh, commands = _byos_ssh(unsafe=True)
         with pytest.raises(CloudProvisioningError, match=r"/srv/dango") as excinfo:
             setup_server(ssh, setup_ufw=True)
-        assert "dango dango" in str(excinfo.value)
-        assert "chown root:root" in str(excinfo.value)
+        text = str(excinfo.value)
+        assert "dango dango" in text
         assert len(commands) == 1, commands
         ssh.write_remote_file.assert_not_called()
+
+    def test_advice_is_to_move_it_aside_or_upgrade_never_a_non_recursive_chown(self) -> None:
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh, _commands = _byos_ssh(unsafe=True)
+        with pytest.raises(CloudProvisioningError) as excinfo:
+            setup_server(ssh, setup_ufw=True)
+        text = str(excinfo.value)
+        assert "mv /srv/dango /srv/dango.old" in text
+        assert "dango remote upgrade" in text
+        assert "fresh host" in text
+        assert "chown" not in text and "chmod" not in text
+
+    def test_the_message_names_the_path_that_is_unsafe(self) -> None:
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh, _commands = _byos_ssh(unsafe=True, bad_path="/srv")
+        with pytest.raises(CloudProvisioningError) as excinfo:
+            setup_server(ssh, setup_ufw=True)
+        text = str(excinfo.value)
+        assert "/srv " in text or "/srv:" in text or "/srv is" in text
+        assert "mv /srv/dango /srv/dango.old" not in text
+        assert "mv /srv " not in text
 
     def test_safe_host_continues_into_setup(self) -> None:
         from dango.platform.cloud.server_setup import setup_server
