@@ -322,11 +322,9 @@ def rebuild_venv(
     """
     if not version or not VERSION_RE.fullmatch(version):
         raise VenvRebuildError(f"no valid getdango version to install ({version!r})")
-    from dango.platform.cloud.venv_leftovers import install_spacy_model, remove_stale_venvs
+    from dango.platform.cloud.venv_leftovers import install_spacy_model
 
     tick = on_step or (lambda: None)
-    remove_stale_venvs(ssh, warnings)
-    tick()
     aside = f"{VENV_DIR}.untrusted-{uuid.uuid4().hex[:12]}"
     moved = ssh.exec_command(f"mv {VENV_DIR} {aside}").success
     tick()

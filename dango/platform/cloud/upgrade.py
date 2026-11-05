@@ -242,6 +242,7 @@ def upgrade_dango(
     # untrusted venv, or one on an older Python, is rebuilt at the target version
     python, outdated = sp.prepare_upgrade(ssh, warnings, old_version, target_version, untrusted)
     venv_rebuild: str | None = None
+    remove_stale_venvs(ssh, warnings)  # idle server only; before this run's guard and move-aside
     if untrusted or outdated:
         _notify(on_progress, "rebuild_venv", "running")
         guard.arm()  # the rebuild stops services; a dead client must not leave them down
@@ -260,8 +261,6 @@ def upgrade_dango(
         finally:
             guard.disarm()
         _notify(on_progress, "rebuild_venv", "done")
-    else:
-        remove_stale_venvs(ssh, warnings)  # no rebuild: nothing else clears an old leftover
 
     # 3. Already at target?  Still finish the Caddyfile WebSocket migration
     # (idempotent) so a re-run can complete a step an earlier run skipped.

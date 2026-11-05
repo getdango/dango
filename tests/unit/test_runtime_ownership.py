@@ -279,7 +279,7 @@ class TestUpgradeVenvRebuild:
 
     def test_trusted_venv_is_not_rebuilt(self) -> None:
         _ssh, commands, result = _run_upgrade("1.0.14", "1.0.15", venv_untrusted=False)
-        assert not any(c.startswith("mv /srv/dango/venv ") for c in commands)
+        assert not any("venv.untrusted" in c for c in commands)
         assert result.venv_rebuild is None
 
     def test_rebuild_reinstalls_pushed_requirements(self, tmp_path: Path) -> None:

@@ -551,17 +551,13 @@ def run_byos_setup(
         install_source = resolve_install_source()
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            try:
-                setup_result = setup_server(
-                    ssh,
-                    on_progress=_setup_progress,
-                    domain=config.domain,
-                    setup_ufw=True,
-                    install_source=install_source,
-                )
-            except CloudProvisioningError as exc:
-                console.print(f"\n[red]Server setup failed:[/red] {escape(str(exc))}")
-                raise
+            setup_result = setup_server(
+                ssh,
+                on_progress=_setup_progress,
+                domain=config.domain,
+                setup_ufw=True,
+                install_source=install_source,
+            )
             if setup_result.warnings:
                 for w in setup_result.warnings:
                     console.print(f"  [yellow]Warning:[/yellow] {w}")
@@ -687,7 +683,9 @@ def run_byos_setup(
             warnings=warnings,
         )
 
-    except CloudProvisioningError:
+    except CloudProvisioningError as exc:
+        # The caller exits 1 without printing, so every failed step is shown here
+        console.print(f"\n[red]BYOS setup failed:[/red] {escape(str(exc))}")
         raise
     except Exception as exc:
         # BUG-122: Handle empty exception messages (e.g. SSH timeout)
