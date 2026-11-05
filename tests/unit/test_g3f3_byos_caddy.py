@@ -141,11 +141,22 @@ def _is_check(command: str) -> bool:
     return shlex.quote(preflight_script()) in command
 
 
-def _byos_ssh(unsafe: bool, bad_path: str = "/srv/dango") -> tuple[MagicMock, list[str]]:
+def _byos_ssh(
+    unsafe: bool,
+    bad_path: str = "/srv/dango",
+    *,
+    exists: bool = True,
+    venv_findings: str = "",
+) -> tuple[MagicMock, list[str]]:
+    """Fake BYOS host: the preflight script, ``test -d /srv/dango`` and the venv trust probe."""
     commands: list[str] = []
 
     def _exec(command: str, **kwargs: object) -> CommandResult:
         commands.append(command)
+        if command == "test -d /srv/dango":
+            return CommandResult(stdout="", stderr="", exit_code=0 if exists else 1)
+        if "DANGO_PROBE_OK" in command and not _is_check(command):
+            return CommandResult(stdout=f"{venv_findings}DANGO_PROBE_OK\n", stderr="", exit_code=0)
         if unsafe and _is_check(command):
             return CommandResult(
                 stdout=f"{bad_path}\ndrwxr-xr-x 2 dango dango 4096 Oct 31 {bad_path}\n",
@@ -157,6 +168,62 @@ def _byos_ssh(unsafe: bool, bad_path: str = "/srv/dango") -> tuple[MagicMock, li
     ssh = MagicMock()
     ssh.exec_command.side_effect = _exec
     return ssh, commands
+
+
+@pytest.mark.unit
+class TestByosRefusesAnUntrustedVenv:
+    """A root-owned /srv/dango can still hold a venv the dango user owns (a failed rebuild)."""
+
+    def test_dango_owned_venv_under_a_root_owned_srv_dango_is_refused(self) -> None:
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh, commands = _byos_ssh(unsafe=False, venv_findings="/srv/dango/venv\n")
+        with pytest.raises(CloudProvisioningError) as excinfo:
+            setup_server(ssh, setup_ufw=True)
+        text = str(excinfo.value)
+        assert "/srv/dango/venv" in text
+        assert "dango remote upgrade" in text and "mv /srv/dango /srv/dango.old" in text
+        assert "fresh host" in text
+        assert "chown" not in text and "chmod" not in text
+        assert len(commands) == 3, commands
+        ssh.write_remote_file.assert_not_called()
+
+    def test_control_characters_in_a_finding_are_stripped(self) -> None:
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh, _commands = _byos_ssh(unsafe=False, venv_findings="/srv/dango/venv/\x1b[2Jx\n")
+        with pytest.raises(CloudProvisioningError) as excinfo:
+            setup_server(ssh, setup_ufw=True)
+        assert "/srv/dango/venv/" in str(excinfo.value)
+        assert "\x1b" not in str(excinfo.value)
+
+    def test_a_probe_that_does_not_finish_refuses(self) -> None:
+        from dango.platform.cloud.srv_preflight import check_srv_dango
+
+        ssh = MagicMock()
+
+        def _exec(command: str, **kwargs: object) -> CommandResult:
+            if command == "test -d /srv/dango" or _is_check(command):
+                return CommandResult(stdout="", stderr="", exit_code=0)
+            return CommandResult(stdout="", stderr="", exit_code=2)  # the probe prints nothing
+
+        ssh.exec_command.side_effect = _exec
+        with pytest.raises(CloudProvisioningError, match=r"did not complete"):
+            check_srv_dango(ssh)
+
+    def test_a_clean_existing_host_passes(self) -> None:
+        from dango.platform.cloud.srv_preflight import check_srv_dango
+
+        ssh, commands = _byos_ssh(unsafe=False)
+        check_srv_dango(ssh)
+        assert len(commands) == 3, commands
+
+    def test_a_fresh_host_passes_without_running_the_venv_probe(self) -> None:
+        from dango.platform.cloud.srv_preflight import check_srv_dango
+
+        ssh, commands = _byos_ssh(unsafe=False, exists=False)
+        check_srv_dango(ssh)
+        assert not any("DANGO_PROBE_OK" in c and not _is_check(c) for c in commands), commands
 
 
 @pytest.mark.unit
