@@ -365,6 +365,12 @@ def _print_deploy_success(
         console.print("  [dim]Save this password — it will not be shown again.[/dim]")
     if domain:
         console.print(f"\n  [bold]DNS setup:[/bold] Point an A record for {domain} to {ip}")
+        console.print(
+            "  Do this first: HTTPS needs the name to resolve. If HTTPS is still down some "
+            "minutes after it does (Caddy backs off after failed certificate attempts, up to "
+            "30 minutes), run [bold]dango remote ssh[/bold] and on the server, as root: "
+            "[bold]systemctl restart caddy[/bold]"
+        )
     if backup_enabled:
         console.print(
             "\n  [bold]Backups:[/bold] Enabled (daily at 02:00 UTC to Spaces). "

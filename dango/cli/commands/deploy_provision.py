@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from rich.markup import escape
+
 from dango.cli import console
 from dango.cli.commands.deploy_wizard import _EMAIL_RE, BYOSConfig, WizardConfig
 from dango.exceptions import CloudAPIError, CloudProvisioningError
@@ -681,7 +683,9 @@ def run_byos_setup(
             warnings=warnings,
         )
 
-    except CloudProvisioningError:
+    except CloudProvisioningError as exc:
+        # The caller exits 1 without printing, so every failed step is shown here
+        console.print(f"\n[red]BYOS setup failed:[/red] {escape(str(exc))}")
         raise
     except Exception as exc:
         # BUG-122: Handle empty exception messages (e.g. SSH timeout)

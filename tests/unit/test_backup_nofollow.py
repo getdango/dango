@@ -184,7 +184,9 @@ class TestSetupAndMigrateRootPython:
         spacy = [c for c in commands if "spacy download" in c]
         assert spacy, commands
         for command in spacy:
-            assert re.match(r"cd / && /srv/dango/venv/bin/python -I -m spacy", command), command
+            assert re.match(
+                r"cd / && (timeout -k \d+ \d+ )?/srv/dango/venv/bin/python -I -m spacy", command
+            ), command
 
     def test_spacy_failure_message_uses_isolated_command(self) -> None:
         from dango.platform.cloud.server_setup import SetupResult, _setup_venv

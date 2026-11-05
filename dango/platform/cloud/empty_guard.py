@@ -53,7 +53,8 @@ def refuse_empty_mirrors(
         ):
             continue
         target = shlex.quote(f"{remote_project_dir}/{rel}")
-        probe = f'test -n "$(find {target} -type f -print -quit 2>/dev/null)"'
+        # cd / first: dango cannot enter the SSH user's (root's) working directory
+        probe = f'cd / && test -n "$(find {target} -type f -print -quit 2>/dev/null)"'
         if ssh.exec_command(f"{AS_DANGO} sh -c {shlex.quote(probe)}").exit_code == 0:
             raise CloudProvisioningError(
                 f"Local {rel}/ is empty but the server copy is not; rsync --delete would "
