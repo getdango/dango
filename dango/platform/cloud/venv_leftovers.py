@@ -62,8 +62,10 @@ def install_spacy_model(ssh: SSHManager, warnings: list[str], *, timeout: int) -
 
 
 def _server_is_idle(ssh: SSHManager) -> bool:
-    """True when no other upgrade guard is active and no venv build is running (else, or if
-    that cannot be told, False: the sweep is skipped)."""
+    """True when no other upgrade guard is active and no venv build is running.
+
+    False otherwise, and also when that cannot be told: the sweep then does not run.
+    """
     try:
         if ssh.exec_command(GUARD_ACTIVE_CMD, timeout=30).success:
             return False
