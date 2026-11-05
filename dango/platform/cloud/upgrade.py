@@ -181,7 +181,7 @@ def upgrade_dango(
 
     # 0. Never run a venv another user could write: check it as data first
     from dango.platform.cloud import runtime_ownership as ro
-    from dango.platform.cloud.venv_leftovers import remove_stale_venvs
+    from dango.platform.cloud.venv_leftovers import warn_stale_venvs
 
     try:
         untrusted = ro.venv_is_untrusted(ssh)
@@ -242,7 +242,7 @@ def upgrade_dango(
     # untrusted venv, or one on an older Python, is rebuilt at the target version
     python, outdated = sp.prepare_upgrade(ssh, warnings, old_version, target_version, untrusted)
     venv_rebuild: str | None = None
-    remove_stale_venvs(ssh, warnings)  # idle server only; before this run's guard and move-aside
+    warn_stale_venvs(ssh, warnings)  # read-only; before this run moves its own venv aside
     if untrusted or outdated:
         _notify(on_progress, "rebuild_venv", "running")
         guard.arm()  # the rebuild stops services; a dead client must not leave them down

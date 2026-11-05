@@ -1,20 +1,22 @@
 """dango/platform/cloud/venv_leftovers.py
 
-Best-effort steps around the server venv: the optional spaCy model and moved-aside old venvs.
+Best-effort steps around the server venv: the optional spaCy model and a warning about leftovers.
 
 Neither step may abort a deploy or an upgrade: a failure becomes a warning that names the
-exact command to run by hand.  The sweep only runs when no other upgrade or venv build is
-running, so it can never remove the venv a live rebuild moved aside to restore from.
+exact command to run by hand.  Dango never deletes a moved-aside venv itself: it only names
+the leftovers and the command an operator runs as root after checking.
 """
 
 from __future__ import annotations
 
+import re
 import shlex
 from typing import TYPE_CHECKING
 
+from rich.markup import escape
+
 from dango.exceptions import CloudError
 from dango.platform.cloud.runtime_ownership import ROOT_PYTHON, SRV_DIR, VENV_DIR
-from dango.platform.cloud.upgrade_guard import GUARD_ACTIVE_CMD
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -22,13 +24,6 @@ if TYPE_CHECKING:
 SPACY_MODEL = "en_core_web_sm"
 #: Name of a venv a rebuild moved aside (``<venv>.untrusted-<hex>``).
 STALE_VENV_GLOB = "venv.untrusted-*"
-#: Exit 0 while a venv build (pip, venv creation, spaCy download) is running on the server.
-#: The ``[x]`` brackets keep pgrep from matching the shell that runs this command.
-BUILD_RUNNING_CMD = (
-    'pgrep -f "[/]srv/dango/venv/bin/[p]ip install" >/dev/null || '
-    'pgrep -f "[-]m venv /srv/dango" >/dev/null || '
-    'pgrep -f "[-]m spacy download" >/dev/null'
-)
 #: Seconds before the SSH read timeout at which the server stops the spaCy download itself.
 _SPACY_MARGIN = 15
 
@@ -61,60 +56,50 @@ def install_spacy_model(ssh: SSHManager, warnings: list[str], *, timeout: int) -
     )
 
 
-def _server_is_idle(ssh: SSHManager) -> bool:
-    """True when no other upgrade guard is active and no venv build is running.
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+#: The name a rebuild gives the venv it moves aside (``venv.untrusted-`` + 12 hex digits).
+_OUR_NAME = re.compile(r"venv\.untrusted-[0-9a-f]{12}")
+_MAX_NAME = 120
 
-    False otherwise, and also when that cannot be told: the sweep then does not run.
+
+def _shown(name: str) -> str:
+    """*name* from the server made safe to print: control characters dropped, markup escaped."""
+    return escape(_CONTROL.sub("", name)[:_MAX_NAME])
+
+
+def warn_stale_venvs(ssh: SSHManager, warnings: list[str]) -> None:
+    """Add a warning naming ``venv.untrusted-*`` entries in ``/srv/dango`` (read-only).
+
+    An interrupted rebuild leaves its moved-aside venv there. Dango does not remove it: the
+    names come from a directory the service account could once write. For each name Dango
+    itself would have chosen the warning gives the exact ``rm -rf`` (no glob) for an operator
+    to run as root after checking that no upgrade is running; any other name is only listed.
+    Never raises.
     """
-    try:
-        if ssh.exec_command(GUARD_ACTIVE_CMD, timeout=30).success:
-            return False
-        return not ssh.exec_command(BUILD_RUNNING_CMD, timeout=30).success
-    except CloudError:
-        return False
-
-
-def remove_stale_venvs(ssh: SSHManager, warnings: list[str]) -> None:
-    """Remove ``venv.untrusted-*`` directories an interrupted rebuild left in ``/srv/dango``.
-
-    Skipped unless the server is idle (no other upgrade's guard, no venv build running):
-    a live rebuild keeps its old venv aside until it is verified. Only real directories owned
-    by root directly under ``/srv/dango`` are removed, and only while the current venv has its
-    ``dango`` script (otherwise a leftover may be the only copy). ``find`` does not follow
-    links; ``rm`` stays on one filesystem and nothing in them is executed. Anything of that
-    name that is kept (another owner, a link) is named in a warning. Never raises.
-    """
-    if not _server_is_idle(ssh):
-        return
-    pattern = shlex.quote(STALE_VENV_GLOB)
-    present = f'V={VENV_DIR}; [ -x "$V/bin/dango" ]'
     try:
         result = ssh.exec_command(
-            f"{present} && find {SRV_DIR} -maxdepth 1 -type d -uid 0 "
-            f"-name {pattern} -print -exec rm -rf --one-file-system -- {{}} +",
-            timeout=300,
+            f"find {SRV_DIR} -maxdepth 1 -name {shlex.quote(STALE_VENV_GLOB)} -print0 2>/dev/null",
+            timeout=60,
         )
-        names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-        left = ssh.exec_command(
-            f"{present} && find {SRV_DIR} -maxdepth 1 -name {pattern} -print", timeout=60
-        )
-    except CloudError as exc:
-        warnings.append(
-            f"Could not check {SRV_DIR} for venvs left by an interrupted rebuild "
-            f"({type(exc).__name__}); remove any {SRV_DIR}/{STALE_VENV_GLOB} as root."
-        )
+    except CloudError:
         return
-    if names and result.success:
-        warnings.append("Removed a venv left by an interrupted rebuild: " + ", ".join(names) + ".")
-    elif names:
-        warnings.append(
-            "Could not remove a venv left by an interrupted rebuild; as root, run: rm -rf "
-            + " ".join(shlex.quote(n) for n in names)
+    prefix = f"{SRV_DIR}/"
+    names = [p[len(prefix) :] for p in result.stdout.split("\0") if p.startswith(prefix)]
+    if not names:
+        return
+    ours = sorted(n for n in names if _OUR_NAME.fullmatch(n))
+    other = sorted(n for n in names if not _OUR_NAME.fullmatch(n))
+    parts = [
+        f"Old venv(s) found in {SRV_DIR}: "
+        + ", ".join(_shown(n) for n in sorted(names))
+        + ". They come from an interrupted rebuild (or from an upgrade that is still running) "
+        "and Dango does not remove them."
+    ]
+    if ours:
+        parts.append(
+            "Once you have checked that no upgrade is running and that you do not need them, "
+            "remove each as root: " + "; ".join(f"rm -rf {SRV_DIR}/{n}" for n in ours) + "."
         )
-    kept = [ln.strip() for ln in left.stdout.splitlines() if ln.strip() and ln.strip() not in names]
-    if kept:
-        warnings.append(
-            "Left in place (not removed: not a root-owned directory): "
-            + ", ".join(kept)
-            + ". Inspect them and, once you no longer need them, remove them as root."
-        )
+    if other:
+        parts.append("Inspect the entries with other names by hand before removing them.")
+    warnings.append(" ".join(parts))

@@ -4,12 +4,16 @@ Refuse a BYOS host whose ``/srv`` or ``/srv/dango`` the service account could co
 
 Setup runs root scripts over ``/srv/dango``.  If that directory (or ``/srv``) already exists
 and is owned by another user, is group/other-writable, carries an ACL, or is a link or file,
-those scripts would run over a tree the ``dango`` user can change.  Fresh hosts (path absent)
-and root-owned, closed directories without an ACL pass.  Runs before any other setup step.
+those scripts would run over a tree the ``dango`` user can change.  A root-owned
+``/srv/dango`` can still hold a venv the service account owns (for example one put back after
+a failed rebuild); the product's own venv trust probe refuses that too.  Fresh hosts (path
+absent) and root-owned, closed directories without an ACL, with a trusted venv, pass.  Runs
+before any other setup step.
 """
 
 from __future__ import annotations
 
+import re
 import shlex
 from typing import TYPE_CHECKING
 
@@ -67,6 +71,32 @@ def _refusal(path: str, listing: str) -> str:
     )
 
 
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _check_venv(ssh: SSHManager) -> None:
+    """Refuse a ``/srv/dango`` whose venv (or ``/``, ``/srv``, links out of it) is untrusted.
+
+    Uses the product's own probe, which only reads; it is not run on a fresh host, where
+    ``/srv/dango`` does not exist yet and the probe would report the missing path.
+    """
+    if not ssh.exec_command("test -d /srv/dango", timeout=30).success:
+        return
+    from dango.platform.cloud.runtime_ownership import venv_trust_findings
+
+    findings = venv_trust_findings(ssh)
+    if not findings:
+        return
+    shown = "; ".join(_CONTROL.sub("", f)[:200] for f in findings[:3])
+    raise CloudProvisioningError(
+        "Server setup stopped before changing anything: /srv/dango already holds a venv, or "
+        f"sits on paths, that the dango user can change ({shown}). Root setup would run it. "
+        "To update an existing Dango server use `dango remote upgrade`. For a new server use "
+        "a fresh host, or have root move /srv/dango aside (mv /srv/dango /srv/dango.old) "
+        "after checking it, and run `dango deploy` again."
+    )
+
+
 def check_srv_dango(ssh: SSHManager) -> None:
     """Raise :class:`CloudProvisioningError` unless ``/srv`` and ``/srv/dango`` are safe.
 
@@ -76,6 +106,7 @@ def check_srv_dango(ssh: SSHManager) -> None:
     """
     result = ssh.exec_command(f"sh -c {shlex.quote(preflight_script())}", timeout=30)
     if result.success:
+        _check_venv(ssh)
         return
     if result.exit_code != EXIT_UNSAFE:
         raise CloudProvisioningError(
