@@ -61,13 +61,20 @@ def make_loader(cfg: Any) -> MagicMock:
 
 
 def make_ssh(
-    env_text: str = "", toml_text: str = "", *, run_stdout: str = "", timer: str = "active"
+    env_text: str = "",
+    toml_text: str = "",
+    *,
+    run_stdout: str = "",
+    timer: str = "active",
+    version: str = "1.0.14",
 ) -> Any:
     """An SSH stand-in: answers the .env / secrets.toml reads, the timer check and anything else."""
     ssh = MagicMock()
     ssh.connect.return_value = ssh
 
     def exec_command(command: str, *_a: object, **_k: object) -> CommandResult:
+        if "import dango" in command:  # the server's Dango version
+            return CommandResult(stdout=version + "\n", stderr="", exit_code=0)
         if "is-active" in command:
             return CommandResult(
                 stdout=timer + "\n", stderr="", exit_code=0 if timer == "active" else 3
