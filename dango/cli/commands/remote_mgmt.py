@@ -259,6 +259,12 @@ def remote_status(ctx: click.Context) -> None:
             Panel("  [yellow]No backups found[/yellow]", title="Backup", border_style="yellow")
         )
 
+    # --- Droplets this project does not track (DigitalOcean only) ---
+    if cloud_cfg.provider != "byos":
+        from dango.cli.commands.orphan_notice import warn_untracked_droplets
+
+        warn_untracked_droplets(project_root)
+
 
 # ---------------------------------------------------------------------------
 # history command

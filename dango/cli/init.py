@@ -752,7 +752,7 @@ independently
 
 - **Default droplet:** `s-2vcpu-4gb` (2 vCPUs, 4 GB RAM) on DigitalOcean
 - **Resize:** `dango remote resize` to scale up without data loss
-- **Migrate:** `dango remote migrate` to move to a different region
+- **Moving servers:** `dango remote migrate` is switched off in 1.0.14; run it for the manual steps (backup, destroy, redeploy, restore)
 
 ## When to Consider Alternatives
 
