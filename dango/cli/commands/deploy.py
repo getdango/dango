@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.commands import backup_notices
@@ -383,11 +384,11 @@ def _print_deploy_success(
             "Run [bold]dango remote backup download[/bold] to save a local copy."
         )
     elif byos:
-        console.print(
-            "\n  [yellow]Backups:[/yellow] Not configured. Backups are stored on this "
-            "server only — if the server is lost, so are your backups. "
-            "See https://docs.getdango.dev/deployment/backups for BYOS backup options."
-        )
+        console.print()
+        for number, text in enumerate(backup_notices.byos_deploy_notice_lines()):
+            style = "yellow" if number == 0 else "dim"
+            console.print(f"  [{style}]{escape(text)}[/{style}]", highlight=False, soft_wrap=True)
+        console.print("  See https://docs.getdango.dev/deployment/backups for BYOS backup options.")
     else:
         console.print(
             "\n  [yellow]Backups:[/yellow] Not configured. Backups are stored on this "

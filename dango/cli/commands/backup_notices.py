@@ -7,6 +7,7 @@ What the CLI tells the user about where backups are and what they do not hold.
 - ``print_secrets_reminder``: before ``deploy destroy``, ``remote resize`` and ``remote backup
   restore``, that ``.env`` and ``.dlt/secrets.toml`` are not in backups (names only).
 - ``print_reenter``: after a download or restore, which secrets to re-enter.
+- ``byos_deploy_notice_lines``: the backup notice at the end of ``dango deploy --byos``.
 """
 
 from __future__ import annotations
@@ -179,6 +180,16 @@ def backup_status_lines(ssh: Any) -> list[str]:
         else "  Scheduled backups: not enabled (run [bold]dango remote backup enable[/bold])"
     )
     return lines
+
+
+def byos_deploy_notice_lines() -> list[str]:
+    """Plain lines for the end of a BYOS deploy: backups stay on the server, secrets are not in them."""
+    command = DOWNLOAD_HINT.replace("<file>", "./backup.tar.gz")
+    return [
+        "Backups: not configured. BYOS backups live only on this server and are lost with it.",
+        f"  To keep a copy: {command}",
+        "  Secrets (.env and .dlt/secrets.toml) are not in backups by default.",
+    ]
 
 
 def secrets_reminder_lines(names: list[str] | None, *, byos: bool) -> list[str]:

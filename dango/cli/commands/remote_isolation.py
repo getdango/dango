@@ -329,7 +329,7 @@ def isolation_status(ctx: click.Context) -> None:
             f"Opt-out recorded by: {escape(status.disabled_by or '?')} at "
             f"{escape(status.disabled_at or '?')}"
         )
-    console.print(f"Loopback: {status.loopback}")
+    console.print(f"Loopback: {'unknown' if status.state == 'unsupported' else status.loopback}")
     console.print("Runner pieces:")
     console.print(f"  Runner users: {status.users or 'unknown'} of 2 present")
     console.print(f"  Sudoers rule: {yes_no[status.sudoers]}")

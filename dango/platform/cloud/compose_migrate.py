@@ -424,7 +424,10 @@ def prebuild_images(
     if not helper_branch_active(ssh):
         raise CloudProvisioningError(
             "Docker image build did not run: the verified Metabase build needs the compose "
-            f"helper, which is not enabled on this server. {_DEPLOY_RETRY}"
+            "helper, which is not enabled on this server. If a tool is missing there (for "
+            "example flock, from util-linux), install it on the server and run "
+            "`dango remote upgrade`. If .dango/cloud.yml is gone (a failed DigitalOcean deploy "
+            "removes it with its server), run `dango deploy` again."
         )
     reason = _pin_and_render(ssh, warnings, recovery)
     if reason is None:
