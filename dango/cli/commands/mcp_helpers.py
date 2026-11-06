@@ -135,9 +135,9 @@ def _infer_layer(model_name: str, file_path: str | None = None) -> str:
 def _validate_select_only(sql: str) -> None:
     """Validate that *sql* is a single SELECT (or WITH ... SELECT) statement.
 
-    Uses sqlglot for AST-level validation when available (mirrors
-    dango/web/routes/query.py's `_validate_sql`), falling back to a keyword +
-    multi-statement heuristic otherwise. Raises ValueError on rejection.
+    Uses sqlglot for AST-level validation (mirrors dango/web/routes/query.py's
+    `_validate_sql`) and fails closed if sqlglot cannot be imported. Raises
+    ValueError on rejection.
     """
     if not sql.strip():
         raise ValueError("SQL query is empty")
@@ -146,13 +146,7 @@ def _validate_select_only(sql: str) -> None:
         import sqlglot
         import sqlglot.expressions as exp
     except ImportError:
-        first_keyword = sql.strip().split()[0].upper()
-        if first_keyword not in ("SELECT", "WITH"):
-            raise ValueError("Only SELECT queries are allowed") from None
-        stripped = sql.strip().rstrip(";").strip()
-        if ";" in stripped:
-            raise ValueError("Multiple SQL statements are not allowed") from None
-        return
+        raise ValueError("SQL validation is unavailable (sqlglot is not installed)") from None
 
     try:
         statements = [s for s in sqlglot.parse(sql, dialect="duckdb") if s is not None]
@@ -168,7 +162,12 @@ def _validate_select_only(sql: str) -> None:
 
 
 def _connect_readonly_with_retry(db_path: Path) -> Any:
-    """Open a read-only DuckDB connection, retrying briefly on IOException.
+    """Open a locked, read-only DuckDB connection, retrying briefly on IOException.
+
+    The connection comes from dango.utils.query_connection: external access
+    (files, URLs, extensions, ATTACH) is off and configuration is locked; the
+    memory limit is api.query_memory_limit of the project that owns *db_path*
+    (<project>/data/warehouse.duckdb, as every caller builds it).
 
     DuckDB is single-writer (see VAL-003 finding); a concurrent sync can
     transiently hold the write lock even though read-only connections are
@@ -179,10 +178,13 @@ def _connect_readonly_with_retry(db_path: Path) -> Any:
 
     import duckdb
 
+    from dango.utils.query_connection import open_locked_query_connection
+
+    memory_limit = _get_query_memory_limit(Path(db_path).parent.parent)
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            return duckdb.connect(str(db_path), read_only=True)
+            return open_locked_query_connection(db_path, memory_limit=memory_limit)
         except duckdb.IOException as e:
             last_exc = e
             if attempt < 2:
@@ -204,6 +206,26 @@ def _get_query_timeout_seconds(project_root: Path) -> float:
         return config.api.query_timeout_seconds
     except Exception:
         return 30
+
+
+def _get_query_memory_limit(project_root: Path) -> str:
+    """Read api.query_memory_limit from project.yml (sibling of
+    `_get_query_timeout_seconds`). Never fails the query over config trouble:
+    an unreadable project.yml or an invalid value falls back to "1GB" and logs
+    a warning via stdlib logging (never stdout, which is MCP's JSON-RPC channel).
+    """
+    try:
+        from dango.config.helpers import load_config
+
+        return load_config(project_root).api.query_memory_limit
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "query_memory_limit_config_unreadable (%s); using the 1GB default",
+            type(exc).__name__,
+        )
+        return "1GB"
 
 
 def _execute_query_on_connection(conn: Any, sql: str, row_limit: int) -> dict[str, Any]:

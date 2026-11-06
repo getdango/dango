@@ -81,7 +81,10 @@ class TestMaterializeFreshInstall:
         _write_project(tmp_path)
 
         materialize_pipeline_health(tmp_path)
-        materialize_pipeline_health(tmp_path)  # should not raise
+        # does-not-raise: second run is idempotent and leaves the tables in place
+        assert materialize_pipeline_health(tmp_path) is None
+        for table in ("sync_history", "dbt_test_results", "source_overview"):
+            assert _query(tmp_path, f"SELECT COUNT(*) FROM {SCHEMA}.{table}") == [(0,)]
 
 
 @pytest.mark.unit
@@ -234,7 +237,9 @@ class TestMaterializeDbtTestResults:
         target_dir.mkdir(parents=True)
         (target_dir / "run_results.json").write_text("not json{{{")
 
-        materialize_pipeline_health(tmp_path)  # should not raise
+        # does-not-raise: malformed run_results.json is tolerated, no results recorded
+        assert materialize_pipeline_health(tmp_path) is None
+        assert _query(tmp_path, f"SELECT * FROM {SCHEMA}.dbt_test_results") == []
 
 
 @pytest.mark.unit
@@ -314,8 +319,10 @@ class TestDashboardQueriesSql:
 
         conn = duckdb.connect(str(tmp_path / "data" / "warehouse.duckdb"), read_only=True)
         try:
+            assert DASHBOARD_QUERIES
             for _key, query_def in DASHBOARD_QUERIES.items():
-                conn.execute(query_def["sql"]).fetchall()  # must not raise
+                # does-not-raise: every dashboard query runs against empty tables
+                assert isinstance(conn.execute(query_def["sql"]).fetchall(), list)
         finally:
             conn.close()
 

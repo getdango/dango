@@ -92,7 +92,9 @@ class TestRotateJsonlLog:
 
     def test_nonexistent_file_is_noop(self, tmp_path: Path) -> None:
         log = tmp_path / "missing.jsonl"
-        rotate_jsonl_log(log)  # should not raise
+        # does-not-raise: missing file is a no-op and creates nothing
+        assert rotate_jsonl_log(log) is None
+        assert list(tmp_path.iterdir()) == []
 
     def test_archive_content_matches_original(self, tmp_path: Path) -> None:
         log = tmp_path / "audit.jsonl"
@@ -197,8 +199,10 @@ class TestCleanupOldArchives:
         with patch(
             "dango.utils.log_rotation._cleanup_old_archives_impl",
             side_effect=OSError("fail"),
-        ):
-            cleanup_old_archives(tmp_path, "*.gz")  # should not raise
+        ) as mock_impl:
+            # does-not-raise: the impl failure is swallowed
+            cleanup_old_archives(tmp_path, "*.gz")
+        mock_impl.assert_called_once()
 
     def test_deletes_counter_suffixed_old_archives(self, tmp_path: Path) -> None:
         # Counter-suffixed archive from same-day collision (e.g. audit.20250101_1.jsonl.gz)
@@ -212,7 +216,8 @@ class TestCleanupOldArchives:
         assert not old_archive.exists()
 
     def test_noop_on_missing_directory(self) -> None:
-        cleanup_old_archives(Path("/nonexistent/dir"), "*.gz")
+        # does-not-raise: missing directory is a no-op
+        assert cleanup_old_archives(Path("/nonexistent/dir"), "*.gz") is None
 
 
 @pytest.mark.unit

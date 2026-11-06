@@ -11,6 +11,7 @@ Reuses all startup helpers from ``dango.platform.common.startup``.
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -21,11 +22,15 @@ import click
 
 
 @click.command()
-@click.option("--host", default="0.0.0.0", help="Bind address (default: 0.0.0.0)")
+@click.option(
+    "--host",
+    default=None,
+    help="Bind address (default: 127.0.0.1 when DANGO_CLOUD_MODE=true, else 0.0.0.0)",
+)
 @click.option("--port", default=None, type=int, help="Port (default: config value or 8800)")
 @click.option("--workers", default=None, type=int, help="Number of uvicorn workers (default: 1)")
 @click.pass_context
-def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) -> None:
+def serve(ctx: click.Context, host: str | None, port: int | None, workers: int | None) -> None:
     """Run Dango in production server mode (foreground).
 
     Intended for use under systemd on a cloud server.  Runs all startup
@@ -35,7 +40,8 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
     Unlike ``dango start``, this command:
 
     \b
-      - Binds to 0.0.0.0 (all interfaces)
+      - Binds to 0.0.0.0 (all interfaces), or 127.0.0.1 on a cloud server
+        (DANGO_CLOUD_MODE=true), where Caddy is the public entry point
       - Runs uvicorn in the foreground (no PID file)
       - Does not open a browser or start the file watcher
       - Minimal console output (no Rich formatting)
@@ -45,6 +51,7 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
         complete_metabase_credential_migration,
     )
     from dango.platform.common.startup import (
+        apply_metabase_duckdb_lock_if_needed,
         check_duckdb_version_alignment,
         cleanup_stale_dbt_lock,
         ensure_dbt_schemas,
@@ -120,19 +127,33 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
         print(f"Schema setup failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
-    # 3. DuckDB driver — non-fatal if JAR already exists (BUG-124: synced from local)
+    # 3. DuckDB driver. BUG-124: a jar synced from local may satisfy startup when the
+    # network is unavailable, but only if its bytes match the pinned digest.
     try:
         ensure_duckdb_driver(project_root)
     except Exception as exc:
-        driver_jar = project_root / "metabase-plugins" / "duckdb.metabase-driver.jar"
-        if driver_jar.is_file():
+        from dango.utils.driver import (
+            DRIVER_JAR_NAME,
+            DriverFilesystemError,
+            DriverIntegrityError,
+            verify_driver_jar,
+        )
+
+        driver_jar = project_root / "metabase-plugins" / DRIVER_JAR_NAME
+        if not isinstance(exc, DriverIntegrityError) and verify_driver_jar(driver_jar):
             print(
-                f"WARNING: DuckDB driver download failed ({exc}), "
-                "but driver JAR exists (synced from local). Continuing.",
+                f"WARNING: DuckDB driver check failed ({exc}), but the cached driver "
+                "matches the pinned checksum. Continuing.",
                 file=sys.stderr,
             )
         else:
-            print(f"DuckDB driver download failed: {exc}", file=sys.stderr)
+            if isinstance(exc, DriverIntegrityError):
+                label = "integrity verification failed"
+            elif isinstance(exc, DriverFilesystemError):
+                label = "could not be written locally"
+            else:
+                label = "download failed"
+            print(f"DuckDB driver {label}: {exc}", file=sys.stderr)
             raise SystemExit(1) from exc
 
     # 4. Docker services
@@ -241,6 +262,13 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
             file=sys.stderr,
         )
 
+    # 5b. Restrict Metabase's DuckDB connection to the warehouse file (once; non-fatal).
+    # After the credential migration above: its login must not use a stale credential.
+    try:
+        apply_metabase_duckdb_lock_if_needed(project_root)
+    except Exception:
+        pass
+
     # 6. Dashboard import (non-critical)
     try:
         import_dashboards(project_root)
@@ -248,7 +276,9 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
         pass
 
     # H4: Check port availability before starting uvicorn
-    _check_port(effective_port)
+    if host is None:
+        host = _default_host()
+    _check_port(effective_port, host)
 
     if watch_credential:
         # The login check needs a healthy Metabase, which is usually still booting here.
@@ -258,8 +288,6 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
         ).start()
 
     # Set project root env var so uvicorn workers can resolve it on import
-    import os
-
     os.environ["DANGO_PROJECT_ROOT"] = str(project_root)
 
     # H3: Wrap uvicorn in try/finally for Docker cleanup
@@ -282,14 +310,19 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
         _stop_docker_quiet(project_root)
 
 
-def _check_port(port: int) -> None:
-    """Exit with a clean error if *port* is already in use."""
+def _default_host() -> str:
+    """Loopback on a cloud server (Caddy is the public entry point), else all interfaces."""
+    return "127.0.0.1" if os.environ.get("DANGO_CLOUD_MODE") == "true" else "0.0.0.0"
+
+
+def _check_port(port: int, host: str = "0.0.0.0") -> None:
+    """Exit with a clean error if *port* is already in use on *host*."""
     import socket
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            s.bind(("0.0.0.0", port))
+            s.bind((host, port))
         except OSError:
             print(f"Port {port} is already in use", file=sys.stderr)
             raise SystemExit(1) from None

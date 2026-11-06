@@ -687,7 +687,11 @@ def check_service_via_http(service_name: str) -> str:
 
 
 def check_service_via_docker(service_name: str) -> str:
-    """Check service via Docker command (fast on Mac/Linux)."""
+    """Check service via Docker command (fast on Mac/Linux); HTTP on helper servers."""
+    from dango.platform.compose_exec import uses_helper
+
+    if uses_helper():  # dango has no Docker access there, and sudo per poll is noise
+        return check_service_via_http(service_name)
     try:
         result = subprocess.run(
             ["docker", "ps", "--filter", f"name={service_name}", "--format", "{{.Status}}"],

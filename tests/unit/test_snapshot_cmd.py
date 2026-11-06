@@ -5,7 +5,6 @@ Tests for dango.cli.commands.snapshot — dbt snapshot commands.
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,15 +15,9 @@ class TestSnapshotTemplate:
     """Test that the Jinja2 template renders valid dbt snapshot SQL."""
 
     def _render(self, **kwargs):
-        import jinja2
+        from dango.cli.commands.snapshot import _render_snapshot
 
-        templates_dir = Path(__file__).parent.parent.parent / "dango" / "templates" / "dbt"
-        env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(str(templates_dir)),
-            keep_trailing_newline=True,
-        )
-        template = env.get_template("snapshot.sql.j2")
-        return template.render(**kwargs)
+        return _render_snapshot(**kwargs)
 
     def test_timestamp_strategy(self):
         rendered = self._render(

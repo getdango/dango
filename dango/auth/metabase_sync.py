@@ -466,10 +466,18 @@ def delete_metabase_user(
         return False
 
 
-def ensure_duckdb_readonly(project_root: Path, metabase_url: str) -> bool:
-    """Set the DuckDB database to read-only mode in Metabase."""
+def ensure_duckdb_readonly(
+    project_root: Path, metabase_url: str, session_id: str | None = None
+) -> bool:
+    """Make Metabase's DuckDB connection read-only and restricted to the warehouse file.
+
+    One GET, merge, and a PUT only when the details change. Returns True when the connection is
+    in the desired state afterwards.
+    """
+    from dango.visualization.metabase_connection_lock import locked_duckdb_details
+
     try:
-        session = _get_admin_session(metabase_url, project_root)
+        session = session_id or _get_admin_session(metabase_url, project_root)
         if session is None:
             return False
         db_id = _get_database_id(project_root)
@@ -478,18 +486,20 @@ def ensure_duckdb_readonly(project_root: Path, metabase_url: str) -> bool:
         db_resp = _mb_get(metabase_url, session, f"/api/database/{db_id}")
         if not isinstance(db_resp, dict):
             return False
-        details = db_resp.get("details", {})
-        if not isinstance(details, dict):
-            details = {}
-        details["read_only"] = True
+        current = db_resp.get("details", {})
+        if not isinstance(current, dict):
+            current = {}
+        details = locked_duckdb_details({**current, "read_only": True})
+        if details == current:
+            return True
         db_resp["details"] = details
         result = _mb_put(metabase_url, session, f"/api/database/{db_id}", db_resp)
         if result is not None:
-            logger.info("Set DuckDB database %s to read-only", db_id)
+            logger.info("Restricted DuckDB database %s to read-only warehouse access", db_id)
             return True
         return False
     except Exception:
-        logger.exception("Failed to set DuckDB read-only mode")
+        logger.exception("Failed to restrict the Metabase DuckDB connection")
         return False
 
 

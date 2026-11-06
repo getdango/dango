@@ -10,7 +10,7 @@ Jinja2 templates and Dockerfiles used by CLI project scaffolding and dbt model g
 |------|---------|----------------------|
 | `__init__.py` | Package marker | — |
 | `docker-compose.yml.j2` | Jinja2 template for Docker Compose config | Rendered by `cli/init.py` |
-| `Dockerfile.metabase` | Metabase container image | Copied by `cli/init.py` |
+| `Dockerfile.metabase` | Metabase container image; the jar `ADD` carries `--checksum=sha256:` and a `RUN ... sha256sum -c -` line follows it, because the classic builder ignores the flag (a custom `MB_VERSION` needs its own digest on both; on cloud servers the digest comes from the root-owned pin, see `platform/cloud/metabase_pin.py`) | Copied by `cli/init.py` |
 | `entrypoint.sh` | Metabase container entrypoint — fixes bind-mounted plugin dir ownership, drops to metabase user via gosu | Copied by `cli/init.py` |
 | `nginx.conf.j2` | Jinja2 template for nginx reverse proxy config | Not yet consumed (placeholder) |
 | `dbt/sources.yml.j2` | dbt source definition template | Rendered by `transformation/generator.py` |

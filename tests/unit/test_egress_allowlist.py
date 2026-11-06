@@ -16,6 +16,8 @@ from typing import Any
 import pytest
 import yaml
 
+from tests.factories.driver_fakes import GOOD_JAR, pin_driver
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EGRESS_DOC = REPO_ROOT / "docs" / "network-egress.yml"
 
@@ -221,7 +223,8 @@ class TestLiveEgressDetection:
         # make an informational CI job flaky for zero detection benefit.
         plugins_dir = tmp_path / "metabase-plugins"
         plugins_dir.mkdir(parents=True, exist_ok=True)
-        (plugins_dir / "duckdb.metabase-driver.jar").write_bytes(b"test-driver-stub")
+        pin_driver(monkeypatch)
+        (plugins_dir / "duckdb.metabase-driver.jar").write_bytes(GOOD_JAR)
         (plugins_dir / ".driver-version").write_text(METABASE_DUCKDB_DRIVER_VERSION + "\n")
 
         allowed = _documented_hosts()
@@ -372,7 +375,8 @@ class TestLiveEgressDetection:
         # download during init, out of scope for what this test detects.
         plugins_dir = tmp_path / "metabase-plugins"
         plugins_dir.mkdir(parents=True, exist_ok=True)
-        (plugins_dir / "duckdb.metabase-driver.jar").write_bytes(b"test-driver-stub")
+        pin_driver(monkeypatch)
+        (plugins_dir / "duckdb.metabase-driver.jar").write_bytes(GOOD_JAR)
         (plugins_dir / ".driver-version").write_text(METABASE_DUCKDB_DRIVER_VERSION + "\n")
 
         init_project(tmp_path, skip_wizard=True)

@@ -34,7 +34,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
     """
     import subprocess
 
-    from dango.transformation import _dbt_telemetry_env
+    from dango.transformation import _dbt_telemetry_env, _get_dbt_executable
     from dango.transformation.build_finalize import finalize_dbt_build
     from dango.utils import DbtLock, DbtLockError
 
@@ -51,7 +51,14 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
             raise click.Abort()
 
         # Build dbt command
-        cmd = ["dbt", "build", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)]
+        cmd = [
+            _get_dbt_executable(),
+            "build",
+            "--project-dir",
+            str(dbt_dir),
+            "--profiles-dir",
+            str(dbt_dir),
+        ]
         if dbt_args:
             # Filter out --yes/-y flags that dbt doesn't accept
             filtered_args = [a for a in dbt_args if a not in ("--yes", "-y")]
@@ -152,7 +159,7 @@ def docs(ctx: click.Context) -> None:
     import subprocess
 
     from dango.config import ConfigLoader
-    from dango.transformation import _dbt_telemetry_env
+    from dango.transformation import _dbt_telemetry_env, _get_dbt_executable
 
     from ..utils import require_project_context
 
@@ -169,7 +176,7 @@ def docs(ctx: click.Context) -> None:
 
         # Build dbt command
         cmd = [
-            "dbt",
+            _get_dbt_executable(),
             "docs",
             "generate",
             "--project-dir",

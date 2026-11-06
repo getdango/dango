@@ -83,7 +83,8 @@ class TestBackupHelpers:
         ssh = make_ssh_mock_configurable(
             exec_results={"df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0)}
         )
-        _check_disk_space(ssh)  # Should not raise
+        # does-not-raise: 20000 MB free is sufficient
+        assert _check_disk_space(ssh) is None
 
     def test_check_disk_space_insufficient(self):
         """Raises CloudProvisioningError when disk space is low."""
@@ -218,6 +219,7 @@ class TestCreateBackup:
                 "df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0),
                 "test -f": ("", "", 0),
                 "docker volume inspect": ("/var/lib/docker/vol/_data", "", 0),
+                "mktemp -d": ("/tmp/dango-backup.Ab3dE6fG\n", "", 0),
                 "import dango": ("0.1.1", "", 0),
                 "find /tmp": ("", "", 0),
                 "ls -1t": ("", "", 0),
@@ -241,7 +243,7 @@ class TestCreateBackup:
                 "df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0),
                 "test -f": ("", "", 0),
                 "docker volume inspect": ("/var/lib/docker/vol/_data", "", 0),
-                "mkdir -p /tmp/backup": ("", "disk full", 1),
+                "mktemp -d": ("", "disk full", 1),
             }
         )
 
@@ -264,6 +266,7 @@ class TestCreateBackup:
                 "test -f /srv/dango/project/data/warehouse.duckdb": ("", "", 1),
                 "test -f /srv/dango/project/.dango/auth.db": ("", "", 1),
                 "docker volume inspect": ("", "not found", 1),
+                "mktemp -d": ("/tmp/dango-backup.Ab3dE6fG\n", "", 0),
                 "import dango": ("0.1.1", "", 0),
                 "find /tmp": ("", "", 0),
                 "ls -1t": ("", "", 0),
@@ -285,6 +288,7 @@ class TestCreateBackup:
                 "df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0),
                 "test -f": ("", "", 0),
                 "docker volume inspect": ("/var/lib/docker/vol/_data", "", 0),
+                "mktemp -d": ("/tmp/dango-backup.Ab3dE6fG\n", "", 0),
                 "import dango": ("0.1.1", "", 0),
                 "find /tmp": ("", "", 0),
                 "ls -1t": ("", "", 0),
@@ -399,8 +403,8 @@ class TestRollback:
         with pytest.raises(CloudProvisioningError, match="not found"):
             rollback(ssh, backup_path="/srv/dango/backups/deploy/nonexistent.tar.gz")
 
-    def test_services_restarted_on_failure(self):
-        """Services are restarted even when extraction fails."""
+    def test_services_untouched_when_extraction_fails(self):
+        """A failed extraction stops nothing: the archive is checked before services stop."""
         from dango.platform.cloud.backup import rollback
 
         ssh = make_ssh_mock_configurable(
@@ -419,9 +423,8 @@ class TestRollback:
         with pytest.raises(CloudProvisioningError):
             rollback(ssh)
 
-        # Verify services were restarted
         cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
-        assert any("systemctl start dango-web" in cmd for cmd in cmds)
+        assert not any("systemctl" in cmd for cmd in cmds)
 
 
 @pytest.mark.unit

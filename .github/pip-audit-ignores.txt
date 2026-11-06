@@ -1,0 +1,6 @@
+# pip-audit advisories accepted in CI. One per line: `ID  # reason, expires YYYY-MM-DD`.
+# scripts/check_audit_ignores.py fails the Security job once a date passes (or is >90 days out).
+# Re-test an entry with `pip-audit --ignore-vuln <ID>` before renewing; delete it when no longer reported.
+CVE-2026-32274  # black (dev-only) <26.3.1; fix needs pathspec>=1.0 but dbt-core pins pathspec<0.13, expires 2027-01-15
+PYSEC-2026-2120  # black (dev-only) <26.3.0; same pathspec conflict, not shipped in the wheel, expires 2027-01-15
+CVE-2026-114134  # black (dev-only) 25.12.0: only affects the psf/black GitHub Action with use_pyproject (we do not use it); fix 26.10.1 needs pathspec>=1.0, blocked by dbt-core pin, expires 2027-01-15

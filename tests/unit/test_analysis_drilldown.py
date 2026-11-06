@@ -40,7 +40,8 @@ class TestQueryDimensionBreakdown:
     """_query_dimension_breakdown GROUP BY queries."""
 
     @patch("dango.analysis.drilldown.duckdb")
-    def test_builds_group_by_sql(self, mock_duckdb, tmp_path):
+    @patch("dango.utils.query_connection.open_locked_query_connection")
+    def test_builds_group_by_sql(self, mock_open, mock_duckdb, tmp_path):
         """SQL includes GROUP BY dimension with filter."""
         metric = _make_metric(filter="status = 'active'")
         mock_conn = MagicMock()
@@ -48,7 +49,7 @@ class TestQueryDimensionBreakdown:
             ("Widget", 100.0),
             ("Gadget", 50.0),
         ]
-        mock_duckdb.connect.return_value = mock_conn
+        mock_open.return_value = mock_conn
         mock_duckdb.Error = Exception
 
         result = _query_dimension_breakdown(tmp_path / "warehouse.duckdb", metric, "product")
@@ -60,7 +61,8 @@ class TestQueryDimensionBreakdown:
         assert result == {"Widget": 100.0, "Gadget": 50.0}
 
     @patch("dango.analysis.drilldown.duckdb")
-    def test_null_dimension_value(self, mock_duckdb, tmp_path):
+    @patch("dango.utils.query_connection.open_locked_query_connection")
+    def test_null_dimension_value(self, mock_open, mock_duckdb, tmp_path):
         """DuckDB returning NULL dimension value stored as None key."""
         metric = _make_metric()
         mock_conn = MagicMock()
@@ -68,7 +70,7 @@ class TestQueryDimensionBreakdown:
             (None, 100.0),
             ("Widget", 50.0),
         ]
-        mock_duckdb.connect.return_value = mock_conn
+        mock_open.return_value = mock_conn
         mock_duckdb.Error = Exception
 
         result = _query_dimension_breakdown(tmp_path / "warehouse.duckdb", metric, "region")
@@ -77,23 +79,25 @@ class TestQueryDimensionBreakdown:
         assert result["Widget"] == 50.0
 
     @patch("dango.analysis.drilldown.duckdb")
-    def test_handles_duckdb_error(self, mock_duckdb, tmp_path):
+    @patch("dango.utils.query_connection.open_locked_query_connection")
+    def test_handles_duckdb_error(self, mock_open, mock_duckdb, tmp_path):
         """DuckDB error returns empty dict."""
         metric = _make_metric()
         mock_duckdb.Error = Exception
-        mock_duckdb.connect.side_effect = Exception("Connection failed")
+        mock_open.side_effect = Exception("Connection failed")
 
         result = _query_dimension_breakdown(tmp_path / "warehouse.duckdb", metric, "product")
 
         assert result == {}
 
     @patch("dango.analysis.drilldown.duckdb")
-    def test_empty_result(self, mock_duckdb, tmp_path):
+    @patch("dango.utils.query_connection.open_locked_query_connection")
+    def test_empty_result(self, mock_open, mock_duckdb, tmp_path):
         """Empty fetchall returns empty dict."""
         metric = _make_metric()
         mock_conn = MagicMock()
         mock_conn.execute.return_value.fetchall.return_value = []
-        mock_duckdb.connect.return_value = mock_conn
+        mock_open.return_value = mock_conn
         mock_duckdb.Error = Exception
 
         result = _query_dimension_breakdown(tmp_path / "warehouse.duckdb", metric, "product")
@@ -101,7 +105,8 @@ class TestQueryDimensionBreakdown:
         assert result == {}
 
     @patch("dango.analysis.drilldown.duckdb")
-    def test_null_metric_value_defaults_to_zero(self, mock_duckdb, tmp_path):
+    @patch("dango.utils.query_connection.open_locked_query_connection")
+    def test_null_metric_value_defaults_to_zero(self, mock_open, mock_duckdb, tmp_path):
         """NULL aggregated value (row[1]) defaults to 0.0."""
         metric = _make_metric()
         mock_conn = MagicMock()
@@ -109,7 +114,7 @@ class TestQueryDimensionBreakdown:
             ("Widget", None),
             ("Gadget", 50.0),
         ]
-        mock_duckdb.connect.return_value = mock_conn
+        mock_open.return_value = mock_conn
         mock_duckdb.Error = Exception
 
         result = _query_dimension_breakdown(tmp_path / "warehouse.duckdb", metric, "product")
@@ -210,13 +215,14 @@ class TestStoreSnapshot:
         """Storage error does not propagate."""
         mock_connect.side_effect = Exception("DB locked")
 
-        # Should not raise
+        # does-not-raise: storage failure is swallowed; the error path was actually reached
         _store_snapshot(
             MagicMock(),
             "revenue",
             "product",
             {"Widget": 100.0},
         )
+        mock_connect.assert_called_once()
 
 
 @pytest.mark.unit
@@ -321,12 +327,13 @@ class TestRunDrillDown:
     """run_drill_down orchestration tests."""
 
     @patch("dango.analysis.drilldown.duckdb")
-    def test_runs_all_dimensions(self, mock_duckdb, tmp_path):
+    @patch("dango.utils.query_connection.open_locked_query_connection")
+    def test_runs_all_dimensions(self, mock_open, mock_duckdb, tmp_path):
         """Metric with 2 drill_down dims produces 2 DrillDownDimension results."""
         metric = _make_metric(drill_down=["product", "region"])
         mock_conn = MagicMock()
         mock_conn.execute.return_value.fetchall.return_value = [("Widget", 100.0)]
-        mock_duckdb.connect.return_value = mock_conn
+        mock_open.return_value = mock_conn
         mock_duckdb.Error = Exception
 
         result = run_drill_down(tmp_path / "warehouse.duckdb", tmp_path, metric)
@@ -336,7 +343,8 @@ class TestRunDrillDown:
         assert result[1].dimension == "region"
 
     @patch("dango.analysis.drilldown.duckdb")
-    def test_empty_drill_down_list(self, mock_duckdb, tmp_path):
+    @patch("dango.utils.query_connection.open_locked_query_connection")
+    def test_empty_drill_down_list(self, mock_open, mock_duckdb, tmp_path):
         """No dimensions configured returns empty result."""
         metric = _make_metric(drill_down=[])
 
@@ -345,11 +353,12 @@ class TestRunDrillDown:
         assert result == []
 
     @patch("dango.analysis.drilldown.duckdb")
-    def test_stores_and_compares_snapshots(self, mock_duckdb, tmp_path):
+    @patch("dango.utils.query_connection.open_locked_query_connection")
+    def test_stores_and_compares_snapshots(self, mock_open, mock_duckdb, tmp_path):
         """Second run produces contributors by comparing against stored snapshot."""
         metric = _make_metric(drill_down=["product"])
         mock_conn = MagicMock()
-        mock_duckdb.connect.return_value = mock_conn
+        mock_open.return_value = mock_conn
         mock_duckdb.Error = Exception
 
         # First run: Widget=100, Gadget=50

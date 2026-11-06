@@ -485,22 +485,22 @@ def _handle_crash(
                     "error_message": detail[:2000],  # cap length
                 },
             )
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:
+            logger.warning("crash_recording_step_failed", step="history", source=src, exc_info=True)
 
     try:
         source_label = ", ".join(sources) if sources else "unknown"
         log_activity(project_root, "error", source_label, f"Sync crashed: {detail[:1000]}")
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception:
+        logger.warning("crash_recording_step_failed", step="activity_log", exc_info=True)
 
     # Mark downstream dbt models as stale
     try:
         from dango.utils.dbt_status import mark_source_models_stale
 
         mark_source_models_stale(project_root, sources)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception:
+        logger.warning("crash_recording_step_failed", step="stale_models", exc_info=True)
 
 
 # ---------------------------------------------------------------------------

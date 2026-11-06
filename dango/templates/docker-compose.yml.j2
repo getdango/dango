@@ -4,7 +4,7 @@ services:
     # Build custom Debian-based image for DuckDB compatibility (needs glibc/libstdc++)
     # Standard Metabase images use Alpine which lacks required libraries
     build:
-      context: .
+      context: {{ build_dir if server else "." }}
       dockerfile: Dockerfile.metabase
     ports:
       - "127.0.0.1:{{ metabase_port }}:3000"
@@ -13,12 +13,27 @@ services:
       # Note: :ro mount does NOT prevent DuckDB fcntl locks. Metabase stop/start
       # before sync (sync_trigger.py) is the actual write-lock prevention mechanism.
       # :ro is defense-in-depth only (prevents file writes, not lock acquisition).
+{%- if server %}
+      - type: bind
+        source: {{ data_dir }}
+        target: /data
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: {{ plugins_dir }}
+        target: /app/plugins
+        bind:
+          create_host_path: false
+{%- else %}
       - ./data:/data:ro
+{#- The plugins mount is intentionally writable (entrypoint.sh chowns it; a :ro mount made Metabase fall back to /tmp, 1.0.8-O). Do not add :ro. #}
       - ./metabase-plugins:/app/plugins
+{%- endif %}
     environment:
       MB_DB_TYPE: h2
       MB_DB_FILE: /metabase-data/metabase.db
-      MB_SITE_NAME: "{{ project_name }}"
+      MB_SITE_NAME: {{ project_name_q if server else '"' ~ project_name ~ '"' }}
       MB_ENABLE_PUBLIC_SHARING: false
       MB_ANON_TRACKING_ENABLED: false
       MB_PLUGINS_DIR: /app/plugins
@@ -48,9 +63,26 @@ services:
     ports:
       - "127.0.0.1:{{ dbt_docs_port }}:80"
     volumes:
+{%- if server %}
+      - type: bind
+        source: {{ dbt_target_dir }}
+        target: /usr/share/nginx/html
+        read_only: true
+        bind:
+          create_host_path: false
+{%- else %}
       - ./dbt/target:/usr/share/nginx/html:ro
+{%- endif %}
+{%- if server %}
+    user: "{{ docs_uid }}:{{ docs_gid }}"
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    tmpfs:
+      - /var/cache/nginx:uid={{ docs_uid }},gid={{ docs_gid }}
+      - /run:uid={{ docs_uid }},gid={{ docs_gid }}
+{%- endif %}
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://{{ '127.0.0.1' if server else 'localhost' }}/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -65,5 +97,5 @@ volumes:
   metabase-data:
     driver: local
     labels:
-      com.dango.project_name: "{{ project_name }}"
-      com.dango.project_id: "{{ project_id }}"
+      com.dango.project_name: {{ project_name_q if server else '"' ~ project_name ~ '"' }}
+      com.dango.project_id: {{ project_id_q if server else '"' ~ project_id ~ '"' }}

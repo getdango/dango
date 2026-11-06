@@ -7059,6 +7059,153 @@
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
       "test_id": "B608",
       "test_name": "hardcoded_sql_expressions"
+    },
+    {
+      "code": "314     \"\"\"Loopback on a cloud server (Caddy is the public entry point), else all interfaces.\"\"\"\n315     return \"127.0.0.1\" if os.environ.get(\"DANGO_CLOUD_MODE\") == \"true\" else \"0.0.0.0\"\n316 \n",
+      "col_offset": 76,
+      "end_col_offset": 85,
+      "filename": "dango/cli/commands/serve.py",
+      "issue_confidence": "MEDIUM",
+      "issue_cwe": {
+        "id": 605,
+        "link": "https://cwe.mitre.org/data/definitions/605.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Possible binding to all interfaces.",
+      "line_number": 315,
+      "line_range": [
+        315
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
+      "test_id": "B104",
+      "test_name": "hardcoded_bind_all_interfaces"
+    },
+    {
+      "code": "317 \n318 def _check_port(port: int, host: str = \"0.0.0.0\") -> None:\n319     \"\"\"Exit with a clean error if *port* is already in use on *host*.\"\"\"\n",
+      "col_offset": 39,
+      "end_col_offset": 48,
+      "filename": "dango/cli/commands/serve.py",
+      "issue_confidence": "MEDIUM",
+      "issue_cwe": {
+        "id": 605,
+        "link": "https://cwe.mitre.org/data/definitions/605.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Possible binding to all interfaces.",
+      "line_number": 318,
+      "line_range": [
+        318
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
+      "test_id": "B104",
+      "test_name": "hardcoded_bind_all_interfaces"
+    },
+    {
+      "code": "30     templates_dir = Path(__file__).parent.parent.parent / \"templates\" / \"dbt\"\n31     env = jinja2.Environment(\n32         loader=jinja2.FileSystemLoader(str(templates_dir)),\n33         keep_trailing_newline=True,\n34     )\n35     env.filters[\"cmt\"] = comment_text\n",
+      "col_offset": 10,
+      "end_col_offset": 5,
+      "filename": "dango/cli/commands/snapshot.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 94,
+        "link": "https://cwe.mitre.org/data/definitions/94.html"
+      },
+      "issue_severity": "HIGH",
+      "issue_text": "By default, jinja2 sets autoescape to False. Consider using autoescape=True or use the select_autoescape function to mitigate XSS vulnerabilities.",
+      "line_number": 31,
+      "line_range": [
+        31,
+        32,
+        33,
+        34
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b701_jinja2_autoescape_false.html",
+      "test_id": "B701",
+      "test_name": "jinja2_autoescape_false"
+    },
+    {
+      "code": "89         req = urllib.request.Request(f\"http://127.0.0.1:{port}{path}\", method=\"GET\")\n90         with urllib.request.urlopen(req, timeout=timeout) as resp:\n91             body = resp.read(4096).decode(\"utf-8\", errors=\"ignore\")\n",
+      "col_offset": 13,
+      "end_col_offset": 57,
+      "filename": "dango/notebooks/manager.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 22,
+        "link": "https://cwe.mitre.org/data/definitions/22.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
+      "line_number": 90,
+      "line_range": [
+        90
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
+      "test_id": "B310",
+      "test_name": "blacklist"
+    },
+    {
+      "code": "79 #: Parent of the private (``mktemp -d``, 0700) per-backup staging directories.\n80 BACKUP_STAGING_ROOT = \"/tmp\"\n81 #: Shown when the compose helper reports that another Docker operation holds its lock.\n",
+      "col_offset": 22,
+      "end_col_offset": 28,
+      "filename": "dango/platform/cloud/backup.py",
+      "issue_confidence": "MEDIUM",
+      "issue_cwe": {
+        "id": 377,
+        "link": "https://cwe.mitre.org/data/definitions/377.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Probable insecure usage of temp file/directory.",
+      "line_number": 80,
+      "line_range": [
+        80
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html",
+      "test_id": "B108",
+      "test_name": "hardcoded_tmp_directory"
+    },
+    {
+      "code": "102     \"\"\"\n103     script_dir = f\"/tmp/dango-migrate-{uuid.uuid4().hex}\"\n104     script_path = f\"{script_dir}/transfer.py\"\n",
+      "col_offset": 17,
+      "end_col_offset": 57,
+      "filename": "dango/platform/cloud/migrate.py",
+      "issue_confidence": "MEDIUM",
+      "issue_cwe": {
+        "id": 377,
+        "link": "https://cwe.mitre.org/data/definitions/377.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Probable insecure usage of temp file/directory.",
+      "line_number": 103,
+      "line_range": [
+        103
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html",
+      "test_id": "B108",
+      "test_name": "hardcoded_tmp_directory"
+    },
+    {
+      "code": "90         # Initialize Jinja2 environment\n91         self.jinja_env = jinja2.Environment(\n92             loader=jinja2.FileSystemLoader(str(self.templates_dir)),\n93             trim_blocks=True,\n94             lstrip_blocks=True,\n95         )\n96         # Filters that keep data-derived strings from being rendered as Jinja by dbt.\n",
+      "col_offset": 25,
+      "end_col_offset": 9,
+      "filename": "dango/transformation/generator.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 94,
+        "link": "https://cwe.mitre.org/data/definitions/94.html"
+      },
+      "issue_severity": "HIGH",
+      "issue_text": "By default, jinja2 sets autoescape to False. Consider using autoescape=True or use the select_autoescape function to mitigate XSS vulnerabilities.",
+      "line_number": 91,
+      "line_range": [
+        91,
+        92,
+        93,
+        94,
+        95
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b701_jinja2_autoescape_false.html",
+      "test_id": "B701",
+      "test_name": "jinja2_autoescape_false"
     }
   ]
 }

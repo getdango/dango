@@ -24,24 +24,29 @@ class TestCliCommandRegistration:
 
     def test_import_all_command_modules(self) -> None:
         """All command modules import without errors."""
-        from dango.cli.commands import (
-            auth,  # noqa: F401
-            config_cmd,  # noqa: F401
-            dashboard,  # noqa: F401
-            data,  # noqa: F401
-            metabase_cmd,  # noqa: F401
-            model,  # noqa: F401
-            oauth,  # noqa: F401
-            platform,  # noqa: F401
-            project,  # noqa: F401
-            schedule,  # noqa: F401
-            schedule_webhook,  # noqa: F401
-            seed,  # noqa: F401
-            source,  # noqa: F401
-            transform,  # noqa: F401
-            upgrade,  # noqa: F401
-            web,  # noqa: F401
-        )
+        import importlib
+
+        names = [
+            "auth",
+            "config_cmd",
+            "dashboard",
+            "data",
+            "metabase_cmd",
+            "model",
+            "oauth",
+            "platform",
+            "project",
+            "schedule",
+            "schedule_webhook",
+            "seed",
+            "source",
+            "transform",
+            "upgrade",
+            "web",
+        ]
+        for name in names:
+            module = importlib.import_module(f"dango.cli.commands.{name}")
+            assert module.__name__ == f"dango.cli.commands.{name}"
 
     def test_cli_help_succeeds(self) -> None:
         """``dango --help`` exits cleanly."""

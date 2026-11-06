@@ -13,6 +13,7 @@ the tested stack and upgrade process.
 | dbt-core | 1.11.14 | ~=1.11.0 | `pyproject.toml` |
 | dbt-duckdb | 1.11.0 | >=1.11.0,<1.12 | `pyproject.toml` |
 | dlt | 1.28.1 | ~=1.28.0 | `pyproject.toml` |
+| Cloud server venv Python | 3.12.16 (python-build-standalone 20261026) | pinned; used only when the server has no root-owned Python 3.11-3.13 | `dango/platform/cloud/server_python_scripts.py` |
 
 Tested versions are recorded in `constraints.txt` for reproducible installs.
 
@@ -42,6 +43,12 @@ Patch upgrades are safe. Minor upgrades need testing.
 
 Everything else (`click`, `fastapi`, `pydantic`, etc.). Upgrade freely
 within SemVer constraints.
+
+Tier 3 packages carry floors only (no lock file). A fresh `pip install` therefore
+resolves newer releases than CI ran (e.g. fastapi 0.146.0, starlette 1.9.0,
+cryptography 50.0.2 on 2026-10-19, against CI's fastapi 0.138.1). An upper bound is
+added only once CI has run the next minor; `scripts/check_wheel_imports.py` checks
+that a fresh wheel install still imports every module.
 
 ## Upgrade Process (Tier 1)
 

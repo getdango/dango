@@ -31,6 +31,7 @@
                             <span class="text-xl" x-text="phaseIcon()"></span>
                             <div class="flex-1">
                                 <p class="text-sm font-medium" :class="{'text-blue-800': isRunning(), 'text-green-800': phase === 'complete', 'text-red-800': phase === 'failed', 'text-yellow-800': phase === 'cancelled'}" x-text="statusText()"></p>
+                                <p x-show="actionError" x-cloak class="text-xs text-red-800 mt-1" x-text="actionError"></p>
                                 <!-- Progress bar -->
                                 <template x-if="isRunning() && totalSources > 0">
                                     <div class="mt-2">
@@ -57,10 +58,10 @@
                         </div>
                     </div>
                     <div class="flex items-center space-x-2 ml-4">
-                        <template x-if="phase === 'syncing'">
+                        <template x-if="canManage && phase === 'syncing'">
                             <button @click="skipSource()" class="text-xs px-3 py-1 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200">Skip (after current)</button>
                         </template>
-                        <template x-if="isRunning()">
+                        <template x-if="canManage && isRunning()">
                             <button @click="cancelSync()" class="text-xs px-3 py-1 bg-red-100 text-red-800 rounded hover:bg-red-200">Cancel</button>
                         </template>
                         <template x-if="!isRunning()">
@@ -232,6 +233,9 @@
             skippedSources: [],
             error: null,
             dismissed: false,
+            actionError: '',
+            // Skip/Cancel need platform.manage (admin). No role is set when auth is disabled locally.
+            canManage: window.DANGO_USER_ROLE === undefined || window.DANGO_USER_ROLE === 'admin',
 
             async init() {
                 try {
@@ -318,22 +322,29 @@
                 }
             },
 
-            async skipSource() {
+            async postAction(path) {
+                this.actionError = '';
                 try {
-                    await fetch('/api/initial-sync/skip-source', {
+                    const resp = await fetch(path, {
                         method: 'POST',
                         headers: { 'X-Requested-With': 'XMLHttpRequest' }
                     });
-                } catch (e) {}
+                    if (!resp.ok) {
+                        this.actionError = resp.status === 403
+                            ? 'Requires Admin'
+                            : `Request failed (${resp.status})`;
+                    }
+                } catch (e) {
+                    this.actionError = 'Request failed';
+                }
             },
 
-            async cancelSync() {
-                try {
-                    await fetch('/api/initial-sync/cancel', {
-                        method: 'POST',
-                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                    });
-                } catch (e) {}
+            skipSource() {
+                return this.postAction('/api/initial-sync/skip-source');
+            },
+
+            cancelSync() {
+                return this.postAction('/api/initial-sync/cancel');
             },
 
             dismiss() {

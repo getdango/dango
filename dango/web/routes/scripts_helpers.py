@@ -6,7 +6,6 @@ Discovery, validation, history, and audit helpers for script management.
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -17,12 +16,13 @@ from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.config.scripts import load_scripts_config
 from dango.logging import get_logger
+from dango.platform.script_launch import ScriptHandle
 
 logger = get_logger(__name__)
 
 # Module-level state: tracks running subprocesses for cancel support.
 # Keyed by relative script path (e.g., "marketing/report.py").
-_running_processes: dict[str, subprocess.Popen] = {}
+_running_processes: dict[str, ScriptHandle] = {}
 
 # Tracks scripts with a cancellation in flight to prevent duplicate audit
 # events from rapid double-clicks on the Cancel button.

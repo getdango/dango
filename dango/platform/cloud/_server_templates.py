@@ -9,6 +9,8 @@ Extracted from server_setup.py to keep that module under 500 lines.
 
 from __future__ import annotations
 
+import re
+
 # ---------------------------------------------------------------------------
 # Security headers shared by HTTP and HTTPS Caddyfile configurations
 # ---------------------------------------------------------------------------
@@ -21,7 +23,52 @@ _COMMON_HEADERS = """\
 \t\tPermissions-Policy "interest-cohort=()"
 \t}"""
 
+# While dango-web is not up yet (a fresh deploy, a restart) Caddy has no upstream and would
+# answer its bare 502.  Answer a static 503 with Retry-After instead: no data, no log lines,
+# no version.  The expression form works on every Caddy 2.x that has handle_errors.
+_STARTING_PAGE = (
+    "\thandle_errors {\n"
+    "\t\t@starting expression `{http.error.status_code} == 502"
+    " || {http.error.status_code} == 503 || {http.error.status_code} == 504`\n"
+    "\t\thandle @starting {\n"
+    '\t\t\theader Retry-After "30"\n'
+    '\t\t\theader Cache-Control "no-store"\n'
+    '\t\t\trespond "Dango is starting. Please try again in a minute." 503\n'
+    "\t\t}\n"
+    "\t}\n"
+)
+
 _HSTS_HEADER = '\t\tStrict-Transport-Security "max-age=63072000; includeSubDomains"'
+
+
+# The unauthenticated Marimo WebSocket handle written by build_caddyfile()
+# up to 1.0.13.  ``remote upgrade`` replaces exactly this text in place.
+LEGACY_MARIMO_WS_RE = re.compile(
+    r"\thandle /notebooks/marimo/ws \{\n\t\treverse_proxy localhost:(\d+)\n\t\}"
+)
+
+
+def marimo_ws_block(marimo_port: int) -> str:
+    """Return the Caddy ``handle`` block for the Marimo WebSocket.
+
+    Marimo runs with ``--no-token``, so Caddy asks dango-web
+    (``/api/notebooks/ws-auth``, ``notebooks.execute``) before proxying.
+    The WebSocket upgrade headers are stripped from the auth sub-request
+    only: a plain HTTP route answers 403 to a request carrying them.
+    """
+    return (
+        "\thandle /notebooks/marimo/ws {\n"
+        "\t\tforward_auth localhost:8800 {\n"
+        "\t\t\turi /api/notebooks/ws-auth\n"
+        "\t\t\theader_up -Connection\n"
+        "\t\t\theader_up -Upgrade\n"
+        "\t\t\theader_up -Sec-WebSocket-Key\n"
+        "\t\t\theader_up -Sec-WebSocket-Version\n"
+        "\t\t\theader_up -Sec-WebSocket-Extensions\n"
+        "\t\t}\n"
+        f"\t\treverse_proxy localhost:{marimo_port}\n"
+        "\t}"
+    )
 
 
 def build_caddyfile(domain: str | None = None, marimo_port: int = 7805) -> str:
@@ -35,9 +82,9 @@ def build_caddyfile(domain: str | None = None, marimo_port: int = 7805) -> str:
     Returns:
         Complete Caddyfile content as a string.
     """
-    # Marimo WebSocket proxy — Caddy handles WS natively.
-    # HTTP requests still go through dango-web (auth-protected).
-    marimo_ws = f"\thandle /notebooks/marimo/ws {{\n\t\treverse_proxy localhost:{marimo_port}\n\t}}"
+    # Marimo WebSocket proxy — Caddy handles WS natively, after a dango-web
+    # permission check (forward_auth).  HTTP requests go through dango-web.
+    marimo_ws = marimo_ws_block(marimo_port)
 
     if domain:
         # HTTPS mode — Caddy auto-obtains Let's Encrypt certs
@@ -45,12 +92,12 @@ def build_caddyfile(domain: str | None = None, marimo_port: int = 7805) -> str:
             "\n\t}",
             f"\n{_HSTS_HEADER}\n\t}}",
         )
-        domain_block = f"{domain} {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{headers}\n}}\n"
+        domain_block = f"{domain} {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{headers}\n{_STARTING_PAGE}}}\n"
         # Block direct IP access — prevent unencrypted credential exposure
         ip_block = ':80 {\n\trespond "Use the configured domain to access this server." 403\n}\n'
         return f"{domain_block}\n{ip_block}"
     # HTTP-only mode (IP access, no HSTS)
-    return f":80 {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{_COMMON_HEADERS}\n}}\n"
+    return f":80 {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{_COMMON_HEADERS}\n{_STARTING_PAGE}}}\n"
 
 
 # Backward-compatible alias — existing code imports ``CADDYFILE`` directly.
@@ -68,10 +115,10 @@ def build_systemd_unit(workers: int | None = None) -> str:
     Returns:
         Complete systemd unit file content as a string.
     """
+    # Loopback only: Caddy is the public entry point and proxies to localhost:8800.
+    exec_start = "/srv/dango/venv/bin/dango serve --host 127.0.0.1"
     if workers is not None and workers > 1:
-        exec_start = f"/srv/dango/venv/bin/dango serve --workers {workers}"
-    else:
-        exec_start = "/srv/dango/venv/bin/dango serve"
+        exec_start += f" --workers {workers}"
 
     return f"""\
 [Unit]
@@ -90,6 +137,8 @@ Environment=DANGO_SKIP_ENSURE_ADMIN=true
 ExecStart={exec_start}
 Restart=on-failure
 RestartSec=5
+# Stopping dango-web runs the helper's `down` (lock wait + budget, up to ~165 s).
+TimeoutStopSec=180
 
 [Install]
 WantedBy=multi-user.target
@@ -117,6 +166,7 @@ SystemMaxUse=500M
 
 LOGROTATE_CONF = """\
 /srv/dango/project/.dango/logs/activity.log {
+    su dango dango
     size 10M
     rotate 3
     compress
@@ -152,7 +202,32 @@ Unattended-Upgrade::Remove-Unused-Dependencies "true";
 # Scheduled backup (TASK-103)
 # ---------------------------------------------------------------------------
 
+# Runs as root: the project ``.env`` is never loaded as environment (the backup
+# reads only the Spaces keys from it, as data), ``-I`` keeps the working
+# directory and ``PYTHON*`` variables out of the interpreter, and the working
+# directory is outside the dango-writable project tree.
+
 SYSTEMD_BACKUP_SERVICE = """\
+[Unit]
+Description=Dango Scheduled Backup
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/srv/dango
+ExecStart=/srv/dango/venv/bin/python -I -m dango.platform.cloud.scheduled_backup
+TimeoutStartSec=900
+TimeoutStopSec=300
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+# Unit for servers still running Dango <= 1.0.13, whose scheduled backup reads the
+# Spaces keys from its environment. Written only to such servers, with a warning.
+SYSTEMD_BACKUP_SERVICE_LEGACY = """\
 [Unit]
 Description=Dango Scheduled Backup
 After=network.target docker.service
@@ -169,6 +244,42 @@ TimeoutStartSec=900
 [Install]
 WantedBy=multi-user.target
 """
+
+#: First release whose scheduled backup reads the Spaces keys from ``.env`` itself.
+BACKUP_UNIT_MIN_RELEASE = (1, 0, 14)
+
+#: Prints the Dango version installed on the server (run as root over SSH).
+SERVER_DANGO_VERSION_COMMAND = (
+    '/srv/dango/venv/bin/python -I -c "import dango; print(dango.__version__)"'
+)
+
+
+def backup_service_unit(installed_version: str | None) -> tuple[str, str | None]:
+    """Return ``(unit, warning)`` for the scheduled backup on a server.
+
+    Servers older than :data:`BACKUP_UNIT_MIN_RELEASE` get the legacy unit (their
+    code needs the keys in its environment) plus a warning to upgrade. An
+    unreadable version gets the current unit and a warning.
+    """
+    from packaging.version import InvalidVersion, Version
+
+    hint = "Run `dango remote upgrade`, then `dango remote backup enable` again."
+    try:
+        release = Version(installed_version or "").release
+    except InvalidVersion:
+        return (
+            SYSTEMD_BACKUP_SERVICE,
+            "Could not read the Dango version on the server; if it is older than "
+            f"1.0.14, scheduled uploads to Spaces will fail. {hint}",
+        )
+    if release < BACKUP_UNIT_MIN_RELEASE:
+        return (
+            SYSTEMD_BACKUP_SERVICE_LEGACY,
+            f"The server runs Dango {installed_version}; it gets the previous backup unit, "
+            f"which loads the project .env into a root service. {hint}",
+        )
+    return SYSTEMD_BACKUP_SERVICE, None
+
 
 SYSTEMD_BACKUP_TIMER = """\
 [Unit]

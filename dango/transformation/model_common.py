@@ -9,7 +9,7 @@ from pathlib import Path
 
 MODEL_LAYERS = ("staging", "intermediate", "marts")
 CUSTOM_MODEL_LAYERS = ("intermediate", "marts")
-_VALID_MODEL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")  # same rule as commands/model.py
+_VALID_MODEL_NAME_RE = re.compile(r"[a-z][a-z0-9_]*")  # same rule as commands/model.py
 
 
 class ModelServiceError(Exception):
@@ -49,7 +49,7 @@ def normalize_model_name(name: str, layer: str) -> str:
         result = "int_" + result.removeprefix("int_")
     elif layer == "staging" and not result.startswith("stg_"):
         raise ModelServiceError([f"Staging model names must start with 'stg_': '{result}'"])
-    if not _VALID_MODEL_NAME_RE.match(result):
+    if not _VALID_MODEL_NAME_RE.fullmatch(result):
         raise ModelServiceError(
             [
                 f"Invalid model name '{result}': must be lowercase, start with a letter, "

@@ -42,7 +42,9 @@ class TestDispatchPostSyncHooks:
 
     def test_stubs_are_noop(self, tmp_path: Path):
         """Calling with real stubs does not raise."""
-        dispatch_post_sync_hooks(project_root=tmp_path, sources=["test_source"])
+        # does-not-raise: hooks run against an empty project and return a result dict
+        result = dispatch_post_sync_hooks(project_root=tmp_path, sources=["test_source"])
+        assert isinstance(result["failed_hooks"], list)
 
     def test_analysis_hook_passes_raw_prefix(self, tmp_path: Path) -> None:
         """Analysis hook prepends raw_ to source names for source_filter."""
@@ -284,9 +286,10 @@ class TestEnsureDefaultMetrics:
         """Function never raises — catches exceptions."""
         from dango.utils.post_sync import _ensure_default_metrics
 
-        with patch(f"{_CFG}.get_config", side_effect=RuntimeError("boom")):
-            # Should not raise
+        with patch(f"{_CFG}.get_config", side_effect=RuntimeError("boom")) as mock_get:
+            # does-not-raise: the config failure is swallowed
             _ensure_default_metrics(tmp_path, ["hs"])
+        mock_get.assert_called_once()
 
     def test_non_synced_sources_skipped(self, tmp_path: Path) -> None:
         """Only synced sources are processed (non-synced sources skipped)."""

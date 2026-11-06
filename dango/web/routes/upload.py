@@ -222,7 +222,10 @@ async def upload_csv_to_source(
 
 
 @router.get("/api/sources/{source_name}/csv-files")
-async def get_csv_files(source_name: str):
+async def get_csv_files(
+    source_name: str,
+    user: User = Depends(require_permission("source.view")),
+):
     """Get CSV files for a source - both on disk and loaded into database.
 
     Args:

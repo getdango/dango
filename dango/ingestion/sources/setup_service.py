@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from dango.ingestion.sources.registry import AuthType, get_source_metadata
+from dango.ingestion.sources.setup_hosts import destination_host
 from dango.ingestion.sources.setup_schema import (
     MCP_UNSUPPORTED_SOURCE_TYPES,
     REPLACE_MODE_SOURCE_TYPES,
@@ -22,9 +23,11 @@ from dango.ingestion.sources.setup_schema import (
     _is_secret_param,
     _require_metadata,
     compute_env_var_name,
+    credential_collision_errors,
     get_setup_schema,
     is_credential_param,
     normalize_params,
+    require_agent_setup_supported,
 )
 from dango.logging import get_logger
 
@@ -49,6 +52,7 @@ __all__ = [
     "prepare_source",
     "prepare_source_directory",
     "provision_geo_targets",
+    "require_agent_setup_supported",
     "write_default_config",
     "write_secrets_toml_template",
 ]
@@ -271,8 +275,14 @@ def prepare_source(
     description: str | None = None,
     empty_sync_policy: str | None = None,
     validate_params: bool = True,
+    reject_existing_credentials: bool = False,
+    require_https: bool = False,
 ) -> PreparedSource:
-    """Validate everything and build the config. Performs no writes."""
+    """Validate everything and build the config. Performs no writes.
+
+    Agent callers pass reject_existing_credentials (a derived credential variable that is
+    already set is an error, not adopted) and require_https.
+    """
     from dango.config.helpers import load_config
     from dango.config.models import DataSource
 
@@ -297,40 +307,21 @@ def prepare_source(
     reqs: list[CredentialRequirement] = []
     if validate_params:
         try:
-            norm_params, reqs = normalize_params(source_type, source_name, params)
+            norm_params, reqs = normalize_params(
+                source_type, source_name, params, require_https=require_https
+            )
         except SourceSetupError as exc:
             errors.extend(exc.errors)
-    reqs = [
-        r
-        for r in reqs
-        if not (r.kind == "env_var" and r.name and _dotenv_has(project_root, r.name))
+    taken = [
+        r.name for r in reqs if r.name and r.kind == "env_var" and _dotenv_has(project_root, r.name)
     ]
+    if reject_existing_credentials:
+        errors.extend(credential_collision_errors(taken))
+    reqs = [r for r in reqs if r.name not in taken]
 
-    if metadata.get("auth_type") == AuthType.OAUTH:
-        from dango.oauth.router import OAUTH_PROVIDER_MAP
+    from dango.ingestion.sources.setup_lifecycle import _oauth_requirements
 
-        if source_type not in OAUTH_PROVIDER_MAP:
-            reqs.append(
-                CredentialRequirement(
-                    kind="secrets_toml",
-                    detail="Configure credentials manually in .dlt/secrets.toml",
-                )
-            )
-        else:
-            from dango.oauth.storage import OAuthStorage
-
-            # OAuthStorage() writes secrets.toml on construction; prepare must not write
-            has_secrets = (project_root / ".dlt" / "secrets.toml").exists()
-            cred = OAuthStorage(project_root).get(source_type) if has_secrets else None
-            if cred is None or cred.is_expired():
-                state = "missing" if cred is None else "expired"
-                reqs.append(
-                    CredentialRequirement(
-                        kind="oauth",
-                        command=f"dango oauth {source_type}",
-                        detail=f"OAuth credentials are {state}; run 'dango oauth {source_type}'",
-                    )
-                )
+    reqs.extend(_oauth_requirements(project_root, source_type, metadata))
 
     directory = norm_params.get("directory")
     if source_type in ("csv", "local_files") and isinstance(directory, str):
@@ -439,6 +430,7 @@ def apply_source(
                 CredentialRequirement(
                     kind="secrets_toml",
                     detail="Fill in the credential values in .dlt/secrets.toml before syncing",
+                    sends_to=destination_host(st, prepared.params),
                 )
             )
 
@@ -455,14 +447,12 @@ def create_source(
     description: str | None = None,
     empty_sync_policy: str | None = None,
 ) -> SourceSetupResult:
-    """Validate and create a source end to end (the MCP entry point)."""
-    metadata = get_source_metadata(source_type)
-    if (
-        metadata is None
-        or source_type in MCP_UNSUPPORTED_SOURCE_TYPES
-        or not metadata.get("wizard_enabled", False)
-    ):
-        raise SourceSetupError([f"Source type '{source_type}' cannot be set up non-interactively"])
+    """Validate and create a source end to end, with the agent rules.
+
+    Applies the agent gate, refuses an existing credential variable and requires https. The
+    MCP tool currently calls prepare_source/apply_source itself with the same flags.
+    """
+    require_agent_setup_supported(source_type)
     return apply_source(
         project_root,
         prepare_source(
@@ -472,6 +462,8 @@ def create_source(
             params,
             description=description,
             empty_sync_policy=empty_sync_policy,
+            reject_existing_credentials=True,
+            require_https=True,
         ),
     )
 

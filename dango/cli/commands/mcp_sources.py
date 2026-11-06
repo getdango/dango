@@ -117,8 +117,8 @@ def get_source_setup_schema(source_type: str) -> dict[str, Any]:
 
     Supply only fields with `managed_by == "agent"` to create_source/update_source. Fields marked
     `user_secret` or `oauth` are handled by the user (env vars, `dango oauth <type>`); never ask
-    for or pass secret values. `rest_api`, `dlt_native` and types with `setup_supported: false`
-    are CLI-only.
+    for or pass secret values. `rest_api`, `dlt_native`, `inbox` and types with
+    `setup_supported: false` are CLI-only.
     """
     try:
         from dango.ingestion.sources.setup_service import SourceSetupError, get_setup_schema
@@ -197,9 +197,11 @@ def create_source(
             SourceSetupError,
             apply_source,
             prepare_source,
+            require_agent_setup_supported,
         )
 
         try:
+            require_agent_setup_supported(source_type)
             params = dict(config or {})
             if file_path:
                 upload_dir = f"data/uploads/{source_name}"
@@ -218,6 +220,9 @@ def create_source(
                 params,
                 description=description,
                 empty_sync_policy=empty_sync_policy,
+                reject_existing_credentials=True,
+                # Defence in depth: the URL-type sources are agent-gated today.
+                require_https=True,
             )
             extra: list[str] = []
             if file_path:

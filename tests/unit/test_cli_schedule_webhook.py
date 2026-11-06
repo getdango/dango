@@ -297,16 +297,16 @@ class TestScheduleHelpers:
         from dango.cli.commands.schedule import _SLUG_RE
 
         # Valid slugs
-        assert _SLUG_RE.match("hourly_sync")
-        assert _SLUG_RE.match("a")
-        assert _SLUG_RE.match("my_schedule_2")
+        assert _SLUG_RE.fullmatch("hourly_sync")
+        assert _SLUG_RE.fullmatch("a")
+        assert _SLUG_RE.fullmatch("my_schedule_2")
 
         # Invalid slugs
-        assert not _SLUG_RE.match("")
-        assert not _SLUG_RE.match("2starts_with_digit")
-        assert not _SLUG_RE.match("HAS_UPPER")
-        assert not _SLUG_RE.match("has space")
-        assert not _SLUG_RE.match("has-dash")
+        assert not _SLUG_RE.fullmatch("")
+        assert not _SLUG_RE.fullmatch("2starts_with_digit")
+        assert not _SLUG_RE.fullmatch("HAS_UPPER")
+        assert not _SLUG_RE.fullmatch("has space")
+        assert not _SLUG_RE.fullmatch("has-dash")
 
     def test_slug_uniqueness_logic(self) -> None:
         """Validates the duplicate-name rejection logic used by schedule add and webhook add."""
@@ -316,7 +316,7 @@ class TestScheduleHelpers:
 
         # The validator lambda used in both wizards
         def validate(name: str) -> bool:
-            return bool(_SLUG_RE.match(name)) and name not in existing_names
+            return bool(_SLUG_RE.fullmatch(name)) and name not in existing_names
 
         assert validate("new_schedule")
         assert not validate("hourly_sync")  # duplicate

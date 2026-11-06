@@ -29,6 +29,7 @@ Error codes
 
 from __future__ import annotations
 
+import secrets
 import socket
 import time
 from collections.abc import Sequence
@@ -37,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from dango.exceptions import CloudError
+from dango.platform.cloud.droplet_cleanup import delete_droplet_or_annotate
 
 __all__ = [
     "DropletSizeTier",
@@ -58,6 +60,8 @@ __all__ = [
 
 _DANGO_IMAGE = "ubuntu-22-04-x64"
 _DANGO_TAG = "dango"
+_NAME_LIMIT = 63
+_NAME_SUFFIX_BYTES = 3
 
 # ---------------------------------------------------------------------------
 # Size tiers
@@ -238,7 +242,10 @@ def wait_for_droplet_ready(
     poll_interval: float = 5.0,
     timeout: float = 120.0,
 ) -> dict[str, Any]:
-    """Poll the DO API until the droplet reaches ``active`` status.
+    """Poll the DO API until the droplet is ``active`` and has a public IPv4.
+
+    DigitalOcean can report ``active`` before the network addresses are filled
+    in, so ``active`` alone is not enough.
 
     Args:
         client: ``DigitalOceanClient`` instance.
@@ -247,11 +254,13 @@ def wait_for_droplet_ready(
         timeout: Maximum total seconds to wait. Default: 120.
 
     Returns:
-        The active droplet dict.
+        The active droplet dict (it has a public IPv4 address).
 
     Raises:
         CloudError: DANGO-D010 if droplet enters an errored/archived state.
         CloudError: DANGO-D011 if the timeout elapses before the droplet is active.
+        CloudError: DANGO-D013 if the droplet is active but still has no public
+            IPv4 address when the timeout elapses.
     """
     deadline = time.monotonic() + timeout
 
@@ -259,7 +268,7 @@ def wait_for_droplet_ready(
         droplet = client.get_droplet(droplet_id)
         status = droplet.get("status", "")
 
-        if status == "active":
+        if status == "active" and _extract_public_ipv4(droplet) is not None:
             return droplet  # type: ignore[no-any-return]
 
         if status in _ERRORED_STATES:
@@ -269,6 +278,12 @@ def wait_for_droplet_ready(
             )
 
         if time.monotonic() >= deadline:
+            if status == "active":
+                raise CloudError(
+                    f"Droplet {droplet_id} is active but has no public IPv4 address "
+                    f"after {timeout:.0f}s.",
+                    error_code="DANGO-D013",
+                )
             raise CloudError(
                 f"Droplet {droplet_id} did not become active within {timeout:.0f}s "
                 f"(current status: '{status}').",
@@ -326,8 +341,10 @@ def provision_droplet(
     """Provision a new Droplet and wait for it to be fully reachable.
 
     Workflow:
-    1. Create the droplet (always adds the ``"dango"`` tag, pins Ubuntu 22.04).
-    2. Poll until ``status == "active"`` (up to 120s).
+    1. Create the droplet (always adds the ``"dango"`` tag, pins Ubuntu 22.04). The
+       droplet is named ``<name>-<random hex>`` (at most 63 characters). The create
+       request is sent once; if its answer is lost the droplet is found by that name.
+    2. Poll until ``status == "active"`` and a public IPv4 exists (up to 120s).
     3. Extract the public IPv4 address.
     4. Verify SSH reachability (up to 12 × 5s attempts).
 
@@ -336,7 +353,7 @@ def provision_droplet(
 
     Args:
         client: ``DigitalOceanClient`` instance.
-        name: Hostname for the new droplet.
+        name: Base hostname for the new droplet (a random suffix is appended).
         region: DO region slug (e.g. ``"nyc1"``).
         size: Droplet size slug (e.g. ``"s-2vcpu-4gb"``).
         ssh_key_ids: List of SSH key IDs to install.
@@ -351,9 +368,13 @@ def provision_droplet(
         CloudAPIError / CloudAuthError: On DO API errors.
     """
     tags = [_DANGO_TAG] + (extra_tags or [])
+    # A per-call suffix makes the name unique, so a create whose answer was lost
+    # can be found again by name without mistaking an older droplet for it.
+    suffix = secrets.token_hex(_NAME_SUFFIX_BYTES)
+    unique_name = f"{name[: _NAME_LIMIT - len(suffix) - 1]}-{suffix}"
 
     droplet = client.create_droplet(
-        name=name,
+        name=unique_name,
         region=region,
         size=size,
         image=_DANGO_IMAGE,
@@ -375,12 +396,9 @@ def provision_droplet(
 
         wait_for_ssh(ip_address)
 
-    except Exception:
-        # Best-effort cleanup — swallow delete errors, re-raise original
-        try:
-            client.delete_droplet(droplet_id)
-        except Exception:  # noqa: BLE001
-            pass
+    except BaseException as exc:
+        # Best-effort cleanup (also on Ctrl-C); a failed delete is logged and noted on the original error
+        delete_droplet_or_annotate(client, droplet_id, exc)
         raise
 
     return active_droplet  # type: ignore[no-any-return]

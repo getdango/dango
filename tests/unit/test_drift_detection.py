@@ -326,8 +326,12 @@ class TestSendDriftWebhook:
 
     def test_no_config_returns_silently(self, tmp_path: Path) -> None:
         """No notification config -> silent return."""
-        with patch(f"{_WH}.load_notification_config", return_value=None):
+        with (
+            patch(f"{_WH}.load_notification_config", return_value=None),
+            patch("httpx.Client") as mock_client_cls,
+        ):
             _send_drift_webhook(tmp_path, ["shopify"], self._events)
+        mock_client_cls.assert_not_called()
 
     def test_on_governance_false_skips(self, tmp_path: Path) -> None:
         """on_governance=False -> notification is skipped."""
@@ -336,8 +340,10 @@ class TestSendDriftWebhook:
         with (
             patch(f"{_WH}.load_notification_config", return_value=mock_config),
             patch(f"{_WH}.should_notify", return_value=False),
+            patch("httpx.Client") as mock_client_cls,
         ):
             _send_drift_webhook(tmp_path, ["shopify"], self._events)
+        mock_client_cls.assert_not_called()
 
     def test_successful_send(self, tmp_path: Path) -> None:
         """Webhook is sent successfully with mock httpx."""
@@ -356,8 +362,10 @@ class TestSendDriftWebhook:
 
     def test_never_raises_on_failure(self, tmp_path: Path) -> None:
         """Webhook send failure does not raise."""
-        with patch(f"{_WH}.load_notification_config", side_effect=RuntimeError("err")):
+        with patch(f"{_WH}.load_notification_config", side_effect=RuntimeError("err")) as mock_load:
+            # does-not-raise: the config-load failure is swallowed
             _send_drift_webhook(tmp_path, ["shopify"], self._events)
+        mock_load.assert_called_once()
 
     def test_slack_format_dispatch(self, tmp_path: Path) -> None:
         """Slack-formatted webhook calls format_slack_message."""

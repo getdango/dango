@@ -27,10 +27,22 @@ from dango.platform.cloud.ssh import CommandResult
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _host_pinned():
+    """Host-key pinning is covered in test_file_sync_hostkey.py; treat the mock host as pinned."""
+    with patch("dango.platform.cloud.rsync_transport._require_pinned_host"):
+        yield
+
+
 def _make_ssh_mock(*, first_deploy: bool = False) -> MagicMock:
     """Return a mock SSHManager with sensible defaults."""
     ssh = MagicMock()
     ssh.key_path = Path("/tmp/test_key")
+    ssh.known_hosts_path = Path("/tmp/test_known_hosts")
+    ssh.legacy_known_hosts_paths = []
+    ssh.host = "10.0.0.1"
+    ssh.port = 22
+    ssh.username = "root"
 
     def _exec_side_effect(cmd: str, **kwargs: object) -> CommandResult:
         # First deploy detection
@@ -216,17 +228,17 @@ class TestBuildRsyncSshArg:
     """Test _build_rsync_ssh_arg construction."""
 
     def test_contains_key_path(self):
-        arg = _build_rsync_ssh_arg(Path("/home/user/.dango/ssh/key"))
+        arg = _build_rsync_ssh_arg(Path("/home/user/.dango/ssh/key"), Path("/tmp/kh"))
         assert '-i "/home/user/.dango/ssh/key"' in arg
 
     def test_key_path_with_spaces(self):
-        arg = _build_rsync_ssh_arg(Path("/home/John Doe/.dango/ssh/key"))
+        arg = _build_rsync_ssh_arg(Path("/home/John Doe/.dango/ssh/key"), Path("/tmp/kh"))
         assert '-i "/home/John Doe/.dango/ssh/key"' in arg
 
-    def test_disables_host_key_checking(self):
-        arg = _build_rsync_ssh_arg(Path("/tmp/key"))
-        assert "StrictHostKeyChecking=no" in arg
-        assert "UserKnownHostsFile=/dev/null" in arg
+    def test_enforces_host_key_checking(self):
+        arg = _build_rsync_ssh_arg(Path("/tmp/key"), Path("/tmp/kh"))
+        assert "StrictHostKeyChecking=yes" in arg
+        assert 'UserKnownHostsFile="/tmp/kh"' in arg
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +251,7 @@ class TestSyncProjectFiles:
     """Test sync_project_files with mocked SSH and subprocess."""
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_first_deploy_all_models_added(self, mock_run, mock_which, tmp_path):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         ssh = _make_ssh_mock(first_deploy=True)
@@ -257,7 +269,7 @@ class TestSyncProjectFiles:
         assert result.has_macro_changes is True
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_existing_deploy_no_changes(self, mock_run, mock_which, tmp_path):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         ssh = _make_ssh_mock(first_deploy=False)
@@ -270,7 +282,7 @@ class TestSyncProjectFiles:
         assert len(result.added_models) > 0
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_dry_run_no_upload(self, mock_run, mock_which, tmp_path):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         ssh = _make_ssh_mock(first_deploy=False)
@@ -287,7 +299,7 @@ class TestSyncProjectFiles:
             assert "--dry-run" in cmd_list
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_missing_optional_files(self, mock_run, mock_which, tmp_path):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         ssh = _make_ssh_mock(first_deploy=True)
@@ -301,7 +313,7 @@ class TestSyncProjectFiles:
         assert ".dango/schedules.yml" not in result.synced_files
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_config_files_uploaded(self, mock_run, mock_which, tmp_path):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         ssh = _make_ssh_mock(first_deploy=True)
@@ -314,7 +326,7 @@ class TestSyncProjectFiles:
         assert "dbt/packages.yml" in result.synced_files
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_unchanged_file_skipped_by_hash(self, mock_run, mock_which, tmp_path):
         """Files with matching remote MD5 hash are not re-uploaded."""
         import hashlib
@@ -338,7 +350,7 @@ class TestSyncProjectFiles:
         assert "dbt/dbt_project.yml" in result.synced_files
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_rsync_command_construction(self, mock_run, mock_which, tmp_path):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         ssh = _make_ssh_mock(first_deploy=True)
@@ -359,7 +371,7 @@ class TestSyncProjectFiles:
             assert '-i "/tmp/test_key"' in ssh_arg
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_rsync_syncs_metabase_dir(self, mock_run, mock_which, tmp_path):
         """SYNC_EXTRA_DIRS: metabase/ is rsynced when present."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -381,7 +393,7 @@ class TestSyncProjectFiles:
         assert "metabase/" in result.synced_files
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_rsync_syncs_scripts_dir(self, mock_run, mock_which, tmp_path):
         """SYNC_EXTRA_DIRS: scripts/ is rsynced when present."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -411,7 +423,7 @@ class TestSyncProjectFiles:
             sync_project_files(ssh, project, remote_host="10.0.0.1")
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_rsync_failure_raises(self, mock_run, mock_which, tmp_path):
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="connection refused")
         ssh = _make_ssh_mock(first_deploy=True)
@@ -421,7 +433,7 @@ class TestSyncProjectFiles:
             sync_project_files(ssh, project, remote_host="10.0.0.1")
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_progress_callback(self, mock_run, mock_which, tmp_path):
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         ssh = _make_ssh_mock(first_deploy=True)
@@ -439,7 +451,7 @@ class TestSyncProjectFiles:
         assert "sync_extra" in step_names
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_packages_unchanged_not_flagged(self, mock_run, mock_which, tmp_path):
         """When remote and local packages.yml have the same hash, packages_changed is False."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -449,8 +461,7 @@ class TestSyncProjectFiles:
 
         local_hash = hashlib.md5((project / "dbt" / "packages.yml").read_bytes()).hexdigest()
 
-        ssh = MagicMock()
-        ssh.key_path = Path("/tmp/test_key")
+        ssh = _make_ssh_mock()
 
         def _exec_side_effect(cmd, **kwargs):
             if f"test -f {REMOTE_PROJECT_DIR}/.dango/sources.yml" in cmd:
@@ -470,7 +481,7 @@ class TestSyncProjectFiles:
         assert result.packages_changed is False
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
-    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    @patch("dango.platform.cloud.rsync_transport.subprocess.run")
     def test_no_macro_changes_when_macros_unchanged(self, mock_run, mock_which, tmp_path):
         """has_macro_changes is False when macro hashes match remote."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -481,8 +492,7 @@ class TestSyncProjectFiles:
             (project / "dbt" / "macros" / "my_macro.sql").read_bytes()
         ).hexdigest()
 
-        ssh = MagicMock()
-        ssh.key_path = Path("/tmp/test_key")
+        ssh = _make_ssh_mock()
 
         def _exec_side_effect(cmd, **kwargs):
             if f"test -f {REMOTE_PROJECT_DIR}/.dango/sources.yml" in cmd:

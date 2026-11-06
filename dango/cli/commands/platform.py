@@ -130,6 +130,31 @@ def _check_docker_ports(platform_config: object) -> None:
         raise click.Abort()
 
 
+def print_collection_repair(console_out: Any, import_result: dict[str, Any] | None) -> None:
+    """State what collection import/repair did; silent when nothing needed doing."""
+    repair = (import_result or {}).get("collection_repair") or {}
+    for action in repair.get("planned") or []:
+        console_out.print(f"[dim]Would {action}[/dim]")
+    archived = repair.get("archived", 0)
+    if archived:
+        report = repair.get("report_path") or ".dango/state/metabase_collection_repair.json"
+        console_out.print(
+            f"[green]✓[/green] Archived {archived} empty duplicate Metabase collection(s) "
+            f"(nothing deleted; report: {report})"
+        )
+    ambiguous = repair.get("ambiguous_ids") or []
+    if ambiguous:
+        console_out.print(
+            f"[yellow]⚠[/yellow]  Duplicate Metabase collections with content were left "
+            f"untouched (IDs {ambiguous}); see .dango/state/metabase_collection_repair.json"
+        )
+    elif repair.get("errors"):
+        console_out.print(
+            "[yellow]⚠[/yellow]  Metabase collection repair is incomplete and will retry on the "
+            "next start (details in .dango/state/metabase_collection_repair.json)"
+        )
+
+
 def _print_metabase_skipped(setup_result: dict[str, Any]) -> None:
     """Tell the user Metabase setup was skipped, why, and the verified way to fix it."""
     console.print("[yellow]⚠[/yellow] Metabase was not set up")
@@ -162,6 +187,7 @@ def start(ctx: click.Context, yes: bool) -> None:
         complete_metabase_credential_migration,
     )
     from dango.platform.common.startup import (
+        apply_metabase_duckdb_lock_if_needed,
         check_duckdb_version_alignment,
         ensure_dbt_schemas,
         ensure_duckdb_driver,
@@ -474,36 +500,40 @@ def start(ctx: click.Context, yes: bool) -> None:
         _check_duplicate_ports(platform_config)
 
         # Auto-clean orphaned Docker containers from previous Dango session
-        try:
-            from dango.platform.docker import get_compose_project_name
+        # (skipped with the compose helper: dango-web is systemd-managed and `up` is idempotent)
+        from dango.platform import compose_exec
 
-            compose_project = get_compose_project_name(project_root)
-            result = subprocess.run(
-                [
-                    "docker",
-                    "ps",
-                    "-q",
-                    "--filter",
-                    f"label=com.docker.compose.project={compose_project}",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                container_ids = [c for c in result.stdout.strip().split("\n") if c]
-                console.print(
-                    f"[yellow]⚠[/yellow]  Found {len(container_ids)} orphaned Docker "
-                    f"container(s) from a previous session of this project, cleaning up..."
+        if not compose_exec.uses_helper():
+            try:
+                from dango.platform.docker import get_compose_project_name
+
+                compose_project = get_compose_project_name(project_root)
+                result = subprocess.run(
+                    [
+                        "docker",
+                        "ps",
+                        "-q",
+                        "--filter",
+                        f"label=com.docker.compose.project={compose_project}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
-                from dango.platform import DockerManager
+                if result.returncode == 0 and result.stdout.strip():
+                    container_ids = [c for c in result.stdout.strip().split("\n") if c]
+                    console.print(
+                        f"[yellow]⚠[/yellow]  Found {len(container_ids)} orphaned Docker "
+                        f"container(s) from a previous session of this project, cleaning up..."
+                    )
+                    from dango.platform import DockerManager
 
-                manager = DockerManager(project_root)
-                manager.stop_services()
-                manager.stop_all_dango_containers()
-                console.print()
-        except Exception:
-            logger.debug("orphan_docker_cleanup_failed")
+                    manager = DockerManager(project_root)
+                    manager.stop_services()
+                    manager.stop_all_dango_containers()
+                    console.print()
+            except Exception:
+                logger.debug("orphan_docker_cleanup_failed")
 
         # Check Docker service ports (Metabase and dbt-docs)
         _check_docker_ports(platform_config)
@@ -523,12 +553,23 @@ def start(ctx: click.Context, yes: bool) -> None:
                 console.print(f"[green]✓[/green] DuckDB driver ready ({driver_size_mb}MB)")
                 console.print()
         except RuntimeError as e:
-            console.print("[red]❌ Failed to download DuckDB driver[/red]")
+            from dango.utils.driver import DriverFilesystemError, DriverIntegrityError
+
+            if isinstance(e, DriverIntegrityError):
+                console.print("[red]❌ DuckDB driver integrity verification failed[/red]")
+            elif isinstance(e, DriverFilesystemError):
+                console.print("[red]❌ Could not write the DuckDB driver locally[/red]")
+                console.print(f"  {e}")
+            else:
+                console.print("[red]❌ Failed to download DuckDB driver[/red]")
             console.print()
             console.print("[bold]This is required for Metabase to connect to DuckDB.[/bold]")
             console.print()
             console.print("[bold]To fix:[/bold]")
-            console.print("  1. Check your internet connection")
+            if isinstance(e, DriverFilesystemError):
+                console.print("  1. Check that metabase-plugins/ is writable by your user")
+            else:
+                console.print("  1. Check your internet connection")
             console.print("  2. Try running '[cyan]dango start[/cyan]' again")
             console.print("  3. Or manually download from:")
             console.print("     https://github.com/motherduckdb/metabase_duckdb_driver/releases")
@@ -709,6 +750,13 @@ def start(ctx: click.Context, yes: bool) -> None:
             console.print()
             raise click.Abort() from e
 
+        # Restrict Metabase's DuckDB connection to the warehouse file (once; non-fatal).
+        if metabase_configured:
+            try:
+                apply_metabase_duckdb_lock_if_needed(project_root)
+            except Exception:
+                logger.debug("metabase_duckdb_lock_failed", exc_info=True)
+
         # Import dashboards (if any exist)
         try:
             import_result = import_dashboards(project_root)
@@ -721,6 +769,12 @@ def start(ctx: click.Context, yes: bool) -> None:
                     )
                 elif import_result.get("skipped"):
                     console.print("[dim]✓ All dashboards already imported[/dim]")
+                print_collection_repair(console, import_result)
+                if import_result.get("errors"):
+                    console.print(
+                        f"[yellow]⚠[/yellow]  Dashboard import incomplete: "
+                        f"{import_result['errors'][0]}"
+                    )
         except Exception as e:
             console.print(f"[yellow]⚠[/yellow]  Dashboard import failed: {e}")
 

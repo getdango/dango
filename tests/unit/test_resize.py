@@ -78,10 +78,9 @@ class TestValidateSizeSlug:
     def test_valid_slugs(self) -> None:
         from dango.platform.cloud.resize import validate_size_slug
 
-        validate_size_slug("s-2vcpu-4gb")
-        validate_size_slug("s-1vcpu-2gb")
-        validate_size_slug("g-4vcpu-16gb")
-        validate_size_slug("so1_5-2vcpu-16gb")
+        # does-not-raise: every slug is valid
+        for slug in ("s-2vcpu-4gb", "s-1vcpu-2gb", "g-4vcpu-16gb", "so1_5-2vcpu-16gb"):
+            assert validate_size_slug(slug) is None
 
     def test_invalid_slugs(self) -> None:
         from dango.platform.cloud.resize import validate_size_slug
@@ -169,7 +168,7 @@ class TestRegenerateDbtProfiles:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/dbt/dbt_project.yml": (
+                "dbt_project.yml": (
                     "name: my_project\nversion: 1.0.0",
                     "",
                     0,
@@ -188,7 +187,7 @@ class TestRegenerateDbtProfiles:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/dbt/dbt_project.yml": ("", "", 1),
+                "dbt_project.yml": ("", "", 3),  # read_project_file: exit 3 = path absent
             }
         )
 
@@ -200,7 +199,7 @@ class TestRegenerateDbtProfiles:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/dbt/dbt_project.yml": (
+                "dbt_project.yml": (
                     "name: proj\nversion: 1.0.0",
                     "",
                     0,
@@ -222,7 +221,7 @@ class TestResizeDroplet:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/dbt/dbt_project.yml": (
+                "dbt_project.yml": (
                     "name: proj\nversion: 1.0.0",
                     "",
                     0,
@@ -264,7 +263,7 @@ class TestResizeDroplet:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/dbt/dbt_project.yml": (
+                "dbt_project.yml": (
                     "name: proj",
                     "",
                     0,
@@ -329,7 +328,7 @@ class TestResizeDroplet:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/dbt/dbt_project.yml": (
+                "dbt_project.yml": (
                     "name: proj\nversion: 1.0.0",
                     "",
                     0,
@@ -358,7 +357,7 @@ class TestResizeDroplet:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/dbt/dbt_project.yml": (
+                "dbt_project.yml": (
                     "name: proj\nversion: 1.0.0",
                     "",
                     0,

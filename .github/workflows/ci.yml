@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -72,14 +72,18 @@ jobs:
         # running it here would add a live GitHub Releases download
         # dependency to these required checks for no benefit; the egress
         # job already covers it.
-        run: pytest --tb=short -q -m "not egress"
+        run: pytest --tb=short -q -m "not egress"${{ matrix.python-version == '3.12' && ' --cov=dango --cov-report=term --cov-fail-under=72' || '' }}
+      # Non-blocking on purpose (the one allowed continue-on-error). Trigger to make it
+      # blocking (drop continue-on-error, add --fail-on-hits): the count is 0 after this PR.
+      - name: Assertion-less tests
+        if: matrix.python-version == '3.12'
+        continue-on-error: true
+        run: python scripts/find_assertionless_tests.py --fail-on-hits tests
 
   security:
     name: Security (pip-audit)
-    # Known CVE-2026-32274 in black (dev dep) — dbt-core 1.11 now allows pydantic<3 (was the
-    # original blocker), but black>=26.3.1 needs pathspec>=1.0.0 while dbt-core pins
-    # pathspec<0.13,>=0.9 — still blocked. Revisit when dbt-core relaxes its pathspec pin.
-    continue-on-error: true
+    # Blocks merges. Accepted advisories live, with expiry dates, in
+    # .github/pip-audit-ignores.txt (checked by scripts/check_audit_ignores.py).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -90,9 +94,7 @@ jobs:
       - run: pip install --upgrade pip
       - run: pip install -c constraints.txt -e ".[dev]"
       - name: pip-audit
-        # CVE-2026-114134 affects psf/black's GitHub Action with use_pyproject;
-        # this repository does not use that action. Review by 2027-01-15.
-        run: pip-audit --ignore-vuln CVE-2026-32274 --ignore-vuln PYSEC-2026-2120 --ignore-vuln CVE-2026-71491 --ignore-vuln CVE-2026-59894 --ignore-vuln CVE-2026-59893 --ignore-vuln CVE-2026-54284 --ignore-vuln CVE-2026-114134
+        run: scripts/run_pip_audit.sh
 
   sast:
     name: SAST (bandit)

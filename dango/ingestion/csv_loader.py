@@ -17,6 +17,7 @@ from rich.console import Console
 
 from dango.config.models import CSVSourceConfig
 from dango.exceptions import CSVSchemaMismatchError
+from dango.validation import quote_identifier
 
 console = Console()
 
@@ -135,7 +136,7 @@ class CSVLoader:
         )
 
         # Create schema
-        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {target_schema}")
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {quote_identifier(target_schema)}")
 
         # Setup metadata tracking
         self._setup_metadata_table(conn)
@@ -178,7 +179,7 @@ class CSVLoader:
         # This follows industry practice (Fivetran, Airbyte) where table name = resource name
         # Result: raw_test_csv_1.test_csv_1 (redundant but clear when schema not shown)
         table_name = source_name
-        target_table = f"{target_schema}.{table_name}"
+        target_table = f"{quote_identifier(target_schema)}.{quote_identifier(table_name)}"
 
         # Empty-replace protection, before any write: every source file is gone.
         if (
@@ -196,7 +197,9 @@ class CSVLoader:
             legacy_table_exists = self._check_table_exists(conn, target_schema, "data")
             if legacy_table_exists:
                 console.print("  [dim]Cleaning up legacy 'data' table...[/dim]")
-                conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."data"')
+                conn.execute(
+                    f"DROP TABLE IF EXISTS {quote_identifier(target_schema)}.{quote_identifier('data')}"
+                )
 
         # Create table on first run
         table_exists = self._check_table_exists(conn, target_schema, table_name)
@@ -434,7 +437,9 @@ class CSVLoader:
             return None
         # Undo this run's schema evolution so the block leaves the table untouched
         for col in undo_columns or []:
-            conn.execute(f'ALTER TABLE {target_table} DROP COLUMN IF EXISTS "{col}"')
+            conn.execute(
+                f"ALTER TABLE {target_table} DROP COLUMN IF EXISTS {quote_identifier(col)}"
+            )
         conn.close()
         from dango.ingestion.dlt_runner import EMPTY_REPLACE_PROTECTION_ERROR_TYPE
 
@@ -539,10 +544,11 @@ class CSVLoader:
     def _check_table_exists(self, conn: duckdb.DuckDBPyConnection, schema: str, table: str) -> bool:
         """Check if table exists"""
         result = conn.execute(
-            f"""
+            """
             SELECT COUNT(*) FROM information_schema.tables
-            WHERE table_schema = '{schema}' AND table_name = '{table}'
-        """
+            WHERE table_schema = ? AND table_name = ?
+        """,
+            [schema, table],
         ).fetchone()[0]
         return result > 0
 
@@ -653,7 +659,9 @@ class CSVLoader:
                 (inferred from the data file), not from raw user input.
         """
         for col_name, col_type in new_columns.items():
-            conn.execute(f'ALTER TABLE {target_table} ADD COLUMN "{col_name}" {col_type}')
+            conn.execute(
+                f"ALTER TABLE {target_table} ADD COLUMN {quote_identifier(col_name)} {col_type}"
+            )
 
     def _build_insert_select(
         self,
@@ -674,9 +682,9 @@ class CSVLoader:
         missing_data_cols = []
         for col in target_cols:
             if col in temp_cols:
-                select_parts.append(f'"{col}"')
+                select_parts.append(quote_identifier(col))
             else:
-                select_parts.append(f'NULL AS "{col}"')
+                select_parts.append(f"NULL AS {quote_identifier(col)}")
                 if not col.startswith("_dango_"):
                     missing_data_cols.append(col)
 
@@ -915,7 +923,7 @@ class CSVLoader:
             # Escape embedded double-quotes in the column name (DuckDB's own
             # identifier-escaping convention) so a column name like `weird"col`
             # can't break out of the quoted identifier and malform this query.
-            col_ident = '"' + col.replace('"', '""') + '"'
+            col_ident = quote_identifier(col)
 
             try:
                 bad_value = conn.execute(
@@ -1038,7 +1046,7 @@ class CSVLoader:
         source_name: str,
     ) -> None:
         """Create table with schema inferred from first file"""
-        temp_table = f"_temp_schema_{int(datetime.now().timestamp())}"
+        temp_table = quote_identifier(f"_temp_schema_{int(datetime.now().timestamp())}")
         metadata = self._get_file_metadata(filepath)
         filename = os.path.basename(filepath)
         filename_escaped = self._sql_quote(filename)
@@ -1075,7 +1083,7 @@ class CSVLoader:
     ) -> bool:
         """Load a new file"""
         filename = os.path.basename(filepath)
-        temp_table = f"_temp_{source_name}_{int(datetime.now().timestamp())}"
+        temp_table = quote_identifier(f"_temp_{source_name}_{int(datetime.now().timestamp())}")
 
         try:
             # Validate schema matches table (strict mode - fail on any mismatch)
@@ -1153,7 +1161,7 @@ class CSVLoader:
     ) -> bool:
         """Reload an updated file (transactional)"""
         filename = os.path.basename(filepath)
-        temp_table = f"_temp_{source_name}_{int(datetime.now().timestamp())}"
+        temp_table = quote_identifier(f"_temp_{source_name}_{int(datetime.now().timestamp())}")
 
         try:
             # Validate schema matches table (strict mode - fail on any mismatch)

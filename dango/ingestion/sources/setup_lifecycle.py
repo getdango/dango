@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from dango.ingestion.sources.registry import AuthType, get_source_metadata
+from dango.ingestion.sources.setup_hosts import HOST_BEARING_PARAMS, destination_host
 from dango.ingestion.sources.setup_schema import (
     MCP_UNSUPPORTED_SOURCE_TYPES,
     REPLACE_MODE_SOURCE_TYPES,
@@ -137,6 +138,7 @@ def credential_requirements(project_root: Path, source: Any) -> list[CredentialR
     if metadata is None:
         return []
     existing = _block_values(source)
+    sends_to = destination_host(st, existing)
     reqs: list[CredentialRequirement] = []
     required_names = {p["name"] for p in metadata.get("required_params", [])}
     for param in metadata.get("required_params", []) + metadata.get("optional_params", []):
@@ -162,7 +164,9 @@ def credential_requirements(project_root: Path, source: Any) -> list[CredentialR
             continue
         if not _dotenv_has(project_root, env_var):
             reqs.append(
-                CredentialRequirement(kind="env_var", name=env_var, detail=f"Set {env_var} in .env")
+                CredentialRequirement(
+                    kind="env_var", name=env_var, detail=f"Set {env_var} in .env", sends_to=sends_to
+                )
             )
     reqs.extend(_oauth_requirements(project_root, st, metadata))
     return reqs
@@ -200,6 +204,17 @@ def update_source(
         existing: dict[str, Any] = block.model_dump(mode="json", exclude_none=True)
     else:
         existing = dict(block or {})
+    host_key = HOST_BEARING_PARAMS.get(st)
+    new_host = params.get(host_key) if host_key else None
+    if isinstance(new_host, str):
+        new_host = new_host.strip()  # same whitespace handling as _coerce
+    if host_key in params and new_host != existing.get(host_key):
+        raise SourceSetupError(
+            [
+                f"'{host_key}' on {st} sources decides where credentials are sent; "
+                "change it with 'dango source edit' (needs a human)"
+            ]
+        )
 
     # Validation input: existing registry keys (secret/oauth excluded, datetimes as dates) + params
     reg_params = {
@@ -230,7 +245,8 @@ def update_source(
     normalized: dict[str, Any] = {}
     if params:
         try:
-            normalized, _ = normalize_params(st, source_name, candidate)
+            # check_hosts=False: the host value is unchanged here (a change was refused above)
+            normalized, _ = normalize_params(st, source_name, candidate, check_hosts=False)
         except SourceSetupError as exc:
             errors.extend(exc.errors)
 

@@ -161,6 +161,11 @@ def check_permission(user: User, permission: str) -> None:
 # FastAPI dependency factory
 # ---------------------------------------------------------------------------
 
+_USERS_MANAGE = "users.manage"
+
+# Returned by require_permission() when auth is explicitly disabled locally.
+_AUTH_DISABLED_USER = User(id="local-auth-disabled", email="local@auth-disabled", role=Role.ADMIN)
+
 
 def require_permission(permission: str) -> Callable[..., Any]:
     """Return an async FastAPI dependency that enforces *permission*.
@@ -178,6 +183,14 @@ def require_permission(permission: str) -> Callable[..., Any]:
     middleware in TASK-015) and returns the authenticated ``User`` on
     success, so routes can use it directly.
 
+    Auth explicitly disabled: when there is no user and the middleware set
+    ``request.state.auth_disabled`` (toggle read successfully as off, local
+    process only), a synthetic local admin is returned so ``dango auth
+    disable`` keeps the dashboard usable.  ``users.manage`` is the exception
+    and still requires a real user: otherwise an anonymous caller could
+    create accounts that survive a later ``dango auth enable``.
+    ``request.state.user`` is left as ``None``.
+
     Raises:
         AuthenticationError: No user on the request (HTTP 401).
         AuthorizationError: User lacks the required permission (HTTP 403).
@@ -186,6 +199,9 @@ def require_permission(permission: str) -> Callable[..., Any]:
     async def _dependency(request: Request) -> User:
         user: User | None = getattr(request.state, "user", None)
         if user is None:
+            auth_disabled = getattr(request.state, "auth_disabled", False) is True
+            if auth_disabled and permission != _USERS_MANAGE:
+                return _AUTH_DISABLED_USER
             raise AuthenticationError(
                 "Authentication required",
                 context={"permission": permission},

@@ -16,15 +16,18 @@ class TestValidateSQL:
 
     def test_valid_select_passes(self) -> None:
         """Simple SELECT should not raise."""
-        _validate_sql("SELECT 1")
+        # does-not-raise: allowed statement
+        assert _validate_sql("SELECT 1") is None
 
     def test_valid_select_with_from_passes(self) -> None:
         """SELECT with FROM clause should not raise."""
-        _validate_sql("SELECT * FROM my_table")
+        # does-not-raise: allowed statement
+        assert _validate_sql("SELECT * FROM my_table") is None
 
     def test_valid_with_cte_passes(self) -> None:
         """WITH (CTE) query should not raise."""
-        _validate_sql("WITH cte AS (SELECT 1) SELECT * FROM cte")
+        # does-not-raise: allowed statement
+        assert _validate_sql("WITH cte AS (SELECT 1) SELECT * FROM cte") is None
 
     def test_drop_table_rejected(self) -> None:
         """DROP TABLE should be rejected."""

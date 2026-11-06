@@ -221,6 +221,10 @@ def metabase_load(ctx: click.Context, overwrite: bool, dry_run: bool) -> None:
         with console.status(f"[cyan]Loading assets {mode_str}...[/cyan]", spinner="dots"):
             result = manager.load_from_files(overwrite=overwrite, dry_run=dry_run)
 
+        from .platform import print_collection_repair
+
+        print_collection_repair(console, result)
+
         if result["success"]:
             if dry_run:
                 console.print("[bold cyan]Preview (dry-run mode):[/bold cyan]\n")
@@ -446,6 +450,7 @@ def metabase_repair_admin(ctx: click.Context) -> None:
     Examples:
       dango metabase repair-admin
     """
+    from dango.platform import compose_exec
     from dango.platform.common.metabase_admin_repair import (
         describe_repair_outcome,
         repair_admin_credential,
@@ -454,7 +459,7 @@ def metabase_repair_admin(ctx: click.Context) -> None:
     from ..utils import require_project_context
 
     project_root = require_project_context(ctx)
-    if not (project_root / "docker-compose.yml").exists():
+    if not ((project_root / "docker-compose.yml").exists() or compose_exec.uses_helper()):
         console.print(
             "[red]✗[/red] This command is for local projects (no docker-compose.yml here)."
         )

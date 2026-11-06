@@ -1,12 +1,12 @@
 """scripts/check_python_compat.py
 
-Check that all installed packages support Python 3.10, 3.11, 3.12, and 3.13.
+Check that all installed packages support Python 3.11, 3.12, and 3.13.
 Uses package metadata (Requires-Python) to verify compatibility without
 needing multiple Python interpreters installed.
 
 Transitive dependencies that have dropped a Python version are flagged as
-warnings (not failures) because pip resolves per-platform — on Python 3.10
-it would install an older compatible version automatically.
+warnings (not failures) because pip resolves per-platform and can install
+an older compatible version automatically.
 
 Exit codes:
     0 — all direct deps compatible (transitive warnings are OK)
@@ -22,7 +22,7 @@ from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
 # Python versions that getdango must support (see pyproject.toml requires-python)
-REQUIRED_VERSIONS = [Version("3.10.0"), Version("3.11.0"), Version("3.12.0"), Version("3.13.0")]
+REQUIRED_VERSIONS = [Version("3.11.0"), Version("3.12.0"), Version("3.13.0")]
 
 # Packages to skip (not real PyPI packages)
 SKIP_PACKAGES = {"getdango", "en-core-web-sm", "en-core-web-lg"}
@@ -31,7 +31,7 @@ SKIP_PACKAGES = {"getdango", "en-core-web-sm", "en-core-web-lg"}
 def _get_direct_dep_names() -> set[str]:
     """Extract direct dependency names from pyproject.toml.
 
-    Uses string parsing (not tomllib) so the script works on Python 3.10.
+    Uses string parsing so direct dependencies are read without a TOML parser.
     """
     pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
     content = pyproject.read_text(encoding="utf-8")
@@ -111,7 +111,7 @@ def main() -> int:
             print(f"  {name}=={version} (requires {spec}) — drops Python {unsupported}")
         return 1
 
-    print("\nOK: All direct dependencies support Python 3.10, 3.11, 3.12, and 3.13")
+    print("\nOK: All direct dependencies support Python 3.11, 3.12, and 3.13")
     return 0
 
 
