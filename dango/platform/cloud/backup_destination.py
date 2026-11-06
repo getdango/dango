@@ -24,7 +24,10 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from dango.exceptions import CloudError, CloudProvisioningError
+from dango.platform.cloud._server_templates import BACKUP_UNIT_MIN_RELEASE
 from dango.platform.cloud.project_files import read_project_file
 
 SERVER_PROJECT_DIR = "/srv/dango/project"
@@ -37,6 +40,7 @@ RESTORE_SECRETS_PREFIX = "DANGO-RESTORE-SECRETS "
 DOWNLOAD_HINT = "dango remote backup download --from-server -o <file>"
 DEFAULT_REGION = "nyc1"
 
+_SECRET_PATHS = {".env", ".dlt/secrets.toml"}
 _BUCKET_RE = re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]")
 _REGION_RE = re.compile(r"[a-z]{2,6}[0-9]{1,2}")
 _ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
@@ -90,6 +94,39 @@ def destination_from_env(values: Mapping[str, str]) -> dict[str, str] | None:
     return validated_destination(bucket, values.get("SPACES_REGION"), source=".env")
 
 
+def server_reads_destination(version: str | None) -> bool:
+    """True when a server running Dango *version* reads its Spaces destination from ``.env``."""
+    from packaging.version import InvalidVersion, Version
+
+    try:
+        return Version(version or "").release >= BACKUP_UNIT_MIN_RELEASE
+    except InvalidVersion:
+        return False
+
+
+def load_cloud_yml(project_dir: Path) -> dict[str, Any] | None:
+    """The server ``.dango/cloud.yml`` of *project_dir* read as data by root, or None.
+
+    The service user controls the file, so a link (the file or a parent directory), a FIFO,
+    a non-regular or oversized file reads as absent.  A file that is not valid YAML raises an
+    error that carries none of its text; anything that is not a mapping counts as empty.
+
+    Raises:
+        CloudProvisioningError: If the file is not valid YAML.
+    """
+    path = Path(project_dir) / CLOUD_CONFIG_FILE
+    if os.path.realpath(path) != os.path.join(os.path.realpath(project_dir), CLOUD_CONFIG_FILE):
+        return None
+    text = _read_text_nofollow(path)
+    if text is None:
+        return None
+    try:
+        data = yaml.safe_load(text)
+    except (yaml.YAMLError, ValueError, RecursionError):
+        raise CloudProvisioningError("server .dango/cloud.yml is not valid YAML") from None
+    return data if isinstance(data, dict) else {}
+
+
 def offsite_line(bucket: str | None, *, verified: bool = True) -> str:
     """The plain statement of whether a backup left the server."""
     if not bucket:
@@ -104,18 +141,33 @@ def offsite_line(bucket: str | None, *, verified: bool = True) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _closes_quote(text: str, quote: str, start: int) -> bool:
+    """True if *text* has an unescaped *quote* at or after *start*."""
+    index = start
+    while index < len(text):
+        if text[index] == "\\":
+            index += 2
+            continue
+        if text[index] == quote:
+            return True
+        index += 1
+    return False
+
+
 def env_secret_names(text: str) -> list[str]:
     """Variable names in ``.env`` *text*, sorted; values are never returned.
 
-    A quoted value that runs over several lines is passed over as a whole, so a line
-    inside it is never taken for a name.  Anything that is not a plain identifier is dropped.
+    Lines end at ``\\n`` only (a form feed or U+2028 inside a value is part of the value).
+    A quoted value that runs over several lines, ending at its first unescaped closing quote,
+    is passed over as a whole, so a line inside it is never taken for a name.  Anything that
+    is not a plain identifier is dropped.
     """
     names: set[str] = set()
     open_quote = ""
-    for line in text[:MAX_TEXT_BYTES].splitlines():
+    for line in text[:MAX_TEXT_BYTES].split("\n"):
+        line = line.rstrip("\r")
         if open_quote:
-            stripped = line.rstrip()
-            if stripped.endswith(open_quote) and not stripped.endswith("\\" + open_quote):
+            if _closes_quote(line, open_quote, 0):
                 open_quote = ""
             continue
         stripped = line.strip()
@@ -124,7 +176,7 @@ def env_secret_names(text: str) -> list[str]:
         key, _, value = stripped.partition("=")
         key = key.strip().removeprefix("export ").strip()
         value = value.strip()
-        if value[:1] in ('"', "'") and not (len(value) >= 2 and value[-1] == value[0]):
+        if value[:1] in ('"', "'") and not _closes_quote(value, value[0], 1):
             open_quote = value[0]
         if _ENV_NAME_RE.fullmatch(key):
             names.add(key)
@@ -236,9 +288,17 @@ def archive_secrets_info(source: bytes | Path) -> tuple[list[str] | None, bool]:
                 manifest = json.loads(handle.read())
                 if not isinstance(manifest, dict):
                     return None, False
-                return clean_names(manifest.get("secret_names")), bool(
-                    manifest.get("secrets_included")
-                )
+                if "secrets_included" in manifest:
+                    included = bool(manifest["secrets_included"])
+                else:  # an older manifest: the file list says whether secrets were copied
+                    files = manifest.get("files")
+                    paths = (
+                        {f.get("path") for f in files if isinstance(f, dict)}
+                        if isinstance(files, list)
+                        else set()
+                    )
+                    included = bool(paths & _SECRET_PATHS)
+                return clean_names(manifest.get("secret_names")), included
     except (OSError, EOFError, tarfile.TarError, ValueError):
         return None, False
     return None, False

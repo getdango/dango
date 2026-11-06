@@ -35,7 +35,6 @@ from dango.platform.cloud.backup_destination import (
     RESTORE_SECRETS_PREFIX,
     archive_secrets_info,
     clean_names,
-    offsite_line,
 )
 from dango.platform.cloud.backup_restore_checks import (
     RESTORE_ERROR_PREFIX,
@@ -275,10 +274,9 @@ def backup_enable(ctx: click.Context) -> None:
         destination = backup_notices.prepare_destination(ssh, cloud_cfg)
 
         # The unit depends on the server's Dango version (how it reads the Spaces keys)
-        version = ssh.exec_command(SERVER_DANGO_VERSION_COMMAND, timeout=30)
-        unit, unit_warning = backup_service_unit(
-            version.stdout.strip() if version.success else None
-        )
+        version_result = ssh.exec_command(SERVER_DANGO_VERSION_COMMAND, timeout=30)
+        version = version_result.stdout.strip() if version_result.success else None
+        unit, unit_warning = backup_service_unit(version)
         if unit_warning:
             console.print(f"[yellow]Warning:[/yellow] {unit_warning}")
 
@@ -310,7 +308,7 @@ def backup_enable(ctx: click.Context) -> None:
         console.print("  Timer: dango-backup.timer")
         console.print("  Service: dango-backup.service")
         backup_notices.print_offsite_from_stdout(
-            offsite_line(destination["bucket"] if destination else None)
+            backup_notices.offsite_verdict(destination, destination is not None, version, True)
         )
     finally:
         ssh.disconnect()

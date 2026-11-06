@@ -20,6 +20,7 @@ from rich.markup import escape
 from dango.cli import console
 from dango.cli.commands import remote_report
 from dango.exceptions import CloudError, CloudProvisioningError
+from dango.platform.cloud._server_templates import SERVER_DANGO_VERSION_COMMAND
 from dango.platform.cloud.backup_destination import (
     DOWNLOAD_HINT,
     OFFSITE_PREFIX,
@@ -27,6 +28,7 @@ from dango.platform.cloud.backup_destination import (
     destination_from_env,
     offsite_line,
     reenter_message,
+    server_reads_destination,
     server_secret_names,
     validated_destination,
 )
@@ -34,7 +36,6 @@ from dango.platform.cloud.project_files import read_project_file, write_project_
 from dango.utils.env_file import parse_env_file
 
 SPACES_KEY_NAMES = ("SPACES_ACCESS_KEY", "SPACES_SECRET_KEY")
-_NOT_OFFSITE = (f"{OFFSITE_PREFIX}NO", f"{OFFSITE_PREFIX}unverified")
 
 
 class ServerEnvUnreadable(Exception):
@@ -67,11 +68,11 @@ def print_offsite_from_stdout(stdout: str) -> None:
             highlight=False,
         )
         return
-    if found.startswith(_NOT_OFFSITE):
+    if found.startswith(f"{OFFSITE_PREFIX}yes"):
+        console.print(f"[green]{escape(found)}[/green]", highlight=False, soft_wrap=True)
+    else:
         console.print(f"[yellow]{escape(found)}[/yellow]", highlight=False, soft_wrap=True)
         _print_hint()
-    else:
-        console.print(f"[green]{escape(found)}[/green]", highlight=False, soft_wrap=True)
 
 
 def _server_cloud_yml_destination(ssh: Any) -> dict[str, str] | None:
@@ -111,6 +112,43 @@ def server_destination(ssh: Any) -> tuple[dict[str, str] | None, bool]:
     return destination, all(values.get(k) for k in SPACES_KEY_NAMES)
 
 
+def _server_version(ssh: Any) -> str | None:
+    """The Dango version installed on the server, or None when it cannot be read."""
+    try:
+        result = ssh.exec_command(SERVER_DANGO_VERSION_COMMAND, timeout=30)
+        return str(result.stdout).strip() if result.success else None
+    except (CloudError, OSError):
+        return None
+
+
+def offsite_verdict(
+    destination: dict[str, str] | None, has_keys: bool, version: str | None, timer_active: bool
+) -> str:
+    """The off-site line, claiming ``yes`` only when a backup would really reach Spaces.
+
+    That needs a destination, both keys, a server whose Dango reads the destination from its
+    ``.env`` (older ones read only a ``cloud.yml`` that nothing writes) and an active timer.
+    """
+    if destination is None:
+        return offsite_line(None)
+    bucket = destination["bucket"]
+    if not has_keys:
+        return (
+            f"{OFFSITE_PREFIX}NO: Spaces bucket {bucket} is set but SPACES_ACCESS_KEY / "
+            "SPACES_SECRET_KEY are missing from the server .env"
+        )
+    if not server_reads_destination(version):
+        return (
+            f"{OFFSITE_PREFIX}unknown (the server's Dango {version or '(version unreadable)'} "
+            "does not read SPACES_BUCKET; run dango remote upgrade)"
+        )
+    if not timer_active:
+        return (
+            f"{OFFSITE_PREFIX}NO (scheduled backups are not enabled; destination Spaces {bucket})"
+        )
+    return offsite_line(bucket)
+
+
 def backup_status_lines(ssh: Any) -> list[str]:
     """Rich-markup lines for the ``Backups`` panel of ``dango remote status``."""
     try:
@@ -122,23 +160,19 @@ def backup_status_lines(ssh: Any) -> list[str]:
             f"  [yellow]{escape(OFFSITE_PREFIX)}NO:[/yellow] {escape(str(exc))}",
             *_hint_lines(),
         ]
-    lines: list[str] = []
-    if destination and has_keys:
-        lines.append(f"  [green]{escape(offsite_line(destination['bucket']))}[/green]")
-    elif destination:
-        lines.append(
-            f"  [yellow]{OFFSITE_PREFIX}NO:[/yellow] Spaces bucket {escape(destination['bucket'])} "
-            "is set but SPACES_ACCESS_KEY / SPACES_SECRET_KEY are missing from the server .env"
-        )
-    else:
-        lines.append(f"  [yellow]{escape(offsite_line(None))}[/yellow]")
-    if not (destination and has_keys):
-        lines.extend(_hint_lines())
+    version = _server_version(ssh)
     try:
         timer = ssh.exec_command("systemctl is-active dango-backup.timer", timeout=10)
         enabled = str(timer.stdout).strip() == "active"
     except (CloudError, OSError):
-        return lines
+        enabled = False
+    verdict = offsite_verdict(destination, has_keys, version, enabled)
+    lines = [
+        f"  [{'green' if verdict.startswith(f'{OFFSITE_PREFIX}yes') else 'yellow'}]"
+        f"{escape(verdict)}[/]"
+    ]
+    if not verdict.startswith(f"{OFFSITE_PREFIX}yes"):
+        lines.extend(_hint_lines())
     lines.append(
         "  Scheduled backups: enabled (daily at 02:00 UTC)"
         if enabled

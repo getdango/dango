@@ -27,6 +27,7 @@ from typing import Any
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
 from dango.platform.cloud.backup_destination import (
+    load_cloud_yml,
     local_secret_names,
     offsite_line,
     validated_destination,
@@ -770,16 +771,11 @@ def _load_spaces_config() -> dict[str, Any]:
     env = read_env_values(PROJECT_DIR / ".env", ("SPACES_BUCKET", "SPACES_REGION"))
     if env.get("SPACES_BUCKET"):
         return validated_destination(env["SPACES_BUCKET"], env.get("SPACES_REGION"), source=".env")
-    cloud_yml = PROJECT_DIR / ".dango" / "cloud.yml"
-    if not cloud_yml.exists():
+    data = load_cloud_yml(PROJECT_DIR)
+    if data is None:
         raise CloudProvisioningError("cloud.yml not found — Spaces not configured")
-    try:
-        import yaml
-    except ImportError:
-        raise CloudProvisioningError("PyYAML required to read cloud.yml") from None
-    data: dict[str, Any] = yaml.safe_load(cloud_yml.read_text()) or {}
     spaces = data.get("spaces")
-    if not spaces or not spaces.get("bucket"):
+    if not isinstance(spaces, dict) or not spaces.get("bucket"):
         raise CloudProvisioningError("Spaces not configured in cloud.yml. Set spaces.bucket first.")
     return validated_destination(
         spaces["bucket"], spaces.get("region") or data.get("region"), source="cloud.yml"
@@ -787,16 +783,13 @@ def _load_spaces_config() -> dict[str, Any]:
 
 
 def _load_backup_config() -> dict[str, Any]:
-    """Load backup config from cloud.yml. Returns defaults if not configured."""
-    cloud_yml = PROJECT_DIR / ".dango" / "cloud.yml"
-    if not cloud_yml.exists():
-        return {}
+    """Load backup config from cloud.yml. Returns defaults if not configured or unreadable."""
     try:
-        import yaml
-    except ImportError:
+        data = load_cloud_yml(PROJECT_DIR)
+    except CloudProvisioningError:
         return {}
-    data: dict[str, Any] = yaml.safe_load(cloud_yml.read_text()) or {}
-    return data.get("backup") or {}
+    backup = (data or {}).get("backup")
+    return backup if isinstance(backup, dict) else {}
 
 
 def _warn_spaces_reuse(

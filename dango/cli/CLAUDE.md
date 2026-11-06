@@ -23,6 +23,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/transform.py` (343 lines) | `run`, `docs`, `generate` | `run()`, `docs()`, `generate()` |
 | `commands/upgrade.py` | `upgrade` command — local Dango upgrade via pip + migrations; first copies `.dango/*.db`/`*.yml` to `.dango/backups/pre-upgrade-<UTC>/` (keeps 3, aborts if the copy fails) | `upgrade()`, `get_latest_version_cached()` |
 | `commands/local_backup.py` | `backup` group: list local archives, `backup restore` (refuses while Dango runs or holds the dbt lock; streams files atomically; restores only backup members) | `backup_group`, `backup_restore()` |
+| `commands/local_backup_files.py` | Helpers of `local_backup.py`: which archive members a restore writes (`is_backup_member`), where they land (`member_rel_path`), WAL sidecar clearing and the safety backup's directory walk | `is_backup_member`, `member_rel_path`, `clear_sidecar`, `add_tree` |
 | `commands/data.py` (388 lines) | `db` group (`status`, `clean`) + `validate` | `db`, `validate()` |
 | `commands/config_cmd.py` (240 lines) | `config` group (`validate`, `show`, `do-token`) | `config` |
 | `commands/metabase_cmd.py` (412 lines) | `metabase` group (`save`, `load`, `refresh`, `repair-admin`) | `metabase` |
