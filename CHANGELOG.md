@@ -204,6 +204,7 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 
 ## [1.0.8] - 2026-09-22
 
+- `dango deploy --byos` now ends with the backup notice: BYOS backups live only on the server and are lost with it, `dango remote backup download --from-server -o ./backup.tar.gz` saves a copy, and secrets are not in backups by default.
 ### Added
 
 - Telemetry — `dango init` now asks for one-time, anonymous opt-in consent before sending an install ping; declining, running in CI, or setting `DO_NOT_TRACK`/`DANGO_TELEMETRY` skips it silently
