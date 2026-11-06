@@ -18,7 +18,7 @@ from tests.factories.remote_isolation_fakes import IsoSSH, invoke
 pytestmark = pytest.mark.unit
 
 
-def _deploy_text(**kwargs: object) -> str:
+def _deploy_text(*, byos: bool) -> str:
     from dango.cli.commands.deploy import _print_deploy_success
 
     with (
@@ -26,8 +26,12 @@ def _deploy_text(**kwargs: object) -> str:
         patch("dango.cli.commands.deploy.console.print") as out,
     ):
         _print_deploy_success(
-            url="http://1.2.3.4", ip="1.2.3.4", admin_email="a@example.com", warnings=[], **kwargs
-        )  # type: ignore[arg-type]
+            url="http://1.2.3.4",
+            ip="1.2.3.4",
+            admin_email="a@example.com",
+            warnings=[],
+            byos=byos,
+        )
     return "\n".join(str(c.args[0]) for c in out.call_args_list if c.args)
 
 
