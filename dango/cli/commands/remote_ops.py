@@ -1,6 +1,6 @@
 """dango/cli/commands/remote_ops.py
 
-Remote operations: resize, migrate, and upgrade commands.
+Remote operations: resize, upgrade, and the switched-off migrate command.
 
 These commands are registered on the ``remote`` group defined in
 ``remote.py`` via ``@remote.command()`` decorators.  The parent module
@@ -81,7 +81,7 @@ def remote_upgrade(
                 "\n[red]Error:[/red] Could not determine latest version from PyPI. "
                 "Specify a version with --version."
             )
-            raise SystemExit(1)
+            ctx.exit(1)
 
         # At target, only a venv rebuild restarts services: ask first (plain steps need no prompt).
         if at_target and not yes and (plan := at_target_restart_plan(ssh)):
@@ -168,7 +168,7 @@ def remote_resize(ctx: click.Context, size: str | None, yes: bool) -> None:
             "[red]Error:[/red] Resize is not available for BYOS deployments. "
             "Manage server sizing through your hosting provider."
         )
-        raise SystemExit(1)
+        ctx.exit(1)
 
     if size is None:
         # Info mode: show current spec and available tiers
@@ -309,167 +309,37 @@ def remote_resize(ctx: click.Context, size: str | None, yes: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
-@remote.command("migrate")
-@click.option("--size", required=True, help="Size slug for the new server.")
-@click.option(
-    "--region",
-    default=None,
-    help="Region slug for the new server. Defaults to current region.",
+MIGRATE_OFF_MESSAGE = (
+    "Error: dango remote migrate is switched off in 1.0.14.\n"
+    "To change the server size, use: dango remote resize\n"
+    "To move to another server or region:\n"
+    "  (1) dango remote backup download --from-server -o ./backup.tar.gz\n"
+    "  (2) dango deploy destroy\n"
+    "  (3) dango deploy\n"
+    "  (4) dango remote backup restore ./backup.tar.gz --from-local\n"
+    "Then re-enter secrets (they are not in backups by default) and update DNS."
 )
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
+
+
+@remote.command(
+    "migrate",
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
+@click.option("--size", default=None, help="Ignored: the command is switched off.")
+@click.option("--region", default=None, help="Ignored: the command is switched off.")
+@click.option("--yes", "-y", is_flag=True, help="Ignored: the command is switched off.")
 @click.pass_context
 def remote_migrate(
     ctx: click.Context,
-    size: str,
+    size: str | None,
     region: str | None,
     yes: bool,
 ) -> None:
-    """Migrate to a new server (new droplet for disk/region changes).
+    """Migrate is switched off in 1.0.14 (it refuses and prints the manual steps).
 
-    Creates a new server, transfers data via Spaces, and destroys the old
-    server after verification. Requires Spaces to be configured.
+    Use ``dango remote resize`` to change the server size. To move servers,
+    back up, destroy, redeploy and restore: the refusal message lists the steps.
     """
-    from rich.status import Status
-
-    from dango.cli.commands.remote import (
-        _connect_ssh,
-        _make_client,
-        _require_cloud_deployment,
-    )
-    from dango.platform.cloud.migrate import migrate_server
-    from dango.platform.cloud.provisioning import (
-        get_region_info,
-        get_size_tier,
-    )
-    from dango.platform.cloud.resize import validate_size_slug
-
-    cloud_cfg, project_root = _require_cloud_deployment(ctx)
-
-    if cloud_cfg.provider == "byos":
-        console.print("[red]Error:[/red] Migration is not available for BYOS deployments.")
-        raise SystemExit(1)
-
-    # Validate size
-    try:
-        validate_size_slug(size)
-    except Exception as exc:
-        console.print(f"[red]Error:[/red] {report.literal(exc)}")
-        raise SystemExit(1) from exc
-
-    # Require Spaces
-    if cloud_cfg.spaces is None:
-        console.print(
-            "[red]Error:[/red] Migration requires Spaces for data transfer.\n"
-            "Configure Spaces first with: [bold]dango remote backup enable[/bold]"
-        )
-        raise SystemExit(1)
-
-    effective_region = region or cloud_cfg.region
-
-    # Show plan
-    console.print("[bold]Migration plan:[/bold]")
-    current_tier = get_size_tier(cloud_cfg.size)
-    new_tier = get_size_tier(size)
-
-    if current_tier:
-        console.print(
-            f"  Current: {current_tier.name} ({current_tier.slug}) — "
-            f"{current_tier.vcpus} vCPU, {current_tier.ram_gb} GB RAM, "
-            f"${current_tier.price_monthly}/mo"
-        )
-    else:
-        console.print(f"  Current: {cloud_cfg.size}")
-
-    if new_tier:
-        console.print(
-            f"  New:     {new_tier.name} ({new_tier.slug}) — "
-            f"{new_tier.vcpus} vCPU, {new_tier.ram_gb} GB RAM, "
-            f"${new_tier.price_monthly}/mo"
-        )
-    else:
-        console.print(f"  New:     {size}")
-
-    console.print(f"  Region:  {cloud_cfg.region} → {effective_region}")
-    region_info = get_region_info(effective_region)
-    if region_info:
-        extra = " (GDPR)" if region_info.gdpr else ""
-        console.print(f"           {region_info.city}, {region_info.country}{extra}")
-
-    console.print(
-        "\n[yellow]Warning:[/yellow] This creates a new server and destroys the old one.\n"
-        "  Downtime: ~5-15 minutes."
-    )
-
-    if cloud_cfg.domain:
-        console.print(
-            f"\n[yellow]Note:[/yellow] Domain [bold]{cloud_cfg.domain}[/bold] will be "
-            "configured on the new server. Update your DNS A record to the new IP."
-        )
-
-    if not yes:
-        if not safe_confirm("\nProceed with migration?"):
-            console.print("[yellow]Migration cancelled.[/yellow]")
-            return
-
-    # Connect to old server
-    client = _make_client()
-    old_ssh = _connect_ssh(cloud_cfg, project_root)
-
-    try:
-        with Status("[bold blue]Migrating...", console=console) as status:
-
-            def _on_progress(step: str, step_status: str) -> None:
-                if step_status == "running":
-                    labels: dict[str, str] = {
-                        "backup": "Creating backup on old server...",
-                        "upload_spaces": "Uploading backup to Spaces...",
-                        "provision": "Provisioning new server...",
-                        "setup_server": "Setting up new server...",
-                        "copy_secrets": "Copying secrets...",
-                        "download_spaces": "Downloading backup on new server...",
-                        "restore": "Restoring data on new server...",
-                        "domain": "Configuring domain...",
-                        "firewall": "Updating firewall...",
-                        "verify_health": "Verifying health...",
-                        "cleanup": "Cleaning up old server...",
-                    }
-                    status.update(f"[bold blue]{labels.get(step, step)}")
-
-            result = migrate_server(
-                client,
-                old_ssh,
-                cloud_cfg,
-                size,
-                effective_region,
-                project_root=project_root,
-                on_progress=_on_progress,
-            )
-
-        # Show results
-        console.print()
-        if result.old_droplet_destroyed:
-            console.print("[green]Migration complete.[/green]")
-        else:
-            console.print("[yellow]Migration complete with warnings.[/yellow]")
-
-        console.print(f"  New droplet: {result.new_droplet_id} ({result.new_droplet_ip})")
-        console.print(f"  Region: {result.new_region}")
-        console.print(f"  Size: {result.new_size}")
-        console.print(f"  Duration: {result.duration_seconds}s")
-
-        if result.dns_updated and cloud_cfg.domain:
-            console.print(
-                f"\n[yellow]Action required:[/yellow] Update DNS A record for "
-                f"[bold]{cloud_cfg.domain}[/bold] to [bold]{result.new_droplet_ip}[/bold]"
-            )
-
-        for warning in result.warnings:
-            report.warning(warning)
-
-    except SystemExit:
-        raise
-    except Exception as exc:
-        report.failure("Migration failed", exc)
-        raise SystemExit(1) from exc
-    finally:
-        old_ssh.disconnect()
+    # Refuse before loading config or touching the network.
+    console.print(MIGRATE_OFF_MESSAGE, markup=False, highlight=False)
+    ctx.exit(1)

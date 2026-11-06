@@ -131,6 +131,9 @@ def deploy(  # noqa: PLR0913
 
     # --- Non-interactive DO mode ---
     if non_interactive:
+        from dango.cli.commands.orphan_notice import warn_untracked_droplets
+
+        warn_untracked_droplets(project_root)
         _handle_do_deploy(
             project_root,
             region=region,
@@ -175,7 +178,9 @@ def deploy(  # noqa: PLR0913
         _print_byos_success(byos_result, byos_config)
     else:
         from dango.cli.commands.deploy_wizard import run_wizard
+        from dango.cli.commands.orphan_notice import warn_untracked_droplets
 
+        warn_untracked_droplets(project_root)
         wizard_config = run_wizard(
             project_root, allowed_ips=preset_ips, accept_http_exposure=preset_ack, domain=domain
         )

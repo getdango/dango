@@ -366,7 +366,7 @@ class TestBYOSGuardResize:
 @pytest.mark.unit
 class TestBYOSGuardMigrate:
     def test_byos_migrate_blocked(self, tmp_path):
-        """Migrate should be blocked for BYOS deployments."""
+        """Migrate refuses for BYOS deployments (it is switched off for every provider)."""
         from click.testing import CliRunner
 
         from dango.cli.commands.remote import remote
@@ -385,7 +385,7 @@ class TestBYOSGuardMigrate:
             )
 
         assert result.exit_code == 1
-        assert "not available for BYOS" in result.output
+        assert "switched off in 1.0.14" in result.output
 
 
 @pytest.mark.unit

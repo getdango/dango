@@ -141,7 +141,7 @@ platform/
 | `cloud/deploy_journal.py` | Append-only JSONL deployment history | `DeploymentRecord`, `write_local_journal`, `write_remote_journal`, `read_local_journal`, `read_remote_journal`, `get_latest_deployment` |
 | `cloud/scheduled_backup.py` | Server-side scheduled backup to Spaces; `_load_spaces_config` reads the destination from the server `.env` first; `ScheduledBackupResult.off_site` is true only after the upload size was confirmed; `main()` prints the off-site line | `run_scheduled_backup`, `main`, `list_spaces_backups`, `restore_from_spaces`, `enable_scheduled_backup`, `disable_scheduled_backup` |
 | `cloud/resize.py` | In-place droplet resize (power off → resize → power on, regenerate dbt profiles) | `resize_droplet`, `ResizeResult`, `validate_size_slug`, `generate_dbt_profiles_yml`, `regenerate_dbt_profiles`, `get_disk_warning`, `get_power_state`, `power_on_and_wait` |
-| `cloud/migrate.py` | Server migration via Spaces (new droplet, transfer data, destroy old) | `migrate_server`, `MigrateResult` |
+| `cloud/migrate.py` | Server migration via Spaces (new droplet, transfer data, destroy old). Not reachable from the CLI in 1.0.14 (`remote migrate` is switched off); tested by calling the function directly | `migrate_server`, `MigrateResult` |
 | `cloud/upgrade.py` | Remote Dango version upgrade (pip install, migrations, Docker rebuild) | `upgrade_dango`, `UpgradeResult`, `validate_version_string`, `check_versions` |
 | `cloud/upgrade_guard.py` | Server-side systemd timer that starts `dango-web` if the upgrading client dies (re-armed per step, waits while a step runs) | `UpgradeGuard` |
 | `cloud/upgrade_preflight.py` | Checks `upgrade_dango` makes before it stops or changes anything: a custom Metabase `MB_VERSION` without an administrator pin (`compose/metabase-jar.pin`) is refused with the full pin command (`DANGO-D025`); uses the server's own parsers (`mb_version_of`, `parse_pin_record`) and a link-safe direct write for servers whose helper cannot pin yet | `check_metabase_pin`, `recovery`, `direct_pin_script` |
@@ -281,7 +281,8 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 | Resize droplet | `cloud/resize.py` → `resize_droplet()` | `pytest tests/unit/test_resize.py` |
 | Migrate to new server | `cloud/migrate.py` → `migrate_server()` | `pytest tests/unit/test_migrate.py` |
 | Upgrade remote Dango | `cloud/upgrade.py` → `upgrade_dango()` | `pytest tests/unit/test_upgrade.py` |
-| CLI resize/migrate/upgrade | `cli/commands/remote_ops.py` | `pytest tests/unit/test_remote_ops_cli.py` |
+| CLI resize/upgrade; migrate refusal | `cli/commands/remote_ops.py` | `pytest tests/unit/test_remote_ops_cli.py tests/unit/test_remote_migrate_off.py` |
+| Untracked-droplet warning | `cli/commands/orphan_notice.py` | `pytest tests/unit/test_orphan_notice.py` |
 | CLI backup commands | `cli/commands/remote_backup.py` | `pytest tests/unit/test_remote_backup_cli.py` |
 | Modify watcher logic | `local/watcher.py` | `pytest tests/unit/test_watcher_lifecycle.py` |
 | Change Docker service startup | `docker.py` | `dango start` manually |
@@ -348,7 +349,7 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 - `dango.cli.commands.serve` — production foreground server
 - `dango.cli.commands.remote` — rollback command
 - `dango.cli.commands.remote_backup` — backup subcommands
-- `dango.cli.commands.remote_ops` — resize, migrate, upgrade commands
+- `dango.cli.commands.remote_ops` — resize, upgrade commands, and the switched-off migrate command
 - `dango.cli.commands.deploy_provision` — provisioning orchestration
 - `dango.cli.commands.remote_env` — remote env var management (uses file_sync)
 - `dango.cli.commands.remote_mgmt` — remote status/logs/ssh/query

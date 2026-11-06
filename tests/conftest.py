@@ -88,6 +88,7 @@ def _keyring_backend_for_subprocesses():
 def _isolate_home(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch):
     """`Path.home()` (used by `dango/platform/cloud/ssh.py`, `~/.dango/...`) points at a throwaway dir."""
     monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home")))
+    monkeypatch.delenv("DIGITALOCEAN_TOKEN", raising=False)  # no test may reach the DO API
 
 
 def pytest_sessionstart(session):

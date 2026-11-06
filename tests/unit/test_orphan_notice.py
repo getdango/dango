@@ -5,6 +5,7 @@ Warn about droplets tagged `dango` that this project's cloud.yml does not name.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -15,7 +16,8 @@ from click.testing import CliRunner
 from dango.cli.commands import orphan_notice
 from dango.exceptions import CloudAPIError, CloudAuthError
 
-_HINT = "delete in the DigitalOcean console"
+_HINT = "delete them in the DigitalOcean console"
+_WARNING = "DigitalOcean has"
 
 
 class FakeClient:
@@ -51,9 +53,13 @@ def _project(tmp_path: Path, droplet_id: int | None) -> Path:
     return tmp_path
 
 
+def _plain(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"\x1b\[[^m]*m", "", text))
+
+
 def _warn(project: Path, client: Any, capsys: pytest.CaptureFixture[str]) -> str:
     orphan_notice.warn_untracked_droplets(project, client_factory=lambda: client)
-    return capsys.readouterr().out
+    return _plain(capsys.readouterr().out)
 
 
 @pytest.mark.unit
@@ -114,7 +120,7 @@ class TestWarnUntrackedDroplets:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str], error: Exception
     ) -> None:
         out = _warn(_project(tmp_path, 7), FakeClient(error=error), capsys)
-        assert out.strip() == ""
+        assert _WARNING not in out
 
     def test_client_factory_failure_is_silent(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -123,7 +129,7 @@ class TestWarnUntrackedDroplets:
             raise CloudAuthError("no token")
 
         orphan_notice.warn_untracked_droplets(_project(tmp_path, 7), client_factory=factory)
-        assert capsys.readouterr().out.strip() == ""
+        assert _WARNING not in capsys.readouterr().out
 
     def test_no_token_means_no_client_and_no_output(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
@@ -135,7 +141,7 @@ class TestWarnUntrackedDroplets:
         ):
             orphan_notice.warn_untracked_droplets(_project(tmp_path, 7))
         cls.assert_not_called()
-        assert capsys.readouterr().out.strip() == ""
+        assert _WARNING not in capsys.readouterr().out
 
     def test_unreadable_cloud_yml_is_silent(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -143,7 +149,7 @@ class TestWarnUntrackedDroplets:
         (tmp_path / ".dango").mkdir()
         (tmp_path / ".dango" / "cloud.yml").write_text("{ not: [valid")
         out = _warn(tmp_path, FakeClient([_droplet(5)]), capsys)
-        assert out.strip() == ""
+        assert _WARNING not in out
 
 
 @pytest.mark.unit

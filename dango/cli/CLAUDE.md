@@ -48,7 +48,8 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/deploy_provision.py` (1000 lines) | Provisioning orchestration (DO + BYOS) + cleanup | `run_provisioning()`, `run_byos_setup()`, `ProvisionResult`, `BYOSResult`, `_ResourceTracker` |
 | `commands/remote_env.py` | `remote env` subgroup (set, get, list, delete) | `env` (Click group) |
 | `commands/remote_upload.py` | `remote upload LOCAL [REMOTE]` — one file into the server's `data/` (dango SSH user, `.part` then `mv -fT`, 2 GiB cap, never `warehouse.duckdb*` or `data/.tmp`) | `remote_upload()`, `resolve_remote_target()` |
-| `commands/remote_ops.py` | `remote upgrade`, `remote resize`, `remote migrate` | `remote_upgrade()`, `remote_resize()`, `remote_migrate()` |
+| `commands/remote_ops.py` | `remote upgrade`, `remote resize`, `remote migrate` (switched off in 1.0.14: refuses before any config or network access and prints the manual steps) | `remote_upgrade()`, `remote_resize()`, `remote_migrate()`, `MIGRATE_OFF_MESSAGE` |
+| `commands/orphan_notice.py` | Warning (never deletes, never blocks) listing DigitalOcean droplets tagged `dango` that this project's `cloud.yml` does not name; run at the start of a DigitalOcean `dango deploy` and in `dango remote status`; silent with no token or on API failure | `warn_untracked_droplets` |
 | `commands/remote_power.py` | `remote power-on` (DigitalOcean API; works when SSH cannot connect) + power-state lookups used by `remote status`/`resize`; registered by the top-level import in `remote_ops.py` | `remote_power_on()`, `lookup_power_state()`, `refuse_if_powered_off()` |
 | `commands/remote_backup.py` | `remote backup` subgroup (list, enable, disable, download, restore); `enable` writes the Spaces destination the server lacks to its `.env`; restores show the secrets reminder before asking and name what to re-enter afterwards | `backup_group` |
 | `commands/backup_notices.py` | What the CLI says about backups: the off-site line (`remote backup`, `enable`, `remote status` panel), the reminder before `deploy destroy` / `remote resize` / `remote backup restore` that `.env` and `.dlt/secrets.toml` are not in backups (names only), and the names to re-enter after a download or restore | `print_offsite_from_stdout`, `backup_status_lines`, `print_secrets_reminder`, `print_reenter`, `secrets_reminder_lines` |
@@ -129,7 +130,7 @@ dango (top-level group)
 │   ├── status, logs, ssh, query, history ← commands/remote_mgmt.py
 │   ├── sync                     ← commands/remote_sync.py
 │   ├── upload                   ← commands/remote_upload.py
-│   ├── upgrade, resize, migrate ← commands/remote_ops.py
+│   ├── upgrade, resize, migrate (off) ← commands/remote_ops.py
 │   ├── metabase-repair-admin    ← commands/remote_metabase_admin.py
 │   ├── repair, reset-metabase   ← commands/remote_repair.py (repair's remote schema scan resolves admin credentials through `dango.security.metabase_config`, with cloud mode explicit because SSH does not inherit the systemd environment)
 │   ├── env (subgroup)          ← commands/remote_env.py

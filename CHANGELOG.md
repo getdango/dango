@@ -60,6 +60,8 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - Completed dlt load files that contain row data are no longer left on disk after a sync.
 - DigitalOcean errors show the provider's own message, and the required token scopes are listed.
 - Notebook, script and data-changing actions are attributed to the signed-in user in the audit log.
+- **`dango remote migrate` is switched off.** It refuses before any network call and prints the manual path: `dango remote backup download --from-server`, `dango deploy destroy`, `dango deploy`, `dango remote backup restore --from-local`, then re-enter secrets and update DNS. Use `dango remote resize` to change the server size.
+- `dango deploy` (DigitalOcean) and `dango remote status` warn about droplets tagged `dango` that this project's `cloud.yml` does not name (a deploy killed hard can leave one running). The warning lists their ids, names and creation times; nothing is deleted. It does nothing when no DigitalOcean token is configured or the lookup fails.
 
 ### Fixed
 
