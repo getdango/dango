@@ -23,6 +23,12 @@ import click
 from rich.markup import escape
 
 from dango.cli import console
+from dango.cli.commands.local_backup_files import (
+    add_tree,
+    clear_sidecar,
+    is_backup_member,
+    member_rel_path,
+)
 from dango.cli.utils import require_project_context, safe_confirm
 from dango.platform.cloud.backup import (
     BACKUP_DIRS,
@@ -33,6 +39,7 @@ from dango.platform.cloud.backup import (
     _sanitized_metabase_yaml_text,
     wal_sidecar_names,
 )
+from dango.platform.cloud.backup_destination import CLOUD_CONFIG_FILE
 from dango.platform.cloud.backup_restore import (
     AUTH_CONFIG_FILE,
     AUTH_CONFIG_MAX_BYTES,
@@ -40,7 +47,6 @@ from dango.platform.cloud.backup_restore import (
     AUTH_CONFIG_SKIPPED_WARNING,
     WAREHOUSE_FILE,
     auth_config_keeps_auth_on,
-    is_backup_excluded,
     unsafe_tar_members,
 )
 from dango.platform.cloud.restore_pipeline_state import pipeline_names, set_aside_pipeline_state
@@ -48,8 +54,6 @@ from dango.platform.cloud.restore_pipeline_state import pipeline_names, set_asid
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-_SRV_PREFIX = "/srv/dango/project/"
 
 
 def _checkpoint_database(db_path: Path) -> bool:
@@ -83,42 +87,6 @@ def _live_sidecars(project_root: Path, fpath: str) -> list[str]:
         for s in wal_sidecar_names(fpath)
         if (project_root / s).is_file() and (project_root / s).stat().st_size > 0
     ]
-
-
-def _add_tree(tf: tarfile.TarFile, root: Path, arcname: str) -> None:
-    """Add regular files and directories below *root* as *arcname*/…, never following links.
-
-    ``BACKUP_EXCLUDES`` names are left out; links and special files are skipped with a
-    warning (a restore refuses archives that contain them).
-    """
-    tf.add(str(root), arcname=arcname, recursive=False)
-    for dirpath, dirnames, filenames in os.walk(root):
-        rel_dir = os.path.relpath(dirpath, root)
-        prefix = arcname if rel_dir == "." else f"{arcname}/{rel_dir}"
-        kept_dirs = []
-        for name in sorted(dirnames):
-            path = Path(dirpath) / name
-            if is_backup_excluded(name):
-                continue
-            if path.is_symlink():
-                console.print(
-                    f"[yellow]Warning:[/yellow] Not in safety backup (link): {escape(f'{prefix}/{name}')}"
-                )
-                continue
-            tf.add(str(path), arcname=f"{prefix}/{name}", recursive=False)
-            kept_dirs.append(name)
-        dirnames[:] = kept_dirs
-        for name in sorted(filenames):
-            path = Path(dirpath) / name
-            if is_backup_excluded(name):
-                continue
-            if path.is_symlink() or not path.is_file():
-                console.print(
-                    "[yellow]Warning:[/yellow] Not in safety backup (link or special file): "
-                    f"{escape(f'{prefix}/{name}')}"
-                )
-                continue
-            tf.add(str(path), arcname=f"{prefix}/{name}", recursive=False)
 
 
 def _create_safety_backup(project_root: Path) -> Path | None:
@@ -168,7 +136,7 @@ def _create_safety_backup(project_root: Path) -> Path | None:
             for dpath in BACKUP_DIRS:
                 src = project_root / dpath
                 if src.is_dir():
-                    _add_tree(tf, src.resolve(), dpath)
+                    add_tree(tf, src.resolve(), dpath)
             for sidecar in carried:
                 tf.add(os.path.realpath(project_root / sidecar), arcname=sidecar)
         return safety_path
@@ -177,38 +145,6 @@ def _create_safety_backup(project_root: Path) -> Path | None:
             safety_path.unlink(missing_ok=True)
         console.print(f"[yellow]Warning:[/yellow] Could not create safety backup: {exc}")
         return None
-
-
-def _clear_sidecar(sidecar: Path, keep_suffix: str) -> None:
-    """Delete a live WAL sidecar, or rename it with *keep_suffix* when one is given."""
-    if not keep_suffix:
-        sidecar.unlink(missing_ok=True)
-    elif sidecar.exists():
-        kept = sidecar.with_name(sidecar.name + keep_suffix)
-        sidecar.replace(kept)
-        console.print(f"[yellow]Warning:[/yellow] Live database WAL kept as {kept}")
-
-
-def _member_rel_path(name: str) -> str:
-    """Map an archive member name to a path relative to the project root."""
-    if name.startswith(_SRV_PREFIX):
-        return name[len(_SRV_PREFIX) :]
-    if name.startswith("backup-") and "/" in name:
-        # Legacy path: backup-TIMESTAMP/project/...
-        return name.split("/", 1)[1]
-    return name
-
-
-_DB_SIDECARS = frozenset(side for db in DATABASE_FILES for side in wal_sidecar_names(db))
-
-
-def _is_backup_member(rel_path: str) -> bool:
-    """True if *rel_path* is something a Dango backup contains (secrets never are)."""
-    if rel_path in ("manifest.json", METABASE_CONFIG_FILE) or rel_path in BACKUP_FILES:
-        return True
-    if rel_path in _DB_SIDECARS:  # carried by a safety backup when a checkpoint failed
-        return True
-    return any(rel_path.startswith(d + "/") for d in BACKUP_DIRS)
 
 
 def _write_streamed(src_f: Any, dest: Path, before_replace: Any) -> None:
@@ -255,13 +191,16 @@ def _extract_archive(
         members = [
             m
             for m in tf.getmembers()
-            if _member_rel_path(m.name).rstrip("/").split("/", 1)[0] != "metabase" and m.isfile()
+            if member_rel_path(m.name).rstrip("/").split("/", 1)[0] != "metabase" and m.isfile()
         ]
         # Where each member lands; a WAL carried by the archive (safety backup) is kept.
-        carried = {(project_root / _member_rel_path(m.name)).resolve() for m in members}
+        carried = {(project_root / member_rel_path(m.name)).resolve() for m in members}
         for member in members:
-            rel_path = _member_rel_path(member.name)
-            if not _is_backup_member(rel_path):
+            rel_path = member_rel_path(member.name)
+            if rel_path == CLOUD_CONFIG_FILE:  # an older archive's copy describes the server
+                console.print(f"[dim]Kept this machine's {CLOUD_CONFIG_FILE} (not restored).[/dim]")
+                continue
+            if not is_backup_member(rel_path):
                 rejected.append(rel_path)
                 continue
             dest = (project_root / rel_path).resolve()
@@ -300,7 +239,7 @@ def _extract_archive(
                 for side_rel in wal_sidecar_names(rel):
                     side = Path(str(target) + side_rel[len(rel) :])
                     if side not in carried:
-                        _clear_sidecar(side, keep_wal_suffix)
+                        clear_sidecar(side, keep_wal_suffix)
 
             dest.parent.mkdir(parents=True, exist_ok=True)
             _write_streamed(src_f, dest, clear_sidecars)

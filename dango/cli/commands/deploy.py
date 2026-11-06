@@ -19,6 +19,7 @@ from typing import Any
 import click
 
 from dango.cli import console
+from dango.cli.commands import backup_notices
 
 # ---------------------------------------------------------------------------
 # Top-level group
@@ -538,6 +539,7 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
             border_style="red",
         )
     )
+    backup_notices.print_secrets_reminder(cloud_cfg, project_root)
 
     # Static backup warning (no server check needed)
     if not force:
@@ -695,6 +697,7 @@ def _destroy_do(
             border_style="red",
         )
     )
+    backup_notices.print_secrets_reminder(cloud_cfg, project_root)
 
     # --- Offer backup download (unless --force) ---
     if not force and cloud_cfg.droplet_ip:
