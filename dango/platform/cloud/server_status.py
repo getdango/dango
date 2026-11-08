@@ -327,7 +327,7 @@ def _get_services(ssh: Any) -> list[ServiceInfo]:
 
 def _get_duckdb_size(ssh: Any) -> int | None:
     """Get DuckDB file size in bytes."""
-    result = ssh.exec_command(f"stat --format=%s {_DUCKDB_PATH} 2>/dev/null")
+    result = ssh.exec_command(f"runuser -u dango -- stat --format=%s {_DUCKDB_PATH} 2>/dev/null")
     if not result.success or not result.stdout.strip():
         return None
     try:
@@ -365,7 +365,9 @@ def _get_last_backup(ssh: Any) -> str | None:
 
 def _get_sync_history(ssh: Any) -> dict[str, str]:
     """Parse per-source last sync timestamps from sync_history.jsonl."""
-    result = ssh.exec_command(f"cat {_SYNC_HISTORY} 2>/dev/null | tail -{_SYNC_HISTORY_TAIL}")
+    result = ssh.exec_command(
+        f"runuser -u dango -- tail -{_SYNC_HISTORY_TAIL} {_SYNC_HISTORY} 2>/dev/null"
+    )
     if not result.success or not result.stdout.strip():
         return {}
     latest: dict[str, str] = {}

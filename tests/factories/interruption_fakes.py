@@ -201,8 +201,8 @@ class FakeServer:
         if cmd.startswith(f"{AS_DANGO} sh -c ") and f" _ {JOURNAL_PATH} " in cmd:
             self.journal.append(shlex.split(cmd)[-1])
             return self._ok()
-        if cmd.startswith(f"rm -f -- {BUILD_PENDING_PATH}"):
-            self.build_pending = "set -C" in cmd
+        if cmd.startswith(f"rm -rf -- {BUILD_PENDING_PATH}"):
+            self.build_pending = "mkdir" in cmd
             return self._ok()
         if cmd.startswith("if [ -e ") and BUILD_PENDING_PATH in cmd:
             return self._ok("build-pending\n" if self.build_pending else "")

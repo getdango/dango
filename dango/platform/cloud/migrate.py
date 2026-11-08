@@ -247,8 +247,9 @@ def _copy_secrets_between_servers(
         # As dango: root must not read through a link the service user planted at the path.
         try:
             secret_text = read_project_file(old_ssh, remote_path)
-        except CloudProvisioningError:
-            secret_text = ""
+        except CloudProvisioningError as exc:
+            warnings.append(f"Could not read secret file on old server: {remote_path} ({exc})")
+            continue
         if not secret_text:
             warnings.append(f"Secret file not found on old server: {remote_path}")
             continue

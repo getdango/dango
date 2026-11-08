@@ -146,19 +146,6 @@ def skipped_from_output(output: str) -> list[str]:
     ]
 
 
-def owned_data_target(path: Path) -> Path | None:
-    """Resolved target of symlinked *path* if it is a directory owned by :data:`BACKUP_SOURCE_OWNER`."""
-    import pwd
-
-    try:
-        uid = pwd.getpwnam(BACKUP_SOURCE_OWNER).pw_uid
-        real = Path(os.path.realpath(path))
-        info = os.stat(real)
-    except (KeyError, OSError):
-        return None
-    return real if stat.S_ISDIR(info.st_mode) and info.st_uid == uid else None
-
-
 def is_backup_excluded(name: str) -> bool:
     """True if a file or directory *name* matches :data:`BACKUP_EXCLUDES`."""
     import fnmatch

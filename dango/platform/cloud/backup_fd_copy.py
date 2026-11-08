@@ -42,6 +42,23 @@ def open_dir_beneath(root: Path, rel: str = "") -> int:
     return fd
 
 
+def open_owned_dir(path: Path, uid: int) -> int:
+    """Open directory *path* once (a link is followed here, and only here) and check its owner.
+
+    The owner is read from the open descriptor, so what is checked is exactly what the caller
+    walks afterwards; nothing reopens the path.  Raises ``OSError`` if *path* is not a
+    directory or its owner is not *uid*.  The caller closes the result.
+    """
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | _O_CLOEXEC)
+    try:
+        if os.fstat(fd).st_uid != uid:
+            raise PermissionError(f"not owned by uid {uid}: {path}")
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
 def _copy_open_file(fd: int, name: str, dest: Path) -> None:
     """Copy the regular file open as *fd* to *dest* (mode kept minus setuid/setgid/sticky)."""
     with os.fdopen(fd, "rb") as handle:

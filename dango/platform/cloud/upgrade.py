@@ -451,7 +451,7 @@ def upgrade_dango(
         backup_path=backup_path,
         migrations_run=migrations_run,
         docker_rebuilt=docker_rebuilt,
-        health_check_passed=health_ok,
+        health_check_passed=health_ok and migrations_run,
         duration_seconds=round(time.monotonic() - start_time, 1),
         warnings=warnings,
         caddyfile_ws_migration=caddyfile_ws_migration,

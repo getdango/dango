@@ -56,7 +56,7 @@ def _hook(monkeypatch: pytest.MonkeyPatch, names: tuple[str, ...], trigger: Any,
     def wrap(real: Callable[..., Any]) -> Callable[..., Any]:
         def inner(path: Any, *args: Any, **kwargs: Any) -> Any:
             result = real(path, *args, **kwargs)
-            if not done and trigger(path):
+            if not done and kwargs.get("follow_symlinks") is not False and trigger(path):
                 done.append(True)
                 swap()
             return result
