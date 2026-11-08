@@ -162,6 +162,7 @@ hold untrusted text, so a prompt-injected agent can call any tool you allow.
 | `create_source`, `update_source`, `set_source_enabled`, `remove_source` | Which sources sync and where | Secrets are refused as config values and stay in `.env`; `rest_api` is edited only with `dango source edit` |
 | `run_sync`, `run_transform`, `run_doctor`, `generate_docs`, `scan_pii` | API quota, load, warehouse contents | `run_sync` accepts `dry_run` |
 | `accept_schema_drift`, `set_pii_override`, `update_source_table_docs`, `add_schedule`, `update_schedule`, `set_schedule_enabled`, `remove_schedule`, `reload_schedules` | Local project configuration | None beyond your client's approval prompt |
+| `delete_pii_override` | Re-masks a column by removing a `not_pii` override | Refuses to delete a `pii` override (that would unmask the column); ask the user to remove it |
 | `remote_sync` | Runs a real sync on your server | Needs a deployment; no dry run |
 | `remote_push` | Replaces models, scripts and sources on your server | Dry run by default; needs `confirm=True` to apply |
 
