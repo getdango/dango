@@ -147,9 +147,12 @@ dango remote backup         # On-demand backup (SSH-based)
 These require DigitalOcean API access:
 
 - `dango remote resize` — Resize through your hosting provider instead
-- `dango remote migrate` — Provision a new server and redeploy manually
+- `dango remote migrate` — Switched off in 1.0.14 for every provider; it prints the manual path. To move servers: `dango remote backup download --from-server -o ./backup.tar.gz`, `dango deploy destroy`, `dango deploy`, then `dango remote backup restore ./backup.tar.gz --from-local`. Re-enter secrets (they are not in backups by default) and update DNS
 - `dango remote firewall` — Use `ufw` commands via SSH instead
-- `dango remote backup enable/disable` — Spaces-based scheduled backups are DO-only
+
+### Backups on BYOS
+
+`dango remote backup enable` and `disable` work on BYOS: they install or remove a daily systemd timer (02:00 UTC) on your server. Without Spaces credentials in the server's `.env`, backups are local-only: they stay on the server and are lost with it. Copy one to your machine with `dango remote backup download --from-server -o ./backup.tar.gz`.
 
 ## Teardown
 
