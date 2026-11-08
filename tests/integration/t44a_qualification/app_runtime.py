@@ -38,6 +38,28 @@ def active_host_config(config):
     return normalized
 
 
+def verify_active_config(info, frozen, pg, pg_id):
+    """Bind Docker's started shared-namespace hostname to the exact owned PG."""
+    assert info["Id"] == frozen["Id"], "Active container identity changed"
+    assert pg["Id"] == pg_id, "Hostname peer is not the exact owned PG"
+    assert pg["Config"]["Hostname"] == pg_id[:12], "Unexpected owned PG hostname"
+    expected = dict(frozen["Config"])
+    assert expected["Hostname"] == frozen["Id"][:12], "Unexpected custom created hostname"
+    if frozen["Id"] != pg_id:
+        assert (
+            info["HostConfig"]["NetworkMode"]
+            == frozen["HostConfig"]["NetworkMode"]
+            == ("container:" + pg_id)
+        ), "Active hostname is not bound to the exact owned PG namespace"
+        expected["Hostname"] = pg["Config"]["Hostname"]
+    changed = sorted(
+        k
+        for k in set(info["Config"]) | set(expected)
+        if k not in info["Config"] or k not in expected or info["Config"][k] != expected[k]
+    )
+    assert not changed, "Active container Config changed: " + ", ".join(changed)
+
+
 def runtime_rig(base):
     """Reuse launch/capture/cleanup; audit only exact owned nonrunning limit updates."""
 
@@ -111,7 +133,9 @@ def runtime_rig(base):
                 assert active_host_config(info["HostConfig"]) == active_host_config(
                     self.objects[other_name][1]["HostConfig"]
                 ), "Active container HostConfig changed beyond Docker's enabled-OOM default"
-                assert info["Config"] == self.objects[other_name][1]["Config"]
+                verify_active_config(
+                    info, self.objects[other_name][1], self.objects[self.pg][1], self.pg_id
+                )
                 active.append(other_component)
             active.append(component)
             assert len(active) == len(set(active)), "Duplicate running service role"
