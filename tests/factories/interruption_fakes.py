@@ -17,6 +17,8 @@ from types import SimpleNamespace
 from typing import Literal
 from unittest.mock import patch
 
+from dango.platform.cloud.deploy_pending import BUILD_PENDING_PATH
+from dango.platform.cloud.project_files import AS_DANGO
 from dango.platform.cloud.ssh import CommandResult
 from tests.factories.root_compose_fakes import is_marker_probe, split_wrapper
 
@@ -107,6 +109,7 @@ class FakeServer:
     web_active: bool = True
     metabase_up: bool = True
     journal: list[str] = field(default_factory=list)
+    build_pending: bool = False
     archives: dict[str, str] = field(default_factory=dict)  # path -> "complete" | "partial"
     manifests: dict[str, str] = field(default_factory=dict)  # path -> manifest JSON
     files: dict[str, str] = field(default_factory=dict)
@@ -195,10 +198,15 @@ class FakeServer:
                 return self._fail("cannot overwrite existing file")
             self.lock = self._quoted_payload(cmd, f"> {LOCK_PATH}")
             return self._ok()
-        if f">> {JOURNAL_PATH}" in cmd:
-            self.journal.append(self._quoted_payload(cmd, f">> {JOURNAL_PATH}"))
+        if cmd.startswith(f"{AS_DANGO} sh -c ") and f" _ {JOURNAL_PATH} " in cmd:
+            self.journal.append(shlex.split(cmd)[-1])
             return self._ok()
-        if cmd.startswith(f"tail -1 {JOURNAL_PATH}"):
+        if cmd.startswith(f"rm -f -- {BUILD_PENDING_PATH}"):
+            self.build_pending = "set -C" in cmd
+            return self._ok()
+        if cmd.startswith("if [ -e ") and BUILD_PENDING_PATH in cmd:
+            return self._ok("build-pending\n" if self.build_pending else "")
+        if cmd.startswith(f"{AS_DANGO} tail -1 {JOURNAL_PATH}"):
             return self._ok(self.journal[-1]) if self.journal else self._ok()
         if cmd == "systemctl stop dango-web":
             self.web_active = False

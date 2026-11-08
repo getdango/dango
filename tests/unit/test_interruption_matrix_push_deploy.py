@@ -139,10 +139,20 @@ def test_event_list_matches_a_healthy_run(tmp_path: Path) -> None:
     assert _healthy_events(tmp_path) == EVENTS
 
 
+_FULL_REBUILD = ["(full rebuild — an earlier push did not finish)"]
+
+
+def _rebuilt_by_the_next_run(server: FakeServer) -> list[str]:
+    """A push killed after it started copying left the build pending: the rerun rebuilds fully."""
+    return _FULL_REBUILD if server.build_pending else ["stg_orders"]
+
+
 def _assert_converges(server: FakeServer, root: Path, journal_before: int) -> None:
     """A second, healthy run succeeds and leaves one more journal row on each side."""
+    expected = _rebuilt_by_the_next_run(server)
     result = _deploy(server, root)
-    assert result.models_rebuilt == ["stg_orders"]
+    assert result.models_rebuilt == expected
+    assert not server.build_pending, "a successful build clears the pending marker"
     assert server.lock is None
     assert server.web_active
     assert len(server.journal) == journal_before + 1
@@ -177,8 +187,8 @@ def test_killed_at_boundary_then_rerun(tmp_path: Path, event: tuple[str, str]) -
         ("web stopped, client dies", KillRule("systemctl stop dango-web", when="after")),
         ("restart issued, client dies", KillRule("systemctl restart dango-web", when="after")),
         ("tar half written", KillRule("tar -czf", when="partial")),
-        ("remote journal not written", KillRule(f">> {JOURNAL_PATH}", when="before")),
-        ("remote journal written", KillRule(f">> {JOURNAL_PATH}", when="after")),
+        ("remote journal not written", KillRule(f" _ {JOURNAL_PATH} ", when="before")),
+        ("remote journal written", KillRule(f" _ {JOURNAL_PATH} ", when="after")),
     ],
     ids=lambda v: v if isinstance(v, str) else "",
 )
@@ -195,8 +205,9 @@ def test_killed_inside_a_command_then_rerun(tmp_path: Path, label: str, rule: Ki
     assert len(server.journal) <= 1
     assert len(_local_journal(tmp_path)) == 1
 
+    expected = _rebuilt_by_the_next_run(server)
     result = _deploy(server, tmp_path)
-    assert result.models_rebuilt == ["stg_orders"]
+    assert result.models_rebuilt == expected
     assert server.lock is None
     assert server.web_active
     assert server.journal_records()[-1]["success"] is True
@@ -249,8 +260,9 @@ def test_a_lost_connection_is_recoverable_with_force(
     with pytest.raises(CloudProvisioningError, match="Deploy lock held"):
         _deploy(server, tmp_path)
 
+    expected = _rebuilt_by_the_next_run(server)
     result = _deploy(server, tmp_path, force=True)
-    assert result.models_rebuilt == ["stg_orders"]
+    assert result.models_rebuilt == expected
     assert server.lock is None
     assert server.web_active
     assert server.journal_records()[-1]["success"] is True

@@ -65,6 +65,8 @@ platform/
 │   ├── rsync_transport.py # rsync over ssh verifying the paramiko-pinned host key (1.0.14)
 │   ├── deployer.py      # Push deployment workflow + deploy lock (TASK-030)
 │   ├── deploy_journal.py # Append-only JSONL deployment history (P8-004)
+│   ├── deploy_pending.py # Root-owned marker: a push that copied files but did not finish building (1.0.14)
+│   ├── backup_fd_copy.py # Descriptor-pinned, no-follow copies for the root scheduled backup (1.0.14)
 │   ├── scheduled_backup.py  # Server-side scheduled backup (TASK-103)
 │   ├── resize.py        # In-place resize (power off → resize → power on) (TASK-104)
 │   ├── migrate.py       # Server migration (new droplet via Spaces) (TASK-105)
@@ -139,6 +141,8 @@ platform/
 | `cloud/rsync_transport.py` | rsync with `StrictHostKeyChecking=yes` against SSHManager's known_hosts + port; refuses unpinned hosts; sends a mode-normalised copy (dirs 0755, files 0644/0755), never the project's own modes | `rsync_target`, `_rsync_directory` |
 | `cloud/deployer.py` | Push deployment workflow with deploy lock | `push_deploy`, `DeployLock`, `DeployResult` |
 | `cloud/deploy_journal.py` | Append-only JSONL deployment history | `DeploymentRecord`, `write_local_journal`, `write_remote_journal`, `read_local_journal`, `read_remote_journal`, `get_latest_deployment` |
+| `cloud/deploy_pending.py` | Root-owned `/srv/dango/.deploy-build-pending` marker: set before a push copies files, cleared when the build succeeds; the next push then runs `dbt deps` and a full `dbt run` | `build_pending`, `mark_build_pending`, `clear_build_pending` |
+| `cloud/backup_fd_copy.py` | Copies project files and directories for the scheduled backup through descriptors opened with `O_NOFOLLOW` (no pathname is reopened) | `open_dir_beneath`, `copy_file_beneath`, `copy_tree_pinned` |
 | `cloud/scheduled_backup.py` | Server-side scheduled backup to Spaces; `_load_spaces_config` reads the destination from the server `.env` first; `ScheduledBackupResult.off_site` is true only after the upload size was confirmed; `main()` prints the off-site line | `run_scheduled_backup`, `main`, `list_spaces_backups`, `restore_from_spaces`, `enable_scheduled_backup`, `disable_scheduled_backup` |
 | `cloud/resize.py` | In-place droplet resize (power off → resize → power on, regenerate dbt profiles) | `resize_droplet`, `ResizeResult`, `validate_size_slug`, `generate_dbt_profiles_yml`, `regenerate_dbt_profiles`, `get_disk_warning`, `get_power_state`, `power_on_and_wait` |
 | `cloud/migrate.py` | Server migration via Spaces (new droplet, transfer data, destroy old). Not reachable from the CLI in 1.0.14 (`remote migrate` is switched off); tested by calling the function directly | `migrate_server`, `MigrateResult` |

@@ -80,7 +80,7 @@ class TestDirectoryPinnedAfterTheCheck:
         monkeypatch.setattr(f"{_SB}.PROJECT_DIR", project)
         _after_use(monkeypatch, lambda p: p == src, lambda: _swap_for_link(src, outside))
 
-        _copy_tree_regular(src, dest, step="copy_dirs", skipped=[], label="notebooks")
+        _copy_tree_regular(src, dest, step="copy_dirs", left_out=[], label="notebooks")
 
         assert _secrets_in(dest) == []
         assert (dest / "keep.txt").read_text() == "keep"
@@ -104,7 +104,7 @@ class TestDirectoryPinnedAfterTheCheck:
         )
 
         try:
-            _copy_tree_regular(src, dest, step="copy_dirs", skipped=[], label="notebooks")
+            _copy_tree_regular(src, dest, step="copy_dirs", left_out=[], label="notebooks")
         except CloudProvisioningError:
             pass  # refusing the swapped directory is as good as copying the original
         assert _secrets_in(dest) == []
@@ -125,7 +125,7 @@ class TestDirectoryPinnedAfterTheCheck:
         try:
             with pytest.raises(CloudProvisioningError):
                 _copy_tree_regular(
-                    project / "dbt" / "models", dest, step="copy_dirs", skipped=[], label="m"
+                    project / "dbt" / "models", dest, step="copy_dirs", left_out=[], label="m"
                 )
         finally:
             sb.PROJECT_DIR = original
@@ -171,11 +171,11 @@ class TestCopyKeepsContentAndModes:
         dest = tmp_path / "staging"
         dest.mkdir()
         monkeypatch.setattr(f"{_SB}.PROJECT_DIR", project)
-        skipped: list[str] = []
+        left_out: list[str] = []
 
-        _copy_tree_regular(src, dest, step="copy_dirs", skipped=skipped, label="notebooks")
+        _copy_tree_regular(src, dest, step="copy_dirs", left_out=left_out, label="notebooks")
 
-        assert skipped == ["notebooks/link.txt"]
+        assert left_out == ["notebooks/link.txt"]
         assert not (dest / "link.txt").exists()
         assert not (dest / "wal.wal").exists()
         assert (dest / "tool.sh").stat().st_mode & 0o7777 == 0o755

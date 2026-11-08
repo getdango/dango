@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from dango.logging import get_logger
+from dango.platform.cloud.project_files import AS_DANGO
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -24,6 +25,10 @@ logger = get_logger(__name__)
 
 
 _REMOTE_JOURNAL = "/srv/dango/project/.dango/state/deployments.jsonl"
+
+# Runs as dango ($1 = journal, $2 = one JSON line): the journal and its parents belong to
+# the service user, so root must not append through a path it could have turned into a link.
+_APPEND_SCRIPT = 'mkdir -p "$(dirname "$1")" && printf "%s\\n" "$2" >> "$1"'
 
 
 @dataclass(frozen=True)
@@ -68,12 +73,12 @@ def write_remote_journal(ssh: SSHManager, record: DeploymentRecord) -> None:
 
     Path: ``/srv/dango/project/.dango/state/deployments.jsonl``
 
-    Never raises — errors are silently ignored.
+    The append runs as the ``dango`` user, never as root.  Never raises — errors are logged.
     """
     try:
         json_str = json.dumps(asdict(record))
-        parent = str(Path(_REMOTE_JOURNAL).parent)
-        cmd = f"mkdir -p {parent} && echo {shlex.quote(json_str)} >> {_REMOTE_JOURNAL}"
+        q = shlex.quote
+        cmd = f"{AS_DANGO} sh -c {q(_APPEND_SCRIPT)} _ {q(_REMOTE_JOURNAL)} {q(json_str)}"
         result = ssh.exec_command(cmd)
         if result.exit_code != 0:
             logger.warning("remote_journal_write_failed", stderr=result.stderr)
@@ -120,7 +125,7 @@ def read_remote_journal(
     if limit <= 0:
         return []
     try:
-        result = ssh.exec_command(f"tail -{limit} {_REMOTE_JOURNAL} 2>/dev/null")
+        result = ssh.exec_command(f"{AS_DANGO} tail -{limit} {_REMOTE_JOURNAL} 2>/dev/null")
         if not result.success or not result.stdout.strip():
             return []
         entries: list[dict[str, Any]] = []
@@ -143,7 +148,7 @@ def get_latest_deployment(ssh: SSHManager) -> dict[str, Any] | None:
     Returns ``None`` if the journal is empty or unreadable.
     """
     try:
-        result = ssh.exec_command(f"tail -1 {_REMOTE_JOURNAL} 2>/dev/null")
+        result = ssh.exec_command(f"{AS_DANGO} tail -1 {_REMOTE_JOURNAL} 2>/dev/null")
         if not result.success or not result.stdout.strip():
             return None
         entry: dict[str, Any] = json.loads(result.stdout.strip())

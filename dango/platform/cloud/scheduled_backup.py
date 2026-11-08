@@ -32,6 +32,12 @@ from dango.platform.cloud.backup_destination import (
     offsite_line,
     validated_destination,
 )
+from dango.platform.cloud.backup_fd_copy import (
+    DIR_FLAGS,
+    copy_file_beneath,
+    copy_tree_pinned,
+    open_dir_beneath,
+)
 from dango.platform.cloud.compose_helper import COMPOSE_DIR, HELPER_PATH, SRV_DIR
 from dango.platform.compose_exec import EXIT_BUSY, uses_helper
 from dango.platform.docker import get_compose_project_name
@@ -498,31 +504,6 @@ def _copy_file_without_special_bits(src: str, dest: str) -> str:
     return dest
 
 
-def _regular_entries_only(root: Path, skipped: list[str], label: str) -> Any:
-    """``copytree`` ignore callable: leave out links, special files and ``BACKUP_EXCLUDES``.
-
-    Each link or special file left out is recorded in *skipped* as ``label/<relative path>``.
-    """
-    from dango.platform.cloud.backup_restore import is_backup_excluded
-
-    def ignore(directory: str, names: list[str]) -> set[str]:
-        """Return the entries of *directory* that copytree must not copy."""
-        ignored: set[str] = set()
-        rel_dir = os.path.relpath(directory, root)
-        for name in names:
-            if is_backup_excluded(name):
-                ignored.add(name)
-                continue
-            mode = os.lstat(os.path.join(directory, name)).st_mode
-            if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
-                ignored.add(name)
-                rel = name if rel_dir == "." else f"{rel_dir}/{name}"
-                skipped.append(f"{label}/{rel}")
-        return ignored
-
-    return ignore
-
-
 def _copy_keeping_modes(src: Path, dest: Path, *, step: str) -> None:
     """Copy *src* (file, or directory contents) to *dest* keeping rwx modes, not owners.
 
@@ -532,38 +513,50 @@ def _copy_keeping_modes(src: Path, dest: Path, *, step: str) -> None:
     are copied with :func:`_copy_tree_regular`.
     """
     if src.is_dir():
-        _copy_tree_regular(src, dest, step=step, skipped=[], label=src.name)
+        _copy_tree_regular(src, dest, step=step, left_out=[], label=src.name)
         return
     try:
-        _copy_file_without_special_bits(str(src), str(dest))
+        rel = _project_relative(src)
+        if rel is None:
+            _copy_file_without_special_bits(str(src), str(dest))
+        else:  # no component of a project path is followed, even one swapped just now
+            copy_file_beneath(PROJECT_DIR, rel, dest)
     except OSError as exc:
         raise CloudProvisioningError(f"Step '{step}' failed: {exc}") from exc
 
 
-def _copy_tree_regular(src: Path, dest: Path, *, step: str, skipped: list[str], label: str) -> None:
+def _project_relative(path: Path) -> str | None:
+    """*path* relative to ``PROJECT_DIR`` (no ``..``), or ``None`` if it is not inside it."""
+    try:
+        rel = path.relative_to(PROJECT_DIR)
+    except ValueError:
+        return None
+    return None if ".." in rel.parts else rel.as_posix()
+
+
+def _copy_tree_regular(
+    src: Path, dest: Path, *, step: str, left_out: list[str], label: str
+) -> None:
     """Copy directory *src* into *dest*: regular files and directories only, modes kept.
 
-    Links and special files are never followed or read; each is recorded in
-    *skipped* as ``label/<path>``.  ``BACKUP_EXCLUDES`` names are left out.  No
-    copy keeps setuid/setgid/sticky bits.
+    The tree is read through a descriptor opened once (no link followed in any component
+    under ``PROJECT_DIR``, nor at the final one elsewhere); members are opened relative
+    to it, so a directory swapped for a link afterwards is never entered.  Links and
+    special files are never followed or read; each is recorded in *left_out* as
+    ``label/<path>``.  ``BACKUP_EXCLUDES`` names are left out.  No copy keeps
+    setuid/setgid/sticky bits.
     """
+    from dango.platform.cloud.backup_restore import is_backup_excluded
+
     try:
-        # Fails (instead of following) if *src* became a link after the caller checked it.
-        os.close(os.open(src, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)))
-        shutil.copytree(
-            src,
-            dest,
-            symlinks=True,
-            ignore=_regular_entries_only(src, skipped, label),
-            dirs_exist_ok=True,
-            copy_function=_copy_file_without_special_bits,
-        )
-        # copytree copies directory modes with copystat; drop special bits there too.
-        for root, dirs, _files in os.walk(dest):
-            for name in [".", *dirs]:
-                path = os.path.join(root, name)
-                if not os.path.islink(path):
-                    os.chmod(path, stat.S_IMODE(os.lstat(path).st_mode) & 0o777)
+        rel = _project_relative(src)
+        root_fd = os.open(src, DIR_FLAGS) if rel is None else open_dir_beneath(PROJECT_DIR, rel)
+        try:
+            copy_tree_pinned(
+                root_fd, dest, left_out=left_out, label=label, excluded=is_backup_excluded
+            )
+        finally:
+            os.close(root_fd)
     except (OSError, shutil.Error) as exc:
         raise CloudProvisioningError(f"Step '{step}' failed: {exc}") from exc
 
@@ -644,11 +637,11 @@ def _create_local_archive(
 
         # Root copies only regular files and directories; links and special files
         # in the project are skipped with a warning, never followed or read.
-        skipped: list[str] = []
+        left_out: list[str] = []
         for fpath in file_list:
             src = PROJECT_DIR / fpath
             if src.is_symlink() or (src.exists() and not src.is_file()):
-                skipped.append(fpath)
+                left_out.append(fpath)
             elif src.is_file():
                 dest = staging / fpath
                 dest.parent.mkdir(parents=True, exist_ok=True)
@@ -666,7 +659,7 @@ def _create_local_archive(
             src = PROJECT_DIR / dpath
             if src.is_symlink():
                 if dpath != LINKABLE_DATA_DIR:
-                    skipped.append(dpath)
+                    left_out.append(dpath)
                     continue
                 # data/ may live on separate storage, but only the service user's own.
                 target = owned_data_target(src)
@@ -679,12 +672,12 @@ def _create_local_archive(
             elif not src.exists():
                 continue
             elif not src.is_dir():
-                skipped.append(dpath)
+                left_out.append(dpath)
                 continue
             dest = staging / dpath
             dest.mkdir(parents=True, exist_ok=True)
-            _copy_tree_regular(src, dest, step="copy_dirs", skipped=skipped, label=dpath)
-        for rel in skipped:
+            _copy_tree_regular(src, dest, step="copy_dirs", left_out=left_out, label=dpath)
+        for rel in left_out:
             _logger.warning("backup_entry_skipped", path=rel)
             warnings.append(skipped_warning(rel))
 
@@ -1008,7 +1001,16 @@ def _run_scheduled_backup() -> ScheduledBackupResult:
         result.spaces_bucket = spaces_config["bucket"]
         result.off_site = _verify_upload(spaces_config, key, local_size)
         if not result.off_site:
-            result.warnings.append("Upload verification failed — size mismatch")
+            # An unconfirmed upload is not a commit point: keep the local archive and its
+            # manifest, leave older remote backups alone, and report the run as failed.
+            message = (
+                "Upload verification failed: the off-site copy could not be confirmed; "
+                f"the local archive was kept at {archive_path}"
+            )
+            result.error = message
+            _write_health_status(success=False, error=message)
+            result.duration_seconds = round(time.monotonic() - start_time, 1)
+            return result
         deleted = _apply_retention(
             spaces_config,
             daily_retention=daily_ret,
@@ -1018,9 +1020,10 @@ def _run_scheduled_backup() -> ScheduledBackupResult:
         if deleted > 0:
             result.warnings.append(f"Retention: deleted {deleted} old backup(s)")
 
-        # Clean up local archive after successful Spaces upload
+        # Clean up local archive after the upload was confirmed
         archive_path.unlink(missing_ok=True)
-        (BACKUP_DIR / f"{archive_path.stem}.json").unlink(missing_ok=True)
+        manifest_name = f"{archive_path.name.removesuffix('.tar.gz')}.json"
+        (BACKUP_DIR / manifest_name).unlink(missing_ok=True)
 
         _write_health_status(success=True)
     except Exception as exc:

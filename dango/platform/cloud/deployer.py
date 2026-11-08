@@ -526,6 +526,11 @@ def push_deploy(
             dbt run failure, or other deployment errors.
     """
     from dango.platform.cloud.backup import create_backup
+    from dango.platform.cloud.deploy_pending import (
+        build_pending,
+        clear_build_pending,
+        mark_build_pending,
+    )
     from dango.platform.cloud.file_sync import SyncResult, sync_project_files
 
     start_time = time.monotonic()
@@ -533,6 +538,7 @@ def push_deploy(
     backup_result: BackupResult | None = None
     dbt_deps_run = False
     dbt_compile_success = False
+    force_rebuild = False
     models_rebuilt: list[str] = []
     sync_result = SyncResult(dry_run=dry_run)
 
@@ -606,7 +612,15 @@ def push_deploy(
                 warnings.extend(backup_result.warnings)
             _notify(on_progress, "create_backup", "done")
 
-            # Step 4: Sync files
+            # Step 4: Sync files.  Once files are copied a retry sees no difference, so
+            # record that the build is outstanding first; it is cleared only on success.
+            force_rebuild = build_pending(ssh)
+            mark_build_pending(ssh)
+            if force_rebuild:
+                warnings.append(
+                    "An earlier push did not finish building: running dbt deps and a full "
+                    "dbt run now."
+                )
             _notify(on_progress, "sync_files", "running")
             sync_result = sync_project_files(
                 ssh,
@@ -656,11 +670,13 @@ def push_deploy(
             _notify(on_progress, "validate_sources", "done")
 
             # Step 7: dbt deps (if packages.yml changed)
-            if sync_result.packages_changed:
+            deps_failed = False
+            if sync_result.packages_changed or force_rebuild:
                 _notify(on_progress, "dbt_deps", "running")
                 deps_result = _run_remote_dbt(ssh, "deps")
                 dbt_deps_run = True
                 if not deps_result.success:
+                    deps_failed = True
                     warnings.append(
                         f"dbt deps failed: {deps_result.stderr.strip() or deps_result.stdout.strip()}"
                     )
@@ -680,11 +696,15 @@ def push_deploy(
             # If macros changed, any model could be affected → full rebuild.
             # If only models changed, selective rebuild by name.
             all_changed = sync_result.added_models + sync_result.changed_models
-            if sync_result.has_macro_changes:
+            if sync_result.has_macro_changes or force_rebuild:
                 _notify(on_progress, "dbt_run", "running")
                 run_result = _run_remote_dbt(ssh, "run")
                 if run_result.success:
-                    models_rebuilt = ["(full rebuild — macros changed)"]
+                    models_rebuilt = [
+                        "(full rebuild — macros changed)"
+                        if sync_result.has_macro_changes
+                        else "(full rebuild — an earlier push did not finish)"
+                    ]
                 else:
                     raise CloudProvisioningError(
                         f"dbt run failed: {run_result.stderr.strip() or run_result.stdout.strip()}"
@@ -704,6 +724,15 @@ def push_deploy(
                     )
                 _notify(on_progress, "dbt_run", "done")
 
+            if deps_failed:
+                warnings.append(
+                    "The build is still marked pending (dbt deps failed): the next push "
+                    "repeats dbt deps and a full dbt run."
+                )
+            elif not clear_build_pending(ssh):
+                warnings.append(
+                    "Could not clear the pending-build marker; the next push runs a full build."
+                )
             deploy_succeeded = True
 
         except Exception as exc:

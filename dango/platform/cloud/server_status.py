@@ -348,7 +348,8 @@ def _get_dango_version(ssh: Any) -> str | None:
 
 def _get_last_deploy(ssh: Any) -> str | None:
     """Read last deploy timestamp."""
-    result = ssh.exec_command(f"cat {_DEPLOY_TIMESTAMP} 2>/dev/null")
+    # As dango: root must not read through a link the service user planted at this path.
+    result = ssh.exec_command(f"runuser -u dango -- cat {_DEPLOY_TIMESTAMP} 2>/dev/null")
     if not result.success or not result.stdout.strip():
         return None
     return str(result.stdout.strip())

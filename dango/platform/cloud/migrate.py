@@ -25,6 +25,7 @@ from dango.exceptions import CloudError, CloudProvisioningError
 from dango.logging import get_logger
 from dango.platform.cloud.droplet_cleanup import delete_droplet_or_annotate, note_old_droplet_left
 from dango.platform.cloud.firewall import update_firewall_droplets as _update_firewall_droplets
+from dango.platform.cloud.project_files import read_project_file
 from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
 
 _logger = get_logger(__name__)
@@ -243,8 +244,12 @@ def _copy_secrets_between_servers(
     """
     warnings: list[str] = []
     for remote_path in _SECRETS_FILES:
-        content = old_ssh.exec_command(f"cat {remote_path} 2>/dev/null")
-        if not content.success or not content.stdout:
+        # As dango: root must not read through a link the service user planted at the path.
+        try:
+            secret_text = read_project_file(old_ssh, remote_path)
+        except CloudProvisioningError:
+            secret_text = ""
+        if not secret_text:
             warnings.append(f"Secret file not found on old server: {remote_path}")
             continue
         # Ensure parent directory exists on new server
@@ -252,7 +257,7 @@ def _copy_secrets_between_servers(
         mkdir_result = new_ssh.exec_command(f"mkdir -p {parent_dir}")
         if mkdir_result.exit_code != 0:
             _logger.warning("mkdir_failed", path=parent_dir, stderr=mkdir_result.stderr)
-        new_ssh.write_remote_file(remote_path, content.stdout, mode=0o600)
+        new_ssh.write_remote_file(remote_path, secret_text, mode=0o600)
     return warnings
 
 
