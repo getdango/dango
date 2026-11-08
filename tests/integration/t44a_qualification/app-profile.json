@@ -1,5 +1,5 @@
 {
-  "state": "FIRST_RUNNING_APP_SLICE_CANDIDATE_UNRUN",
+  "state": "FIRST_RUNNING_APP_SLICE_NATIVE_CORRECTION_REVIEW_CANDIDATE",
   "scope": "First complete adapted Lightdash app slice; no remaining twelve-case harness",
   "limits": {
     "cpus": 4,
@@ -32,7 +32,7 @@
       "sha256": "2ff667286217cd73ebcb1c03af993822365000441dfe31a80cb64c5189a9dea8",
       "bytes": 69426824
     },
-    "binary_execution": "UNRUN",
+    "binary_execution": "CI42493498053 authenticated PUT/GET and wrong-secret403 PASS; key INFO emission caught by raw checker, next filtered run UNRUN",
     "source_url": "https://git.deuxfleurs.fr/Deuxfleurs/garage/archive/v2.5.0.tar.gz",
     "source": {
       "sha256": "f6ae76cd694b0dd4a625dfd6b167da73a339ababc88b32cd61434fe3af076d51",
@@ -58,7 +58,8 @@
     ],
     "initialization": "Read synthetic mode0600 access/secret keys into documented GARAGE_DEFAULT_ACCESS_KEY/GARAGE_DEFAULT_SECRET_KEY and GARAGE_DEFAULT_BUCKET inside the owned container, never child-console/inspect values. GARAGE_DEFAULT_ACCESS_KEY starts GK plus32hex. Config rpc_secret_file is supported.",
     "bucket": "t44a-results",
-    "smoke": "Using the app identity and its shared PG namespace, real authenticated S3 PUT fixed synthetic bytes then GET exactbytes/sha and delete via locked @aws-sdk/client-s3. Wrong synthetic secret must fail authorization. No unauthenticated HTTP substitute."
+    "smoke": "Using the app identity and its shared PG namespace, real authenticated S3 PUT fixed synthetic bytes then GET exactbytes/sha and delete via locked @aws-sdk/client-s3. Wrong synthetic secret must fail authorization. No unauthenticated HTTP substitute.",
+    "log_filter": "netapp=info,garage=info,garage::server=warn,garage_api_common::generic_server=warn"
   },
   "acquisition": {
     "tool": "Exact upstream pnpm12.3.4+sha512 from R08; no new resolver/cache writer",
@@ -85,7 +86,7 @@
     ],
     "closure_status": "CI41283907587 wholedevacquisitionPASS; exactmissingnoticesresolved; CI41319819062 full frozen offlineinstall --ignore-scripts and all7normal buildsPASS. No required install-lifecycle execution. Runtime initialization remains to be observed.",
     "observed_lifecycle_packages": {
-      "canvas@3.2.1": "prebuild-install -r napi || node-gyp rebuild; targetNAPI7 and platform bytes not yet frozen",
+      "canvas@3.2.1": "Required by normal backend EE module load; exact published prebuild inventoried separately; normal offline installer planned, all other dependency lifecycles remain disabled",
       "duckdb@1.4.2": "node-pre-gyp install --fallback-to-build; legacy transitive package is not the qualification consumer engine",
       "cypress@15.18.1": "Unused GUI/test binary: lifecycle explicitly UNEXECUTED in no-script offline install. Not a human requirement for the app build.",
       "@sentry/cli@2.58.5": "optional locked platform package preferred; standard install.js CDN fallback must not run unpinned"
@@ -150,7 +151,7 @@
       ]
     ],
     "gates": "Normal tsc common/warehouses must pass before expensive frontend. No source/API patch, type suppression, esbuild substitution, or missing frontend/backend/CLI target accepted. No Dockerfile1.5.x staging. No global cache or ambient provider identity.",
-    "lifecycle_policy": "Dependency installation uses --ignore-scripts; normal build commands and their usual pre/post hooks run offline. No Cypress GUI or canvas/legacy DuckDB install/rebuild. Actual app runtime native initialization remains UNRUN.",
+    "lifecycle_policy": "Dependency install uses --ignore-scripts; normal build/pre-post hooks run offline. No Cypress GUI or legacy DuckDB install/rebuild. Required canvas runtime prebuild installation is separately frozen and gated in canvas_prebuild; it does not alter the complete-build proof.",
     "recipe": "CI41319819062 PASS_COMPLETE_NORMAL_BUILD: all7normal targets, full emitted trees and required entrypoints; app runtime remainsUNRUN.",
     "resource_evidence": "CI41319819062 PASS_COMPLETE_NORMAL_BUILD: all7normal targets, fresh4CPU4608MiB smoke, exactfulltrees/entrypoints, cleanup0secrets. Node3500MiB/Go3500MiB softlimits and backendworkercontrols retained. Runtime remainsUNRUN.",
     "remaining_bound": {
@@ -258,7 +259,7 @@
       "headroom": 2147483648,
       "projected_total": 15718926905,
       "actual_df_prior": 86129496064,
-      "method": "Fresh PGdata1GiB+512MiBWAL; dbt512MiB spill; fresh exactdriver expansion; Garage512MiBdata; app/results1GiB; actorcache1GiB; bounded4tmpfs+PGsocket+logs; Garagebinary+source+installationcopy. Completedbuild alreadyactualowned, no futurebuildcopies counted again. Fresh30GB/headroom+actualdf gates beforestage/fixture/runtime and finalmeasurement."
+      "method": "Fresh PGdata1GiB+512MiBWAL; dbt512MiB spill; fresh exactdriver expansion; Garage512MiBdata; app/results1GiB; actorcache1GiB; bounded4tmpfs+PGsocket+logs; Garagebinary+source+installationcopy. Completedbuild alreadyactualowned, no futurebuildcopies counted again. Fresh30GB/headroom+actualdf gates beforestage/fixture/runtime and finalmeasurement. Canvas adds66,016,906 bytes: two compressed copies and two full allocated expansions. Prior projection is historical; fresh execution gate recomputes actual owned/image/remaining/headroom and df."
     },
     "evidence": "Actualstatus/log/events/State/HostConfig captured before inherited exact-owned cleanup. Dynamic PAT/cookies stayinmemory; rawCLIoutputcheckedagainststatic+dynamicsecrets; allowlistedstatus/results/hashes only. Cleanup stillrunsifexportfails."
   },
@@ -310,5 +311,15 @@
     "Existing owner-accessible private saved chart results POST/api/v1/saved/<uuid>/results returns403 to distinct authenticated ordinary editor;401/404/bootstrap failure not accepted.",
     "Spec1.1 and physicalParquet unchanged under read-only appconsumer; raw secret checks before sanitization and capture fullState/HostConfig/logs/events before exact owned cleanup."
   ],
-  "stop": "First material acquisition/resource/build/source/API/auth/oracle failure retains concrete receipts; no source patch or matrix expansion."
+  "stop": "First material acquisition/resource/build/source/API/auth/oracle failure retains concrete receipts; no source patch or matrix expansion.",
+  "canvas_prebuild": {
+    "inventory_file": "canvas-prebuild.json",
+    "inventory_sha256": "3477c64cb1e3e6a0e4b1a84a5ca075c8ddcf092becc353de6958611b98c27c1a",
+    "compressed": 8760133,
+    "allocated_upper": 24248320,
+    "installation": "Normal pinned prebuild-install -r napi --local-prebuilds /work/canvas-prebuild; offline shared-loopback app profile; no source build/fallback; assert all30 installed member hashes/modes before actual createCanvas PNG probe and app migration/start.",
+    "status": "FROZEN_REVIEW_CANDIDATE_NOT_INSTALLED",
+    "peak_additional_bytes": 66016906,
+    "resource_note": "Two compressed archive copies plus two allocated expansions added to existing remaining-runtime gate before any acquisition; live30GB+2GiB and df checks remain mandatory."
+  }
 }

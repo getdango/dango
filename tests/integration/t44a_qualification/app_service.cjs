@@ -1,6 +1,9 @@
 // tests/integration/t44a_qualification/app_service.cjs
 // Real signed S3 operations precede normal migration and production app startup.
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
 const {spawn} = require('node:child_process');
 const {projectRequire, secret} = require('./app_runtime_smoke.cjs');
 const {S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand} = projectRequire('@aws-sdk/client-s3');
@@ -17,9 +20,36 @@ async function main() {
   if (process.argv[2] === 'garage') {
     await normal('/tools/garage', ['-c', '/scripts/garage.toml', 'server', '--single-node', '--default-bucket'],
       {...process.env, GARAGE_DEFAULT_ACCESS_KEY: s.s3Access, GARAGE_DEFAULT_SECRET_KEY: s.s3Secret,
+        RUST_LOG: 'netapp=info,garage=info,garage::server=warn,garage_api_common::generic_server=warn',
         GARAGE_DEFAULT_BUCKET: 't44a-results'}, '/work');
     return;
   }
+  const canvas = JSON.parse(fs.readFileSync('/scripts/canvas-prebuild.json', 'utf8'));
+  const canvasDir = path.dirname(projectRequire.resolve('canvas/package.json'));
+  assert.equal(projectRequire('canvas/package.json').version, '3.2.1');
+  assert.ok(!fs.existsSync(path.join(canvasDir, 'build')), 'Canvas installation must be fresh');
+  const installerDir = path.resolve(canvasDir, '../prebuild-install');
+  assert.equal(require(path.join(installerDir, 'package.json')).version, '7.1.3');
+  for (const [name, expected] of Object.entries(canvas.installer.file_sha256)) {
+    assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(installerDir, name))).digest('hex'), expected);
+  }
+  const archive = '/work/canvas-prebuild/' + canvas.file;
+  assert.equal(crypto.createHash('sha256').update(fs.readFileSync(archive)).digest('hex'), canvas.sha256);
+  await normal(process.execPath, [path.join(installerDir, 'bin.js'), '-r', 'napi',
+    '--local-prebuilds', '/work/canvas-prebuild'], {...process.env}, canvasDir);
+  const installed = fs.readdirSync(path.join(canvasDir, 'build'), {recursive: true})
+    .map(name => 'build/' + name).filter(name => fs.statSync(path.join(canvasDir, name)).isFile()).sort();
+  assert.deepEqual(installed, Object.keys(canvas.members).sort());
+  for (const [name, identity] of Object.entries(canvas.members)) {
+    const file = path.join(canvasDir, name);
+    assert.equal(fs.statSync(file).mode & 0o777, identity.mode);
+    const data = fs.readFileSync(file);
+    assert.equal(data.length, identity.bytes);
+    assert.equal(crypto.createHash('sha256').update(data).digest('hex'), identity.sha256);
+  }
+  const png = projectRequire('canvas').createCanvas(1, 1).toBuffer('image/png');
+  assert.equal(png.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+  console.log('PASS_FROZEN_CANVAS_PREBUILD_OFFLINE_INSTALL_LOAD_AND_PNG');
   const opts = {endpoint: 'http://127.0.0.1:3900', region: 'garage', forcePathStyle: true,
     maxAttempts: 1, credentials: {accessKeyId: s.s3Access, secretAccessKey: s.s3Secret}};
   const client = new S3Client(opts);

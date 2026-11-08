@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from app_build import build_outputs, verify_build_update
+from canvas_prebuild import load_inventory, verify_archive
 from run import PINS, disk_gate, download, image_present, sha
 
 HERE = Path(__file__).resolve().parent
@@ -242,6 +243,7 @@ def main():
         )
         profile = json.loads((HERE / "app-profile.json").read_text())
         garage = profile["garage"]
+        canvas = load_inventory(HERE, profile)
         # Actual completed build is already in owned bytes. No future build copies charged again.
         # Fresh PG1GiB+512MiB WAL, dbt/spill512MiB, fresh driver expansion, Garage512MiB,
         # app/results1GiB, actor caches1GiB, four tmpfs/logs and PG socket tmpfs.
@@ -250,6 +252,8 @@ def main():
         remaining += (
             driver["expanded_upper"] + garage["binary"]["bytes"] * 2 + garage["source"]["bytes"]
         )
+        # Download + local archive copy, installed files + one full extraction/temp copy.
+        remaining += 2 * canvas["compressed"] + 2 * canvas["allocated_upper"]
         result["remaining_runtime_upper"] = remaining
         disk_gate(rig, remaining, "before-fresh-runtime-artifacts-images-and-fixture")
         for role, pin in PINS["images"].items():
@@ -305,6 +309,7 @@ def main():
             "garage.toml",
             "diagnostic.py",
             "app-profile.json",
+            "canvas-prebuild.json",
         ]:
             install(HERE / name, root / "scripts" / name)
         for artifact, url in [
@@ -324,6 +329,21 @@ def main():
                     notice = archive.extractfile(member).read()
                     assert sha(notice) == garage["license_file"]["sha256"]
                     (root / "evidence/garage-LICENSE.txt").write_bytes(notice)
+        canvas_data = download(canvas["url"], canvas["sha256"], canvas["compressed"])
+        verify_archive(canvas_data, canvas)
+        archive_path = root / "host-home" / canvas["file"]
+        archive_path.write_bytes(canvas_data)
+        local_prebuilds = root / "work/canvas-prebuild"
+        assert not local_prebuilds.exists()
+        rig.call(
+            ["sudo", "install", "-d", "-m", "755", "-o", "501", "-g", "20", str(local_prebuilds)]
+        )
+        install(archive_path, local_prebuilds / canvas["file"])
+        result["canvas_prebuild"] = {
+            "archive_sha256": canvas["sha256"],
+            "inventory_sha256": profile["canvas_prebuild"]["inventory_sha256"],
+            "installation": "UNRUN until normal offline app child",
+        }
         secret_file("app.json", json.dumps(generated))
         secret_file("catalog.json", json.dumps({"adminPassword": generated["pg"]}))
         secret_file("admin", generated["pg"], 999, 999)
@@ -418,6 +438,9 @@ def main():
         rig.start_owned(names["actor"], attached=True)
         actor = json.loads((root / "work/app-slice.json").read_text())
         assert actor["status"] == "PASS_FIRST_RUNNING_APP_SLICE"
+        result["canvas_prebuild"]["installation"] = (
+            "PASS_OFFLINE_INSTALL_HASHES_LOAD_PNG_REQUIRED_BEFORE_ACCEPTED_APP"
+        )
         result["catalog_after"] = pg_snapshot()
         assert result["catalog_before"] == result["catalog_after"], (
             "Read-only catalog/parquet changed"

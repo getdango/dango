@@ -149,5 +149,26 @@ with query UUIDs, generated SQL and actual rows. An owner-accessible private cha
 must return403 to the editor, rather than401/404. Built frontend assets and normal
 backend migrations/start are required. Whole catalog dump equality (only random
 psql restrict-token lines normalized) and every Parquet hash must remain unchanged.
-The complete runtime candidate is UNRUN until reviewed Ubuntu execution; this is
+CI42493498053 started Garage, app and actor inside the reviewed profiles. Real
+authenticated S3 PUT/GET and wrong-secret403 passed, then production migrations
+passed. Backend startup stopped on missing `canvas@3.2.1` native output; actor
+350/300/private403 remain UNRUN. Cleanup removed owned containers and secrets,
+but capture correctly failed its raw-leak check on Garage's INFO access-key log.
+
+The correction freezes the normal upstream Linux x64 N-API7 canvas prebuild in
+`canvas-prebuild.json`: 30 exact files including 26 ELF objects, component license
+families and upstream release/build-recipe provenance. Recipe versions do not
+claim reproducible compilation; the exact libstdc++ build version is unknown.
+No binaries are published. The existing frozen Node image supplies the listed
+base sonames; their actual resolution remains an offline CI load/PNG check.
+The normal pinned `prebuild-install -r napi --local-prebuilds` installs only that
+verified archive offline in the app profile, without source-build fallback.
+Every installed file hash/mode and a real canvas PNG are checked before S3,
+migrations and app startup. Two archive copies and two full expansions add
+66,016,906 bytes to the unchanged pre-runtime30GB/headroom/df gate.
+Garage alone uses its supported `RUST_LOG` module filter to suppress the
+`garage::server` and `garage_api_common::generic_server` INFO events containing
+the key (creation, signed requests and403); warnings/errors and all raw
+secret checks remain enabled. This corrected runtime candidate is UNRUN until
+reviewed Ubuntu execution; this is
 not a claim that app native initialization or the remaining12case matrix passed.
