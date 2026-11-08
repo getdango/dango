@@ -157,7 +157,7 @@ class TestFileParentsAreNotFollowed:
 
 @pytest.mark.unit
 class TestCopyKeepsContentAndModes:
-    def test_regular_tree_is_copied_with_modes_and_links_are_skipped(
+    def test_regular_tree_is_copied_with_modes_and_links_are_left_out(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from dango.platform.cloud.scheduled_backup import _copy_tree_regular
