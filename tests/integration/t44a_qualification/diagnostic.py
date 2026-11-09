@@ -143,6 +143,10 @@ def main():
         from dbt_view import run_view
 
         run_view(project, metadata)
+    if "--assets-gate" in sys.argv[1:]:
+        from dbt_assets import run_assets
+
+        run_assets(project, metadata)
     Path("/work/diagnostic.json").write_text(
         json.dumps(
             {

@@ -1,5 +1,5 @@
 {
-  "state": "FIRST_SLICE_PASS_NEXT_DBT_VIEW_AND_REVIEWER_PROBES_UNRUN",
+  "state": "ORDINARY_BI_AND_PERSISTED_VIEW_PASS_REMAINING_DBT_ASSETS_UNRUN",
   "scope": "First complete adapted Lightdash app slice; no remaining twelve-case harness",
   "limits": {
     "cpus": 4,
@@ -340,5 +340,25 @@
     "NB-P2": "Same object correctGET200/hash -> wrongsecretGET403/name -> correctGET200/identicalhash before deletion; safe console JSON.",
     "NB-P3": "After inherited cleanup, require canonical absence of every attempted owned name and exact frozen Garage IDs, then remove only canonical work/garage subtree and assert lstat absence. Actor-home deletion preserved. All errors remain surfaced.",
     "profiles_and_artifacts": "Unchanged; no new Python/native dependency. Fresh CI needed for changed probes; no fullT44A promotion from prior slice."
+  },
+  "remaining_dbt_assets": {
+    "status": "CANDIDATE_UNRUN",
+    "entrypoint": "Initial diagnostic.py --view-gate --assets-gate, before app acquisition/build. Original table/view outputs and later app fixture unchanged.",
+    "stages": [
+      "seed",
+      "incremental-first",
+      "snapshot-first",
+      "incremental-second",
+      "snapshot-second",
+      "docs",
+      "python"
+    ],
+    "incremental": "Normal delete+insert/unique_key=id,350 initial -> update inputid2=210 ->360,3uniquekeys, via_incremental false->true, stabletableID/UUID, actual recorded DELETE+INSERT with no targetDROP/CREATE. No full-refresh flag.",
+    "snapshot": "Normal check strategy/check_cols=[amount]/unique_key=id. Initial current350 -> current360 with oldid2=200 closed and new210 valid_toNULL; stabletableID/UUID, four total versions.",
+    "docs": "Actual dbt docs generate (normal compile, no --no-compile), index.html bootstrap+JS assets and authentic info_schema Parquet model identity. Hash inventory records generated site; no browser/CDN execution claim.",
+    "python": "Dependency-free Python model; native success requires3rows/360. Nonzero onlyallowed with that model error message exactly identifying unsupportedDuckDB Python models; no import/setup/genericerror exception.",
+    "extra_initial_peak_bytes": 2147483648,
+    "fit_accounting": "7x128MiB original stage allocations +7x128MiB corresponding exported subsets +64MiB source/log allocation +128MiB tiny fixture/data +2x16MiB reportpayload +32MiB filesystem/metadata reserve =2GiB. Existing task30GB+2GiB headroom/df remain separate and unchanged. Per-stage allocations are checked; after completion subsequent gates measure all actual retained bytes.",
+    "evidence": "Authentic JSON perstage, selected actual adapter-query/docs Parquet, input/command/exit/result/hash report. Parquet logical values decoded and checked against known synthetic secrets, then hash-bound before unchanged host export raw-byte/perfile checks. No generated binary/site bundle upload."
   }
 }

@@ -200,3 +200,32 @@ absent, exact canonical `work/garage` (SQLite/WAL/SHM included) is removed and
 its absence recorded. Dedicated secrets0 remains a separate, narrower check;
 this makes no secure-media-erasure or global-redaction claim. All new probes
 and cleanup are UNRUN pending focused review and real Ubuntu execution.
+
+
+CI42622459080 passed the persisted view and reviewer boundary probes; the
+ordinary BI slice is supported. Remaining dbt assets are the next early gate,
+not a promotion of the full matrix. A separate `assets` schema/project runs
+seven normal stages before app acquisition: seed; incremental350; snapshot350;
+update only inputid2 from200to210; incremental360; snapshot current360 with
+retained old200/new210 history; real docs generation; and Python assessment.
+Both incrementals must retain three unique keys and target table identity;
+the second must take `is_incremental()` and retain actual DELETE+INSERT SQL,
+with no full refresh or target replacement. Snapshot history must have four
+versions, oldid2 closed and new210 current.
+
+Normal `dbt docs generate` must produce the static HTML/assets and Parquet
+index containing the actual model; catalog-only output is insufficient.
+Browser/CDN execution is outside this artifact test. A dependency-free Python
+model is actually attempted. Only its precise pinned DuckDB unsupported-job
+error may be an explicit exception; unrelated setup/import/SQL errors fail.
+No pandas or other new package is acquired.
+
+Each stage retains its own authentic target and command/exit/input receipts.
+Selected native/docs Parquet is logically secret-checked before hash-bound
+export; unmodified JSON retains the existing raw-secret/perfile guards. The
+additional pre-install2GiB counts seven128MiB original target bounds and
+separate exported subsets,64MiB source/logs,128MiB native data, two16MiB report
+payloads and32MiB metadata reserve. User30GB, separate2GiB headroom and live df
+gates remain mandatory. All these new native modes are UNRUN until reviewed
+Ubuntu execution; the app's fresh orders350 fixture and passing proofs stay
+unchanged. Other matrix groups remain unimplemented/UNRUN.

@@ -16,6 +16,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+from dbt_assets import EXTRA_PEAK, export_candidates
+
 HERE = Path(__file__).resolve().parent
 PINS = json.loads((HERE / "pins.json").read_text())
 MIB = 1024**2
@@ -110,6 +112,7 @@ def export(rig):
         (rig.root / "work/dbt-view-project/target" / n, "view-" + n)
         for n in ["manifest.json", "run_results.json", "catalog.json"]
     ]
+    candidates += export_candidates(rig.root / "work")
     for source, name in candidates:
         if source.exists():
             data = source.read_bytes()
@@ -117,6 +120,11 @@ def export(rig):
             assert not any(s.encode() in data for s in rig.secrets.values()), (
                 "Artifact secret exposure"
             )
+            if source.suffix == ".parquet":
+                checked = json.loads((rig.root / "work/dbt-assets.json").read_text())
+                assert (
+                    sha(data) == checked["safe_parquet"][str(source.relative_to(rig.root / "work"))]
+                ), "Missing/stale logical Parquet secret check"
             (rig.root / "evidence" / name).write_bytes(data)
 
 
@@ -154,7 +162,7 @@ def main():
         "started_utc": time.strftime("%FT%TZ", time.gmtime()),
         "qualification_inputs": {
             name: sha((HERE / name).read_bytes())
-            for name in ["diagnostic.py", "dbt_view.py", "run.py", "pins.json"]
+            for name in ["diagnostic.py", "dbt_view.py", "dbt_assets.py", "run.py", "pins.json"]
         },
     }
     existing = {}
@@ -174,6 +182,9 @@ def main():
             p["compressed"] + 2 * p["expanded_upper"] for p in PINS["extensions"].values()
         )
         rig.remaining += (512 + 256 + 4 * 128 + 96 + 16 + 258) * MIB
+        rig.remaining += (
+            EXTRA_PEAK  # Both original/exported assets targets, reports, logs and data.
+        )
         disk_gate(rig, rig.remaining, "before-public-acquisition-and-image-pulls")
         for role, pin in PINS["images"].items():
             existing[role] = image_present(rig, pin["ref"])
@@ -182,7 +193,14 @@ def main():
             (root / name / "readiness").write_text("populated\n")
         (root / "fixture/data").mkdir()
         (root / "fixture/data/readiness").write_text("populated\n")
-        for name in ["smoke.py", "diagnostic.py", "dbt_view.py", "pins.json", "requirements.txt"]:
+        for name in [
+            "smoke.py",
+            "diagnostic.py",
+            "dbt_view.py",
+            "dbt_assets.py",
+            "pins.json",
+            "requirements.txt",
+        ]:
             shutil.copyfile(HERE / name, root / "scripts" / name)
             assert sha((root / "scripts" / name).read_bytes()) == sha((HERE / name).read_bytes())
         for name, value, uid, gid in [
@@ -219,19 +237,22 @@ def main():
         rig.run("producer", ["-c", "/work/venv/bin/python /scripts/smoke.py postgres"], smoke=True)
         rig.smokes["producer"] = rig.signature("producer")
         result["running_python_pg_smoke"] = "PASS"
-        for name in ["diagnostic.py", "dbt_view.py"]:
+        for name in ["diagnostic.py", "dbt_view.py", "dbt_assets.py"]:
             assert (
                 sha((root / "scripts" / name).read_bytes()) == result["qualification_inputs"][name]
             )
         result["native"] = "RAN"
         rig.run(
             "producer",
-            ["-c", "/work/venv/bin/python /scripts/diagnostic.py --view-gate"],
+            ["-c", "/work/venv/bin/python /scripts/diagnostic.py --view-gate --assets-gate"],
             timeout=900,
         )
         view = json.loads((root / "work/dbt-view.json").read_text())
         assert view["status"] == "PASS_REAL_DBT_VIEW"
         result["dbt_view"] = view["status"]
+        assets = json.loads((root / "work/dbt-assets.json").read_text())
+        assert assets["status"] == "PASS_REMAINING_DBT_ASSETS"
+        result["dbt_assets"] = assets["status"]
         disk_gate(rig, 0, "after-native-diagnostic")
         result["status"] = "PASS_DBT_DRIVER_DIAGNOSTIC"
     except Exception as error:

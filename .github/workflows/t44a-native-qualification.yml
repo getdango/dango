@@ -63,6 +63,9 @@ jobs:
             ${{ runner.temp }}/t44a03/evidence/view-manifest.json
             ${{ runner.temp }}/t44a03/evidence/view-run_results.json
             ${{ runner.temp }}/t44a03/evidence/view-catalog.json
+            ${{ runner.temp }}/t44a03/evidence/dbt-assets.json
+            ${{ runner.temp }}/t44a03/evidence/assets-*.json
+            ${{ runner.temp }}/t44a03/evidence/assets-*.parquet
             ${{ runner.temp }}/t44a03/evidence/app-acquisition.json
             ${{ runner.temp }}/t44a03/evidence/app-package-inventory.json
             ${{ runner.temp }}/t44a03/evidence/app-build.json
