@@ -50,6 +50,31 @@ def export_candidates(work):
     return result
 
 
+def executed_incremental_sql(path):
+    """Read completed native query spans from the pinned CLI's local JSONL sink."""
+    sql = []
+    for line in path.read_text().splitlines():
+        event = json.loads(line)
+        if (
+            event["record_type"] != "SpanEnd"
+            or event["event_type"] != "v1.public.events.fusion.query.QueryExecuted"
+        ):
+            continue
+        attributes = event["attributes"]
+        if attributes.get("unique_id") != "model.t44a_probe.asset_incremental":
+            continue
+        assert attributes["query_outcome"] == "QUERY_OUTCOME_SUCCESS", (
+            "Selected incremental native query did not complete successfully"
+        )
+        statement = attributes["sql"]
+        assert isinstance(statement, str) and statement.strip() and statement != "<redacted>", (
+            "Selected incremental native SQL is missing or redacted"
+        )
+        sql.append(statement)
+    assert sql, "No completed selected-model native queries in explicit CLI trace"
+    return sql
+
+
 def run_assets(table_project, metadata):
     """Run real incremental/history/docs and precisely classify Python capability."""
     import duckdb
@@ -120,6 +145,15 @@ def run_assets(table_project, metadata):
             ]
         else:
             argv += ["--write-catalog", "--generate-info-schema"]
+        if stage == "incremental-second":
+            argv += [
+                "--log-path",
+                str(target / "logs"),
+                "--otel-file-name",
+                "executed.jsonl",
+                "--log-level-file",
+                "debug",
+            ]
         entry = report["stages"][stage] = {
             "command": argv,
             "inputs": {
@@ -230,26 +264,24 @@ def run_assets(table_project, metadata):
             "Incremental target was replaced"
         )
         report["incremental_after"] = incremental_rows(360, True)
-        queries = list(target.glob("info_schema/v*/dbt_rt.adapter_queries.parquet"))
-        assert len(queries) == 1, "Actual incremental SQL receipt required"
-        with duckdb.connect(config={"memory_limit": "256MB"}) as connection:
-            sql = [
-                r[0]
-                for r in connection.execute(
-                    "SELECT query_sql FROM read_parquet(?) WHERE unique_id=? ORDER BY query_index",
-                    [str(queries[0]), "model.t44a_probe.asset_incremental"],
-                ).fetchall()
-            ]
+        trace = target / "logs/executed.jsonl"
+        report["incremental_sql_evidence"] = {
+            "source": "Pinned CLI QueryExecuted SpanEnd JSONL (not compiled SQL)",
+            "sha256": hashlib.sha256(trace.read_bytes()).hexdigest(),
+            "bytes": trace.stat().st_size,
+            "raw_trace_exported": False,
+        }
+        sql = executed_incremental_sql(trace)
+        report["incremental_native_sql"] = sql
         text = re.sub(r"\s+", " ", " ".join(sql).replace('"', "")).lower()
         assert (
             "delete from lake.assets.asset_incremental" in text
             and "insert into lake.assets.asset_incremental" in text
-        )
+        ), "Completed incremental SQL must contain actual target DELETE and INSERT"
         assert not re.search(
             r"(?:drop table|create (?:or replace )?table) (?:if (?:not )?exists )?lake\.assets\.asset_incremental\b",
             text,
-        )
-        report["incremental_native_sql"] = sql
+        ), "Completed incremental SQL must not drop or create the target table"
         command(
             "snapshot-second",
             ["snapshot", "--select", "asset_history"],

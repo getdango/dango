@@ -213,6 +213,15 @@ the second must take `is_incremental()` and retain actual DELETE+INSERT SQL,
 with no full refresh or target replacement. Snapshot history must have four
 versions, oldid2 closed and new210 current.
 
+CI42629897369 passed both incremental readbacks and stable target identity,
+but its information-schema query Parquet contained zero rows. The second
+incremental now explicitly enables the pinned CLI's local OTEL JSONL sink at
+file DEBUG level. Only completed successful `QueryExecuted` spans for that
+model supply the SQL oracle; compiled SQL is insufficient. The full trace stays
+unexported inside the existing128MiB stage bound. Its hash/size and selected
+actual SQL enter the existing secret-checked report; console verbosity stays
+unchanged. This capture correction remains Linux UNRUN.
+
 Normal `dbt docs generate` must produce the static HTML/assets and Parquet
 index containing the actual model; catalog-only output is insufficient.
 Browser/CDN execution is outside this artifact test. A dependency-free Python
