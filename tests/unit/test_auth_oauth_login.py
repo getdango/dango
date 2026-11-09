@@ -168,7 +168,12 @@ class TestGoogleOAuthProvider:
         provider = GoogleOAuthProvider(_make_config())
         mock_client = _mock_async_client(
             token_data={"access_token": "google-token"},
-            user_data={"id": "g-12345", "email": "user@gmail.com", "name": "Google User"},
+            user_data={
+                "id": "g-12345",
+                "email": "user@gmail.com",
+                "verified_email": True,
+                "name": "Google User",
+            },
         )
         with patch("dango.auth.oauth_login.httpx.AsyncClient", return_value=mock_client):
             info = asyncio.run(
@@ -253,12 +258,37 @@ class TestGitHubOAuthProvider:
         assert "scope=user" in url
 
     def test_exchange_code_public_email(self) -> None:
-        """GitHub user with public email — no /user/emails fallback needed."""
+        """A public profile email is only accepted when /user/emails lists it as verified."""
         provider = GitHubOAuthProvider(_make_config())
-        mock_client = _mock_async_client(
-            token_data={"access_token": "gh-token"},
-            user_data={"id": 42, "email": "dev@github.com", "name": "Dev User", "login": "dev"},
-        )
+
+        mock_token = MagicMock()
+        mock_token.status_code = 200
+        mock_token.json.return_value = {"access_token": "gh-token"}
+
+        mock_user = MagicMock()
+        mock_user.status_code = 200
+        mock_user.json.return_value = {
+            "id": 42,
+            "email": "dev@github.com",
+            "name": "Dev User",
+            "login": "dev",
+        }
+
+        mock_emails = MagicMock()
+        mock_emails.status_code = 200
+        mock_emails.json.return_value = [
+            {"email": "dev@github.com", "primary": True, "verified": True},
+        ]
+
+        async def mock_get(url: str, **kwargs: Any) -> MagicMock:
+            return mock_emails if "user/emails" in url else mock_user
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_token
+        mock_client.get = mock_get
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
         with patch("dango.auth.oauth_login.httpx.AsyncClient", return_value=mock_client):
             info = asyncio.run(provider.exchange_code("code", "https://app.example.com/callback"))
         assert info.provider == "github"

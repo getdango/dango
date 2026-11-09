@@ -47,6 +47,7 @@ from dango.auth.security import (
 from dango.auth.sessions import (
     DEFAULT_PARTIAL_SESSION_TIMEOUT_MINUTES,
     DEFAULT_SESSION_MAX_DAYS,
+    ENROLLMENT_SESSION_TIMEOUT_MINUTES,
     create_api_key,
     create_session,
     invalidate_all_sessions,
@@ -56,6 +57,7 @@ from dango.auth.sessions import (
 from dango.config.models import AuthConfig, OAuthProviderConfig
 from dango.logging import get_logger
 from dango.web.middleware.auth import COOKIE_NAME, is_secure_request
+from dango.web.middleware.enrollment import ENROLLMENT_PAGE
 from dango.web.models import (
     AcceptInviteRequest,
     ApiKeyCreateResponse,
@@ -117,6 +119,32 @@ def _set_session_cookie(
         samesite="lax",
         secure=is_secure_request(request.scope),
         max_age=max_age_seconds,
+    )
+
+
+def _requires_2fa_enrollment(auth_config: AuthConfig | None, user: User) -> bool:
+    """True when ``auth.require_2fa`` is on and *user* has not set up TOTP yet."""
+    return auth_config is not None and auth_config.require_2fa and not user.totp_enabled
+
+
+def _start_enrollment_session(
+    request: Request, db_path: Path, user: User, response: JSONResponse | RedirectResponse
+) -> None:
+    """Give *response* an enrollment-only (partial) session cookie for *user*.
+
+    The full session, the last-login stamp, the login audit event and the Metabase bridge all
+    wait until the user has verified TOTP (``/api/auth/2fa/verify-setup``).
+    """
+    raw_token, _session = create_session(
+        db_path,
+        user.id,
+        ip_address=_get_client_ip(request),
+        user_agent=_get_user_agent(request),
+        is_partial=True,
+        partial_timeout_minutes=ENROLLMENT_SESSION_TIMEOUT_MINUTES,
+    )
+    _set_session_cookie(
+        response, raw_token, request, max_age_seconds=ENROLLMENT_SESSION_TIMEOUT_MINUTES * 60
     )
 
 
@@ -317,10 +345,16 @@ async def login(request: Request) -> JSONResponse:
         )
         return response
 
-    # Check if admin requires 2FA but user hasn't set it up
-    requires_2fa_setup = False
-    if auth_config is not None and auth_config.require_2fa and not user.totp_enabled:
-        requires_2fa_setup = True
+    # Admin requires 2FA but the user has not set it up: enrollment-only session, no full access
+    if _requires_2fa_enrollment(auth_config, user):
+        response = JSONResponse(
+            content={
+                "requires_2fa_setup": True,
+                "must_change_password": user.must_change_password,
+            }
+        )
+        _start_enrollment_session(request, db_path, user, response)
+        return response
 
     raw_token, _session = create_session(
         db_path,
@@ -337,7 +371,7 @@ async def login(request: Request) -> JSONResponse:
         content={
             "user": user_response.model_dump(mode="json"),
             "must_change_password": user.must_change_password,
-            "requires_2fa_setup": requires_2fa_setup,
+            "requires_2fa_setup": False,
         }
     )
     _set_session_cookie(response, raw_token, request, max_age_seconds=session_max_days * 86400)
@@ -438,14 +472,6 @@ async def change_password(request: Request) -> JSONResponse:
     auth_config = _get_auth_config(request)
     session_max_days = auth_config.session_max_days if auth_config else DEFAULT_SESSION_MAX_DAYS
 
-    raw_token, _session = create_session(
-        db_path,
-        user.id,
-        ip_address=_get_client_ip(request),
-        user_agent=_get_user_agent(request),
-        session_max_days=session_max_days,
-    )
-
     log_auth_event(
         AuditEvent.PASSWORD_CHANGE,
         user_id=user.id,
@@ -454,6 +480,17 @@ async def change_password(request: Request) -> JSONResponse:
     )
 
     response = JSONResponse(content={"success": True})
+    if getattr(request.state, "session_partial", False) is True:
+        # Changing the password does not finish 2FA enrollment: stay enrollment-only
+        _start_enrollment_session(request, db_path, user, response)
+        return response
+    raw_token, _session = create_session(
+        db_path,
+        user.id,
+        ip_address=_get_client_ip(request),
+        user_agent=_get_user_agent(request),
+        session_max_days=session_max_days,
+    )
     _set_session_cookie(response, raw_token, request, max_age_seconds=session_max_days * 86400)
     return response
 
@@ -845,28 +882,10 @@ async def _resolve_oauth_user(
         )
         return response
 
-    # Check if admin requires 2FA but user hasn't set it up
-    if auth_config is not None and auth_config.require_2fa and not user.totp_enabled:
-        raw_token, _session = create_session(
-            db_path,
-            user.id,
-            ip_address=ip,
-            user_agent=_get_user_agent(request),
-            session_max_days=session_max_days,
-        )
-        update_user(db_path, user.id, UserUpdate(last_login=datetime.now(timezone.utc)))
-        log_auth_event(
-            AuditEvent.LOGIN_SUCCESS,
-            user_id=user.id,
-            email=user.email,
-            ip=ip,
-            details={"provider": user_info.provider},
-        )
-        response = RedirectResponse(url="/setup?requires_2fa_setup=true", status_code=302)
-        _set_session_cookie(response, raw_token, request, max_age_seconds=session_max_days * 86400)
-
-        await _bridge_metabase_session(user, request, response, log_context="oauth_login")
-
+    # Admin requires 2FA but the user has not set it up: enrollment-only session
+    if _requires_2fa_enrollment(auth_config, user):
+        response = RedirectResponse(url=ENROLLMENT_PAGE, status_code=302)
+        _start_enrollment_session(request, db_path, user, response)
         return response
 
     raw_token, _session = create_session(

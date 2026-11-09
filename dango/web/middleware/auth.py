@@ -37,6 +37,11 @@ from dango.auth.models import User
 from dango.config.helpers import is_running_on_cloud
 from dango.exceptions import AuthDatabaseUnavailableError
 from dango.logging import get_logger
+from dango.web.middleware.enrollment import (
+    ENROLLMENT_PAGE,
+    enrollment_allows,
+    enrollment_user,
+)
 from dango.web.middleware.origin import is_local_request, is_same_origin
 
 logger = get_logger(__name__)
@@ -137,6 +142,7 @@ class AuthMiddleware:
         if "state" not in scope:
             scope["state"] = {}
         scope["state"]["auth_disabled"] = False
+        scope["state"]["session_partial"] = False
 
         # Check auth toggle
         if not self._is_auth_enabled():
@@ -173,7 +179,22 @@ class AuthMiddleware:
 
         # Validate credentials (cookie takes precedence)
         headers = scope.get("headers", [])
+        method: str = scope.get("method", "GET")
         user, auth_method = self._authenticate(headers, db_path)
+
+        # Enrollment-only session (require_2fa, TOTP not set up yet): a few routes only
+        enrolling = False
+        if user is None:
+            user = enrollment_user(db_path, _parse_cookie(headers, COOKIE_NAME))
+            if user is not None:
+                auth_method, enrolling = "session", True
+                if not enrollment_allows(method, path):
+                    if _is_browser_request(headers):
+                        response = _make_redirect_response(ENROLLMENT_PAGE)
+                    else:
+                        response = _make_403_json("Two-factor enrollment is required first")
+                    await response(scope, receive, send)
+                    return
 
         # No valid credentials
         if user is None:
@@ -190,7 +211,6 @@ class AuthMiddleware:
         # with --no-token and its frontend also sends no Dango CSRF header, so
         # its state-changing requests must instead be same-origin (an Origin
         # header, when present, must match Host).  Dango auth is still required.
-        method: str = scope.get("method", "GET")
         if auth_method == "session" and method not in _SAFE_METHODS:
             if path.startswith("/notebooks/marimo/"):
                 if not is_same_origin(headers):
@@ -206,6 +226,7 @@ class AuthMiddleware:
         # Set user on request state
         scope["state"]["user"] = user
         scope["state"]["auth_method"] = auth_method
+        scope["state"]["session_partial"] = enrolling
 
         await self.app(scope, receive, send)
 
@@ -302,6 +323,10 @@ class AuthMiddleware:
                 self._toggle_error_logged = True
             return failing_closed
 
+        # A cloud server never runs with auth off (``dango auth disable`` is refused there), so a
+        # missing, empty or false toggle must not open middleware-only routes to anonymous callers.
+        # A missing auth.db then answers 503 below instead of passing the request through.
+        enabled = enabled or is_running_on_cloud()
         self._toggle_read_failed = False
         self._toggle_error_logged = False
         self._auth_enabled_cache = enabled

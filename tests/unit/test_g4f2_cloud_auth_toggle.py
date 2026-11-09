@@ -20,12 +20,12 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AuthProject:
 
 
 @pytest.fixture
-def cloud(monkeypatch: pytest.MonkeyPatch) -> None:
+def cloud_project(project: AuthProject, monkeypatch: pytest.MonkeyPatch) -> AuthProject:
     monkeypatch.setenv("DANGO_CLOUD_MODE", "true")
+    return project
 
 
 @pytest.mark.unit
-@pytest.mark.usefixtures("cloud")
 class TestCloudRequiresAuthWhateverTheToggleSays:
     @pytest.mark.parametrize(
         "toggle",
@@ -33,23 +33,27 @@ class TestCloudRequiresAuthWhateverTheToggleSays:
         ids=["missing", "empty", "empty-mapping", "no-enabled-key", "disabled"],
     )
     def test_unauthenticated_request_is_refused(
-        self, project: AuthProject, toggle: str | None
+        self, cloud_project: AuthProject, toggle: str | None
     ) -> None:
-        project.create_db()
+        cloud_project.create_db()
         if toggle is not None:
-            project.write_toggle(toggle)
-        resp = build_client(project.root).get("/api/probe")
+            cloud_project.write_toggle(toggle)
+        resp = build_client(cloud_project.root).get("/api/probe")
         assert resp.status_code == 401
 
-    def test_missing_toggle_and_missing_auth_db_returns_503(self, project: AuthProject) -> None:
-        resp = build_client(project.root).get("/api/probe")
+    def test_missing_toggle_and_missing_auth_db_returns_503(
+        self, cloud_project: AuthProject
+    ) -> None:
+        resp = build_client(cloud_project.root).get("/api/probe")
         assert resp.status_code == 503
 
-    def test_valid_credentials_still_pass_with_a_missing_toggle(self, project: AuthProject) -> None:
-        project.create_db()
-        user = project.add_user()
-        resp = build_client(project.root).get(
-            "/api/probe", headers={"Cookie": project.session_cookie(user)}
+    def test_valid_credentials_still_pass_with_a_missing_toggle(
+        self, cloud_project: AuthProject
+    ) -> None:
+        cloud_project.create_db()
+        user = cloud_project.add_user()
+        resp = build_client(cloud_project.root).get(
+            "/api/probe", headers={"Cookie": cloud_project.session_cookie(user)}
         )
         assert resp.status_code == 200
         assert resp.json()["user"] == user.email

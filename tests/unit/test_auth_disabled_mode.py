@@ -68,7 +68,8 @@ class TestAuthDisabledMode:
         client = build_client(project.root, dbt_router)
 
         assert client.post(_RUN_MODEL, headers=_CSRF).status_code == 401
-        assert client.get("/api/probe").json()["auth_disabled"] is False
+        # A cloud process requires credentials on every route, whatever the toggle says
+        assert client.get("/api/probe").status_code == 401
 
     def test_toggle_error_never_sets_auth_disabled(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_manifest: object

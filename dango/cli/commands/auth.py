@@ -533,11 +533,14 @@ def auth_change_role(ctx: click.Context, email: str, role: str) -> None:
         if user is None:
             print_error(f"User '{email}' not found.")
             raise click.Abort()
-        if user.role == Role(role):
+        from dango.auth.metabase_access import is_pending
+
+        # A same-role change still runs when the Metabase side of an earlier change is pending.
+        if user.role == Role(role) and not is_pending(project_root, user.id):
             print_info(f"User '{user.email}' already has role '{role}'.")
             return
         old_role = user.role.value
-        if user.role == Role.ADMIN:
+        if user.role == Role.ADMIN and Role(role) != Role.ADMIN:
             active_admins = [
                 u for u in list_users(db_path, active_only=True) if u.role == Role.ADMIN
             ]
@@ -550,7 +553,12 @@ def auth_change_role(ctx: click.Context, email: str, role: str) -> None:
 
             creds = _load_metabase_credentials(project_root)
             if creds and creds.get("metabase_url"):
-                sync_user_role(db_path, user.id, project_root, creds["metabase_url"])
+                if not sync_user_role(db_path, user.id, project_root, creds["metabase_url"]):
+                    print_warning(
+                        "Metabase role update incomplete (local role updated): the user's "
+                        "Metabase access is suspended until it succeeds. Re-apply the role "
+                        "when Metabase is reachable."
+                    )
         except Exception:
             print_warning("Metabase role sync failed (local role still updated).")
         print_success(f"User '{user.email}' role changed to {role}.")

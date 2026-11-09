@@ -263,3 +263,23 @@ class TestCliChangeRoleWarns:
         assert result.exit_code == 0
         assert "metabase" in result.output.lower()
         assert "incomplete" in result.output.lower()
+
+
+@pytest.mark.unit
+class TestCliReapplyWhilePending:
+    def test_same_role_is_reapplied_when_the_metabase_update_is_pending(
+        self, tmp_path: Path
+    ) -> None:
+        from dango.auth import metabase_access
+        from dango.cli.main import cli
+
+        db_path, target = _project(tmp_path, Role.ADMIN)
+        metabase_access.mark_pending(tmp_path, target.id)
+        with (
+            patch("dango.cli.utils.find_project_root", return_value=tmp_path),
+            patch("dango.auth.metabase_sync.sync_user_role", return_value=True) as sync,
+        ):
+            result = CliRunner().invoke(cli, ["auth", "change-role", target.email, "admin"])
+        assert result.exit_code == 0
+        sync.assert_called_once()
+        assert "already has role" not in result.output.lower()

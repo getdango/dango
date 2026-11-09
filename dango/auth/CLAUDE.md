@@ -20,6 +20,7 @@ User authentication and access control for Dango. Handles password-based login w
 | `totp.py` | 220 | TOTP 2FA: setup/verify/enable/disable, recovery codes | `generate_totp_secret()`, `verify_totp_code()`, `setup_totp()`, `enable_totp()`, `consume_recovery_code()` |
 | `oauth_login.py` | 314 | OAuth provider ABC + Google/GitHub implementations | `OAuthLoginProvider`, `GoogleOAuthProvider`, `GitHubOAuthProvider`, `get_provider()` |
 | `metabase_sync.py` | 552 | Sync users/roles to Metabase; admin sessions use the security credential boundary | `sync_user_to_metabase()`, `sync_all_users_to_metabase()`, `sync_user_role()`, `decrypt_metabase_password()` |
+| `metabase_access.py` | 105 | Per-user Metabase state under `.dango/state/metabase_access/`: bridged session ids (deleted on a role change) and the pending marker that suspends a user's Metabase access until a role change is fully applied | `mark_pending()`, `clear_pending()`, `is_pending()`, `record_session()`, `recorded_sessions()`, `forget_sessions()` |
 | `metabase_bridge.py` | 187 | Async SSO session bridging on login/logout | `bridge_metabase_login()`, `bridge_metabase_logout()`, `ensure_metabase_synced()` |
 
 ## Architecture
@@ -32,7 +33,7 @@ User authentication and access control for Dango. Handles password-based login w
 ### Session Lifecycle
 
 - **Full session:** 60-min idle timeout, 30-day absolute expiry. Cookie: `dango_session`, HttpOnly, SameSite=Lax.
-- **Partial session:** 5-min timeout. Created when password is verified but 2FA is pending.
+- **Partial session:** 5-min timeout. Created when password is verified but 2FA is pending. With `auth.require_2fa`, a user without TOTP gets an *enrollment-only* partial session (30 min, `ENROLLMENT_SESSION_TIMEOUT_MINUTES`) that reaches only the routes in `web/middleware/enrollment.py`; `verify-setup` swaps it for the full session and bridges Metabase.
 - **API key:** No expiry. `dango_ak_` prefix, SHA-256 hashed in DB. Bearer token auth.
 
 ### Key Conventions
@@ -63,6 +64,7 @@ POST /api/auth/login
   ├─ user.totp_enabled?
   │   ├─ YES → sessions.create_session(is_partial=True) → 200 {requires_2fa}
   │   │         └─ POST /api/auth/2fa/verify → validate_partial → full session
+  │   ├─ NO + auth.require_2fa → enrollment-only partial session → 200 {requires_2fa_setup}
   │   └─ NO  → sessions.create_session() → full session
   │
   ├─ lockout.reset_failed_logins()

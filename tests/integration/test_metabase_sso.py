@@ -407,7 +407,7 @@ class TestGracefulDegradation:
                 json={"role": "viewer"},
                 headers=_auth_headers(),
             )
-            assert resp.status_code == 200
+            assert resp.status_code == 502  # role changed; incomplete Metabase update reported
             assert get_user_by_id(db_path, target.id).role == Role.VIEWER  # type: ignore[union-attr]
 
             resp = client.post(

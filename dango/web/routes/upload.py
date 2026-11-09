@@ -39,6 +39,7 @@ from dango.web.helpers import (
 )
 from dango.web.routes.sync import run_sync_task
 from dango.web.routes.websocket import ws_manager
+from dango.web.source_file_guard import check_deletable_source_file
 
 logger = logging.getLogger(__name__)
 
@@ -433,9 +434,12 @@ async def delete_csv_file(
 
         # Verify file is in the source directory (security check)
         config_key = "local_files" if source_type == "local_files" else "csv"
-        source_directory = source_config.get(config_key, {}).get("directory")
+        source_dir_config = source_config.get(config_key, {})
+        source_directory = source_dir_config.get("directory")
         if not source_directory:
             raise HTTPException(status_code=500, detail="Source directory not configured")
+        default_pattern = "*" if source_type == "local_files" else "*.csv"
+        file_pattern = source_dir_config.get("file_pattern", default_pattern)
 
         # Resolve source directory relative to project root
         source_dir = project_root / source_directory
@@ -448,18 +452,29 @@ async def delete_csv_file(
                 status_code=403, detail="Cannot delete files outside source directory"
             ) from None
 
-        # Delete data from database FIRST (before deleting file)
-        # This ensures data is cleaned up immediately and user sees instant feedback
-        filename = file_to_delete.name
-        logger.info(f"Starting DB cleanup for file: {filename}")
-
-        # Connect to DuckDB (reuse connection for both data and metadata cleanup)
         from dango.config import ConfigLoader
 
         loader = ConfigLoader(project_root)
         config = loader.load_config()
         duckdb_path = project_root / config.platform.duckdb_path
         duckdb_path_resolved = duckdb_path.resolve()
+
+        # Only the source's own input files: never the warehouse, its sidecars, application
+        # state, or a file outside the source's formats and pattern.
+        file_to_delete = check_deletable_source_file(
+            file_to_delete,
+            source_dir=source_dir,
+            source_type=source_type,
+            file_pattern=file_pattern,
+            project_root=project_root,
+            warehouse_path=duckdb_path_resolved,
+        )
+
+        # Delete data from database FIRST (before deleting file)
+        # This ensures data is cleaned up immediately and user sees instant feedback
+        filename = file_to_delete.name
+        logger.info(f"Starting DB cleanup for file: {filename}")
+
         logger.info(f"DuckDB path (config): {config.platform.duckdb_path}")
         logger.info(f"DuckDB path (resolved): {duckdb_path_resolved}")
         logger.info(f"File exists: {duckdb_path_resolved.exists()}")
@@ -467,6 +482,7 @@ async def delete_csv_file(
             f"File size: {duckdb_path_resolved.stat().st_size if duckdb_path_resolved.exists() else 'N/A'}"
         )
 
+        cleanup_failed = False
         conn = None
         try:
             conn = duckdb.connect(str(duckdb_path_resolved))
@@ -499,8 +515,11 @@ async def delete_csv_file(
             )
 
             if table_exists:
-                conn.execute(f"DELETE FROM {target_table} WHERE _dango_filename = ?", [filename])
-                rows_deleted = conn.execute("SELECT changes()").fetchone()[0]
+                # DuckDB reports the affected row count as the DELETE's own result row
+                deleted = conn.execute(
+                    f"DELETE FROM {target_table} WHERE _dango_filename = ?", [filename]
+                ).fetchone()
+                rows_deleted = deleted[0] if deleted else 0
                 logger.info(f"Deleted {rows_deleted} rows from {target_table}")
             else:
                 logger.warning(
@@ -511,31 +530,39 @@ async def delete_csv_file(
         except Exception as e:
             logger.error(f"ERROR during DB data deletion: {type(e).__name__}: {str(e)}")
             logger.error(f"Traceback: {traceback.format_exc()}")
-            # Continue with metadata cleanup even if data deletion fails
+            cleanup_failed = True
 
-        # ALWAYS delete metadata record (even if data deletion failed)
-        # Reuse the same connection
+        # Also delete the metadata record (even if data deletion failed); reuse the connection
         try:
             if conn is None:
                 logger.error("Connection is None - cannot clean up metadata")
+                cleanup_failed = True
             else:
                 logger.info(
                     f"Deleting metadata record for source={source_name}, file_path={file_path}"
                 )
-                conn.execute(
-                    """
-                    DELETE FROM _dango_file_metadata
-                    WHERE source_name = ? AND file_path = ?
-                    """,
-                    [source_name, file_path],
+                metadata_table_exists = (
+                    conn.execute(
+                        "SELECT COUNT(*) FROM information_schema.tables "
+                        "WHERE table_name = '_dango_file_metadata'"
+                    ).fetchone()[0]
+                    > 0
                 )
-                metadata_deleted = conn.execute("SELECT changes()").fetchone()[0]
-                logger.info(f"Deleted {metadata_deleted} metadata records")
+                if metadata_table_exists:
+                    removed = conn.execute(
+                        """
+                        DELETE FROM _dango_file_metadata
+                        WHERE source_name = ? AND file_path = ?
+                        """,
+                        [source_name, file_path],
+                    ).fetchone()
+                    logger.info(f"Deleted {removed[0] if removed else 0} metadata records")
                 logger.info(f"Metadata cleanup complete for file: {filename}")
 
         except Exception as e:
             logger.error(f"ERROR during metadata cleanup: {type(e).__name__}: {str(e)}")
             logger.error(f"Traceback: {traceback.format_exc()}")
+            cleanup_failed = True
 
         finally:
             # Always close connection
@@ -546,9 +573,17 @@ async def delete_csv_file(
                 except Exception:  # noqa: BLE001
                     pass
 
+        # Never unlink a file whose rows or metadata could not be cleaned up: the next sync
+        # would otherwise leave data from a file that no longer exists.
+        if cleanup_failed:
+            raise HTTPException(
+                status_code=500,
+                detail="Database cleanup failed; the file was not deleted. Try again.",
+            )
+
         # Delete file from filesystem
-        os.remove(file_path)
-        logger.info(f"Deleted file: {file_path}")
+        os.remove(file_to_delete)
+        logger.info(f"Deleted file: {file_to_delete}")
 
         # Broadcast deletion event
         await ws_manager.broadcast(

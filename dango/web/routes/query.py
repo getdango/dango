@@ -8,8 +8,10 @@ Security layers (defense-in-depth):
 3. sqlglot whitelist: only ``exp.Select`` allowed (fails closed if sqlglot is missing)
 4. Locked connection (``dango.utils.query_connection``): warehouse attached READ_ONLY,
    external access (files, URLs, extensions, ATTACH) off, configuration locked
-5. Timeout: 30 s via ``asyncio.wait_for``; memory limit ``api.query_memory_limit`` (1GB),
-   no spill to disk, so a query over the limit fails with DANGO-Q007
+5. Timeout: 30 s; on timeout or cancellation the DuckDB query is interrupted and the connection
+   closed once the worker has unwound; at most ``_MAX_CONCURRENT_QUERIES`` run at once (429
+   beyond). Memory limit ``api.query_memory_limit`` (1GB), no spill to disk, so a query over
+   the limit fails with DANGO-Q007
 6. Row limit: 10 000 rows max
 7. Audit logging: every query execution logged
 """
@@ -42,6 +44,11 @@ router = APIRouter(tags=["query"])
 _DEFAULT_MAX_ROWS = 10_000
 _DEFAULT_QUERY_TIMEOUT_SECONDS = 30
 _DEFAULT_QUERY_MEMORY_LIMIT = "1GB"
+
+# Queries running at once across all users; further requests get 429 until one finishes.
+_MAX_CONCURRENT_QUERIES = 4
+_UNWIND_GRACE_SECONDS = 5.0
+_active_queries = 0
 
 
 def _get_api_config(request: Request) -> tuple[int, int]:
@@ -159,12 +166,16 @@ def _execute_query(
     sql: str,
     max_rows: int,
     memory_limit: str = _DEFAULT_QUERY_MEMORY_LIMIT,
+    handle: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a read-only SQL query on a locked DuckDB connection.
 
     This is a blocking function intended to be called via
     ``asyncio.to_thread``.  Retries up to 3 times on ``duckdb.IOException``
     (e.g. when a sync holds the write lock) with exponential backoff.
+
+    The open connection is appended to *handle* so the caller can ``interrupt()`` it from the
+    event loop; the connection is closed here, when the query has finished or been interrupted.
     """
     from dango.utils.query_connection import open_locked_query_connection
 
@@ -172,6 +183,8 @@ def _execute_query(
     for attempt in range(3):
         try:
             conn = open_locked_query_connection(db_path, memory_limit=memory_limit)
+            if handle is not None:
+                handle.append(conn)
             try:
                 result = conn.execute(sql)
                 columns = [desc[0] for desc in result.description]
@@ -191,6 +204,39 @@ def _execute_query(
             if attempt < 2:
                 time.sleep(0.1 * (2**attempt))
     raise last_exc  # type: ignore[misc]
+
+
+async def _run_interruptibly(
+    db_path: str, sql: str, max_rows: int, memory_limit: str, timeout: float
+) -> dict[str, Any]:
+    """Run the query in a worker thread; interrupt it on timeout or cancellation.
+
+    ``asyncio.wait_for`` around ``to_thread`` only stops waiting: the worker keeps running. The
+    task is shielded so it can still be awaited after the deadline: DuckDB's ``interrupt()``
+    (thread-safe) is called, then the worker is given a grace period to unwind and close its
+    own connection (closing under a running query is not safe).
+    """
+    handle: list[Any] = []
+    task = asyncio.create_task(
+        asyncio.to_thread(_execute_query, db_path, sql, max_rows, memory_limit, handle)
+    )
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+    finally:
+        if not task.done():
+            deadline = time.monotonic() + _UNWIND_GRACE_SECONDS
+            # A connection opened just after the first interrupt() is interrupted on the next pass.
+            while not task.done() and time.monotonic() < deadline:
+                for conn in list(handle):
+                    try:
+                        conn.interrupt()
+                    except Exception:
+                        logger.debug("query_interrupt_failed", exc_info=True)
+                await asyncio.wait({task}, timeout=0.1)
+            if task.done():
+                task.exception()  # mark the interrupt error as retrieved
+            else:
+                logger.warning("query_worker_did_not_unwind")
 
 
 # ---------------------------------------------------------------------------
@@ -236,11 +282,18 @@ async def execute_query(
         )
 
     # -- Execute -------------------------------------------------------------
-    try:
-        result = await asyncio.wait_for(
-            asyncio.to_thread(_execute_query, str(db_path), sql, max_rows, memory_limit),
-            timeout=query_timeout,
+    global _active_queries
+    if _active_queries >= _MAX_CONCURRENT_QUERIES:
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error_code": "DANGO-Q008",
+                "message": "Too many queries are running; try again in a moment",
+            },
         )
+    _active_queries += 1
+    try:
+        result = await _run_interruptibly(str(db_path), sql, max_rows, memory_limit, query_timeout)
     except asyncio.TimeoutError:
         return JSONResponse(
             status_code=408,
@@ -280,6 +333,9 @@ async def execute_query(
                 "message": "An unexpected error occurred while executing the query",
             },
         )
+
+    finally:
+        _active_queries -= 1
 
     # -- Audit ---------------------------------------------------------------
     log_auth_event(

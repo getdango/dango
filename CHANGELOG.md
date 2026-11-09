@@ -88,6 +88,7 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - Cloud: `dango remote push` records an unfinished build on the server; a retry after a push that failed before its `dbt` build finished runs `dbt deps` and a full `dbt run` instead of reporting success on unchanged files.
 - Cloud: `dango remote upgrade` run again at the installed version applies pending migrations and checks health; a failed migration or health check is reported instead of "healthy".
 - Cloud backups: a scheduled backup whose Spaces upload cannot be verified keeps the local archive, does not run retention and is recorded as failed; the local manifest of a verified upload is now removed together with its archive.
+- The SQL query endpoint interrupts a query that times out or is cancelled and closes its connection after the worker stops, and allows at most four queries at once (HTTP 429 beyond that).
 
 ### Security
 
@@ -97,6 +98,12 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - Source credentials are bound to the host they were configured for.
 - Routes check permissions explicitly: manual source syncs, initial-sync controls, monitoring runs and table profiling need the matching permission, and webhook URLs are masked for non-admins.
 - Secrets are redacted from log endpoint responses.
+- With `auth.require_2fa`, a user who has not set up TOTP signs in to an enrollment-only session: it reaches TOTP setup, logout, password change and the account page only. The full session, API keys and the Metabase session come after the TOTP code is verified.
+- OAuth sign-in requires a verified email (Google's `verified_email`, a verified GitHub `/user/emails` entry) and an account identifier; unverified identities are rejected before any account lookup or linking.
+- A role change reports success only when every Metabase step succeeded. After a failed step the admin API answers 502 and `dango auth change-role` warns; the user's Metabase access (proxy and session bridge) stays suspended until re-applying the role succeeds. Role changes also delete the Metabase sessions Dango bridged for the user.
+- On a cloud server the auth middleware requires credentials even when `.dango/auth.yml` is missing, empty or says `enabled: false` (503 when `auth.db` is missing), so middleware-only routes such as the dbt docs are not open.
+- The script log page (`/scripts/<name>/logs/<run_id>`) redacts known secret values and secret-looking patterns in stdout, stderr and run metadata for every role.
+- `DELETE /api/sources/<name>/csv-files` deletes only the source's own input files: never the warehouse, its WAL or temp files, `.dango` state, or a file outside the source's formats and file pattern. It no longer deletes a file whose database cleanup failed.
 - Cloud servers: the deployment journal and the deploy timestamp are written and read as the service user, and the scheduled backup copies project directories through descriptors it opened with `O_NOFOLLOW`, so a link the service user plants (or swaps in during the copy) is not followed with root's access.
 - Cloud servers: the deploy lock is a root-owned directory created with `mkdir`, and the backup-list, sync-history and size reads run as the service user, so a link or FIFO the service user plants at those paths is neither opened nor written through. A lock file left by an older Dango counts as a held lock: remove it on the server or use `--force`. A linked `data/` is backed up only for entries the service user owns.
 - Shell use in the scheduled backup and in remote script execution was removed or tightened, and TLS is verified on the server health check.

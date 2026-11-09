@@ -161,6 +161,7 @@
             </div>
 
             <!-- Error display -->
+            <div x-show="!user.totp_enabled && new URLSearchParams(window.location.search).get('requires_2fa_setup') === 'true'" class="mb-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">Your administrator requires two-factor authentication. Set it up here to finish signing in.</div>
             <div x-show="twoFaError" class="mb-3 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="twoFaError"></div>
 
             <!-- 2FA NOT enabled: setup flow -->
@@ -178,7 +179,7 @@
                         <form @submit.prevent="setup2FA()" class="max-w-sm">
                             <p class="text-sm text-gray-500 mb-3">Enter your password to begin setup.</p>
                             <div class="mb-3">
-                                <input type="password" x-model="twoFaPassword" required placeholder="Current password" autocomplete="current-password"
+                                <input type="password" x-model="twoFaPassword" :required="!user.oauth_provider" placeholder="Current password" autocomplete="current-password"
                                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 text-sm">
                             </div>
                             <div class="flex space-x-2">
