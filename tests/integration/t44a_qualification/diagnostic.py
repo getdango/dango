@@ -8,6 +8,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import tomllib
@@ -138,6 +139,10 @@ def main():
             "SELECT sum(amount) FROM lake.sales.orders WHERE order_date < DATE '2026-10-01'"
         ).fetchone() == (300,)
     assert list(Path("/fixture/data").rglob("*.parquet")), "Expected physical DuckLake data"
+    if "--view-gate" in sys.argv[1:]:
+        from dbt_view import run_view
+
+        run_view(project, metadata)
     Path("/work/diagnostic.json").write_text(
         json.dumps(
             {

@@ -98,9 +98,16 @@ def image_present(rig, ref):
 
 def export(rig):
     """Allowlist genuine dbt outputs only after raw synthetic-secret checks."""
-    candidates = [(rig.root / "work/diagnostic.json", "diagnostic.json")]
+    candidates = [
+        (rig.root / "work/diagnostic.json", "diagnostic.json"),
+        (rig.root / "work/dbt-view.json", "dbt-view.json"),
+    ]
     candidates += [
         (rig.root / "work/project/target" / n, n)
+        for n in ["manifest.json", "run_results.json", "catalog.json"]
+    ]
+    candidates += [
+        (rig.root / "work/dbt-view-project/target" / n, "view-" + n)
         for n in ["manifest.json", "run_results.json", "catalog.json"]
     ]
     for source, name in candidates:
@@ -145,6 +152,10 @@ def main():
         "full_app": "UNRUN",
         "head": os.environ["PROBE_HEAD"],
         "started_utc": time.strftime("%FT%TZ", time.gmtime()),
+        "qualification_inputs": {
+            name: sha((HERE / name).read_bytes())
+            for name in ["diagnostic.py", "dbt_view.py", "run.py", "pins.json"]
+        },
     }
     existing = {}
     try:
@@ -155,12 +166,14 @@ def main():
         # Frozen expansion is counted conservatively even when caches/files overlap.
         # Additional planned peaks:512MiB configured DuckDB spill,256MiB tiny
         # PG data + four128MiB WAL segments,96MiB three allowlisted JSONs,
-        # and two8MiB container logs. These are separate from2GiB headroom.
+        # two8MiB logs, plus258MiB for the view: two sets of3x32MiB artifacts,
+        # two32MiB report copies and2MiB source/filesystem overhead.
+        # These are separate from2GiB headroom.
         rig.remaining = sum(p["compressed"] + 3 * p["expanded_upper"] for p in PINS["artifacts"])
         rig.remaining += sum(
             p["compressed"] + 2 * p["expanded_upper"] for p in PINS["extensions"].values()
         )
-        rig.remaining += (512 + 256 + 4 * 128 + 96 + 16) * MIB
+        rig.remaining += (512 + 256 + 4 * 128 + 96 + 16 + 258) * MIB
         disk_gate(rig, rig.remaining, "before-public-acquisition-and-image-pulls")
         for role, pin in PINS["images"].items():
             existing[role] = image_present(rig, pin["ref"])
@@ -169,8 +182,9 @@ def main():
             (root / name / "readiness").write_text("populated\n")
         (root / "fixture/data").mkdir()
         (root / "fixture/data/readiness").write_text("populated\n")
-        for name in ["smoke.py", "diagnostic.py", "pins.json", "requirements.txt"]:
+        for name in ["smoke.py", "diagnostic.py", "dbt_view.py", "pins.json", "requirements.txt"]:
             shutil.copyfile(HERE / name, root / "scripts" / name)
+            assert sha((root / "scripts" / name).read_bytes()) == sha((HERE / name).read_bytes())
         for name, value, uid, gid in [
             ("catalog.json", json.dumps(rig.secrets), 501, 20),
             ("admin", admin, 999, 999),
@@ -205,8 +219,19 @@ def main():
         rig.run("producer", ["-c", "/work/venv/bin/python /scripts/smoke.py postgres"], smoke=True)
         rig.smokes["producer"] = rig.signature("producer")
         result["running_python_pg_smoke"] = "PASS"
+        for name in ["diagnostic.py", "dbt_view.py"]:
+            assert (
+                sha((root / "scripts" / name).read_bytes()) == result["qualification_inputs"][name]
+            )
         result["native"] = "RAN"
-        rig.run("producer", ["-c", "/work/venv/bin/python /scripts/diagnostic.py"], timeout=900)
+        rig.run(
+            "producer",
+            ["-c", "/work/venv/bin/python /scripts/diagnostic.py --view-gate"],
+            timeout=900,
+        )
+        view = json.loads((root / "work/dbt-view.json").read_text())
+        assert view["status"] == "PASS_REAL_DBT_VIEW"
+        result["dbt_view"] = view["status"]
         disk_gate(rig, 0, "after-native-diagnostic")
         result["status"] = "PASS_DBT_DRIVER_DIAGNOSTIC"
     except Exception as error:

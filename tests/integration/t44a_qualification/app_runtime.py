@@ -16,6 +16,7 @@ from pathlib import Path
 from app_build import build_outputs, verify_build_update
 from canvas_prebuild import load_inventory, verify_archive
 from run import PINS, disk_gate, download, image_present, sha
+from runtime_cleanup import cleanup_runtime_storage
 
 HERE = Path(__file__).resolve().parent
 MIB = 1024**2
@@ -180,6 +181,7 @@ def main():
             "garage.toml",
             "diagnostic.py",
             "app-profile.json",
+            "runtime_cleanup.py",
         ]
     }
     result = {"status": "FAIL", "full_app": "UNRUN", "fixture": "UNRUN", "profiles": PROFILES}
@@ -468,9 +470,7 @@ def main():
         except Exception as error:
             cleanup_errors.append(str(error))
         try:
-            actor_home = root / "work/actor-home"
-            if actor_home.exists():
-                rig.call(["sudo", "rm", "-rf", "--", str(actor_home)])
+            result["runtime_storage_cleanup"] = cleanup_runtime_storage(rig)
         except Exception as error:
             cleanup_errors.append(str(error))
         for role, was_present in existing.items():

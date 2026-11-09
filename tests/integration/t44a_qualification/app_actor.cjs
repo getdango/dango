@@ -27,7 +27,51 @@ async function api(jar, method, path, body, expected = 200) {
   if (response.status !== expected) {
     safe(text); throw new Error(method + ' ' + path + ': HTTP' + response.status + ' ' + text.slice(0, 4096));
   }
-  return text ? JSON.parse(text).results : undefined;
+  const payload = text ? JSON.parse(text) : undefined;
+  if (expected === 403) {
+    safe(text);
+    assert.equal(payload.status, 'error');
+    assert.equal(payload.error.statusCode, 403);
+    assert.equal(payload.error.name, 'ForbiddenError');
+    assert.equal(typeof payload.error.message, 'string');
+    (evidence.denials ||= []).push({method, path, status: response.status,
+      error: {name: payload.error.name, message: payload.error.message}});
+  }
+  return payload?.results;
+}
+async function reviewerPermissionProbe(owner, projectUuid, spaceUuid, chartUuid, editorUuid, metricQuery) {
+  const fresh = {};
+  await api(fresh, 'POST', '/api/v1/login', {email: 'editor@t44a.invalid', password: s.editorPassword});
+  const before = await api(fresh, 'GET', '/api/v1/user');
+  assert.equal(before.userUuid, editorUuid); assert.equal(before.role, 'member');
+  const submitted = await api(fresh, 'POST', '/api/v2/projects/' + projectUuid + '/query/metric-query',
+    {query: metricQuery, context: 'exploreView', invalidateCache: true});
+  let completed;
+  for (let n = 0; n < 180; n++) {
+    const result = await api(fresh, 'GET', '/api/v2/projects/' + projectUuid + '/query/' + submitted.queryUuid);
+    if (result.status === 'ready') { completed = result; break; }
+    assert.ok(!['error', 'expired', 'cancelled'].includes(result.status), 'Reviewer query control failed');
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  assert.ok(completed, 'Reviewer query control deadline'); assert.equal(completed.rows.length, 1);
+  assert.equal(Number(completed.rows[0].orders_total_amount.value.raw), 350);
+  const chartPath = '/api/v1/saved/' + chartUuid + '/results';
+  const ownerResult = await api(owner, 'POST', chartPath, {});
+  assert.equal(Number(ownerResult.rows[0].orders_total_amount.value.raw), 350);
+  await api(fresh, 'POST', chartPath, {}, 403);
+  const deniedBefore = evidence.denials.at(-1);
+  const sharePath = '/api/v1/projects/' + projectUuid + '/spaces/' + spaceUuid + '/share';
+  await api(owner, 'POST', sharePath, {userUuid: editorUuid, spaceRole: 'viewer'});
+  const shared = await api(fresh, 'POST', chartPath, {});
+  assert.equal(Number(shared.rows[0].orders_total_amount.value.raw), 350);
+  await api(owner, 'DELETE', sharePath + '/' + editorUuid);
+  await api(fresh, 'POST', chartPath, {}, 403);
+  const deniedAfter = evidence.denials.at(-1);
+  const after = await api(fresh, 'GET', '/api/v1/user');
+  assert.equal(after.userUuid, editorUuid); assert.equal(after.role, 'member');
+  evidence.reviewerPermissionProbe = {userUuid: editorUuid, orgRole: after.role,
+    projectUuid, spaceUuid, chartUuid, queryUuid: submitted.queryUuid, queryControl: 350,
+    ownerControl: 350, deniedBefore, sharedResult: 350, deniedAfter, finalIdentityStatus: 200};
 }
 async function main() {
   for (let n = 0; ; n++) {
@@ -112,6 +156,7 @@ async function main() {
   assert.equal(Number(ownerResult.rows[0].orders_total_amount.value.raw), 350);
   await api(editor, 'POST', '/api/v1/saved/' + chart.uuid + '/results', {}, 403);
   evidence.privateResult = {ownerAccessible: true, editorStatus: 403, chartUuid: chart.uuid};
+  await reviewerPermissionProbe(owner, projectUuid, space.uuid, chart.uuid, identity.userUuid, metricQuery);
   evidence.status = 'PASS_FIRST_RUNNING_APP_SLICE';
 }
 main().catch(error => {

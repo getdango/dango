@@ -172,3 +172,31 @@ the key (creation, signed requests and403); warnings/errors and all raw
 secret checks remain enabled. This corrected runtime candidate is UNRUN until
 reviewed Ubuntu execution; this is
 not a claim that app native initialization or the remaining12case matrix passed.
+
+
+CI42496360017 passed the first complete app slice: ordinary350/September300,
+private403, frontend/CLI, canvas and S3 controls, with catalog/Parquet invariance.
+This is narrow evidence; the full12case matrix is not admitted.
+
+The next necessary slice starts with a real OSS dbt view **before** full app
+acquisition/build. `diagnostic.py --view-gate` uses a separate tiny project and
+target directory over the existing orders table. Normal `build --select
+orders_view --write-catalog` must produce genuine view metadata/results, followed
+by fresh Python readback of persisted type VIEW,350/300 and catalogSpec1.1.
+Authentic outputs (including failure outputs) are separately allowlisted; none
+are edited. The initial peak adds258MiB: two sets of3x32MiB view artifacts,
+two32MiB report copies and2MiB project/filesystem overhead. Original files and
+exported copies are separately charged; the report is capped before writing,
+with the same30GB/2GiB/df and runtime limits. Native support is still UNRUN; a
+real rejection stops before app work, with no table substitution. The app's
+later fresh fixture retains its original table-only diagnostic invocation.
+Incremental, snapshots, docs and Python model exceptions remain UNRUN.
+
+The same necessary app extension adds reviewer-derived fresh-session
+403 -> share200/350 -> revoke403 with positive identity/query/owner controls,
+and S3 correct/wrong/correct GET status+body-hash receipts on one existing object.
+After all attempted owned container names and exact Garage IDs are verified
+absent, exact canonical `work/garage` (SQLite/WAL/SHM included) is removed and
+its absence recorded. Dedicated secrets0 remains a separate, narrower check;
+this makes no secure-media-erasure or global-redaction claim. All new probes
+and cleanup are UNRUN pending focused review and real Ubuntu execution.

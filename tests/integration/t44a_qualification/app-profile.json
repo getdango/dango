@@ -1,5 +1,5 @@
 {
-  "state": "FIRST_RUNNING_APP_SLICE_NATIVE_CORRECTION_REVIEW_CANDIDATE",
+  "state": "FIRST_SLICE_PASS_NEXT_DBT_VIEW_AND_REVIEWER_PROBES_UNRUN",
   "scope": "First complete adapted Lightdash app slice; no remaining twelve-case harness",
   "limits": {
     "cpus": 4,
@@ -321,5 +321,24 @@
     "status": "FROZEN_REVIEW_CANDIDATE_NOT_INSTALLED",
     "peak_additional_bytes": 66016906,
     "resource_note": "Two compressed archive copies plus two allocated expansions added to existing remaining-runtime gate before any acquisition; live30GB+2GiB and df checks remain mandatory."
+  },
+  "early_view_gate": {
+    "status": "CANDIDATE_UNRUN",
+    "entrypoint": "Initial run.py producer calls diagnostic.py --view-gate before app acquisition/build. Runtime fixture calls diagnostic.py without flag and keeps original orders metadata.",
+    "project": "Separate /work/dbt-view-project, same frozen profile/catalogs; native materialized=view over lake.sales.orders, no fallback/table substitution.",
+    "command": "dbt build --project-dir /work/dbt-view-project --profiles-dir /work/dbt-view-project --no-version-check --no-send-anonymous-usage-stats --select orders_view --write-catalog",
+    "oracles": [
+      "Actual dbt success + authentic view manifest/run_results/catalog",
+      "Fresh Python connection sees persisted lake.sales.orders_view type VIEW, totals350/September300, catalogSpec1.1 and no automatic migration"
+    ],
+    "extra_initial_peak_bytes": 270532608,
+    "failure": "Preserve exact layer/exit/stdout/stderr and unmodified view artifacts, stop before full app stage. Incremental/snapshot/docs/Python model exceptions remain UNRUN.",
+    "peak_accounting": "Original3x32MiB authentic artifacts + separate3x32MiB exported copies +32MiB original report +32MiB exported report +2MiB project/filesystem overhead. All copies retained; shared2GiB headroom remains separate."
+  },
+  "native_boundary_followups": {
+    "NB-P1": "Fresh editor login/member/query350; same owner-accessible chart403 ForbiddenError -> viewer share200/350 -> revoke403; final editor member200. Actual safe status/error/IDs only.",
+    "NB-P2": "Same object correctGET200/hash -> wrongsecretGET403/name -> correctGET200/identicalhash before deletion; safe console JSON.",
+    "NB-P3": "After inherited cleanup, require canonical absence of every attempted owned name and exact frozen Garage IDs, then remove only canonical work/garage subtree and assert lstat absence. Actor-home deletion preserved. All errors remain surfaced.",
+    "profiles_and_artifacts": "Unchanged; no new Python/native dependency. Fresh CI needed for changed probes; no fullT44A promotion from prior slice."
   }
 }

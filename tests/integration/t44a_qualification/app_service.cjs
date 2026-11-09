@@ -65,13 +65,23 @@ async function main() {
   }
   assert.ok(ready, 'Garage readiness deadline');
   const get = await client.send(new GetObjectCommand(input));
-  assert.deepEqual(Buffer.from(await get.Body.transformToByteArray()), body);
+  const beforeBody = Buffer.from(await get.Body.transformToByteArray());
+  assert.equal(get.$metadata.httpStatusCode, 200); assert.deepEqual(beforeBody, body);
+  const hash = data => crypto.createHash('sha256').update(data).digest('hex');
+  const reviewerS3Probe = {correctBefore: {status: get.$metadata.httpStatusCode, body_sha256: hash(beforeBody)}};
+  assert.notEqual(s.wrongS3, s.s3Secret);
   const wrong = new S3Client({...opts, credentials: {...opts.credentials, secretAccessKey: s.wrongS3}});
   try { await wrong.send(new GetObjectCommand(input)); assert.fail('Wrong S3 secret accepted'); }
   catch (error) {
     assert.equal(error.$metadata?.httpStatusCode, 403);
     assert.ok(['SignatureDoesNotMatch', 'AccessDenied'].includes(error.name));
+    reviewerS3Probe.wrongSecret = {status: error.$metadata.httpStatusCode, error: error.name};
   } finally { wrong.destroy(); }
+  const again = await client.send(new GetObjectCommand(input));
+  const afterBody = Buffer.from(await again.Body.transformToByteArray());
+  assert.equal(again.$metadata.httpStatusCode, 200); assert.deepEqual(afterBody, beforeBody);
+  reviewerS3Probe.correctAfter = {status: again.$metadata.httpStatusCode, body_sha256: hash(afterBody)};
+  console.log(JSON.stringify({reviewerS3Probe}));
   await client.send(new DeleteObjectCommand(input)); client.destroy();
   console.log('PASS_GARAGE_AUTHENTICATED_PUT_GET_AND_BAD_SECRET_403');
   const env = {...process.env, NODE_ENV: 'production', PORT: '8080', SITE_URL: 'http://127.0.0.1:8080',
