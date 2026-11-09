@@ -98,6 +98,7 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - Routes check permissions explicitly: manual source syncs, initial-sync controls, monitoring runs and table profiling need the matching permission, and webhook URLs are masked for non-admins.
 - Secrets are redacted from log endpoint responses.
 - Cloud servers: the deployment journal and the deploy timestamp are written and read as the service user, and the scheduled backup copies project directories through descriptors it opened with `O_NOFOLLOW`, so a link the service user plants (or swaps in during the copy) is not followed with root's access.
+- Cloud servers: the deploy lock is a root-owned directory created with `mkdir`, and the backup-list, sync-history and size reads run as the service user, so a link or FIFO the service user plants at those paths is neither opened nor written through. A lock file left by an older Dango counts as a held lock: remove it on the server or use `--force`. A linked `data/` is backed up only for entries the service user owns.
 - Shell use in the scheduled backup and in remote script execution was removed or tightened, and TLS is verified on the server health check.
 
 ## [1.0.13] - 2026-10-08

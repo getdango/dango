@@ -135,7 +135,7 @@ def test_last_backup_is_read_as_dango() -> None:
     assert ssh.exec_command.call_args[0][0].startswith("runuser -u dango --")
 
 
-def _create(project: Path, backups: Path) -> list[str]:
+def _create(project: Path, backups: Path) -> tuple[list[str], list[str]]:
     import tarfile
 
     from dango.platform.cloud.scheduled_backup import _create_local_archive
@@ -150,7 +150,7 @@ def _create(project: Path, backups: Path) -> list[str]:
     ):
         archive, _manifest, warnings = _create_local_archive("test")
     with tarfile.open(archive) as tar:
-        return [*tar.getnames(), *warnings]
+        return tar.getnames(), warnings
 
 
 @pytest.mark.unit
@@ -179,7 +179,8 @@ class TestLinkedDataCopiesOnlyServiceUserEntries:
 
         me = os.environ.get("USER") or os.getlogin()
         with patch.object(br, "BACKUP_SOURCE_OWNER", me), patch("os.fstat", fstat):
-            names = _create(project, tmp_path / "backups")
+            names, warnings = _create(project, tmp_path / "backups")
 
         assert any(n.endswith("data/mine.txt") for n in names), names
-        assert not any("root-only" in n and "data/" in n for n in names), names
+        assert not any("root-only" in n for n in names), names
+        assert any("root-only.txt" in w for w in warnings), warnings

@@ -118,7 +118,7 @@ class TestPushDeploy:
         assert any("systemctl stop dango-web" in c for c in commands)
         assert any("chown -R dango:dango" in c for c in commands)
         assert any("systemctl restart dango-web" in c for c in commands)
-        assert any(f"rm -f {DEPLOY_LOCK_PATH}" in c for c in commands)
+        assert any(f"rm -rf -- {DEPLOY_LOCK_PATH}" in c for c in commands)
 
         # Verify backup called with restart_services=False
         mock_backup.assert_called_once()
@@ -142,7 +142,7 @@ class TestPushDeploy:
             push_deploy(ssh, tmp_path, "10.0.0.1")
 
         all_calls = [args[0][0] for args in ssh.exec_command.call_args_list]
-        assert any(f"rm -f {DEPLOY_LOCK_PATH}" in c for c in all_calls)
+        assert any(f"rm -rf -- {DEPLOY_LOCK_PATH}" in c for c in all_calls)
 
     @patch("dango.platform.cloud.backup.create_backup")
     @patch("dango.platform.cloud.file_sync.sync_project_files")
@@ -216,7 +216,7 @@ class TestPushDeploy:
             push_deploy(ssh, tmp_path, "10.0.0.1")
 
         all_calls = [args[0][0] for args in ssh.exec_command.call_args_list]
-        assert any(f"rm -f {DEPLOY_LOCK_PATH}" in c for c in all_calls)
+        assert any(f"rm -rf -- {DEPLOY_LOCK_PATH}" in c for c in all_calls)
 
     @patch("dango.platform.cloud.backup.create_backup")
     @patch("dango.platform.cloud.file_sync.sync_project_files")

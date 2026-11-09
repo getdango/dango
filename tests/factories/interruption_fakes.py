@@ -178,25 +178,28 @@ class FakeServer:
             target = shlex.split(cmd.split(" << ")[0])[2]
             self.files[target] = cmd.split("\n", 1)[1].rsplit("\nMANIFEST_EOF", 1)[0]
             return self._ok()
-        if cmd.startswith(f"cat {LOCK_PATH}"):
-            return self._ok(self.lock) if self.lock is not None else self._fail()
+        if cmd.startswith(f"if [ -L {LOCK_PATH} ]"):  # lock_cmds.read_cmd
+            if self.lock is None:
+                return CommandResult(stdout="", stderr="", exit_code=3)
+            return self._ok(self.lock)
         if "stat -c %Y" in cmd and LOCK_PATH in cmd:
             if self.lock is None or self.lock_age_seconds is None:
                 return self._fail()
             return self._ok(f"{self.lock_age_seconds}\n")
-        if cmd.startswith(f'[ "$(cat {LOCK_PATH}'):
-            ours = shlex.split(cmd.split(" = ", 1)[1].split(" && ")[0])[0]
+        if cmd.startswith(f"cd {LOCK_PATH} ") and "rm -rf" in cmd:  # remove_if_ours_cmd
+            ours = shlex.split(cmd.split(" = ", 1)[1].rsplit(" ] && rm -rf", 1)[0])[0]
             if self.lock != ours:
                 return self._fail()
             self.lock = None
             return self._ok()
-        if cmd == f"rm -f {LOCK_PATH}":
+        if cmd == f"rm -rf -- {LOCK_PATH}":
             self.lock = None
             return self._ok()
-        if cmd.startswith("(set -C; echo ") and f"> {LOCK_PATH}" in cmd:
+        if cmd.startswith(f"mkdir -m 0700 -- {LOCK_PATH}"):  # create_cmd
             if self.lock is not None:
-                return self._fail("cannot overwrite existing file")
-            self.lock = self._quoted_payload(cmd, f"> {LOCK_PATH}")
+                return self._fail("cannot create directory: File exists")
+            head = cmd.split("echo ", 1)[1]
+            self.lock = shlex.split(head[: head.rindex(" > lock.json")])[0]
             return self._ok()
         if cmd.startswith(f"{AS_DANGO} sh -c ") and f" _ {JOURNAL_PATH} " in cmd:
             self.journal.append(shlex.split(cmd)[-1])

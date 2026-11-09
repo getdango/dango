@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
 from dango.platform.cloud import compose_helper as ch
+from dango.platform.cloud import deploy_lock_cmds as lock_cmds
 from dango.platform.cloud.project_files import read_project_file
 
 logger = get_logger(__name__)
@@ -119,7 +120,11 @@ def _check_existing_lock(ssh: SSHManager) -> DeployLock | None:
     Returns:
         ``DeployLock`` if a lock file exists, ``None`` otherwise.
     """
-    result = ssh.exec_command(f"cat {DEPLOY_LOCK_PATH} 2>/dev/null")
+    result = ssh.exec_command(lock_cmds.read_cmd(DEPLOY_LOCK_PATH))
+    if result.exit_code == lock_cmds.FOREIGN_LOCK_EXIT:
+        # Something other than a root-owned lock directory is at the lock path: held.
+        logger.warning("deploy_lock_foreign_entry", path=DEPLOY_LOCK_PATH)
+        return DeployLock(deployer="unknown", started_at="", expires_at="", readable=False)
     if not result.success or not result.stdout.strip():
         return None
 
@@ -177,7 +182,7 @@ def _acquire_lock(
 ) -> DeployLock:
     """Acquire the deploy lock on the remote server.
 
-    Uses shell ``set -C`` (noclobber) for atomic lock creation so that
+    Creates the lock with ``mkdir`` (atomic, never follows a link) so that
     two concurrent ``dango remote push`` invocations cannot both succeed.
 
     Args:
@@ -197,8 +202,9 @@ def _acquire_lock(
     if existing is not None:
         if not force and not existing.readable:
             raise CloudProvisioningError(
-                f"Deploy lock file {DEPLOY_LOCK_PATH} is unreadable (corrupt), so another "
-                "deploy may be running. Use --force to override, or remove the file on the server."
+                f"Deploy lock {DEPLOY_LOCK_PATH} is unreadable or was not created by this "
+                "Dango (corrupt, or left by an older version), so another deploy may be running. "
+                "Use --force to override, or remove it on the server."
             )
         if not force and not _is_lock_expired(existing, _lock_file_age_seconds(ssh)):
             raise CloudProvisioningError(
@@ -207,7 +213,7 @@ def _acquire_lock(
                 "Use --force to override."
             )
         # Remove stale or force-overridden lock before creating new one
-        ssh.exec_command(f"rm -f {DEPLOY_LOCK_PATH}")  # cleanup: silent OK
+        ssh.exec_command(lock_cmds.remove_cmd(DEPLOY_LOCK_PATH))  # cleanup: silent OK
 
     now = datetime.now(tz=timezone.utc)
     expires = now + timedelta(minutes=LOCK_TIMEOUT_MINUTES)
@@ -230,14 +236,11 @@ def _acquire_lock(
         logger.warning(
             "mkdir_failed", path=str(Path(DEPLOY_LOCK_PATH).parent), stderr=result.stderr
         )
-    # Atomic creation: noclobber (set -C) makes > fail if the file
-    # already exists, preventing a concurrent deployer from silently
-    # overwriting our lock.
+    # Atomic creation: mkdir fails if anything exists at the lock path, so a concurrent
+    # deployer (or an entry the service user planted) cannot be overwritten or written through.
     if lock_json_out is not None:
         lock_json_out.append(lock_json)
-    result = ssh.exec_command(
-        f"(set -C; echo {shlex.quote(lock_json)} > {DEPLOY_LOCK_PATH}) 2>/dev/null"
-    )
+    result = ssh.exec_command(lock_cmds.create_cmd(DEPLOY_LOCK_PATH, lock_json))
     if not result.success:
         raise CloudProvisioningError(
             "Failed to acquire deploy lock — another deployment may have "
@@ -249,15 +252,12 @@ def _acquire_lock(
 
 def _release_lock(ssh: SSHManager) -> None:
     """Remove the deploy lock file from the remote server."""
-    ssh.exec_command(f"rm -f {DEPLOY_LOCK_PATH}")  # cleanup: silent OK
+    ssh.exec_command(lock_cmds.remove_cmd(DEPLOY_LOCK_PATH))  # cleanup: silent OK
 
 
 def _release_lock_if_ours(ssh: SSHManager, lock_json: str) -> None:
     """Remove the lock file only if it still holds *lock_json* (never another deployer's)."""
-    ssh.exec_command(
-        f'[ "$(cat {DEPLOY_LOCK_PATH} 2>/dev/null)" = {shlex.quote(lock_json)} ]'
-        f" && rm -f {DEPLOY_LOCK_PATH}"
-    )
+    ssh.exec_command(lock_cmds.remove_if_ours_cmd(DEPLOY_LOCK_PATH, lock_json))
 
 
 def _stop_web_service(ssh: SSHManager) -> None:

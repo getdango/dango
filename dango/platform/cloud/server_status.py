@@ -357,7 +357,7 @@ def _get_last_deploy(ssh: Any) -> str | None:
 
 def _get_last_backup(ssh: Any) -> str | None:
     """Get most recent backup filename (contains timestamp)."""
-    result = ssh.exec_command(f"ls -t {_BACKUP_DIR} 2>/dev/null | head -1")
+    result = ssh.exec_command(f"runuser -u dango -- ls -t {_BACKUP_DIR} 2>/dev/null | head -1")
     if not result.success or not result.stdout.strip():
         return None
     return str(result.stdout.strip())

@@ -91,6 +91,7 @@ def _walk(
     left_out: list[str],
     label: str,
     excluded: Callable[[str], bool],
+    owner_uid: int | None,
 ) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     for name in os.listdir(dir_fd):
@@ -99,11 +100,19 @@ def _walk(
         member = f"{rel}/{name}" if rel else name
         mode = os.stat(name, dir_fd=dir_fd, follow_symlinks=False).st_mode
         if stat.S_ISREG(mode):
-            _copy_open_file(os.open(name, _FILE_FLAGS, dir_fd=dir_fd), member, dest / name)
+            fd = os.open(name, _FILE_FLAGS, dir_fd=dir_fd)
+            if owner_uid is not None and os.fstat(fd).st_uid != owner_uid:
+                os.close(fd)
+                left_out.append(f"{label}/{member}")
+                continue
+            _copy_open_file(fd, member, dest / name)
         elif stat.S_ISDIR(mode):
             child_fd = os.open(name, DIR_FLAGS, dir_fd=dir_fd)
             try:
-                _walk(child_fd, dest / name, member, left_out, label, excluded)
+                if owner_uid is not None and os.fstat(child_fd).st_uid != owner_uid:
+                    left_out.append(f"{label}/{member}")
+                    continue
+                _walk(child_fd, dest / name, member, left_out, label, excluded, owner_uid)
             finally:
                 os.close(child_fd)
         else:
@@ -120,11 +129,13 @@ def copy_tree_pinned(
     left_out: list[str],
     label: str,
     excluded: Callable[[str], bool],
+    owner_uid: int | None = None,
 ) -> None:
     """Copy the directory open as *root_fd* into *dest*: regular files and directories only.
 
     Links and special files are never followed or read; each is recorded in *left_out* as
     ``label/<path>``.  Names for which *excluded* is true are left out.  No copy keeps
-    setuid/setgid/sticky bits.  Raises ``OSError`` if a member was swapped for a link.
+    setuid/setgid/sticky bits.  With *owner_uid*, a file or directory owned by anyone else
+    (checked with ``fstat`` on the open descriptor) is left out too.  Raises ``OSError`` if a member was swapped for a link.
     """
-    _walk(root_fd, dest, "", left_out, label, excluded)
+    _walk(root_fd, dest, "", left_out, label, excluded, owner_uid)

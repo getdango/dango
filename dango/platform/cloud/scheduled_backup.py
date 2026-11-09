@@ -536,19 +536,33 @@ def _project_relative(path: Path) -> str | None:
 
 
 def _copy_open_tree(
-    root_fd: int, dest: Path, *, step: str, left_out: list[str], label: str
+    root_fd: int,
+    dest: Path,
+    *,
+    step: str,
+    left_out: list[str],
+    label: str,
+    owner_uid: int | None = None,
 ) -> None:
     """Copy the directory open as *root_fd* into *dest* (regular files and directories only).
 
     Members are opened relative to *root_fd*, so a directory swapped for a link afterwards is
     never entered.  Links and special files are never followed or read; each is recorded in
     *left_out* as ``label/<path>``.  ``BACKUP_EXCLUDES`` names are left out.  No copy keeps
-    setuid/setgid/sticky bits.  Closes *root_fd*.
+    setuid/setgid/sticky bits.  With *owner_uid*, entries owned by anyone else are left out.
+    Closes *root_fd*.
     """
     from dango.platform.cloud.backup_restore import is_backup_excluded
 
     try:
-        copy_tree_pinned(root_fd, dest, left_out=left_out, label=label, excluded=is_backup_excluded)
+        copy_tree_pinned(
+            root_fd,
+            dest,
+            left_out=left_out,
+            label=label,
+            excluded=is_backup_excluded,
+            owner_uid=owner_uid,
+        )
     except RecursionError as exc:
         raise CloudProvisioningError(
             f"Step '{step}' failed: the directory tree under {label} is too deep to back up"
@@ -592,7 +606,7 @@ def _copy_linked_data_dir(link: Path, dest: Path, *, left_out: list[str], label:
             f"Refusing to back up {label}: it is a symlink whose target is not "
             "a directory owned by the service user"
         ) from exc
-    _copy_open_tree(root_fd, dest, step="copy_dirs", left_out=left_out, label=label)
+    _copy_open_tree(root_fd, dest, step="copy_dirs", left_out=left_out, label=label, owner_uid=uid)
 
 
 def _open_new_private_file(path: Path) -> int:

@@ -165,7 +165,7 @@ class TestLockManagement:
         _acquire_lock(ssh)
         # Find the lock creation command
         lock_cmds = [
-            args[0][0] for args in ssh.exec_command.call_args_list if "set -C" in args[0][0]
+            args[0][0] for args in ssh.exec_command.call_args_list if "mkdir -m 0700" in args[0][0]
         ]
         assert len(lock_cmds) == 1
         assert DEPLOY_LOCK_PATH in lock_cmds[0]
@@ -174,7 +174,7 @@ class TestLockManagement:
         ssh = make_ssh_mock()
 
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
-            if f"cat {DEPLOY_LOCK_PATH}" in cmd:
+            if cmd.startswith(f"if [ -L {DEPLOY_LOCK_PATH} ]"):
                 return CommandResult(stdout=_make_lock_json(expired=False), stderr="", exit_code=0)
             return CommandResult(stdout="", stderr="", exit_code=0)
 
@@ -187,7 +187,7 @@ class TestLockManagement:
         ssh = make_ssh_mock()
 
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
-            if f"cat {DEPLOY_LOCK_PATH}" in cmd:
+            if cmd.startswith(f"if [ -L {DEPLOY_LOCK_PATH} ]"):
                 return CommandResult(stdout=_make_lock_json(expired=True), stderr="", exit_code=0)
             return CommandResult(stdout="", stderr="", exit_code=0)
 
@@ -199,7 +199,7 @@ class TestLockManagement:
         ssh = make_ssh_mock()
 
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
-            if f"cat {DEPLOY_LOCK_PATH}" in cmd:
+            if cmd.startswith(f"if [ -L {DEPLOY_LOCK_PATH} ]"):
                 return CommandResult(stdout=_make_lock_json(expired=False), stderr="", exit_code=0)
             return CommandResult(stdout="", stderr="", exit_code=0)
 
@@ -216,10 +216,10 @@ class TestLockManagement:
             nonlocal call_count
             call_count += 1
             # No existing lock on read
-            if f"cat {DEPLOY_LOCK_PATH}" in cmd:
+            if cmd.startswith(f"if [ -L {DEPLOY_LOCK_PATH} ]"):
                 return CommandResult(stdout="", stderr="", exit_code=1)
             # Noclobber write fails (another deployer beat us)
-            if "set -C" in cmd:
+            if "mkdir -m 0700" in cmd:
                 return CommandResult(stdout="", stderr="cannot overwrite", exit_code=1)
             return CommandResult(stdout="", stderr="", exit_code=0)
 
@@ -231,7 +231,7 @@ class TestLockManagement:
     def test_release_lock(self):
         ssh = make_ssh_mock()
         _release_lock(ssh)
-        ssh.exec_command.assert_called_once_with(f"rm -f {DEPLOY_LOCK_PATH}")
+        ssh.exec_command.assert_called_once_with(f"rm -rf -- {DEPLOY_LOCK_PATH}")
 
 
 # ---------------------------------------------------------------------------
