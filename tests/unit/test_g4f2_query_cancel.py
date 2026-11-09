@@ -162,8 +162,8 @@ class TestConcurrentQueryCap:
     ) -> None:
         monkeypatch.setattr(query_module, "_MAX_CONCURRENT_QUERIES", 2)
         release = threading.Event()
-        conns = [FakeConn(run_seconds=3.0, release=release) for _ in range(2)]
-        conns.append(FakeConn(run_seconds=0.0))
+        blockers = [FakeConn(run_seconds=3.0, release=release) for _ in range(2)]
+        conns = [*blockers, FakeConn(run_seconds=0.0)]  # handed out (popped) in order
         patches = _patches(warehouse, conns)
         for p in patches:
             p.start()
@@ -178,9 +178,7 @@ class TestConcurrentQueryCap:
                 for w in workers:
                     w.start()
                 deadline = time.monotonic() + 3
-                while (
-                    not all(c.started.is_set() for c in conns[:2]) and time.monotonic() < deadline
-                ):
+                while not all(c.started.is_set() for c in blockers) and time.monotonic() < deadline:
                     time.sleep(0.01)
                 over = client.post("/api/query", json={"sql": "SELECT 1"})
                 release.set()
