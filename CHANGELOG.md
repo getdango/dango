@@ -85,6 +85,9 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - Cloud: a BYOS host whose `/srv` or `/srv/dango` already exists and is not a root-owned directory closed to other users (or has an ACL, or holds a venv the service account can change) is refused before any root setup step. This includes re-running `dango deploy --byos` on an existing 1.0.13 or earlier server, where `/srv/dango` is owned by the service account: update such a server with `dango remote upgrade`; for a new server use a fresh host or move `/srv/dango` aside first. Every failed BYOS setup step is now printed (a host without `flock` used to exit with no message).
 - Cloud: while `dango-web` is not running yet (a fresh deploy), Caddy answers a short "Dango is starting" 503 with `Retry-After` instead of a bare 502. After a deploy with a domain, the summary says to point DNS first and how to restart Caddy if HTTPS stays down.
 - `dango remote push` prints one clean line, like `dango remote status`, when the server connection is refused (for example a changed host key). A DigitalOcean create lookup that returns an unexpected answer still reports that the resource may exist.
+- Cloud: `dango remote push` records an unfinished build on the server; a retry after a push that failed before its `dbt` build finished runs `dbt deps` and a full `dbt run` instead of reporting success on unchanged files.
+- Cloud: `dango remote upgrade` run again at the installed version applies pending migrations and checks health; a failed migration or health check is reported instead of "healthy".
+- Cloud backups: a scheduled backup whose Spaces upload cannot be verified keeps the local archive, does not run retention and is recorded as failed; the local manifest of a verified upload is now removed together with its archive.
 
 ### Security
 
@@ -94,6 +97,8 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - Source credentials are bound to the host they were configured for.
 - Routes check permissions explicitly: manual source syncs, initial-sync controls, monitoring runs and table profiling need the matching permission, and webhook URLs are masked for non-admins.
 - Secrets are redacted from log endpoint responses.
+- Cloud servers: the deployment journal and the deploy timestamp are written and read as the service user, and the scheduled backup copies project directories through descriptors it opened with `O_NOFOLLOW`, so a link the service user plants (or swaps in during the copy) is not followed with root's access.
+- Cloud servers: the deploy lock is a root-owned directory created with `mkdir`, and the backup-list, sync-history and size reads run as the service user, so a link or FIFO the service user plants at those paths is neither opened nor written through. A lock file left by an older Dango counts as a held lock: remove it on the server or use `--force`. A linked `data/` is backed up only for entries the service user owns.
 - Shell use in the scheduled backup and in remote script execution was removed or tightened, and TLS is verified on the server health check.
 
 ## [1.0.13] - 2026-10-08

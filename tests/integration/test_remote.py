@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from dango.platform.cloud import deploy_lock_cmds
 from dango.platform.cloud.backup import create_backup, rollback
 from dango.platform.cloud.deployer import DEPLOY_LOCK_PATH, push_deploy
 from dango.platform.cloud.server_status import collect_server_status
@@ -204,13 +205,14 @@ class TestDeployLock:
             '{"deployer": "test", "started_at": "2099-01-01T00:00:00",'
             ' "expires_at": "2099-12-31T23:59:59"}'
         )
-        ssh.write_remote_file(DEPLOY_LOCK_PATH, lock_content)
+        ssh.exec_command(deploy_lock_cmds.remove_cmd(DEPLOY_LOCK_PATH))
+        assert ssh.exec_command(deploy_lock_cmds.create_cmd(DEPLOY_LOCK_PATH, lock_content)).success
 
         try:
             with pytest.raises(CloudProvisioningError, match="Deploy lock held by"):
                 push_deploy(ssh, project_root, droplet_ip)
         finally:
-            ssh.exec_command(f"rm -f {DEPLOY_LOCK_PATH}")
+            ssh.exec_command(deploy_lock_cmds.remove_cmd(DEPLOY_LOCK_PATH))
 
     def test_expired_lock_does_not_block(self, deployed_server: dict[str, Any]) -> None:
         """An expired lock is automatically overridden."""
@@ -221,11 +223,12 @@ class TestDeployLock:
             '{"deployer": "old-deployer", "started_at": "2020-01-01T00:00:00",'
             ' "expires_at": "2020-01-01T00:30:00"}'
         )
-        ssh.write_remote_file(DEPLOY_LOCK_PATH, lock_content)
+        ssh.exec_command(deploy_lock_cmds.remove_cmd(DEPLOY_LOCK_PATH))
+        assert ssh.exec_command(deploy_lock_cmds.create_cmd(DEPLOY_LOCK_PATH, lock_content)).success
 
         try:
-            # Verify the lock file exists
-            result = ssh.exec_command(f"cat {DEPLOY_LOCK_PATH}")
+            # Verify the lock exists
+            result = ssh.exec_command(f"cat {DEPLOY_LOCK_PATH}/lock.json")
             assert result.success
             assert "old-deployer" in result.stdout
 
@@ -233,11 +236,11 @@ class TestDeployLock:
             # But we don't want to mutate the server — instead, verify that
             # the lock mechanism itself considers this lock expired by
             # checking that a new lock can be written over it atomically.
-            ssh.exec_command(f"rm -f {DEPLOY_LOCK_PATH}")
-            result = ssh.exec_command(f"(set -C; echo 'new-lock' > {DEPLOY_LOCK_PATH}) 2>/dev/null")
+            ssh.exec_command(deploy_lock_cmds.remove_cmd(DEPLOY_LOCK_PATH))
+            result = ssh.exec_command(deploy_lock_cmds.create_cmd(DEPLOY_LOCK_PATH, "new-lock"))
             assert result.success, "Should be able to create new lock after removing expired one"
         finally:
-            ssh.exec_command(f"rm -f {DEPLOY_LOCK_PATH}")
+            ssh.exec_command(deploy_lock_cmds.remove_cmd(DEPLOY_LOCK_PATH))
 
     def test_lock_file_created_atomically(self, deployed_server: dict[str, Any]) -> None:
         """Lock creation uses noclobber — cannot overwrite an existing lock."""
@@ -246,14 +249,17 @@ class TestDeployLock:
         try:
             # Create a lock file
             ssh.exec_command(f"mkdir -p $(dirname {DEPLOY_LOCK_PATH})")
-            ssh.write_remote_file(DEPLOY_LOCK_PATH, "existing-lock")
+            ssh.exec_command(deploy_lock_cmds.remove_cmd(DEPLOY_LOCK_PATH))
+            assert ssh.exec_command(
+                deploy_lock_cmds.create_cmd(DEPLOY_LOCK_PATH, "existing-lock")
+            ).success
 
-            # Attempt atomic creation with noclobber — should fail
-            result = ssh.exec_command(f"(set -C; echo 'new-lock' > {DEPLOY_LOCK_PATH}) 2>/dev/null")
-            assert not result.success, "noclobber should prevent overwriting existing lock"
+            # Attempt atomic creation while a lock exists — should fail
+            result = ssh.exec_command(deploy_lock_cmds.create_cmd(DEPLOY_LOCK_PATH, "new-lock"))
+            assert not result.success, "mkdir should prevent overwriting existing lock"
 
             # Verify original content preserved
-            result = ssh.exec_command(f"cat {DEPLOY_LOCK_PATH}")
+            result = ssh.exec_command(f"cat {DEPLOY_LOCK_PATH}/lock.json")
             assert "existing-lock" in result.stdout
         finally:
-            ssh.exec_command(f"rm -f {DEPLOY_LOCK_PATH}")
+            ssh.exec_command(deploy_lock_cmds.remove_cmd(DEPLOY_LOCK_PATH))

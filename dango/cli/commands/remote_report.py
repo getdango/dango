@@ -48,7 +48,13 @@ def upgrade_result(result: Any, done: str) -> None:
     """Print the summary of a finished ``remote upgrade``."""
     console.print()
     style = "green" if result.health_check_passed else "yellow"
-    suffix = "." if result.health_check_passed else " with warnings."
+    migrations_failed = not result.migrations_run
+    if result.health_check_passed:
+        suffix = "."
+    elif migrations_failed:
+        suffix = ", but the migrations did not complete."
+    else:
+        suffix = " with warnings."
     console.print(f"[{style}]{done}{suffix}[/{style}]")
     console.print(
         f"  Version: [cyan]{literal(result.old_version)}[/cyan] → "
@@ -66,8 +72,18 @@ def upgrade_result(result: Any, done: str) -> None:
         line(text)
     for text in result.warnings:
         warning(text)
-    if not result.health_check_passed:
+    if migrations_failed:
+        console.print(
+            "\n[yellow]Migrations did not complete.[/yellow] Fix the cause above, then run "
+            "[bold]dango remote upgrade[/bold] again to apply them."
+        )
+    elif not result.health_check_passed and result.old_version != result.new_version:
         console.print(
             "\n[yellow]Health check failed.[/yellow] "
             "Run [bold]dango remote rollback[/bold] to restore the previous version."
+        )
+    elif not result.health_check_passed:
+        console.print(
+            "\n[yellow]Health check failed.[/yellow] Nothing was installed in this run: run "
+            "[bold]dango remote status[/bold] and [bold]dango remote logs[/bold] to investigate."
         )

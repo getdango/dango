@@ -17,6 +17,8 @@ from types import SimpleNamespace
 from typing import Literal
 from unittest.mock import patch
 
+from dango.platform.cloud.deploy_pending import BUILD_PENDING_PATH
+from dango.platform.cloud.project_files import AS_DANGO
 from dango.platform.cloud.ssh import CommandResult
 from tests.factories.root_compose_fakes import is_marker_probe, split_wrapper
 
@@ -107,6 +109,7 @@ class FakeServer:
     web_active: bool = True
     metabase_up: bool = True
     journal: list[str] = field(default_factory=list)
+    build_pending: bool = False
     archives: dict[str, str] = field(default_factory=dict)  # path -> "complete" | "partial"
     manifests: dict[str, str] = field(default_factory=dict)  # path -> manifest JSON
     files: dict[str, str] = field(default_factory=dict)
@@ -175,30 +178,38 @@ class FakeServer:
             target = shlex.split(cmd.split(" << ")[0])[2]
             self.files[target] = cmd.split("\n", 1)[1].rsplit("\nMANIFEST_EOF", 1)[0]
             return self._ok()
-        if cmd.startswith(f"cat {LOCK_PATH}"):
-            return self._ok(self.lock) if self.lock is not None else self._fail()
+        if cmd.startswith(f"if [ -L {LOCK_PATH} ]"):  # lock_cmds.read_cmd
+            if self.lock is None:
+                return CommandResult(stdout="", stderr="", exit_code=3)
+            return self._ok(self.lock)
         if "stat -c %Y" in cmd and LOCK_PATH in cmd:
             if self.lock is None or self.lock_age_seconds is None:
                 return self._fail()
             return self._ok(f"{self.lock_age_seconds}\n")
-        if cmd.startswith(f'[ "$(cat {LOCK_PATH}'):
-            ours = shlex.split(cmd.split(" = ", 1)[1].split(" && ")[0])[0]
+        if cmd.startswith(f"cd {LOCK_PATH} ") and "rm -rf" in cmd:  # remove_if_ours_cmd
+            ours = shlex.split(cmd.split(" = ", 1)[1].rsplit(" ] && rm -rf", 1)[0])[0]
             if self.lock != ours:
                 return self._fail()
             self.lock = None
             return self._ok()
-        if cmd == f"rm -f {LOCK_PATH}":
+        if cmd == f"rm -rf -- {LOCK_PATH}":
             self.lock = None
             return self._ok()
-        if cmd.startswith("(set -C; echo ") and f"> {LOCK_PATH}" in cmd:
+        if cmd.startswith(f"mkdir -m 0700 -- {LOCK_PATH}"):  # create_cmd
             if self.lock is not None:
-                return self._fail("cannot overwrite existing file")
-            self.lock = self._quoted_payload(cmd, f"> {LOCK_PATH}")
+                return self._fail("cannot create directory: File exists")
+            head = cmd.split("echo ", 1)[1]
+            self.lock = shlex.split(head[: head.rindex(" > lock.json")])[0]
             return self._ok()
-        if f">> {JOURNAL_PATH}" in cmd:
-            self.journal.append(self._quoted_payload(cmd, f">> {JOURNAL_PATH}"))
+        if cmd.startswith(f"{AS_DANGO} sh -c ") and f" _ {JOURNAL_PATH} " in cmd:
+            self.journal.append(shlex.split(cmd)[-1])
             return self._ok()
-        if cmd.startswith(f"tail -1 {JOURNAL_PATH}"):
+        if cmd.startswith(f"rm -rf -- {BUILD_PENDING_PATH}"):
+            self.build_pending = "mkdir" in cmd
+            return self._ok()
+        if cmd.startswith("if [ -e ") and BUILD_PENDING_PATH in cmd:
+            return self._ok("build-pending\n" if self.build_pending else "")
+        if cmd.startswith(f"{AS_DANGO} tail -1 {JOURNAL_PATH}"):
             return self._ok(self.journal[-1]) if self.journal else self._ok()
         if cmd == "systemctl stop dango-web":
             self.web_active = False

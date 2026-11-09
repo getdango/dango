@@ -170,8 +170,8 @@ class TestCopySecretsBetweenServers:
 
         old_ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/.env": ("DB_URL=test", "", 0),
-                "cat /srv/dango/project/.dlt/secrets.toml": ("[sources]", "", 0),
+                "_ /srv/dango/project/.env": ("DB_URL=test", "", 0),
+                "_ /srv/dango/project/.dlt/secrets.toml": ("[sources]", "", 0),
             }
         )
         new_ssh = _make_ssh_mock()
@@ -185,8 +185,8 @@ class TestCopySecretsBetweenServers:
 
         old_ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/.env": ("", "", 1),
-                "cat /srv/dango/project/.dlt/secrets.toml": ("", "", 1),
+                "_ /srv/dango/project/.env": ("", "", 3),
+                "_ /srv/dango/project/.dlt/secrets.toml": ("", "", 3),
             }
         )
         new_ssh = _make_ssh_mock()

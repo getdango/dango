@@ -130,6 +130,23 @@ def _notify(callback: Callable[[str, str], None] | None, step: str, status: str)
         callback(step, status)
 
 
+def _apply_pending_migrations(ssh: SSHManager, warnings: list[str]) -> bool:
+    """Apply the project's pending migrations as ``dango`` (idempotent); False, with a warning, on failure."""
+    result = ssh.exec_command(
+        f'sudo -u dango {_VENV_PYTHON} -c "'
+        "from pathlib import Path; "
+        "from dango.migrations import apply_all_pending; "
+        f"apply_all_pending(Path('{_PROJECT_DIR}'))\" 2>&1",
+        timeout=120,
+    )
+    if not result.success:
+        warnings.append(
+            f"Migration command exited with code {result.exit_code}: "
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
+    return bool(result.success)
+
+
 def upgrade_dango(
     ssh: SSHManager,
     *,
@@ -170,6 +187,7 @@ def upgrade_dango(
         CloudError: If the version string is invalid.
         CloudProvisioningError: If any SSH command fails.
     """
+    from dango.platform.cloud.backup import verify_health
     from dango.platform.cloud.server_status import (
         _get_dango_version,
         check_latest_pypi_version,
@@ -266,6 +284,9 @@ def upgrade_dango(
     # (idempotent) so a re-run can complete a step an earlier run skipped.
     if old_version == target_version:
         at_target_warnings = ["Already at target version — no upgrade performed.", *warnings]
+        # An earlier run may have died after the install and before the migrations: apply
+        # whatever is pending now (idempotent; a no-op when there is nothing to apply).
+        at_target_migrated = _apply_pending_migrations(ssh, at_target_warnings)
         ws_status = (
             run_ws_migration(ssh, at_target_warnings, old_version)
             if has_ws_auth_endpoint(old_version)
@@ -289,13 +310,16 @@ def upgrade_dango(
         isolation_status = ri.enable_in_upgrade(
             ssh, at_target_warnings, old_version, guard, own_guard=True
         )
+        at_target_healthy = verify_health(ssh)
+        if not at_target_healthy:
+            at_target_warnings.append("Health check did not pass within 90 seconds.")
         return UpgradeResult(
             old_version=old_version,
             new_version=old_version,
             backup_path=None,
-            migrations_run=False,
+            migrations_run=at_target_migrated,
             docker_rebuilt=False,
-            health_check_passed=True,
+            health_check_passed=at_target_healthy and at_target_migrated,
             duration_seconds=round(time.monotonic() - start_time, 1),
             warnings=at_target_warnings,
             caddyfile_ws_migration=ws_status,
@@ -323,7 +347,6 @@ def upgrade_dango(
         get_remote_compose_project_name,
         start_services,
         stop_services,
-        verify_health,
     )
 
     _notify(on_progress, "stop_services", "running")
@@ -364,21 +387,7 @@ def upgrade_dango(
 
         # 8. Run migrations
         _notify(on_progress, "migrations", "running")
-        migrations_run = False
-        migrate_result = ssh.exec_command(
-            f'sudo -u dango {_VENV_PYTHON} -c "'
-            "from pathlib import Path; "
-            "from dango.migrations import apply_all_pending; "
-            f"apply_all_pending(Path('{_PROJECT_DIR}'))\" 2>&1",
-            timeout=120,
-        )
-        if migrate_result.success:
-            migrations_run = True
-        else:
-            warnings.append(
-                f"Migration command exited with code {migrate_result.exit_code}: "
-                f"{migrate_result.stderr.strip() or migrate_result.stdout.strip()}"
-            )
+        migrations_run = _apply_pending_migrations(ssh, warnings)
         _notify(on_progress, "migrations", "done")
         guard.rearm()
 
@@ -442,7 +451,7 @@ def upgrade_dango(
         backup_path=backup_path,
         migrations_run=migrations_run,
         docker_rebuilt=docker_rebuilt,
-        health_check_passed=health_ok,
+        health_check_passed=health_ok and migrations_run,
         duration_seconds=round(time.monotonic() - start_time, 1),
         warnings=warnings,
         caddyfile_ws_migration=caddyfile_ws_migration,

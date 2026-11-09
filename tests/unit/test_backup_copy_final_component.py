@@ -120,5 +120,5 @@ def test_scheduled_tree_copy_refuses_a_linked_root(tmp_path: Path) -> None:
     dest = tmp_path / "dest"
     dest.mkdir()
     with pytest.raises(CloudProvisioningError):
-        _copy_tree_regular(link, dest, step="copy_dirs", skipped=[], label="notebooks")
+        _copy_tree_regular(link, dest, step="copy_dirs", left_out=[], label="notebooks")
     assert not list(dest.iterdir())
