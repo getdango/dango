@@ -283,3 +283,53 @@ class TestCliReapplyWhilePending:
         assert result.exit_code == 0
         sync.assert_called_once()
         assert "already has role" not in result.output.lower()
+
+
+class GoneAccountMetabase(FakeMetabase):
+    """The user's recorded Metabase account (id 10) no longer exists; POST /api/user makes 77."""
+
+    def _answer(self, method: str, url: str, headers: dict[str, str] | None) -> MagicMock:
+        path = url.removeprefix(MB)
+        if path in ("/api/user/10", "/api/user/10/password") and method in ("GET", "PUT"):
+            self.calls.append((method, path, dict(headers or {})))
+            return _resp(404)
+        if method == "POST" and path == "/api/user":
+            self.calls.append((method, path, dict(headers or {})))
+            return _resp(200, {"id": 77})
+        if method == "GET" and path == "/api/user":
+            self.calls.append((method, path, dict(headers or {})))
+            return _resp(200, [])
+        if method == "GET" and path == "/api/user/77":
+            self.calls.append((method, path, dict(headers or {})))
+            return _resp(200, {"id": 77, "group_ids": [1]})
+        return super()._answer(method, url, headers)
+
+
+@pytest.mark.unit
+class TestPendingClearsWhenTheMetabaseAccountIsGone:
+    def test_reapplying_the_role_recreates_the_account_and_clears_the_marker(
+        self, tmp_path: Path
+    ) -> None:
+        from dango.auth import metabase_access
+
+        db_path, user = _project(tmp_path, Role.VIEWER)
+        with (
+            patch("dango.auth.metabase_sync.requests") as requests_mock,
+            patch("dango.auth.metabase_sync.encrypt_metabase_password", return_value="enc"),
+        ):
+            GoneAccountMetabase([1]).install(requests_mock)
+            assert sync_user_role(db_path, user.id, tmp_path, MB) is True
+        refreshed = db.get_user_by_id(db_path, user.id)
+        assert refreshed is not None and refreshed.metabase_user_id == 77
+        assert metabase_access.is_pending(tmp_path, user.id) is False
+
+    def test_a_failing_update_of_an_existing_account_stays_pending(self, tmp_path: Path) -> None:
+        from dango.auth import metabase_access
+
+        db_path, user = _project(tmp_path, Role.VIEWER)
+        with patch("dango.auth.metabase_sync.requests") as requests_mock:
+            FakeMetabase([1, 2, 5], (("PUT", "/api/user/10"),)).install(requests_mock)
+            assert sync_user_role(db_path, user.id, tmp_path, MB) is False
+        unchanged = db.get_user_by_id(db_path, user.id)
+        assert unchanged is not None and unchanged.metabase_user_id == 10
+        assert metabase_access.is_pending(tmp_path, user.id) is True

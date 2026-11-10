@@ -185,3 +185,50 @@ class TestFailedCleanupKeepsTheFile:
             resp = _delete(client, root / "data" / "synced.csv")
         assert resp.status_code >= 500
         assert (root / "data" / "synced.csv").exists()
+
+
+@pytest.mark.unit
+class TestDeletionSetIsTheLoadersFileSet:
+    """Only files that glob(directory / file_pattern) yields, in a format the loader reads."""
+
+    def test_nested_file_a_non_recursive_pattern_never_reads_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        root = _project(tmp_path)
+        nested = root / "data" / "uploads" / "other"
+        nested.mkdir(parents=True)
+        (nested / "b.csv").write_text("id\n1\n")
+        resp = _delete(_client(root, pattern="*.csv"), nested / "b.csv")
+        assert resp.status_code in (400, 403)
+        assert (nested / "b.csv").exists()
+
+    def test_csv_under_an_unrelated_directory_of_a_root_source_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        root = _project(tmp_path)
+        seeds = root / "dbt" / "seeds"
+        seeds.mkdir(parents=True)
+        (seeds / "s.csv").write_text("id\n1\n")
+        resp = _delete(_client(root, pattern="*.csv", directory="."), seeds / "s.csv")
+        assert resp.status_code in (400, 403)
+        assert (seeds / "s.csv").exists()
+
+    def test_recursive_pattern_files_are_deletable(self, tmp_path: Path) -> None:
+        root = _project(tmp_path)
+        nested = root / "data" / "sub"
+        nested.mkdir()
+        (nested / "c.csv").write_text("id\n1\n")
+        resp = _delete(_client(root, pattern="**/*.csv"), nested / "c.csv")
+        assert resp.status_code == 200
+        assert not (nested / "c.csv").exists()
+
+    def test_parquet_input_of_a_csv_source_with_a_parquet_pattern_is_deletable(
+        self, tmp_path: Path
+    ) -> None:
+        root = _project(tmp_path)
+        (root / "data" / "p.parquet").write_text("parquet")
+        resp = _delete(
+            _client(root, source_type="csv", pattern="*.parquet"), root / "data" / "p.parquet"
+        )
+        assert resp.status_code == 200
+        assert not (root / "data" / "p.parquet").exists()
