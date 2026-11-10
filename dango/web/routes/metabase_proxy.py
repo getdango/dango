@@ -15,8 +15,9 @@ from typing import Any
 import httpx
 import yaml
 from fastapi import APIRouter, Request
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 
+from dango.auth.metabase_access import is_pending
 from dango.web.middleware.auth import is_secure_request
 from dango.web.routes.metabase_recovery import (
     RECOVERY_SCRIPT,
@@ -180,6 +181,24 @@ async def proxy_to_metabase(
         Response from Metabase
     """
     project_root = _get_project_root(request)
+
+    # A role change that is not fully applied in Metabase suspends the user's Metabase access:
+    # the old session may still carry the previous role's privileges.
+    user = getattr(request.state, "user", None)
+    if user is not None:
+        if is_pending(project_root, user.id):
+            suspended = JSONResponse(
+                status_code=403,
+                content={
+                    "message": (
+                        "Metabase access is suspended until this account's role change is "
+                        "applied. Ask an administrator to re-apply the role."
+                    )
+                },
+            )
+            _clear_mb_session_cookie(suspended)
+            return suspended
+
     if metabase_url is None:
         metabase_url = _get_metabase_url(project_root)
 

@@ -440,7 +440,7 @@ class TestLoginWith2FA:
         )
         data = resp.json()
         assert data["requires_2fa_setup"] is True
-        assert "user" in data
+        assert "user" not in data
 
 
 # ---------------------------------------------------------------------------

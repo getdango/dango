@@ -12,6 +12,7 @@ from typing import Any
 
 import requests
 
+from dango.auth import metabase_access
 from dango.auth.database import get_user_by_id, list_users, update_user
 from dango.auth.models import Role, UserUpdate
 from dango.security.metabase_config import (
@@ -280,34 +281,89 @@ def _sync_user_groups(
 
     target_set = set(target_groups)
     skip = {group_ids["all_users"]}
+    ok = True
     for gid in target_set - current_gids:
         if gid not in skip:
-            _mb_post(
+            added = _mb_post(
                 metabase_url,
                 session,
                 "/api/permissions/membership",
                 {"group_id": gid, "user_id": mb_user_id},
             )
+            ok = ok and added is not None
     for gid in current_gids - target_set:
         if gid in skip:
             continue
         grp = _mb_get(metabase_url, session, f"/api/permissions/group/{gid}")
         if not isinstance(grp, dict):
+            ok = False
             continue
         for member in grp.get("members", []):
             if member.get("user_id") == mb_user_id:
                 mid = member.get("membership_id")
                 if mid is not None:
-                    _mb_delete(metabase_url, session, f"/api/permissions/membership/{mid}")
+                    removed = _mb_delete(
+                        metabase_url, session, f"/api/permissions/membership/{mid}"
+                    )
+                    ok = ok and removed
                 break
-    return True
+    return ok
 
 
-def _apply_role(url: str, session: str, uid: int, role: Role, gids: dict[str, int]) -> None:
-    """Sync group membership and superuser flag for a Metabase user."""
+def _apply_role(url: str, session: str, uid: int, role: Role, gids: dict[str, int]) -> bool:
+    """Sync group membership and superuser flag for a Metabase user.
+
+    Returns ``True`` only if every step succeeded.
+    """
     # Revoke superuser first on demotion (is_superuser bypasses all permission checks)
-    _mb_put(url, session, f"/api/user/{uid}", {"is_superuser": role == Role.ADMIN})
-    _sync_user_groups(url, session, uid, _get_role_groups(role, gids), gids)
+    superuser_set = _mb_put(url, session, f"/api/user/{uid}", {"is_superuser": role == Role.ADMIN})
+    groups_synced = _sync_user_groups(url, session, uid, _get_role_groups(role, gids), gids)
+    return superuser_set is not None and groups_synced
+
+
+def _metabase_user_gone(url: str, session: str, uid: int) -> bool:
+    """True only if Metabase answers 404 for the user id (any other failure is not proof)."""
+    try:
+        resp = requests.get(
+            f"{url}/api/user/{uid}", headers={"X-Metabase-Session": session}, timeout=_TIMEOUT
+        )
+        return bool(resp.status_code == 404)
+    except Exception:
+        logger.exception("Metabase user lookup failed")
+        return False
+
+
+def _record_apply(project_root: Path, user_id: str, applied: bool) -> None:
+    """Mark the user's Metabase access pending after an unapplied role, clear it after success."""
+    try:
+        if applied:
+            metabase_access.clear_pending(project_root, user_id)
+        else:
+            logger.error("Metabase role change for user %s was not fully applied", user_id)
+            metabase_access.mark_pending(project_root, user_id)
+    except Exception:
+        logger.exception("Could not record the Metabase role state for user %s", user_id)
+
+
+def _delete_user_sessions(metabase_url: str, project_root: Path, user_id: str) -> None:
+    """Delete the Metabase sessions Dango bridged for the user (best effort, retried later).
+
+    A session that Metabase no longer knows (401/404) counts as deleted.
+    """
+    deleted: list[str] = []
+    for sid in metabase_access.recorded_sessions(project_root, user_id):
+        try:
+            resp = requests.delete(
+                f"{metabase_url}/api/session",
+                headers={"X-Metabase-Session": sid},
+                timeout=_TIMEOUT,
+            )
+            if resp.status_code in (200, 204, 401, 404):
+                deleted.append(sid)
+        except Exception:
+            logger.exception("Deleting a Metabase session failed")
+    if deleted:
+        metabase_access.forget_sessions(project_root, user_id, deleted)
 
 
 def sync_user_to_metabase(
@@ -331,8 +387,10 @@ def sync_user_to_metabase(
             verify = _mb_get(metabase_url, session, f"/api/user/{user.metabase_user_id}")
             if isinstance(verify, dict) and verify.get("id") == user.metabase_user_id:
                 gids = ensure_metabase_groups(metabase_url, project_root, session)
-                if gids is not None:
-                    _apply_role(metabase_url, session, user.metabase_user_id, user.role, gids)
+                applied = gids is not None and _apply_role(
+                    metabase_url, session, user.metabase_user_id, user.role, gids
+                )
+                _record_apply(project_root, user_id, applied)
                 return user.metabase_user_id
 
         password = generate_metabase_password()
@@ -382,8 +440,10 @@ def sync_user_to_metabase(
         )
 
         gids = ensure_metabase_groups(metabase_url, project_root, session)
-        if gids is not None:
-            _apply_role(metabase_url, session, mb_user_id, user.role, gids)
+        applied = gids is not None and _apply_role(
+            metabase_url, session, mb_user_id, user.role, gids
+        )
+        _record_apply(project_root, user_id, applied)
 
         logger.info("Created Metabase user %s for %s", mb_user_id, user.email)
         return mb_user_id
@@ -394,12 +454,22 @@ def sync_user_to_metabase(
 
 
 def sync_user_role(db_path: Path, user_id: str, project_root: Path, metabase_url: str) -> bool:
-    """Update a Metabase user's groups after a Dango role change."""
+    """Update a Metabase user's groups after a Dango role change.
+
+    Returns ``True`` only if every Metabase step succeeded. Otherwise the user's Metabase access
+    stays suspended (see ``metabase_access``) until a later sync applies the role.
+    """
     try:
         user = get_user_by_id(db_path, user_id)
         if user is None:
             logger.error("User %s not found in auth.db", user_id)
             return False
+
+        if user.metabase_user_id is not None:
+            # An existing Metabase account may hold the old role's privileges: suspend it until
+            # this change is confirmed, and delete the sessions Dango bridged for it.
+            metabase_access.mark_pending(project_root, user_id)
+            _delete_user_sessions(metabase_url, project_root, user_id)
 
         if user.metabase_user_id is None:
             if sync_user_to_metabase(db_path, user_id, project_root, metabase_url) is None:
@@ -415,13 +485,25 @@ def sync_user_role(db_path: Path, user_id: str, project_root: Path, metabase_url
         if gids is None:
             return False
 
-        _apply_role(metabase_url, session, user.metabase_user_id, user.role, gids)
-        logger.info(
-            "Synced role %s for Metabase user %s",
-            user.role.value,
-            user.metabase_user_id,
-        )
-        return True
+        applied = _apply_role(metabase_url, session, user.metabase_user_id, user.role, gids)
+        if not applied and _metabase_user_gone(metabase_url, session, user.metabase_user_id):
+            # Metabase lost the recorded account (reset volume, new instance): relink or recreate
+            # it, which also applies the role and records the result.
+            update_user(
+                db_path,
+                user_id,
+                UserUpdate(metabase_user_id=None, metabase_password_enc=None),
+            )
+            relinked = sync_user_to_metabase(db_path, user_id, project_root, metabase_url)
+            return relinked is not None and not metabase_access.is_pending(project_root, user_id)
+        _record_apply(project_root, user_id, applied)
+        if applied:
+            logger.info(
+                "Synced role %s for Metabase user %s",
+                user.role.value,
+                user.metabase_user_id,
+            )
+        return applied
 
     except Exception:
         logger.exception("Failed to sync role for user %s", user_id)
@@ -542,14 +624,18 @@ def sync_all_users_to_metabase(
                 if user.metabase_user_id is not None:
                     mb = mb_by_email.get(user.email)
                     if mb and mb.get("id") == user.metabase_user_id:
-                        _apply_role(
+                        applied = _apply_role(
                             metabase_url,
                             session,
                             user.metabase_user_id,
                             user.role,
                             gids,
                         )
-                        result["synced"] += 1
+                        _record_apply(project_root, user.id, applied)
+                        if applied:
+                            result["synced"] += 1
+                        else:
+                            errors.append(f"Role not fully applied in Metabase for {user.email}")
                         continue
                 mb_id = sync_user_to_metabase(db_path, user.id, project_root, metabase_url)
                 if mb_id is not None:

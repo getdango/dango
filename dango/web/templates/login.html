@@ -148,6 +148,8 @@ function loginForm() {
                     }
                     if (data.must_change_password) {
                         window.location.href = '/setup';
+                    } else if (data.requires_2fa_setup) {
+                        window.location.href = '/settings/account?requires_2fa_setup=true';
                     } else {
                         window.location.href = '/';
                     }

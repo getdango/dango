@@ -1196,6 +1196,18 @@ def _write_script_logs(
         logger.debug("script_log_write_failed", script=script_path, exc_info=True)
 
 
+def _redact_error(project_root: Path, text: str) -> str:
+    """Mask known secret values and secret-looking patterns in a script's error text.
+
+    The text reaches the run history and the schedule record, the WebSocket event, notifications and
+    the Scripts API, all readable by roles that must not see credentials, so it is redacted once,
+    where it is built.
+    """
+    from dango.utils.redact import load_secret_values, redact_text
+
+    return redact_text(text, load_secret_values(project_root))
+
+
 def run_scheduled_script(
     schedule_name: str,
     script_path: str | None = None,
@@ -1411,7 +1423,10 @@ def run_scheduled_script(
         error_msg = (
             None
             if exit_code == 0
-            else (stderr.strip() if stderr and stderr.strip() else f"Exit code: {exit_code}")
+            else _redact_error(
+                project_root,
+                stderr.strip() if stderr and stderr.strip() else f"Exit code: {exit_code}",
+            )
         )
 
         _write_script_logs(
@@ -1516,7 +1531,7 @@ def run_scheduled_script(
                 status="timeout",
                 run_id=run_id,
                 started_at=started_at,
-                error=str(exc) or "Job timed out (APScheduler limit)",
+                error=_redact_error(project_root, str(exc)) or "Job timed out (APScheduler limit)",
                 unisolated=bool(started and started.unisolated),
             )
         log_activity(project_root, "error", script_label, "Scheduled script timed out")
@@ -1558,7 +1573,7 @@ def run_scheduled_script(
                 status="cancelled",
                 run_id=run_id,
                 started_at=started_at,
-                error=str(exc) or "Script run was cancelled",
+                error=_redact_error(project_root, str(exc)) or "Script run was cancelled",
                 unisolated=bool(started and started.unisolated),
             )
         log_activity(project_root, "warning", script_label, "Scheduled script cancelled")
@@ -1588,7 +1603,7 @@ def run_scheduled_script(
 
     except Exception as exc:  # noqa: BLE001
         elapsed = time.monotonic() - t0
-        error_msg = str(exc)
+        error_msg = _redact_error(project_root, str(exc))
         if script_path:
             _write_script_logs(
                 project_root,

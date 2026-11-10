@@ -206,6 +206,12 @@ def require_permission(permission: str) -> Callable[..., Any]:
                 "Authentication required",
                 context={"permission": permission},
             )
+        if getattr(request.state, "session_partial", False) is True:
+            # Enrollment-only session (require_2fa, TOTP not set up yet): no permission applies
+            raise AuthorizationError(
+                "Two-factor enrollment required",
+                context={"permission": permission, "user_id": user.id},
+            )
         check_permission(user, permission)
         return user
 

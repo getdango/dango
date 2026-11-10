@@ -144,9 +144,12 @@ async def setup_2fa(request: Request) -> JSONResponse:
     except (ValueError, ValidationError):
         return JSONResponse(status_code=400, content={"message": "Invalid request body"})
 
-    # Verify password before allowing setup
-    if user.password_hash is None or not verify_password(data.password, user.password_hash):
-        return JSONResponse(status_code=400, content={"message": "Invalid password"})
+    # Verify password before allowing setup. An enrollment session of an account with no password
+    # (OAuth sign-in) was authenticated by the provider; there is no password to ask for.
+    enrolling = getattr(request.state, "session_partial", False) is True
+    if not (enrolling and user.password_hash is None):
+        if user.password_hash is None or not verify_password(data.password, user.password_hash):
+            return JSONResponse(status_code=400, content={"message": "Invalid password"})
 
     # Reject if 2FA is already active — user must disable first
     current_user = get_user_by_id(db_path, user.id)
@@ -206,7 +209,36 @@ async def verify_setup_2fa(request: Request) -> JSONResponse:
         return JSONResponse(status_code=400, content={"message": "Invalid verification code"})
 
     enable_totp(db_path, user.id)
-    return JSONResponse(content={"success": True})
+    response = JSONResponse(content={"success": True})
+    if getattr(request.state, "session_partial", False) is True:
+        # TOTP is now verified: replace the enrollment-only session with the full session
+        await _complete_enrollment_login(request, db_path, current_user, response)
+    return response
+
+
+async def _complete_enrollment_login(
+    request: Request, db_path: Path, user: User, response: JSONResponse
+) -> None:
+    """Swap the enrollment-only session for a full one and finish the login (cookie, Metabase)."""
+    cookie_token = request.cookies.get(COOKIE_NAME)
+    partial = get_session_by_token(db_path, hash_token(cookie_token)) if cookie_token else None
+    if partial:
+        invalidate_session(db_path, partial.id)
+    auth_config = _get_auth_config(request)
+    session_max_days = auth_config.session_max_days if auth_config else DEFAULT_SESSION_MAX_DAYS
+    raw_token, _session = create_session(
+        db_path,
+        user.id,
+        ip_address=_get_client_ip(request),
+        user_agent=_get_user_agent(request),
+        session_max_days=session_max_days,
+    )
+    update_user(db_path, user.id, UserUpdate(last_login=datetime.now(timezone.utc)))
+    log_auth_event(
+        AuditEvent.LOGIN_SUCCESS, user_id=user.id, email=user.email, ip=_get_client_ip(request)
+    )
+    _set_session_cookie(response, raw_token, request, max_age_seconds=session_max_days * 86400)
+    await _bridge_metabase_session(user, request, response, log_context="2fa_enrollment")
 
 
 @router.post("/api/auth/2fa/verify")

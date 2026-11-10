@@ -7041,9 +7041,9 @@
       "test_name": "hardcoded_sql_expressions"
     },
     {
-      "code": "498             if table_exists:\n499                 conn.execute(f\"DELETE FROM {target_table} WHERE _dango_filename = ?\", [filename])\n500                 rows_deleted = conn.execute(\"SELECT changes()\").fetchone()[0]\n",
-      "col_offset": 29,
-      "end_col_offset": 84,
+      "code": "519                 deleted = conn.execute(\n520                     f\"DELETE FROM {target_table} WHERE _dango_filename = ?\", [filename]\n521                 ).fetchone()\n",
+      "col_offset": 20,
+      "end_col_offset": 75,
       "filename": "dango/web/routes/upload.py",
       "issue_confidence": "MEDIUM",
       "issue_cwe": {
@@ -7052,9 +7052,9 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible SQL injection vector through string-based query construction.",
-      "line_number": 499,
+      "line_number": 520,
       "line_range": [
-        499
+        520
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
       "test_id": "B608",

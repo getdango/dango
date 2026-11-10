@@ -31,6 +31,8 @@ DEFAULT_SESSION_MAX_DAYS: int = 365
 """Absolute timeout — session expires this many days after creation (1 year for local)."""
 
 DEFAULT_PARTIAL_SESSION_TIMEOUT_MINUTES: int = 5
+ENROLLMENT_SESSION_TIMEOUT_MINUTES: int = 30
+"""Lifetime of the partial session a user holds while enrolling TOTP (longer than the code prompt)."""
 """Partial session timeout — for 2FA intermediate state."""
 
 

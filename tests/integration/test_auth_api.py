@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from dango.auth import database as db
 from dango.auth.models import UserUpdate
 from dango.auth.oauth_login import OAuthUserInfo
-from dango.auth.security import generate_invite_token
+from dango.auth.security import generate_invite_token, hash_token
 from dango.auth.totp import enable_totp, setup_totp
 from dango.config.models import AuthConfig, OAuthProviderConfig
 from dango.web.middleware.auth import COOKIE_NAME, AuthMiddleware
@@ -325,7 +325,7 @@ class TestAuthAPI:
     def test_oauth_callback_require_2fa_setup_redirect(
         self, auth_client: TestClient, auth_db_path: Path
     ) -> None:
-        """OAuth callback when require_2fa=True but user has no TOTP → redirect to /setup."""
+        """OAuth callback when require_2fa=True but user has no TOTP → enrollment-only session."""
         make_test_user(
             auth_db_path,
             email="setup2fa@example.com",
@@ -358,9 +358,11 @@ class TestAuthAPI:
         assert resp.status_code == 302
         assert "requires_2fa_setup=true" in resp.headers["location"]
         assert COOKIE_NAME in resp.cookies
-        # Full session (not partial) — so Metabase bridge should be called
-        assert resp.cookies.get("metabase.SESSION") == "mb-setup-token"
-        mock_bridge.assert_called_once()
+        # Enrollment-only (partial) session: no Metabase bridge until TOTP is verified
+        session = db.get_session_by_token(auth_db_path, hash_token(resp.cookies[COOKIE_NAME]))
+        assert session is not None and session.is_partial is True
+        assert "metabase.SESSION" not in resp.cookies
+        mock_bridge.assert_not_called()
 
     def test_invite_accept_then_login(self, auth_client: TestClient, auth_db_path: Path) -> None:
         """Create invited user → accept invite → login → authenticated."""

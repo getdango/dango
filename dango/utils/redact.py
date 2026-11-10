@@ -66,6 +66,17 @@ def redact_text(text: str, secrets: frozenset[str]) -> str:
     return redact_patterns(text)
 
 
+def redact_nested(value: Any, secrets: frozenset[str]) -> Any:
+    """Apply ``redact_text`` to every string in *value*, including nested dicts and lists."""
+    if isinstance(value, str):
+        return redact_text(value, secrets)
+    if isinstance(value, dict):
+        return {k: redact_nested(v, secrets) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact_nested(v, secrets) for v in value]
+    return value
+
+
 def _collect_strings(node: Any, out: set[str]) -> None:
     if isinstance(node, str):
         out.add(node)
