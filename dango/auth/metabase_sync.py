@@ -321,6 +321,18 @@ def _apply_role(url: str, session: str, uid: int, role: Role, gids: dict[str, in
     return superuser_set is not None and groups_synced
 
 
+def _metabase_user_gone(url: str, session: str, uid: int) -> bool:
+    """True only if Metabase answers 404 for the user id (any other failure is not proof)."""
+    try:
+        resp = requests.get(
+            f"{url}/api/user/{uid}", headers={"X-Metabase-Session": session}, timeout=_TIMEOUT
+        )
+        return bool(resp.status_code == 404)
+    except Exception:
+        logger.exception("Metabase user lookup failed")
+        return False
+
+
 def _record_apply(project_root: Path, user_id: str, applied: bool) -> None:
     """Mark the user's Metabase access pending after an unapplied role, clear it after success."""
     try:
@@ -474,6 +486,16 @@ def sync_user_role(db_path: Path, user_id: str, project_root: Path, metabase_url
             return False
 
         applied = _apply_role(metabase_url, session, user.metabase_user_id, user.role, gids)
+        if not applied and _metabase_user_gone(metabase_url, session, user.metabase_user_id):
+            # Metabase lost the recorded account (reset volume, new instance): relink or recreate
+            # it, which also applies the role and records the result.
+            update_user(
+                db_path,
+                user_id,
+                UserUpdate(metabase_user_id=None, metabase_password_enc=None),
+            )
+            relinked = sync_user_to_metabase(db_path, user_id, project_root, metabase_url)
+            return relinked is not None and not metabase_access.is_pending(project_root, user_id)
         _record_apply(project_root, user_id, applied)
         if applied:
             logger.info(

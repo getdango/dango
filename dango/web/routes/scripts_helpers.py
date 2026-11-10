@@ -17,6 +17,7 @@ from dango.auth.models import User
 from dango.config.scripts import load_scripts_config
 from dango.logging import get_logger
 from dango.platform.script_launch import ScriptHandle
+from dango.utils.redact import load_secret_values, redact_nested
 
 logger = get_logger(__name__)
 
@@ -192,7 +193,10 @@ def _load_history(
     entries.reverse()
     if limit > 0:
         entries = entries[:limit]
-    return entries
+    # Entries written by older versions can hold unredacted error text; every role can read them
+    secrets = load_secret_values(project_root)
+    redacted: list[dict[str, Any]] = redact_nested(entries, secrets)
+    return redacted
 
 
 def _append_history(project_root: Path, script_name: str, entry: dict[str, Any]) -> None:

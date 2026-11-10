@@ -8,15 +8,11 @@ never the warehouse, its sidecar files or application state.
 
 from __future__ import annotations
 
-import fnmatch
+import glob
 from pathlib import Path
 
 from fastapi import HTTPException
 
-# Formats a local_files source loads; a csv source loads only .csv.
-LOCAL_FILE_EXTENSIONS: frozenset[str] = frozenset(
-    {".csv", ".json", ".jsonl", ".ndjson", ".parquet"}
-)
 _DATABASE_SUFFIXES: frozenset[str] = frozenset({".duckdb", ".wal", ".db", ".sqlite"})
 
 
@@ -28,7 +24,6 @@ def check_deletable_source_file(
     file_path: Path,
     *,
     source_dir: Path,
-    source_type: str,
     file_pattern: str,
     project_root: Path,
     warehouse_path: Path,
@@ -54,14 +49,18 @@ def check_deletable_source_file(
     if resolved == state_dir or state_dir in resolved.parents:
         raise _refuse("Application state files cannot be deleted through a source")
 
-    allowed = LOCAL_FILE_EXTENSIONS if source_type == "local_files" else frozenset({".csv"})
-    if resolved.suffix.lower() not in allowed:
-        raise _refuse("This file type is not an input file of the source")
+    # Exactly what the loader reads: glob(directory / file_pattern) (not recursive unless the
+    # pattern says so), in a format it can read.
+    from dango.ingestion.csv_loader import SUPPORTED_READ_FUNCTIONS
 
-    relative = resolved.relative_to(source_dir).as_posix()
-    if not (
-        fnmatch.fnmatch(relative, file_pattern) or fnmatch.fnmatch(resolved.name, file_pattern)
-    ):
-        raise _refuse("This file does not match the source's file pattern")
+    if resolved.suffix.lower() not in SUPPORTED_READ_FUNCTIONS:
+        raise _refuse("This file type is not an input file of the source")
+    loaded = {
+        Path(match).resolve()
+        for match in glob.glob(str(source_dir / file_pattern))
+        if Path(match).suffix.lower() in SUPPORTED_READ_FUNCTIONS
+    }
+    if resolved not in loaded:
+        raise _refuse("This file is not one the source loads (directory and file pattern)")
 
     return resolved

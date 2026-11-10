@@ -464,7 +464,6 @@ async def delete_csv_file(
         file_to_delete = check_deletable_source_file(
             file_to_delete,
             source_dir=source_dir,
-            source_type=source_type,
             file_pattern=file_pattern,
             project_root=project_root,
             warehouse_path=duckdb_path_resolved,
