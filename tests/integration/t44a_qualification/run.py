@@ -17,6 +17,8 @@ import urllib.request
 from pathlib import Path
 
 from dbt_assets import EXTRA_PEAK, export_candidates
+from dbt_publication import EXTRA_PEAK as PUBLICATION_PEAK
+from dbt_publication import export_candidates as publication_exports
 
 HERE = Path(__file__).resolve().parent
 PINS = json.loads((HERE / "pins.json").read_text())
@@ -113,6 +115,7 @@ def export(rig):
         for n in ["manifest.json", "run_results.json", "catalog.json"]
     ]
     candidates += export_candidates(rig.root / "work")
+    candidates += publication_exports(rig.root / "work")
     for source, name in candidates:
         if source.exists():
             data = source.read_bytes()
@@ -162,7 +165,14 @@ def main():
         "started_utc": time.strftime("%FT%TZ", time.gmtime()),
         "qualification_inputs": {
             name: sha((HERE / name).read_bytes())
-            for name in ["diagnostic.py", "dbt_view.py", "dbt_assets.py", "run.py", "pins.json"]
+            for name in [
+                "diagnostic.py",
+                "dbt_view.py",
+                "dbt_assets.py",
+                "dbt_publication.py",
+                "run.py",
+                "pins.json",
+            ]
         },
     }
     existing = {}
@@ -185,6 +195,7 @@ def main():
         rig.remaining += (
             EXTRA_PEAK  # Both original/exported assets targets, reports, logs and data.
         )
+        rig.remaining += PUBLICATION_PEAK
         disk_gate(rig, rig.remaining, "before-public-acquisition-and-image-pulls")
         for role, pin in PINS["images"].items():
             existing[role] = image_present(rig, pin["ref"])
@@ -198,6 +209,7 @@ def main():
             "diagnostic.py",
             "dbt_view.py",
             "dbt_assets.py",
+            "dbt_publication.py",
             "pins.json",
             "requirements.txt",
         ]:
@@ -237,14 +249,17 @@ def main():
         rig.run("producer", ["-c", "/work/venv/bin/python /scripts/smoke.py postgres"], smoke=True)
         rig.smokes["producer"] = rig.signature("producer")
         result["running_python_pg_smoke"] = "PASS"
-        for name in ["diagnostic.py", "dbt_view.py", "dbt_assets.py"]:
+        for name in ["diagnostic.py", "dbt_view.py", "dbt_assets.py", "dbt_publication.py"]:
             assert (
                 sha((root / "scripts" / name).read_bytes()) == result["qualification_inputs"][name]
             )
         result["native"] = "RAN"
         rig.run(
             "producer",
-            ["-c", "/work/venv/bin/python /scripts/diagnostic.py --view-gate --assets-gate"],
+            [
+                "-c",
+                "/work/venv/bin/python /scripts/diagnostic.py --view-gate --assets-gate --publication-gate",
+            ],
             timeout=900,
         )
         view = json.loads((root / "work/dbt-view.json").read_text())
@@ -253,6 +268,9 @@ def main():
         assets = json.loads((root / "work/dbt-assets.json").read_text())
         assert assets["status"] == "PASS_REMAINING_DBT_ASSETS"
         result["dbt_assets"] = assets["status"]
+        publication = json.loads((root / "work/dbt-publication.json").read_text())
+        assert publication["status"] == "PASS_SCRATCH_CHECKED_PUBLICATION_AND_NATIVE_TRANSACTION"
+        result["dbt_publication"] = publication["status"]
         disk_gate(rig, 0, "after-native-diagnostic")
         result["status"] = "PASS_DBT_DRIVER_DIAGNOSTIC"
     except Exception as error:

@@ -147,6 +147,10 @@ def main():
         from dbt_assets import run_assets
 
         run_assets(project, metadata)
+    if "--publication-gate" in sys.argv[1:]:
+        from dbt_publication import run_publication
+
+        run_publication(project, metadata)
     Path("/work/diagnostic.json").write_text(
         json.dumps(
             {

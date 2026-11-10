@@ -249,3 +249,29 @@ gates remain mandatory. The native asset behaviors were observed in CI4263225086
 whole-group acceptance still needs successful decoding/export and independent
 review. The app's fresh orders350 fixture and passing proofs stay unchanged.
 Other matrix groups remain unimplemented/UNRUN.
+
+The next early gate, `--publication-gate`, exercises scratch native primitives
+for failed-check-no-publish and multi-table rollback; it is not an integrated
+Dango publication protocol or a held BI query test. Existing native assets and
+ordinary BI have passed CI42825753494 and their scoped independent reviews.
+
+Two separate metadata schemas/data roots on the existing PG hold accepted and
+candidate lakes, leaving the original app lake unchanged. Real candidate dbt
+models build360/8/360. A deliberate singular-test failure must be exercised
+through the promotion entrypoint and refused before accepted writes. Missing
+and stale receipts are refused too. A separately passing check must match the
+current fixture/input/output hashes, exact resources and authentic artifacts.
+
+Native partial sales replacement reaches360/7/350/r0, then an actual missing
+relation error triggers ROLLBACK. A fresh single-query reader must retain
+350/7/350/r0 and all rows/snapshot IDs. One subsequent transaction copies all
+three tables and updates the marker; fresh readers see360/8/360/r1 with exact
+rows, stable table IDs and one additional committed snapshot. A direct engine
+READ_ONLY UPDATE must fail under the RW fixture mount and leave that state
+unchanged. This is distinct from the earlier Lightdash validator refusal.
+
+The extra640MiB accounts original targets256MiB, exported copies192MiB,
+project/logs32MiB, original/exported report32MiB, new native data/PG metadata64MiB
+and filesystem residual64MiB. Actual caps,30GB/separate2GiB headroom and df
+checks remain mandatory. Only the report and two real dbt JSON sets are added
+to the secret-checked allowlist. New cases4/7 remain native UNRUN until CI.

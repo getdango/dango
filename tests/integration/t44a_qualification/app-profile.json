@@ -1,5 +1,5 @@
 {
-  "state": "NATIVE_DBT_ASSET_BEHAVIORS_OBSERVED_DECODER_CORRECTION_UNRUN",
+  "state": "DBT_ASSETS_AND_ORDINARY_BI_PASS_SCRATCH_PUBLICATION_CANDIDATE_UNRUN",
   "scope": "First complete adapted Lightdash app slice; no remaining twelve-case harness",
   "limits": {
     "cpus": 4,
@@ -368,5 +368,22 @@
       "initial_remaining_delta_bytes": 16763345,
       "fit": "Existing artifact-sum gate includes compressed +3 expanded copies before acquisition/install; task30GB+2GiBheadroom/actualdf unchanged. Successful target decode/export still UNRUN."
     }
+  },
+  "scratch_publication_gate": {
+    "status": "CANDIDATE_NATIVE_UNRUN",
+    "scope": "Matrix4/7 scratch native primitives only; not integrated Dango publication, actor isolation or held BI query admission.",
+    "entrypoint": "diagnostic.py --view-gate --assets-gate --publication-gate; mandatory before full app acquisition/build",
+    "catalogs": {
+      "accepted": "t44a_publish_accepted metadata schema; /fixture/data/publication-accepted",
+      "candidate": "t44a_publish_candidate metadata schema; /fixture/data/publication-candidate",
+      "binding": "Same existing synthetic PG, physically distinct metadata schemas/data roots; spec1.1, automatic_migrationfalse, inlining0. Original app lake unchanged."
+    },
+    "failed_check": "Genuine three-model dbt build produces360/8/360; singular test deliberately expecting350 must fail with failures>0/nonzeroCLI and no model error/skip. Promotion entrypoint actually refuses failed/missing/stale evidence before accepted writer creation. Fresh accepted rows/snapshot stay350/7/350/r0.",
+    "checked_candidate": "Only expected test total changes350->360; separate authentic target/resources must all pass. Match current source/input/output/artifact hashes and exact model schema/catalog identities before writes.",
+    "rollback_commit": "Native BEGIN, partial sales update to360 then specific missing-relation fault; fresh reader still350/7/350/r0; real ROLLBACK and writer close preserve all original rows/snapshot IDs. Checked commit updates3tables+embeddedmarker in one transaction to360/8/360/r1; fresh one-query read, exactrows/stableIDs and one additional committed snapshot required (no consecutive-ID assumption).",
+    "engine_readonly": "Fresh direct PythonDuckDB2 READ_ONLY attach under RW fixture mount; actual UPDATE must raise engine read-only error and leave full committed state unchanged; no Lightdash validator claim.",
+    "extra_initial_peak_bytes": 671088640,
+    "fit": "256MiB original targets +192MiB separate exported JSON sets +32MiB source/logs +32MiB report original/copy +64MiB additional native data/PG metadata relations +64MiB filesystem residual. Original targets/project/data/report allocation caps and inherited30GB+2GiBheadroom/actualdf gates mandatory; PG WAL remains in existing global reserve.",
+    "evidence": "Only safe native report and two untouched dbt manifest/run_results/catalog sets. Existing perfile/raw-known-secret export, captures and exact-owned cleanup unchanged. No new dependencies or runtime profile."
   }
 }
