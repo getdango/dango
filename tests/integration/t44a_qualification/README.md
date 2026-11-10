@@ -220,14 +220,24 @@ file DEBUG level. Only completed successful `QueryExecuted` spans for that
 model supply the SQL oracle; compiled SQL is insufficient. The full trace stays
 unexported inside the existing128MiB stage bound. Its hash/size and selected
 actual SQL enter the existing secret-checked report; console verbosity stays
-unchanged. This capture correction remains Linux UNRUN.
+unchanged. CI42632250861 captured the actual selected DELETE+INSERT successfully.
 
 Normal `dbt docs generate` must produce the static HTML/assets and Parquet
 index containing the actual model; catalog-only output is insufficient.
 Browser/CDN execution is outside this artifact test. A dependency-free Python
 model is actually attempted. Only its precise pinned DuckDB unsupported-job
 error may be an explicit exception; unrelated setup/import/SQL errors fail.
-No pandas or other new package is acquired.
+No pandas or other model-execution dependency is acquired.
+
+CI42632250861 observed the expected incremental, snapshot, docs and precise
+Python-unsupported results, but the final full Parquet logical check failed:
+DuckDB's TIMESTAMPTZ conversion requires optional `pytz`. The qualification-only
+offline closure now pins pure-Python `pytz2026.6` (MIT, no dependencies) before
+installation; its506321-byte wheel and5419008-byte allocated expansion add
+16763345bytes under the existing compressed-plus-three-copies accounting.
+The earlier no-new-package assumption is superseded for this observed decoder
+need. No timestamp column/type or secret check is skipped or converted away.
+Successful target decoding/export remains UNRUN until CI.
 
 Each stage retains its own authentic target and command/exit/input receipts.
 Selected native/docs Parquet is logically secret-checked before hash-bound
@@ -235,6 +245,7 @@ export; unmodified JSON retains the existing raw-secret/perfile guards. The
 additional pre-install2GiB counts seven128MiB original target bounds and
 separate exported subsets,64MiB source/logs,128MiB native data, two16MiB report
 payloads and32MiB metadata reserve. User30GB, separate2GiB headroom and live df
-gates remain mandatory. All these new native modes are UNRUN until reviewed
-Ubuntu execution; the app's fresh orders350 fixture and passing proofs stay
-unchanged. Other matrix groups remain unimplemented/UNRUN.
+gates remain mandatory. The native asset behaviors were observed in CI42632250861;
+whole-group acceptance still needs successful decoding/export and independent
+review. The app's fresh orders350 fixture and passing proofs stay unchanged.
+Other matrix groups remain unimplemented/UNRUN.

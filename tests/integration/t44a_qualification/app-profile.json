@@ -1,5 +1,5 @@
 {
-  "state": "ORDINARY_BI_AND_PERSISTED_VIEW_PASS_REMAINING_DBT_ASSETS_UNRUN",
+  "state": "NATIVE_DBT_ASSET_BEHAVIORS_OBSERVED_DECODER_CORRECTION_UNRUN",
   "scope": "First complete adapted Lightdash app slice; no remaining twelve-case harness",
   "limits": {
     "cpus": 4,
@@ -342,7 +342,7 @@
     "profiles_and_artifacts": "Unchanged; no new Python/native dependency. Fresh CI needed for changed probes; no fullT44A promotion from prior slice."
   },
   "remaining_dbt_assets": {
-    "status": "CANDIDATE_UNRUN",
+    "status": "CI42632250861_NATIVE_BEHAVIORS_OBSERVED_EXPORT_DECODE_FAILED",
     "entrypoint": "Initial diagnostic.py --view-gate --assets-gate, before app acquisition/build. Original table/view outputs and later app fixture unchanged.",
     "stages": [
       "seed",
@@ -359,6 +359,14 @@
     "python": "Dependency-free Python model; native success requires3rows/360. Nonzero onlyallowed with that model error message exactly identifying unsupportedDuckDB Python models; no import/setup/genericerror exception.",
     "extra_initial_peak_bytes": 2147483648,
     "fit_accounting": "7x128MiB original stage allocations +7x128MiB corresponding exported subsets +64MiB source/log allocation +128MiB tiny fixture/data +2x16MiB reportpayload +32MiB filesystem/metadata reserve =2GiB. Existing task30GB+2GiB headroom/df remain separate and unchanged. Per-stage allocations are checked; after completion subsequent gates measure all actual retained bytes.",
-    "evidence": "Authentic JSON perstage, selected actual adapter-query/docs Parquet, input/command/exit/result/hash report. Parquet logical values decoded and checked against known synthetic secrets, then hash-bound before unchanged host export raw-byte/perfile checks. No generated binary/site bundle upload."
+    "evidence": "Authentic JSON perstage, selected actual adapter-query/docs Parquet, input/command/exit/result/hash report. Parquet logical values decoded and checked against known synthetic secrets, then hash-bound before unchanged host export raw-byte/perfile checks. No generated binary/site bundle upload.",
+    "artifact_decoder": {
+      "observed_failure": "All seven stages observed expected behavior; final full logical TIMESTAMPTZ decode needs optional pytz. No artifact columns/types or secret checks are skipped.",
+      "frozen_dependency": "pytz2026.6 universal pure-Python MIT wheel, no transitive dependencies; exact pins/requirements offline hash install.",
+      "compressed_bytes": 506321,
+      "expanded_upper_bytes": 5419008,
+      "initial_remaining_delta_bytes": 16763345,
+      "fit": "Existing artifact-sum gate includes compressed +3 expanded copies before acquisition/install; task30GB+2GiBheadroom/actualdf unchanged. Successful target decode/export still UNRUN."
+    }
   }
 }

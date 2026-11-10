@@ -74,6 +74,24 @@
       }
     },
     {
+      "file": "pytz-2026.6-py2.py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/b6/25/564f3fc5b70c1398d706c51f2b1470d0ea0b1b2f96fee67877b6f5bdf3b6/pytz-2026.6-py2.py3-none-any.whl",
+      "sha256": "7fed3fee8fd6bd4a2b7b75a8d56021d0624127bf69bd5691f115db929ac570b3",
+      "compressed": 506321,
+      "expanded_upper": 5419008,
+      "kind": "wheel",
+      "name": "pytz",
+      "version": "2026.6",
+      "license": "MIT (exact wheel LICENSE.txt); bundled timezone data",
+      "notice_hashes": {
+        "pytz-2026.6.dist-info/LICENSE.txt": "be8b1a37ebe26c592a90f6c0eb33103a7f383ce2f4d7498c0af9a526990a07b8"
+      },
+      "requires_dist": [],
+      "pure_python": true,
+      "compatibility": "Universal py2/py3-none-any wheel; METADATA explicitly classifies Python3.14; actual target decoder execution pending CI.",
+      "expanded_measurement": "616 ZIP members,1002659 logical bytes,23 parent directories; per-member rounded4KiB payload +4KiB entry overhead, all parents +root counted. RECORD hashes verified; no native/symlink/path-traversal members."
+    },
+    {
       "file": "cpython-3.14.10+20261026-x86_64-unknown-linux-gnu-install_only.tar.gz",
       "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-x86_64-unknown-linux-gnu-install_only.tar.gz",
       "sha256": "1b38024924eb7f4cf0cab45d7b871d1f1991354190fccd2625ac7529a43786e2",
