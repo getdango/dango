@@ -8,6 +8,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from dango.utils.redact import redact_error_fields
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,8 +31,8 @@ def save_sync_history_entry(project_root: Path, source_name: str, entry: dict[st
             with open(history_file) as f:
                 history = json.load(f)
 
-        # Add new entry
-        history.append(entry)
+        # Add new entry (error text can carry a source credential: redact it once, here)
+        history.append(redact_error_fields(project_root, entry))
 
         # Keep only last 100 entries
         if len(history) > 100:
@@ -83,7 +85,7 @@ def update_last_sync_entry(project_root: Path, source_name: str, updates: dict[s
         with open(history_file) as f:
             history = json.load(f)
         if history:
-            history[-1].update(updates)
+            history[-1].update(redact_error_fields(project_root, updates))
             with open(history_file, "w") as f:
                 json.dump(history, f, indent=2)
     except Exception as e:
@@ -102,8 +104,10 @@ def load_sync_history(
     try:
         with open(history_file) as f:
             history = json.load(f)
-            # Return most recent entries first
-            return history[-limit:][::-1] if history else []
+            # Return most recent entries first. Entries written before errors were redacted
+            # on save can still hold raw text, so redact on read as well.
+            recent = history[-limit:][::-1] if history else []
+            return [redact_error_fields(project_root, e) for e in recent]
     except Exception as e:
         logger.warning("Failed to load sync history for %s: %s", source_name, e)
         return []

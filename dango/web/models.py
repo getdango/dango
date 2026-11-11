@@ -114,6 +114,7 @@ class CreateApiKeyRequest(BaseModel):
 
     name: str = Field(max_length=128)
     expires_at: datetime | None = None
+    current_password: str | None = Field(default=None, max_length=1024)
 
 
 class SessionResponse(BaseModel):
@@ -210,9 +211,10 @@ class TwoFAVerifyRequest(BaseModel):
 
 
 class TwoFADisableRequest(BaseModel):
-    """Request to disable 2FA (verifies current password)."""
+    """Request to disable 2FA (verifies current password and a TOTP code)."""
 
     password: str = Field(max_length=1024)
+    code: str | None = Field(default=None, max_length=10)
 
 
 class TwoFARegenerateRequest(BaseModel):

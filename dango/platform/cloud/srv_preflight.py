@@ -24,10 +24,17 @@ if TYPE_CHECKING:
 
 #: Exit status of the script when a path is unsafe (it prints the path, then ``ls -ld``).
 EXIT_UNSAFE = 3
+#: Exit status when ``fs.protected_hardlinks`` is not 1 (or cannot be read).
+EXIT_NO_HARDLINK_PROTECTION = 4
 DEFAULT_PATHS = ("/srv", "/srv/dango")
+PROTECTED_HARDLINKS_FILE = "/proc/sys/fs/protected_hardlinks"
 
 
-def preflight_script(paths: tuple[str, ...] = DEFAULT_PATHS, owner: str = "root") -> str:
+def preflight_script(
+    paths: tuple[str, ...] = DEFAULT_PATHS,
+    owner: str = "root",
+    protected_hardlinks_file: str = PROTECTED_HARDLINKS_FILE,
+) -> str:
     """Shell that exits :data:`EXIT_UNSAFE` for the first unsafe path, printing it, then ``ls -ld``.
 
     A path is unsafe when it exists and is not a real directory owned by *owner*, is writable
@@ -35,6 +42,10 @@ def preflight_script(paths: tuple[str, ...] = DEFAULT_PATHS, owner: str = "root"
     after the mode; no ``getfacl`` is needed, so its absence cannot make the check pass).
     ``find -maxdepth 0`` without ``-L`` never follows a link: a link is "not a directory".
     A check that cannot read the path or its listing exits 2 (the caller refuses).
+
+    Root later runs ``chown -R`` over trees the service users can write; that is only safe while
+    the kernel refuses hard links to files the linking user does not own, so a host whose
+    *protected_hardlinks_file* does not read ``1`` exits :data:`EXIT_NO_HARDLINK_PROTECTION`.
     """
     return (
         f"for p in {' '.join(shlex.quote(p) for p in paths)}; do\n"
@@ -49,6 +60,8 @@ def preflight_script(paths: tuple[str, ...] = DEFAULT_PATHS, owner: str = "root"
         "    fi\n"
         "  fi\n"
         "done\n"
+        f'[ "$(sed -n 1p {shlex.quote(protected_hardlinks_file)} 2>/dev/null)" = 1 ]'
+        f" || exit {EXIT_NO_HARDLINK_PROTECTION}\n"
     )
 
 
@@ -70,6 +83,14 @@ def _refusal(path: str, listing: str) -> str:
         "ACL) after checking its contents, and run `dango deploy` again."
     )
 
+
+_HARDLINK_REFUSAL = (
+    "Server setup stopped before changing anything: this host does not have "
+    "fs.protected_hardlinks=1 (or it could not be read). Setup runs root commands over "
+    "directories the dango user can write, which is only safe with that kernel setting. "
+    "Run `sysctl -w fs.protected_hardlinks=1` and persist it in /etc/sysctl.d/ on the server "
+    "(Ubuntu and Debian default to 1), then run `dango deploy` again."
+)
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
@@ -108,6 +129,8 @@ def check_srv_dango(ssh: SSHManager) -> None:
     if result.success:
         _check_venv(ssh)
         return
+    if result.exit_code == EXIT_NO_HARDLINK_PROTECTION:
+        raise CloudProvisioningError(_HARDLINK_REFUSAL)
     if result.exit_code != EXIT_UNSAFE:
         raise CloudProvisioningError(
             "Server setup stopped: /srv and /srv/dango could not be checked "

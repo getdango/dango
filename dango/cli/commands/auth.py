@@ -265,7 +265,11 @@ def auth_list_users(ctx: click.Context) -> None:
 def auth_reset_password(ctx: click.Context, email: str) -> None:
     """Generate a new temporary password for a user."""
     from dango.auth.admin import format_credentials_panel
-    from dango.auth.database import get_user_by_email, invalidate_all_user_sessions
+    from dango.auth.database import (
+        get_user_by_email,
+        invalidate_all_user_sessions,
+        revoke_all_user_api_keys,
+    )
     from dango.auth.security import generate_temp_password, set_password
     from dango.cli.utils import print_error
 
@@ -279,6 +283,7 @@ def auth_reset_password(ctx: click.Context, email: str) -> None:
         password = generate_temp_password()
         set_password(user.email, password, db_path, must_change_password=True)
         invalidate_all_user_sessions(db_path, user.id)
+        revoke_all_user_api_keys(db_path, user.id)
         console.print(format_credentials_panel(user.email, password, title="Password reset"))
         from dango.auth.audit import AuditEvent, log_auth_event
 
@@ -306,6 +311,7 @@ def auth_deactivate_user(ctx: click.Context, email: str) -> None:
         get_user_by_email,
         invalidate_all_user_sessions,
         list_users,
+        revoke_all_user_api_keys,
     )
     from dango.auth.models import Role
     from dango.cli.utils import print_error, print_success
@@ -325,6 +331,7 @@ def auth_deactivate_user(ctx: click.Context, email: str) -> None:
                 raise click.Abort()
         deactivate_user(db_path, user.id)
         invalidate_all_user_sessions(db_path, user.id)
+        revoke_all_user_api_keys(db_path, user.id)
         print_success(f"User '{user.email}' deactivated.")
         from dango.auth.audit import AuditEvent, log_auth_event
 
@@ -492,14 +499,21 @@ def auth_unlock(ctx: click.Context, email: str) -> None:
         if user is None:
             print_error(f"User '{email}' not found.")
             raise click.Abort()
-        if user.locked_until is None and user.failed_login_attempts == 0:
-            print_info(f"User '{user.email}' is not locked.")
-            return
-        # unlock_account resets users table (failed_login_attempts, locked_until)
-        # AND clears all IP-based lockouts for this email
+        # unlock_account resets users table (failed_login_attempts, locked_until) and deletes
+        # every login_attempts row for the email: IP-based and account-wide lockouts and the
+        # TOTP failure lock, which the users table does not show. Always run it.
         from dango.auth.lockout import unlock_account
+        from dango.auth.totp_guard import totp_lock_remaining
 
+        was_locked = (
+            user.locked_until is not None
+            or user.failed_login_attempts > 0
+            or totp_lock_remaining(db_path, user.id) > 0
+        )
         unlock_account(db_path, user.email)
+        if not was_locked:
+            print_info(f"User '{user.email}' is not locked (any stale counters were cleared).")
+            return
         print_success(f"User '{user.email}' unlocked.")
         from dango.auth.audit import AuditEvent, log_auth_event
 

@@ -85,3 +85,9 @@ def load_auth_config_safe(project_root: Path | None) -> AuthConfig | None:
         message, field = _describe_error(exc)
         _warn_once(project_file, field, message)
         return _fallback()
+
+
+def idle_timeout_minutes(project_root: Path | None) -> int:
+    """The session idle timeout in force for this project (cloud limits when config is unusable)."""
+    config = load_auth_config_safe(project_root)
+    return (config if config is not None else AuthConfig()).idle_timeout_minutes

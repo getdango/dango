@@ -361,7 +361,8 @@ async def dbt_docs_proxy(request: Request, path: str = "") -> Response:
                 headers={
                     k: v
                     for k, v in request.headers.items()
-                    if k.lower() not in ["host", "connection"]
+                    # the nginx container never needs the user's Dango credentials
+                    if k.lower() not in ["host", "connection", "cookie", "authorization"]
                 },
             )
 

@@ -17,6 +17,24 @@ MAX_WS_CONNECTIONS = 100
 MAX_WS_CONNECTIONS_PER_IDENTITY = 20
 
 
+def _redact_message(message: dict) -> dict:
+    """Mask known secret values and secret-looking patterns in every string of *message*.
+
+    Every connected client (any role) receives broadcasts, and sync error text can carry a
+    source credential. The project's secrets are loaded when the project root is known.
+    """
+    from dango.utils.redact import load_secret_values, redact_nested
+
+    try:
+        from dango.web.helpers import get_project_root
+
+        secrets = load_secret_values(get_project_root())
+    except Exception:
+        secrets = frozenset()
+    redacted = redact_nested(message, secrets)
+    return redacted if isinstance(redacted, dict) else message
+
+
 class ConnectionManager:
     """Manages WebSocket connections for real-time updates."""
 
@@ -90,6 +108,7 @@ class ConnectionManager:
                  already write their own activity log entries should pass
                  ``log=False`` to avoid duplicates.
         """
+        message = _redact_message(message)
         if log:
             from dango.web.helpers import append_log_entry
 

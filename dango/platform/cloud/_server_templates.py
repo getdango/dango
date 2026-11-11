@@ -38,6 +38,11 @@ _STARTING_PAGE = (
     "\t}\n"
 )
 
+# Request bodies are capped at the proxy, just above the 100 MiB upload limit enforced by
+# ``dango.web.routes.upload.MAX_UPLOAD_BYTES``, so an oversized body is refused before the
+# app spools it.
+_REQUEST_BODY = "\trequest_body {\n\t\tmax_size 110MB\n\t}"
+
 _HSTS_HEADER = '\t\tStrict-Transport-Security "max-age=63072000; includeSubDomains"'
 
 
@@ -54,7 +59,10 @@ def marimo_ws_block(marimo_port: int) -> str:
     Marimo runs with ``--no-token``, so Caddy asks dango-web
     (``/api/notebooks/ws-auth``, ``notebooks.execute``) before proxying.
     The WebSocket upgrade headers are stripped from the auth sub-request
-    only: a plain HTTP route answers 403 to a request carrying them.
+    only: a plain HTTP route answers 403 to a request carrying them.  The
+    cookie and Authorization header are stripped from the upstream leg only
+    (``forward_auth`` needs them): Marimo runs Editor code and must not
+    receive the user's Dango credentials.
     """
     return (
         "\thandle /notebooks/marimo/ws {\n"
@@ -66,7 +74,10 @@ def marimo_ws_block(marimo_port: int) -> str:
         "\t\t\theader_up -Sec-WebSocket-Version\n"
         "\t\t\theader_up -Sec-WebSocket-Extensions\n"
         "\t\t}\n"
-        f"\t\treverse_proxy localhost:{marimo_port}\n"
+        f"\t\treverse_proxy localhost:{marimo_port} {{\n"
+        "\t\t\theader_up -Cookie\n"
+        "\t\t\theader_up -Authorization\n"
+        "\t\t}\n"
         "\t}"
     )
 
@@ -92,12 +103,12 @@ def build_caddyfile(domain: str | None = None, marimo_port: int = 7805) -> str:
             "\n\t}",
             f"\n{_HSTS_HEADER}\n\t}}",
         )
-        domain_block = f"{domain} {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{headers}\n{_STARTING_PAGE}}}\n"
+        domain_block = f"{domain} {{\n{_REQUEST_BODY}\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{headers}\n{_STARTING_PAGE}}}\n"
         # Block direct IP access — prevent unencrypted credential exposure
         ip_block = ':80 {\n\trespond "Use the configured domain to access this server." 403\n}\n'
         return f"{domain_block}\n{ip_block}"
     # HTTP-only mode (IP access, no HSTS)
-    return f":80 {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{_COMMON_HEADERS}\n{_STARTING_PAGE}}}\n"
+    return f":80 {{\n{_REQUEST_BODY}\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{_COMMON_HEADERS}\n{_STARTING_PAGE}}}\n"
 
 
 # Backward-compatible alias — existing code imports ``CADDYFILE`` directly.

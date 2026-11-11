@@ -22,6 +22,11 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from dango.auth.account_lockout import (
+    account_lock_remaining,
+    clear_account_failures,
+    record_account_failure,
+)
 from dango.auth.database import _connect
 from dango.logging import get_logger
 
@@ -135,13 +140,24 @@ def _record_ip_based(
         )
         conn.commit()
 
-        # Best-effort update of users table for admin visibility
+        # Account-wide count (all addresses): guessing spread over many addresses still locks
+        account_attempts, account_locked_until = record_account_failure(
+            conn,
+            normalized_email,
+            max_attempts=max_attempts,
+            lockout_minutes=lockout_minutes,
+            now=now,
+        )
+        is_locked = is_locked or account_locked_until is not None
+
+        # Best-effort update of users table for admin visibility: the account total, never
+        # one address's count
         try:
             _update_user_table_best_effort(
                 conn,
                 normalized_email,
-                new_attempts,
-                locked_until_val,
+                account_attempts,
+                locked_until_val or account_locked_until,
                 now,
             )
         except Exception:
@@ -287,6 +303,15 @@ def check_account_locked(
         if ip_locked:
             return (True, ip_remaining)
 
+    # The account-wide counter locks regardless of which address is asking
+    conn = _connect(db_path)
+    try:
+        account_remaining = account_lock_remaining(conn, email, now)
+    finally:
+        conn.close()
+    if account_remaining:
+        return (True, account_remaining)
+
     # Fall through to user-based check
     return _check_user_locked(db_path, email, now)
 
@@ -387,6 +412,7 @@ def reset_failed_logins(
         if client_ip is not None:
             key = _make_attempt_key(client_ip, email)
             conn.execute("DELETE FROM login_attempts WHERE key = ?", (key,))
+        clear_account_failures(conn, email)
         conn.commit()
     finally:
         conn.close()

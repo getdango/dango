@@ -418,10 +418,11 @@ def _is_browser_request(headers: list[tuple[bytes, bytes]]) -> bool:
 
 def _has_csrf_header(headers: list[tuple[bytes, bytes]]) -> bool:
     """Check for CSRF protection header (X-Requested-With or X-CSRF-Protection)."""
-    for header_name, _header_value in headers:
-        if header_name in (b"x-requested-with", b"x-csrf-protection"):
-            return True
-    return False
+    return any(name in (b"x-requested-with", b"x-csrf-protection") for name, _value in headers)
+
+
+#: Public name for routes that do their own cookie authentication (public routes).
+has_csrf_header = _has_csrf_header
 
 
 # ---------------------------------------------------------------------------

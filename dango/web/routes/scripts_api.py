@@ -18,6 +18,7 @@ from dango.auth.audit import AuditEvent
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
 from dango.platform import run_as, script_launch
+from dango.utils.redact import redact_project_text
 from dango.web.helpers import append_log_entry, get_project_root
 from dango.web.routes.scripts_helpers import (
     _MAX_STDERR_SIZE,
@@ -136,7 +137,7 @@ async def run_script(
             status_code=500,
             content={
                 "error_code": "DANGO-SC004",
-                "message": f"Failed to launch script: {e}",
+                "message": f"Failed to launch script: {redact_project_text(project_root, str(e))}",
             },
         )
 

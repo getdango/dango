@@ -80,7 +80,10 @@ def _new_block(port: int) -> str:
         "\t\t\theader_up -Sec-WebSocket-Version\n"
         "\t\t\theader_up -Sec-WebSocket-Extensions\n"
         "\t\t}\n"
-        f"\t\treverse_proxy localhost:{port}\n"
+        f"\t\treverse_proxy localhost:{port} {{\n"
+        "\t\t\theader_up -Cookie\n"
+        "\t\t\theader_up -Authorization\n"
+        "\t\t}\n"
         "\t}"
     )
 

@@ -11,6 +11,7 @@ import os
 import re
 import shlex
 import subprocess
+import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -27,6 +28,11 @@ def _run(script: str, path: str | None = None) -> subprocess.CompletedProcess[st
     return subprocess.run(
         ["sh", "-c", script], capture_output=True, text=True, check=False, env=env
     )
+
+
+# Stands in for /proc/sys/fs/protected_hardlinks, which a Mac running these tests does not have.
+_HARDLINKS_ON = str(Path(tempfile.mkdtemp()) / "protected_hardlinks")
+Path(_HARDLINKS_ON).write_text("1\n")
 
 
 def _ls_with_acl(directory: Path) -> str:
@@ -49,7 +55,9 @@ class TestPreflightScript:
     def _script(*paths: Path, owner: str = _ME) -> str:
         from dango.platform.cloud.srv_preflight import preflight_script
 
-        return preflight_script(tuple(str(p) for p in paths), owner=owner)
+        return preflight_script(
+            tuple(str(p) for p in paths), owner=owner, protected_hardlinks_file=_HARDLINKS_ON
+        )
 
     def test_absent_paths_pass(self, tmp_path: Path) -> None:
         assert _run(self._script(tmp_path / "srv", tmp_path / "srv" / "dango")).returncode == 0
@@ -339,20 +347,32 @@ _OLD_HTTPS = _OLD_HTTP.replace(":80 {", "app.example.com {", 1).replace(
 )
 
 
+_REQUEST_BODY_CAP = "\trequest_body {\n\t\tmax_size 110MB\n\t}\n"
+_UPSTREAM_STRIPS = " {\n\t\t\theader_up -Cookie\n\t\t\theader_up -Authorization\n\t\t}"
+
+
+def _without_later_additions(text: str) -> str:
+    """Drop the request-body cap and the upstream credential strips added after this task."""
+    text = text.replace(_REQUEST_BODY_CAP, "")
+    return text.replace(
+        f"reverse_proxy localhost:7805{_UPSTREAM_STRIPS}", "reverse_proxy localhost:7805"
+    )
+
+
 @pytest.mark.unit
 class TestStartingPage:
     def test_http_only_caddyfile_is_the_old_one_plus_the_error_handler(self) -> None:
         from dango.platform.cloud._server_templates import build_caddyfile
 
         new = build_caddyfile()
-        assert new.replace(_ERRORS, "") == _OLD_HTTP
+        assert _without_later_additions(new).replace(_ERRORS, "") == _OLD_HTTP
         assert _ERRORS in new
 
     def test_domain_caddyfile_is_the_old_one_plus_the_error_handler(self) -> None:
         from dango.platform.cloud._server_templates import build_caddyfile
 
         new = build_caddyfile("app.example.com")
-        assert new.replace(_ERRORS, "") == _OLD_HTTPS
+        assert _without_later_additions(new).replace(_ERRORS, "") == _OLD_HTTPS
         assert new.count("handle_errors") == 1  # the bare :80 refusal block is unchanged
 
     @pytest.mark.parametrize("domain", [None, "app.example.com"])
