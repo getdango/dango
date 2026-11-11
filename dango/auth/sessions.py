@@ -98,6 +98,7 @@ def validate_session(
     token: str,
     *,
     idle_timeout_minutes: int = DEFAULT_IDLE_TIMEOUT_MINUTES,
+    refresh_activity: bool = True,
 ) -> User | None:
     """Validate a session token and return the associated user.
 
@@ -105,11 +106,17 @@ def validate_session(
     requirement, and user active status.  On success, updates the
     session's sliding-window ``last_activity`` timestamp.
 
+    Callers outside the auth middleware must pass the configured
+    ``idle_timeout_minutes`` (``dango.config.auth_loading.idle_timeout_minutes``): the default
+    is the 7-day local value. Public routes that only look at the cookie pass
+    ``refresh_activity=False`` so an idle session is never kept alive by them.
+
     Args:
         db_path: Path to the auth SQLite database.
         token: Raw session token (from cookie).
         idle_timeout_minutes: Maximum minutes of inactivity before
             the session is considered expired.
+        refresh_activity: Update ``last_activity`` on success (default).
 
     Returns:
         The ``User`` if the session is valid, or ``None``.
@@ -143,7 +150,8 @@ def validate_session(
         return None
 
     # Sliding window — update last_activity
-    db.update_session_activity(db_path, session.id)
+    if refresh_activity:
+        db.update_session_activity(db_path, session.id)
     return user
 
 
@@ -284,6 +292,11 @@ def validate_api_key(db_path: Path, key: str) -> User | None:
 def revoke_api_key(db_path: Path, key_id: str) -> None:
     """Revoke an API key (mark as inactive)."""
     db.revoke_api_key(db_path, key_id)
+
+
+def revoke_all_api_keys(db_path: Path, user_id: str) -> int:
+    """Revoke every active API key of a user (credential reset, deactivation). Returns count."""
+    return db.revoke_all_user_api_keys(db_path, user_id)
 
 
 def list_api_keys(db_path: Path, user_id: str) -> list[APIKey]:

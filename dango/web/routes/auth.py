@@ -37,6 +37,7 @@ from dango.auth.oauth_login import (
     generate_oauth_state,
     get_provider,
 )
+from dango.auth.password_gate import PasswordCheck, check_current_password
 from dango.auth.security import (
     check_password_strength,
     hash_password,
@@ -52,6 +53,7 @@ from dango.auth.sessions import (
     create_session,
     invalidate_all_sessions,
     invalidate_session,
+    revoke_all_api_keys,
     revoke_api_key,
 )
 from dango.config.models import AuthConfig, OAuthProviderConfig
@@ -67,6 +69,7 @@ from dango.web.models import (
     LoginRequest,
     SessionResponse,
 )
+from dango.web.routes.auth_checks import locked_response
 
 router = APIRouter(tags=["auth"])
 logger = get_logger(__name__)
@@ -445,8 +448,17 @@ async def change_password(request: Request) -> JSONResponse:
     except (ValueError, ValidationError):
         return JSONResponse(status_code=400, content={"message": "Invalid request body"})
 
-    # Verify current password
-    if user.password_hash is None or not verify_password(data.current_password, user.password_hash):
+    # Verify current password (a wrong answer counts as a failed login for the account)
+    checked = check_current_password(
+        db_path,
+        user,
+        data.current_password,
+        client_ip=_get_client_ip(request),
+        auth_config=_get_auth_config(request),
+    )
+    if checked.check is PasswordCheck.LOCKED:
+        return locked_response(checked.remaining_seconds)
+    if checked.check is not PasswordCheck.OK:
         return JSONResponse(status_code=400, content={"message": "Current password is incorrect"})
 
     # Check new password strength
@@ -457,7 +469,7 @@ async def change_password(request: Request) -> JSONResponse:
         )
 
     # Prevent reuse of same password
-    if verify_password(data.new_password, user.password_hash):
+    if user.password_hash is not None and verify_password(data.new_password, user.password_hash):
         return JSONResponse(
             status_code=400,
             content={"message": "New password must be different from current password"},
@@ -466,8 +478,10 @@ async def change_password(request: Request) -> JSONResponse:
     # Update password, clear must_change_password, and record change timestamp
     set_password(user.email, data.new_password, db_path)
 
-    # Invalidate all sessions, then create a fresh one
+    # Invalidate all sessions and API keys, then create a fresh session: a credential that
+    # was captured before the change must not outlive it
     invalidate_all_sessions(db_path, user.id)
+    revoke_all_api_keys(db_path, user.id)
 
     auth_config = _get_auth_config(request)
     session_max_days = auth_config.session_max_days if auth_config else DEFAULT_SESSION_MAX_DAYS
@@ -574,6 +588,23 @@ async def create_key(request: Request) -> JSONResponse:
         data = CreateApiKeyRequest(**body)
     except (ValueError, ValidationError):
         return JSONResponse(status_code=400, content={"message": "Invalid request body"})
+
+    # A session alone must not mint a long-lived credential: ask for the password again.
+    # An account with no password (OAuth sign-in) was authenticated by its provider.
+    if user.password_hash is not None:
+        checked = check_current_password(
+            db_path,
+            user,
+            data.current_password,
+            client_ip=_get_client_ip(request),
+            auth_config=_get_auth_config(request),
+        )
+        if checked.check is PasswordCheck.LOCKED:
+            return locked_response(checked.remaining_seconds)
+        if checked.check is not PasswordCheck.OK:
+            return JSONResponse(
+                status_code=400, content={"message": "Current password is incorrect"}
+            )
 
     raw_key, api_key = create_api_key(db_path, user.id, data.name, expires_at=data.expires_at)
 

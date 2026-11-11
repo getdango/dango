@@ -77,7 +77,7 @@ class TestPersistentTotpLockout:
         client, _db, _uid, secret = _project(tmp_path)
         cookie = _password_login(client)
         for _ in range(5):
-            assert _verify(client, cookie, _WRONG).status_code in (400, 401)
+            assert _verify(client, cookie, _WRONG).status_code in (400, 401, 423)
 
         # "login -> guess" again: the account counter was not reset by the password success
         cookie2 = _password_login(client)

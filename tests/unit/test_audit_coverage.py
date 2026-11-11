@@ -36,10 +36,6 @@ ALLOWLIST: dict[tuple[str, str], str] = {
         "POST",
         "/api/notebooks/{name}/heartbeat",
     ): "lock keep-alive ping; the lock itself is the attributed action",
-    (
-        "POST",
-        "/api/auth/2fa/setup",
-    ): "own account: stores a pending secret; TWO_FA_ENABLED is logged by totp.enable_totp on verify-setup",
     # --- loopback-only internal call, no user ---
     (
         "POST",
@@ -55,7 +51,6 @@ ALLOWLIST: dict[tuple[str, str], str] = {
         "/notebooks/marimo/",
     ): "reverse proxy to the shared Marimo process; same as the {path} route",
     # --- Metabase reverse proxies: Metabase enforces its own roles and keeps its own audit trail ---
-    ("*", "/api/health"): "Metabase API proxy catch (also the public liveness probe)",
     ("*", "/api/session"): "Metabase API proxy",
     ("*", "/api/user"): "Metabase API proxy",
     ("*", "/api/database"): "Metabase API proxy",
@@ -361,12 +356,14 @@ class TestNewEventsWired:
     def test_recovery_regeneration_logs_event_without_codes(self, project: AuthProject) -> None:
         user = project.add_user("ed@example.com", Role.EDITOR)
         client = build_client(project.root, auth_2fa_router)
-        stored = types.SimpleNamespace(totp_enabled=True, totp_secret="SECRETSEED")
+        stored = types.SimpleNamespace(
+            id=user.id, email=user.email, totp_enabled=True, totp_secret="SECRETSEED"
+        )
         codes = ["AAAA-BBBB", "CCCC-DDDD"]
         with (
-            patch("dango.web.routes.auth_2fa.verify_password", return_value=True),
+            patch("dango.auth.password_gate.verify_password", return_value=True),
             patch("dango.web.routes.auth_2fa.get_user_by_id", return_value=stored),
-            patch("dango.web.routes.auth_2fa.verify_totp_code", return_value=True),
+            patch("dango.web.routes.auth_checks.accept_totp_code", return_value=True),
             patch("dango.web.routes.auth_2fa.regenerate_recovery_codes", return_value=codes),
         ):
             resp = client.post(
@@ -386,7 +383,7 @@ class TestNewEventsWired:
     def test_failed_recovery_regeneration_logs_nothing(self, project: AuthProject) -> None:
         user = project.add_user("ed@example.com", Role.EDITOR)
         client = build_client(project.root, auth_2fa_router)
-        with patch("dango.web.routes.auth_2fa.verify_password", return_value=False):
+        with patch("dango.auth.password_gate.verify_password", return_value=False):
             resp = client.post(
                 "/api/auth/2fa/regenerate-recovery",
                 json={"password": "wrong", "code": "123456"},
@@ -394,4 +391,6 @@ class TestNewEventsWired:
             )
 
         assert resp.status_code == 400
-        assert _audit_entries(project.root) == []
+        # the wrong password is a failed sign-in, but no regeneration is recorded
+        events = [e["event"] for e in _audit_entries(project.root)]
+        assert "recovery_codes_regenerated" not in events

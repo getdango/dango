@@ -323,6 +323,15 @@ def protected_path_checks(project: str | None = None, srv_dir: str = SRV_DIR) ->
     )
 
 
+def hardlink_protection_check(sysctl_file: str = "/proc/sys/fs/protected_hardlinks") -> str:
+    """Verify fragment: root's recursive chown is only safe with ``fs.protected_hardlinks=1``."""
+    return (
+        f'[ "$(sed -n 1p {q(sysctl_file)} 2>/dev/null)" = 1 ] || fail "fs.protected_hardlinks is not 1:'
+        " root chown over service-writable directories could follow a hard link to a root file."
+        ' Run: sysctl -w fs.protected_hardlinks=1"\n'
+    )
+
+
 def verify_script(project: str | None = None, srv_dir: str = SRV_DIR) -> str:
     """Root-side checks that isolation works; prints each failure and exits 1 if any.
 
@@ -332,7 +341,8 @@ def verify_script(project: str | None = None, srv_dir: str = SRV_DIR) -> str:
     4. runner ids are in range, not reserved, and 61000/61001 have no host entry;
     5. the container uids can still read ``data`` (other bits ``r-x``);
     6. ``setfacl`` works on the project filesystem;
-    7. a runner cannot persist code: ``crontab``/``at`` refused, no lingering, no user units.
+    7. a runner cannot persist code: ``crontab``/``at`` refused, no lingering, no user units;
+    8. ``fs.protected_hardlinks`` is 1 (root chowns trees the service users can write).
     """
     proj = project if project is not None else project_dir(srv_dir)
     reserved = "|".join(str(i) for i in RESERVED_IDS)
@@ -388,6 +398,7 @@ def verify_script(project: str | None = None, srv_dir: str = SRV_DIR) -> str:
                 protected_path_checks(proj).rstrip("\n"),
                 code_permission_checks(proj, srv_dir).rstrip("\n"),
                 persistence.persistence_checks().rstrip("\n"),
+                hardlink_protection_check().rstrip("\n"),
                 f'runuser -u {SERVICE_USER} -- sh -c {q(probe)} _ "$P/notebooks"'
                 ' || fail "setfacl does not work on the project filesystem"',
                 'exit "$bad"',

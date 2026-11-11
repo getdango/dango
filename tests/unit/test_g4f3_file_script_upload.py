@@ -83,7 +83,7 @@ class TestFileDeleteIsAtomicAndLocked:
         def connect(*args: Any, **kwargs: Any) -> Any:
             other = DbtLock(root, source="probe", operation="probe")
             try:
-                other.acquire()
+                other.acquire(timeout=0)
             except DbtLockError:
                 seen["held"] = True
             else:
@@ -167,6 +167,7 @@ class TestScriptPathValidation:
 
 
 _CAP = 1000
+_CHUNK = 256
 
 
 def _upload_client(root: Path) -> TestClient:
@@ -194,6 +195,7 @@ def _upload_client(root: Path) -> TestClient:
     for p in (
         patch("dango.web.routes.upload.get_project_root", return_value=root),
         patch("dango.web.routes.upload.MAX_UPLOAD_BYTES", _CAP, create=True),
+        patch("dango.web.routes.upload._UPLOAD_CHUNK_BYTES", _CHUNK, create=True),
         patch("dango.web.routes.upload.ws_manager.broadcast", new_callable=AsyncMock),
         patch("dango.web.routes.upload.append_log_entry"),
     ):
@@ -226,8 +228,8 @@ class TestUploadIsStreamed:
         assert resp.status_code == 413
         assert not (tmp_path / "data" / "big.csv").exists()
         # never the whole body at once: bounded chunks, and reading stopped soon after the cap
-        assert reads and all(isinstance(n, int) and 0 < n < 50 * _CAP for n in reads)
-        assert sum(reads) <= _CAP + max(reads) * 2
+        assert reads and all(n == _CHUNK for n in reads)
+        assert sum(reads) <= _CAP + 2 * _CHUNK
 
     def test_exactly_the_cap_is_accepted(self, tmp_path: Path) -> None:
         client = _upload_client(tmp_path)

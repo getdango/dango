@@ -127,3 +127,22 @@ def load_secret_values(project_root: Path) -> frozenset[str]:
         except Exception:
             continue
     return frozenset(values)
+
+
+def redact_project_text(project_root: Path | None, text: str) -> str:
+    """Redact *text* with the project's known secret values; patterns only without a root.
+
+    For error text that is stored or sent to other roles (sync history, schedule records,
+    WebSocket events): redact it once where it is built.
+    """
+    secrets = load_secret_values(project_root) if project_root is not None else frozenset()
+    return redact_text(text, secrets)
+
+
+def redact_error_fields(project_root: Path | None, record: dict[str, Any]) -> dict[str, Any]:
+    """A copy of *record* with every value whose key contains ``error`` redacted."""
+    secrets = load_secret_values(project_root) if project_root is not None else frozenset()
+    return {
+        key: redact_nested(value, secrets) if "error" in key.lower() else value
+        for key, value in record.items()
+    }

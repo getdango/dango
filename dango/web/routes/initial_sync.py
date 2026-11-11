@@ -176,7 +176,8 @@ def _get_admin_user_from_session(request: Request) -> Any:
     from dango.auth.admin import get_auth_db_path, is_auth_enabled
     from dango.auth.models import Role
     from dango.auth.sessions import validate_session
-    from dango.web.middleware.auth import COOKIE_NAME
+    from dango.config.auth_loading import idle_timeout_minutes
+    from dango.web.middleware.auth import COOKIE_NAME, has_csrf_header
 
     project_root = get_project_root()
     if not is_auth_enabled(project_root):
@@ -191,12 +192,23 @@ def _get_admin_user_from_session(request: Request) -> Any:
     if not cookie_value:
         return None
 
-    user = validate_session(db_path, cookie_value)
+    # This route is public, so the middleware's CSRF check does not run: repeat it for the cookie path
+    if not has_csrf_header(request.scope.get("headers", [])):
+        return None
+
+    # Configured idle timeout; a partial session never validates. The role is checked before
+    # the session's activity is refreshed, so a non-admin cookie is not kept alive by this route.
+    idle = idle_timeout_minutes(project_root)
+    user = validate_session(
+        db_path, cookie_value, idle_timeout_minutes=idle, refresh_activity=False
+    )
     if user is None:
         return None
 
     if user.role != Role.ADMIN:
         return None
+
+    validate_session(db_path, cookie_value, idle_timeout_minutes=idle)
 
     return user
 

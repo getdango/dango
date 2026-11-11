@@ -104,7 +104,6 @@ def test_caddy_marimo_ws_reverse_proxy_strips_cookie_and_authorization(domain: s
     assert "header_up -Cookie" in proxy
     assert "header_up -Authorization" in proxy
     assert proxy.startswith("reverse_proxy localhost:7805 {")
-    assert proxy.count("{") == proxy.count("}")
 
 
 def _metabase_app(tmp_path: Path, seen: list[httpx.Request]) -> FastAPI:

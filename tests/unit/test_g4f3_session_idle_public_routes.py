@@ -124,7 +124,7 @@ class TestInitialSyncSessionPath:
         _user, cookie, _when = _session(project, Role.ADMIN, idle_minutes=5)
         resp = self._post(project, cookie)
         assert resp.status_code == 200
-        assert resp.json()["status"] == "skipped"
+        assert resp.json()["message"] == "No sources configured"
 
     def test_idle_expired_admin_session_is_refused_and_not_revived(
         self, project: AuthProject

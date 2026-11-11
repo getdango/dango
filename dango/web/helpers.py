@@ -19,6 +19,7 @@ import duckdb
 import httpx
 import yaml
 
+from dango.utils.redact import redact_project_text
 from dango.web.models import SourceStatus, TableInfo
 
 logger = logging.getLogger(__name__)
@@ -861,8 +862,12 @@ async def get_platform_health_data():
                                         {
                                             "source": src,
                                             "count": 1,
-                                            "last_error": record.get(
-                                                "error", "Schedule execution failed"
+                                            "last_error": redact_project_text(
+                                                project_root,
+                                                str(
+                                                    record.get("error")
+                                                    or "Schedule execution failed"
+                                                ),
                                             ),
                                         }
                                     )

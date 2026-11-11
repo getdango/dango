@@ -58,7 +58,7 @@ class TestCSRFEnforcement:
         # Create API key via cookie auth (with CSRF header)
         create_resp = auth_client.post(
             "/api/auth/api-keys",
-            json={"name": "test-key"},
+            json={"name": "test-key", "current_password": "securepassword123"},
             headers=auth_headers(auth_client),
         )
         assert create_resp.status_code == 200

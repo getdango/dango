@@ -44,6 +44,7 @@ from dango.platform.scheduling.history import (
     get_schedule_history,
     get_scheduler_db_path,
 )
+from dango.utils.redact import redact_error_fields
 from dango.web.helpers import append_log_entry, get_project_root, load_sources_config
 from dango.web.models import TriggerRequest
 from dango.web.routes.ui import _render_template
@@ -244,7 +245,7 @@ async def recent_executions(
     if not db_path.exists():
         return []
 
-    return get_recent_history(db_path, limit=limit)
+    return [redact_error_fields(project_root, r) for r in get_recent_history(db_path, limit=limit)]
 
 
 @router.post("/api/internal/schedules/reload")
@@ -548,6 +549,7 @@ async def get_schedule(
     history: list[dict[str, Any]] = []
     if db_path.exists():
         history, _ = get_schedule_history(db_path, name, limit=10)
+        history = [redact_error_fields(project_root, h) for h in history]
 
     result = sched.model_dump(exclude_none=True, mode="json")
     result["next_run_time"] = next_run_time
@@ -713,7 +715,7 @@ async def schedule_history(
     return JSONResponse(
         content={
             "schedule_name": name,
-            "items": items,
+            "items": [redact_error_fields(project_root, i) for i in items],
             "total": total,
             "limit": limit,
             "offset": offset,

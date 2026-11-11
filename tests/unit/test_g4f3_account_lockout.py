@@ -94,7 +94,7 @@ class TestAccountWideCounter:
 def test_login_route_lockout_message_is_identical_for_known_and_unknown_emails(
     tmp_path: Path,
 ) -> None:
-    """One failure per address; a ninth address is refused for known and unknown alike."""
+    """One failure per address; once the account total is reached, a new address is refused."""
     db_path = _make_web_db(tmp_path)
     _make_web_user(db_path)
     (tmp_path / ".dango" / "project.yml").write_text("auth:\n  lockout:\n    max_attempts: 2\n")
@@ -106,8 +106,10 @@ def test_login_route_lockout_message_is_identical_for_known_and_unknown_emails(
 
     bodies = {}
     for email in (_EMAIL, "nobody@example.com"):
-        for n in range(8):
+        # max_attempts 2 per address, so the account locks at 8 failures in total
+        for n in range(7):
             assert attempt(email, "wrong-password-1", f"198.51.100.{n + 1}").status_code == 400
+        assert attempt(email, "wrong-password-1", "198.51.100.8").status_code == 423
         final = attempt(email, _TEST_PASSWORD, "198.51.100.200")
         assert final.status_code == 423, email
         bodies[email] = {k: v for k, v in final.json().items() if k != "remaining_seconds"}

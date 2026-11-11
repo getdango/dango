@@ -162,6 +162,19 @@ async def _rebridge_if_needed(request: Request, metabase_url: str) -> str | None
 # compressed bytes it is told are plain (C13).
 _SKIP_REQUEST_HEADERS = frozenset(("host", "connection", "content-length", "accept-encoding"))
 
+# Dango credentials never go to Metabase: the Authorization header (a Dango API key) is
+# dropped, and of the Cookie header only the user's own ``metabase.SESSION`` is kept.
+_CREDENTIAL_HEADERS = frozenset(("authorization", "proxy-authorization"))
+
+
+def _metabase_cookie_only(cookie_header: str) -> str | None:
+    """The ``metabase.SESSION`` pair of a Cookie header, or ``None`` when it has none."""
+    for part in cookie_header.split(";"):
+        pair = part.strip()
+        if pair.startswith(f"{_MB_SESSION_COOKIE}="):
+            return pair
+    return None
+
 
 async def proxy_to_metabase(
     request: Request,
@@ -211,8 +224,15 @@ async def proxy_to_metabase(
     # Prepare headers
     headers: dict[str, str] = {}
     for key, value in request.headers.items():
-        if key.lower() not in _SKIP_REQUEST_HEADERS:
-            headers[key] = value
+        lower = key.lower()
+        if lower in _SKIP_REQUEST_HEADERS or lower in _CREDENTIAL_HEADERS:
+            continue
+        if lower == "cookie":
+            kept = _metabase_cookie_only(value)
+            if kept is not None:
+                headers[key] = kept
+            continue
+        headers[key] = value
 
     # Get request body if present
     body: bytes | None = None
@@ -354,11 +374,10 @@ def _build_response(proxy_response: httpx.Response) -> Response:
 # ==============================================================================
 
 
-@router.api_route("/api/health", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+@router.get("/api/health")
 async def metabase_api_health(request: Request) -> Response:
-    """Proxy Metabase health check API."""
-    session_id = _get_user_mb_session(request)
-    return await proxy_to_metabase(request, "/api/health", session_id)
+    """Proxy the Metabase health check (GET only; the route is public, so no session is sent)."""
+    return await proxy_to_metabase(request, "/api/health")
 
 
 @router.api_route("/api/session", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])

@@ -250,7 +250,7 @@ class TestApiKeyManagement:
 
         resp = client.post(
             "/api/auth/api-keys",
-            json={"name": "test-key"},
+            json={"name": "test-key", "current_password": "securepassword123"},
             headers=_auth_headers(),
         )
         assert resp.status_code == 200

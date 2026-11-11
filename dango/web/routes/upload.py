@@ -45,6 +45,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["upload"])
 
+#: Largest accepted upload. The Caddyfile template caps request bodies slightly above this.
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+
 
 def _audit(
     event: AuditEvent,
@@ -159,15 +163,27 @@ async def upload_csv_to_source(
                 status_code=409,
                 detail=f"File '{safe_filename}' already exists. Delete the existing file first or rename your file.",
             )
-        content = await file.read()
-        _max_upload_bytes = 100 * 1024 * 1024  # 100 MB
-        if len(content) > _max_upload_bytes:
+        # Stream to disk in chunks with a running byte count: the whole upload is never held
+        # in memory, and reading stops as soon as the cap is passed.
+        written = 0
+        too_large = False
+        try:
+            async with aiofiles.open(file_path, "wb") as buffer:
+                while chunk := await file.read(_UPLOAD_CHUNK_BYTES):
+                    written += len(chunk)
+                    if written > MAX_UPLOAD_BYTES:
+                        too_large = True
+                        break
+                    await buffer.write(chunk)
+        except BaseException:
+            file_path.unlink(missing_ok=True)
+            raise
+        if too_large:
+            file_path.unlink(missing_ok=True)
             raise HTTPException(
                 status_code=413,
-                detail=f"File too large. Maximum upload size is {_max_upload_bytes // (1024 * 1024)} MB.",
+                detail=f"File too large. Maximum upload size is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
             )
-        async with aiofiles.open(file_path, "wb") as buffer:
-            await buffer.write(content)
 
         logger.info(f"Uploaded file for source '{source_name}': {file_path}")
 
@@ -481,19 +497,30 @@ async def delete_csv_file(
             f"File size: {duckdb_path_resolved.stat().st_size if duckdb_path_resolved.exists() else 'N/A'}"
         )
 
+        # Rows and metadata record go in ONE transaction under the DuckDB write lock: either
+        # both are removed or neither is, so a failure part-way cannot leave the rows gone while
+        # the metadata still says "loaded" (the next sync would then treat the file as unchanged
+        # and never reload it). The lock keeps this write from colliding with a running sync.
+        from dango.utils import DbtLock, DbtLockError
+
+        lock = DbtLock(
+            project_root=project_root,
+            source="ui",
+            operation=f"delete {filename} from {source_name}",
+        )
+        try:
+            lock.acquire(timeout=0)
+        except DbtLockError as e:
+            raise HTTPException(
+                status_code=409,
+                detail="A sync or dbt run is using the database. Try again when it finishes.",
+            ) from e
+
         cleanup_failed = False
         conn = None
         try:
             conn = duckdb.connect(str(duckdb_path_resolved))
-
-            # Debug: List all tables to verify connection
-            all_tables = conn.execute("""
-                SELECT table_schema, table_name
-                FROM information_schema.tables
-                WHERE table_schema NOT LIKE 'pg_%'
-                ORDER BY table_schema, table_name
-            """).fetchall()
-            logger.info(f"Tables in database: {all_tables}")
+            conn.execute("BEGIN TRANSACTION")
 
             # Delete rows for this file from raw table (if table exists)
             # CSV sources use schema raw_{source_name}, not "raw"
@@ -524,53 +551,46 @@ async def delete_csv_file(
                 logger.warning(
                     f"Table {target_table} doesn't exist - file was never synced. Skipping data deletion."
                 )
-                rows_deleted = 0
+
+            metadata_table_exists = (
+                conn.execute(
+                    "SELECT COUNT(*) FROM information_schema.tables "
+                    "WHERE table_name = '_dango_file_metadata'"
+                ).fetchone()[0]
+                > 0
+            )
+            if metadata_table_exists:
+                removed = conn.execute(
+                    """
+                    DELETE FROM _dango_file_metadata
+                    WHERE source_name = ? AND file_path = ?
+                    """,
+                    [source_name, file_path],
+                ).fetchone()
+                logger.info(f"Deleted {removed[0] if removed else 0} metadata records")
+
+            conn.execute("COMMIT")
+            logger.info(f"DB cleanup complete for file: {filename}")
 
         except Exception as e:
-            logger.error(f"ERROR during DB data deletion: {type(e).__name__}: {str(e)}")
+            logger.error(f"ERROR during DB cleanup: {type(e).__name__}: {str(e)}")
             logger.error(f"Traceback: {traceback.format_exc()}")
             cleanup_failed = True
-
-        # Also delete the metadata record (even if data deletion failed); reuse the connection
-        try:
-            if conn is None:
-                logger.error("Connection is None - cannot clean up metadata")
-                cleanup_failed = True
-            else:
-                logger.info(
-                    f"Deleting metadata record for source={source_name}, file_path={file_path}"
-                )
-                metadata_table_exists = (
-                    conn.execute(
-                        "SELECT COUNT(*) FROM information_schema.tables "
-                        "WHERE table_name = '_dango_file_metadata'"
-                    ).fetchone()[0]
-                    > 0
-                )
-                if metadata_table_exists:
-                    removed = conn.execute(
-                        """
-                        DELETE FROM _dango_file_metadata
-                        WHERE source_name = ? AND file_path = ?
-                        """,
-                        [source_name, file_path],
-                    ).fetchone()
-                    logger.info(f"Deleted {removed[0] if removed else 0} metadata records")
-                logger.info(f"Metadata cleanup complete for file: {filename}")
-
-        except Exception as e:
-            logger.error(f"ERROR during metadata cleanup: {type(e).__name__}: {str(e)}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            cleanup_failed = True
+            if conn is not None:
+                try:
+                    conn.execute("ROLLBACK")
+                except Exception:
+                    logger.debug("rollback_failed", exc_info=True)
 
         finally:
-            # Always close connection
+            # Always close the connection, then release the lock
             if conn is not None:
                 try:
                     conn.close()
                     logger.info("DB connection closed")
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception:
+                    logger.debug("db_close_failed", exc_info=True)
+            lock.release()
 
         # Never unlink a file whose rows or metadata could not be cleaned up: the next sync
         # would otherwise leave data from a file that no longer exists.

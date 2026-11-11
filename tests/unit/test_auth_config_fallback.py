@@ -243,7 +243,7 @@ class TestRouteSessionExpiry:
         partial = login.headers["set-cookie"].split(f"{COOKIE_NAME}=")[1].split(";")[0]
         client.cookies.clear()
         client.cookies.set(COOKIE_NAME, partial)
-        with patch("dango.web.routes.auth_2fa.verify_totp_code", return_value=True):
+        with patch("dango.web.routes.auth_2fa.accept_totp_code", return_value=True):
             resp = client.post("/api/auth/2fa/verify", json={"code": "123456"}, headers=_H)
         assert resp.status_code == 200
         assert days - 0.1 < _session_days(db_path, resp) < days + 0.1

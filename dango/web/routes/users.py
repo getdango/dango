@@ -26,6 +26,7 @@ from dango.auth.database import (
     get_user_by_id,
     invalidate_all_user_sessions,
     list_users,
+    revoke_all_user_api_keys,
     update_user,
 )
 from dango.auth.models import Role, User, UserResponse, UserUpdate
@@ -345,6 +346,7 @@ async def admin_reset_password(
     password = generate_temp_password()
     updated = set_password(target.email, password, db_path, must_change_password=True)
     invalidate_all_user_sessions(db_path, user_id)
+    revoke_all_user_api_keys(db_path, user_id)
     log_auth_event(
         AuditEvent.PASSWORD_RESET,
         user_id=user_id,
@@ -382,6 +384,7 @@ async def admin_deactivate_user(
 
     deactivate_user(db_path, user_id)
     invalidate_all_user_sessions(db_path, user_id)
+    revoke_all_user_api_keys(db_path, user_id)
     _metabase_deactivate(db_path, user_id, request)
     log_auth_event(
         AuditEvent.USER_DEACTIVATED,
@@ -505,6 +508,7 @@ async def admin_revoke_sessions(
         return JSONResponse(status_code=404, content={"message": "User not found"})
 
     revoked_count = invalidate_all_user_sessions(db_path, user_id)
+    revoke_all_user_api_keys(db_path, user_id)
     log_auth_event(
         AuditEvent.SESSION_EXPIRED,
         user_id=user_id,

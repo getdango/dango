@@ -88,6 +88,13 @@ def _safe_filename(script_name: str) -> str:
     return script_name.replace("/", "__").replace("\\", "__")
 
 
+def _is_hidden_script(rel: Path) -> bool:
+    """True for paths discovery never lists: ``__init__.py``, dotfiles, ``_``-prefixed names/dirs."""
+    if rel.name == "__init__.py" or rel.name.startswith("."):
+        return True
+    return any(part.startswith("_") for part in rel.parts)
+
+
 def _discover_scripts(project_root: Path) -> list[dict[str, Any]]:
     """Recursively walk ``scripts/`` and return sorted ``.py`` file entries.
 
@@ -105,17 +112,11 @@ def _discover_scripts(project_root: Path) -> list[dict[str, Any]]:
     scripts_config = load_scripts_config(project_root)
 
     for py_file in sorted(scripts_dir.rglob("*.py")):
-        # Skip __init__.py
-        if py_file.name == "__init__.py":
-            continue
-        # Skip dotfiles
-        if py_file.name.startswith("."):
-            continue
-        # Skip _-prefixed files and directories
-        if any(part.startswith("_") for part in py_file.parts[:-1]) or py_file.name.startswith("_"):
+        rel = py_file.relative_to(scripts_dir)
+        if _is_hidden_script(rel):
             continue
 
-        rel_path = str(py_file.relative_to(scripts_dir))
+        rel_path = str(rel)
         result.append(
             {
                 "name": rel_path,
@@ -138,16 +139,26 @@ def _validate_script_path(project_root: Path, script_name: str) -> Path | JSONRe
     Returns the absolute ``Path`` on success, or a ``JSONResponse`` on
     failure (404 if not found, 400 if path traversal detected).
     """
-    scripts_dir = _get_scripts_dir(project_root)
+    scripts_dir = _get_scripts_dir(project_root).resolve()
     script_path = (scripts_dir / script_name).resolve()
 
-    # Prevent path traversal — path must be inside scripts/
-    if not str(script_path).startswith(str(scripts_dir.resolve())):
+    # Prevent path traversal: the resolved path must lie inside scripts/ (a component-wise
+    # test, so a sibling such as scripts_old/ does not pass), be a .py file, and not be one
+    # of the paths discovery hides.
+    if not script_path.is_relative_to(scripts_dir):
         return JSONResponse(
             status_code=400,
             content={
                 "error_code": "DANGO-SC001",
                 "message": "Invalid script path.",
+            },
+        )
+    if script_path.suffix != ".py" or _is_hidden_script(script_path.relative_to(scripts_dir)):
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error_code": "DANGO-SC002",
+                "message": f"Script {script_name!r} not found.",
             },
         )
 
