@@ -52,6 +52,7 @@ from dango.web.models import (
 from dango.web.routes.auth import _bridge_metabase_session
 from dango.web.routes.auth_checks import (
     password_failure,
+    second_factor_failure,
     totp_failed,
     totp_failure,
     totp_locked_response,
@@ -409,8 +410,9 @@ async def disable_2fa(request: Request) -> JSONResponse:
     if current_user is None or not current_user.totp_enabled or not current_user.totp_secret:
         return JSONResponse(status_code=400, content={"message": "2FA is not enabled"})
 
-    # The password alone must not switch the second factor off: a TOTP code is required too
-    refused = totp_failure(
+    # The password alone must not switch the second factor off: a TOTP code (or, for a user who
+    # lost the device, a recovery code) is required too
+    refused = second_factor_failure(
         db_path, current_user, data.code or "", client_ip=_get_client_ip(request)
     )
     if refused is not None:

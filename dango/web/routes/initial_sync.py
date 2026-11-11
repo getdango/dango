@@ -30,6 +30,7 @@ from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
 from dango.logging import get_logger
+from dango.utils.redact import redact_error_fields, redact_project_text
 from dango.web.helpers import get_project_root
 from dango.web.routes.websocket import ws_manager
 
@@ -114,7 +115,11 @@ def _load_state() -> None:
             current_source_index=data.get("current_source_index", 0),
             current_source_name=data.get("current_source_name", ""),
             completed_sources=data.get("completed_sources", []),
-            failed_sources=data.get("failed_sources", []),
+            # state files written before errors were redacted can still hold raw text
+            failed_sources=[
+                redact_error_fields(get_project_root(), f) if isinstance(f, dict) else f
+                for f in data.get("failed_sources", [])
+            ],
             skipped_sources=data.get("skipped_sources", []),
             cancel_requested=data.get("cancel_requested", False),
             skip_current_requested=data.get("skip_current_requested", False),
@@ -265,7 +270,10 @@ async def _run_initial_sync(project_root: Path, sources: list[dict[str, str]]) -
                 error=str(exc),
                 exc_info=True,
             )
-            _sync_state.failed_sources.append({"name": source_name, "error": str(exc)})
+            # Viewers read this through /status: redact the text once, where it is built
+            _sync_state.failed_sources.append(
+                {"name": source_name, "error": redact_project_text(project_root, str(exc))}
+            )
 
         await _save_and_broadcast()
 
@@ -401,7 +409,10 @@ async def start_initial_sync(request: Request, background_tasks: BackgroundTasks
         config = load_config(project_root)
         sources = [{"name": src.name, "type": src.type.value} for src in config.sources.sources]
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to load sources: {exc}") from exc
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load sources: {redact_project_text(project_root, str(exc))}",
+        ) from exc
 
     if not sources:
         return {"status": "skipped", "message": "No sources configured"}

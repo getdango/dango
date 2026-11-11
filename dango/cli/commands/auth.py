@@ -499,14 +499,21 @@ def auth_unlock(ctx: click.Context, email: str) -> None:
         if user is None:
             print_error(f"User '{email}' not found.")
             raise click.Abort()
-        if user.locked_until is None and user.failed_login_attempts == 0:
-            print_info(f"User '{user.email}' is not locked.")
-            return
-        # unlock_account resets users table (failed_login_attempts, locked_until)
-        # AND clears all IP-based lockouts for this email
+        # unlock_account resets users table (failed_login_attempts, locked_until) and deletes
+        # every login_attempts row for the email: IP-based and account-wide lockouts and the
+        # TOTP failure lock, which the users table does not show. Always run it.
         from dango.auth.lockout import unlock_account
+        from dango.auth.totp_guard import totp_lock_remaining
 
+        was_locked = (
+            user.locked_until is not None
+            or user.failed_login_attempts > 0
+            or totp_lock_remaining(db_path, user.id) > 0
+        )
         unlock_account(db_path, user.email)
+        if not was_locked:
+            print_info(f"User '{user.email}' is not locked (any stale counters were cleared).")
+            return
         print_success(f"User '{user.email}' unlocked.")
         from dango.auth.audit import AuditEvent, log_auth_event
 

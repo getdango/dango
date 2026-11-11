@@ -368,12 +368,12 @@ async def _run_manual_sync(
         # the chance (crash, timeout, poller-detected failure).
         if not success:
             error = _result.get("error", "Unknown error") if _result else "Unknown error"
-            record_failure(db_path, record_id, error)
+            record_failure(db_path, record_id, redact_project_text(project_root, str(error)))
 
         cleanup_sync_status(project_root, sync_id=sync_id)
     except Exception as exc:
         _logger.warning("manual_sync_failed", error=str(exc), exc_info=True)
-        record_failure(db_path, record_id, str(exc))
+        record_failure(db_path, record_id, redact_project_text(project_root, str(exc)))
         if sync_id is not None:
             cleanup_sync_status(project_root, sync_id=sync_id)
 

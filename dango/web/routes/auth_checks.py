@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.password_gate import LOCKED_MESSAGE, PasswordCheck, check_current_password
+from dango.auth.totp import consume_recovery_code
 from dango.auth.totp_guard import (
     accept_totp_code,
     record_totp_failure,
@@ -91,3 +92,25 @@ def totp_failure(
     if locked_for:
         return totp_locked_response(locked_for)
     return JSONResponse(status_code=400, content={"message": "Invalid TOTP code"})
+
+
+def second_factor_failure(
+    db_path: Path, user: User, code: str, *, client_ip: str | None
+) -> JSONResponse | None:
+    """Like :func:`totp_failure`, but a recovery code is accepted too (a user who lost the device).
+
+    Both kinds of code feed the same persistent failure counter and lockout.
+    """
+    stripped = code.strip()
+    if stripped.isdigit() and len(stripped) == 6:
+        return totp_failure(db_path, user, code, client_ip=client_ip)
+    locked_for = totp_lock_remaining(db_path, user.id)
+    if locked_for:
+        return totp_locked_response(locked_for)
+    if stripped and consume_recovery_code(db_path, user.id, user.recovery_codes, stripped):
+        reset_totp_failures(db_path, user.id)
+        return None
+    locked_for = totp_failed(db_path, user, "invalid_recovery_code", client_ip=client_ip)
+    if locked_for:
+        return totp_locked_response(locked_for)
+    return JSONResponse(status_code=400, content={"message": "Invalid code"})
