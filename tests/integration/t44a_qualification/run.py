@@ -19,6 +19,7 @@ from pathlib import Path
 from dbt_assets import EXTRA_PEAK, export_candidates
 from dbt_publication import EXTRA_PEAK as PUBLICATION_PEAK
 from dbt_publication import export_candidates as publication_exports
+from native_namespaces import EXTRA_PEAK as NAMESPACES_PEAK
 
 HERE = Path(__file__).resolve().parent
 PINS = json.loads((HERE / "pins.json").read_text())
@@ -105,6 +106,7 @@ def export(rig):
     candidates = [
         (rig.root / "work/diagnostic.json", "diagnostic.json"),
         (rig.root / "work/dbt-view.json", "dbt-view.json"),
+        (rig.root / "work/native-namespaces.json", "native-namespaces.json"),
     ]
     candidates += [
         (rig.root / "work/project/target" / n, n)
@@ -170,6 +172,7 @@ def main():
                 "dbt_view.py",
                 "dbt_assets.py",
                 "dbt_publication.py",
+                "native_namespaces.py",
                 "run.py",
                 "pins.json",
             ]
@@ -196,6 +199,7 @@ def main():
             EXTRA_PEAK  # Both original/exported assets targets, reports, logs and data.
         )
         rig.remaining += PUBLICATION_PEAK
+        rig.remaining += NAMESPACES_PEAK
         disk_gate(rig, rig.remaining, "before-public-acquisition-and-image-pulls")
         for role, pin in PINS["images"].items():
             existing[role] = image_present(rig, pin["ref"])
@@ -210,6 +214,7 @@ def main():
             "dbt_view.py",
             "dbt_assets.py",
             "dbt_publication.py",
+            "native_namespaces.py",
             "pins.json",
             "requirements.txt",
         ]:
@@ -249,7 +254,13 @@ def main():
         rig.run("producer", ["-c", "/work/venv/bin/python /scripts/smoke.py postgres"], smoke=True)
         rig.smokes["producer"] = rig.signature("producer")
         result["running_python_pg_smoke"] = "PASS"
-        for name in ["diagnostic.py", "dbt_view.py", "dbt_assets.py", "dbt_publication.py"]:
+        for name in [
+            "diagnostic.py",
+            "dbt_view.py",
+            "dbt_assets.py",
+            "dbt_publication.py",
+            "native_namespaces.py",
+        ]:
             assert (
                 sha((root / "scripts" / name).read_bytes()) == result["qualification_inputs"][name]
             )
@@ -258,7 +269,7 @@ def main():
             "producer",
             [
                 "-c",
-                "/work/venv/bin/python /scripts/diagnostic.py --view-gate --assets-gate --publication-gate",
+                "/work/venv/bin/python /scripts/diagnostic.py --view-gate --assets-gate --publication-gate --namespaces-gate",
             ],
             timeout=900,
         )
@@ -271,6 +282,9 @@ def main():
         publication = json.loads((root / "work/dbt-publication.json").read_text())
         assert publication["status"] == "PASS_SCRATCH_CHECKED_PUBLICATION_AND_NATIVE_TRANSACTION"
         result["dbt_publication"] = publication["status"]
+        namespaces = json.loads((root / "work/native-namespaces.json").read_text())
+        assert namespaces["status"] == "PASS_NATIVE_ACTOR_CATALOG_INDEPENDENCE"
+        result["native_namespaces"] = namespaces["status"]
         disk_gate(rig, 0, "after-native-diagnostic")
         result["status"] = "PASS_DBT_DRIVER_DIAGNOSTIC"
     except Exception as error:

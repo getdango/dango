@@ -151,6 +151,10 @@ def main():
         from dbt_publication import run_publication
 
         run_publication(project, metadata)
+    if "--namespaces-gate" in sys.argv[1:]:
+        from native_namespaces import run_namespaces
+
+        run_namespaces(metadata)
     Path("/work/diagnostic.json").write_text(
         json.dumps(
             {

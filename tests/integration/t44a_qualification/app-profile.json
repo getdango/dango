@@ -1,5 +1,5 @@
 {
-  "state": "DBT_ASSETS_AND_ORDINARY_BI_PASS_SCRATCH_PUBLICATION_CANDIDATE_UNRUN",
+  "state": "FOUR_NATIVE_GROUPS_PASS_ACTOR_CATALOG_CANDIDATE_UNRUN",
   "scope": "First complete adapted Lightdash app slice; no remaining twelve-case harness",
   "limits": {
     "cpus": 4,
@@ -385,5 +385,16 @@
     "extra_initial_peak_bytes": 671088640,
     "fit": "256MiB original targets +192MiB separate exported JSON sets +32MiB source/logs +32MiB report original/copy +64MiB additional native data/PG metadata relations +64MiB filesystem residual. Original targets/project/data/report allocation caps and inherited30GB+2GiBheadroom/actualdf gates mandatory; PG WAL remains in existing global reserve.",
     "evidence": "Only safe native report and two untouched dbt manifest/run_results/catalog sets. Existing perfile/raw-known-secret export, captures and exact-owned cleanup unchanged. No new dependencies or runtime profile."
+  },
+  "actor_catalog_gate": {
+    "status": "CANDIDATE_NATIVE_UNRUN",
+    "entrypoint": "diagnostic.py --namespaces-gate in existing early producer; mandatory before app acquisition/build",
+    "scope": "Native catalog/namespace/data independence only. Same UID/PG user; no authenticated-user/tenancy/security, Dango actor mapping, dlt capture or held BI proof.",
+    "identities": "Actual PG namespace OIDs t44a_actor_alice/t44a_actor_bob, distinct canonical nonsymlink /fixture/data/actor-alice and actor-bob directories owned501:20, disjoint actual table UUIDs, exact sales.orders and finance.orders. Local integer IDs may overlap; equal content hashes allowed.",
+    "physical": "Recorded native data_path plus schema/table/data-file and delete-file path/relative flags resolve to own-root regular Parquet with exact metadata size/hash. Both live table data bindings required; every inventoried physical Parquet must match actual catalog metadata. Retired missing files allowed only with end_snapshot; missing live/unbound files refuse.",
+    "oracles": "Both start350/finance7. Bob doubles to700 while Alice fullstate/snapshots stay350/7. Alice salesid1->110 and finance->8 gives360/8 while Bob fullstate/snapshots stay700/7. Explicitly observed Alice-only revert yields final350/7 versus700/7. Exact rows/3keys, stable table identities, correct own commit snapshot progression and original350/September300/public snapshots unchanged required at every phase.",
+    "extra_initial_peak_bytes": 134217728,
+    "fit": "64MiB combined actor data allocated blocks +actual PG total_relation_size;16MiB report +16MiB export;32MiB source/filesystem reserve. Charge before acquisition/install; existing30GB/separate2GiBheadroom/actualdf/WAL reserves and producer+PG CPU/RAM unchanged.",
+    "evidence": "Only <=16MiB native-namespaces.json via existing raw-secret/perfile guard and owned capture/cleanup; no native file or Parquet export, new dependency, image, service or profile."
   }
 }

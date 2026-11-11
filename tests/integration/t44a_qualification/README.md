@@ -275,3 +275,25 @@ project/logs32MiB, original/exported report32MiB, new native data/PG metadata64M
 and filesystem residual64MiB. Actual caps,30GB/separate2GiB headroom and df
 checks remain mandatory. Only the report and two real dbt JSON sets are added
 to the secret-checked allowlist. New cases4/7 remain native UNRUN until CI.
+
+CI42835740607 passed the reviewed scratch failed-check/transaction primitives;
+four native groups are supported. The next early `--namespaces-gate` checks
+actual Alice/Bob catalog independence, not same-branch labels or user security.
+Both retain exact `sales.orders` and `finance.orders` in distinct PG metadata
+schemas and canonical data roots. Actual namespace OIDs, disjoint table UUIDs
+and catalog-bound own-root Parquet paths/sizes/hashes establish those bindings.
+Local integer IDs may overlap and equal initial content hashes are allowed.
+
+Both actors start350/finance7. Bob's real commit doubles its sales to700 while
+Alice's rows/snapshots stay350/7. Alice then commits sales360/finance8 while Bob
+stays700/7. Only after those observations pass does a labelled Alice-only revert
+restore350/7; final Bob remains700/7. Fresh READ_ONLY connections check complete
+rows/keys/names and committed snapshots at each phase; original350/September300
+and its public snapshot history stay unchanged. Same UID/PG user is explicit:
+there is no hostile-tenant, Dango workspace, dlt or held BI reader claim.
+
+Only the safe `native-namespaces.json` report is added to evidence. The extra
+128MiB counts64MiB actor data/PG metadata,32MiB original/exported report and32MiB
+source/filesystem reserve before acquisition/install. Actual allocation caps,
+30GB/separate2GiBheadroom/df and unchanged profiles still apply. Case2 remains
+native UNRUN until reviewed CI; no new dependency/service/profile is introduced.
