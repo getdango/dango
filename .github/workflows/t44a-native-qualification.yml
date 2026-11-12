@@ -35,18 +35,9 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
-      - name: Fresh running Python smoke and real offline dbt diagnostic
+      - name: Fresh Python smoke and exact-source dlt DuckLake producer capture only
         run: |
-          env -i PATH="$PATH" PROBE_HEAD="$GITHUB_SHA" python candidate/tests/integration/t44a_qualification/run.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline"
-      - name: Measured full development acquisition only, no install or build
-        run: |
-          env -i PATH="$PATH" python candidate/tests/integration/t44a_qualification/app_acquire.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline"
-      - name: Fresh populated installer smoke, offline install and complete normal app build
-        run: |
-          env -i PATH="$PATH" python candidate/tests/integration/t44a_qualification/app_build.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline"
-      - name: Fresh runtime profiles, real S3 and first ordinary full-app slice
-        run: |
-          env -i PATH="$PATH" python candidate/tests/integration/t44a_qualification/app_runtime.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline"
+          env -i PATH="$PATH" PROBE_HEAD="$GITHUB_SHA" python candidate/tests/integration/t44a_qualification/run.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline" --producer-capture
       - name: Publish only sanitized diagnostic evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -69,6 +60,12 @@ jobs:
             ${{ runner.temp }}/t44a03/evidence/dbt-publication.json
             ${{ runner.temp }}/t44a03/evidence/publication-*.json
             ${{ runner.temp }}/t44a03/evidence/native-namespaces.json
+            ${{ runner.temp }}/t44a03/evidence/dlt-install.json
+            ${{ runner.temp }}/t44a03/evidence/producer-capture.json
+            ${{ runner.temp }}/t44a03/evidence/producer-first-load.json
+            ${{ runner.temp }}/t44a03/evidence/producer-first-state.json
+            ${{ runner.temp }}/t44a03/evidence/producer-second-load.json
+            ${{ runner.temp }}/t44a03/evidence/producer-second-state.json
             ${{ runner.temp }}/t44a03/evidence/app-acquisition.json
             ${{ runner.temp }}/t44a03/evidence/app-package-inventory.json
             ${{ runner.temp }}/t44a03/evidence/app-build.json

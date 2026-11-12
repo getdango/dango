@@ -1,5 +1,54 @@
 # Dedicated T44A first diagnostic
 
+The current 12 November amendment runs **only** the source-pinned dlt producer
+experiment below. The five previously reviewed native groups remain accepted;
+the older sections describe their recipes, not a request to repeat those runs.
+
+## Exact upstream dlt producer/capture experiment
+
+This is qualification of unmerged dlt PR #4600 at exact commit
+`d220927d13a79740ac799419d08ed9847f7b5069`, not a released build or shipping
+admission. Its version metadata still says `1.32.0`; source archive hash,
+PEP610 identity and all 601 installed package Python-file hashes distinguish it
+from the released `dlt[ducklake]==1.32.0` wheel, whose `duckdb<2` refusal remains
+separate evidence. `dlt-source-pins.json` freezes the Apache-2.0 source archive,
+41 runtime/build wheels, their exact public hashes, licenses/notices and native
+members. The source declares `duckdb>=1.2.0`, with the existing engine constrained
+to 2.0.0. No source or dependency metadata is patched.
+
+`run.py <owned-root> <pinned-baseline> --producer-capture` uses the existing
+populated installer/producer/PG smokes and strict runtime. It installs the frozen
+wheels offline, then builds and installs the unchanged source using ordinary
+PEP517/Hatchling with the frozen build backend and no build isolation/network.
+The install uses owned `/work/dlt-build-temp`, avoiding the unrelated 64MiB
+`/tmp` limit. Installed requirements, source/native/notices hashes and `pip check`
+must pass before the genuine dlt destination is imported and run.
+
+The first real dlt DuckLake keyed load must produce three rows totalling350 in
+PostgreSQL-backed spec1.1, with automatic migration disabled, inlining0 and
+nonempty bound Parquet files. Supported per-connection credential statements
+set those native attachment options; the normal destination still performs its
+own `ATTACH IF NOT EXISTS` and load. PG authentication uses the existing private
+pgpass file; no password is embedded in SQL, configuration receipts or argv.
+Normal resource state records the actual source-file revision. Authentic load
+information and untouched state files are retained after known-secret checks.
+
+Only selected orders are copied using explicit READ_ONLY source attachments into
+distinct native capture and actor catalogs. The source file then really changes
+id2 from200 to210 and a second genuine keyed dlt load must produce360 with three
+unique keys and a new load/checkpoint. The original capture and actor inputs must
+remain exactly350 with unchanged rows, snapshot lists and data-file hashes.
+This is a scratch native primitive, not integrated Dango publication or tenancy.
+
+Before acquisition/install, archives plus three expanded copies, build residue,
+spill, PG/WAL and fixture/report/export peaks are charged by the existing30GB
+inclusive/separate2GiBheadroom/actualdf gate. New fixture/state/PG relations are
+capped at256MiB; report originals plus exports have64MiB reserved. The workflow
+stops at this result and owned cleanup; no unchanged full app build or other
+matrix group runs. This candidate's new load/capture/native fit is **UNRUN** until
+focused review and Ubuntu CI. No new service, profile or dependency of the product
+is introduced; all bytes remain qualification-only.
+
 This qualification workflow runs only on the authorized same-repository branch
 `test/t44a-full-native-03` against `v1.1.0` when its exact workflow/test paths change.
 It is a temporary experiment, not an every-PR or product support requirement.

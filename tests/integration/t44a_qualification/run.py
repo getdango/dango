@@ -19,11 +19,21 @@ from pathlib import Path
 from dbt_assets import EXTRA_PEAK, export_candidates
 from dbt_publication import EXTRA_PEAK as PUBLICATION_PEAK
 from dbt_publication import export_candidates as publication_exports
+from dlt_source import artifacts as dlt_artifacts
+from dlt_source import install_command as dlt_install_command
+from dlt_source import remaining as dlt_remaining
 from native_namespaces import EXTRA_PEAK as NAMESPACES_PEAK
 
 HERE = Path(__file__).resolve().parent
 PINS = json.loads((HERE / "pins.json").read_text())
 MIB = 1024**2
+DLT_FILES = [
+    "dlt_source.py",
+    "producer_capture.py",
+    "dlt-source-pins.json",
+    "requirements-dlt.txt",
+    "requirements-dlt-source.txt",
+]
 
 
 def sha(data):
@@ -69,7 +79,7 @@ def stage(rig):
     """Populate only the exact small diagnostic artifacts; no full app acquisition."""
     artifacts = rig.root / "tools/artifacts"
     artifacts.mkdir()
-    for pin in PINS["artifacts"]:
+    for pin in dlt_artifacts(PINS) if rig.producer_capture else PINS["artifacts"]:
         disk_gate(rig, rig.remaining, "before-artifact-" + pin["file"])
         path = artifacts / pin["file"]
         path.write_bytes(download(pin["url"], pin["sha256"], pin["compressed"]))
@@ -118,6 +128,17 @@ def export(rig):
     ]
     candidates += export_candidates(rig.root / "work")
     candidates += publication_exports(rig.root / "work")
+    candidates += [
+        (rig.root / "work" / name, name)
+        for name in [
+            "dlt-install.json",
+            "producer-capture.json",
+            "producer-first-load.json",
+            "producer-first-state.json",
+            "producer-second-load.json",
+            "producer-second-state.json",
+        ]
+    ]
     for source, name in candidates:
         if source.exists():
             data = source.read_bytes()
@@ -135,7 +156,10 @@ def export(rig):
 
 def main():
     """Run one standard isolated dbt diagnostic and capture before owned cleanup."""
-    root, baseline = [Path(p).resolve() for p in sys.argv[1:]]
+    assert len(sys.argv) in {3, 4}
+    producer_capture = len(sys.argv) == 4
+    assert not producer_capture or sys.argv[3] == "--producer-capture"
+    root, baseline = [Path(p).resolve() for p in sys.argv[1:3]]
     assert not root.exists(), "Task root must be fresh"
     code = baseline / "tests/integration/lightdash_probe"
     assert sha((code / "runtime.py").read_bytes()) == PINS["baseline_runtime_sha256"]
@@ -158,6 +182,7 @@ def main():
     admin = secrets.token_hex(24)
     print("::add-mask::" + admin, flush=True)
     rig = runtime.Rig(root, {"adminPassword": admin})
+    rig.producer_capture = producer_capture
     rig.label = "t44a03-" + str(os.getpid())
     result = {
         "status": "FAIL",
@@ -176,6 +201,7 @@ def main():
                 "run.py",
                 "pins.json",
             ]
+            + DLT_FILES
         },
     }
     existing = {}
@@ -200,6 +226,8 @@ def main():
         )
         rig.remaining += PUBLICATION_PEAK
         rig.remaining += NAMESPACES_PEAK
+        if producer_capture:
+            rig.remaining = dlt_remaining(PINS)
         disk_gate(rig, rig.remaining, "before-public-acquisition-and-image-pulls")
         for role, pin in PINS["images"].items():
             existing[role] = image_present(rig, pin["ref"])
@@ -217,7 +245,7 @@ def main():
             "native_namespaces.py",
             "pins.json",
             "requirements.txt",
-        ]:
+        ] + DLT_FILES:
             shutil.copyfile(HERE / name, root / "scripts" / name)
             assert sha((root / "scripts" / name).read_bytes()) == sha((HERE / name).read_bytes())
         for name, value, uid, gid in [
@@ -238,7 +266,9 @@ def main():
             "installer",
             [
                 "-c",
-                py
+                dlt_install_command()
+                if producer_capture
+                else py
                 + " -m venv /work/venv && /work/venv/bin/python -m pip install --no-index --find-links=/tools/artifacts --require-hashes --no-compile -r /scripts/requirements.txt",
             ],
         )
@@ -260,7 +290,7 @@ def main():
             "dbt_assets.py",
             "dbt_publication.py",
             "native_namespaces.py",
-        ]:
+        ] + DLT_FILES:
             assert (
                 sha((root / "scripts" / name).read_bytes()) == result["qualification_inputs"][name]
             )
@@ -269,24 +299,40 @@ def main():
             "producer",
             [
                 "-c",
-                "/work/venv/bin/python /scripts/diagnostic.py --view-gate --assets-gate --publication-gate --namespaces-gate",
+                "/work/venv/bin/python /scripts/producer_capture.py"
+                if producer_capture
+                else "/work/venv/bin/python /scripts/diagnostic.py --view-gate --assets-gate --publication-gate --namespaces-gate",
             ],
             timeout=900,
         )
-        view = json.loads((root / "work/dbt-view.json").read_text())
-        assert view["status"] == "PASS_REAL_DBT_VIEW"
-        result["dbt_view"] = view["status"]
-        assets = json.loads((root / "work/dbt-assets.json").read_text())
-        assert assets["status"] == "PASS_REMAINING_DBT_ASSETS"
-        result["dbt_assets"] = assets["status"]
-        publication = json.loads((root / "work/dbt-publication.json").read_text())
-        assert publication["status"] == "PASS_SCRATCH_CHECKED_PUBLICATION_AND_NATIVE_TRANSACTION"
-        result["dbt_publication"] = publication["status"]
-        namespaces = json.loads((root / "work/native-namespaces.json").read_text())
-        assert namespaces["status"] == "PASS_NATIVE_ACTOR_CATALOG_INDEPENDENCE"
-        result["native_namespaces"] = namespaces["status"]
+        if producer_capture:
+            captured = json.loads((root / "work/producer-capture.json").read_text())
+            assert captured["status"] == "PASS_SOURCE_PINNED_DLT_DUCKLAKE_CAPTURE"
+            result["producer_capture"] = captured["status"]
+        else:
+            for file, field, expected in [
+                ("dbt-view.json", "dbt_view", "PASS_REAL_DBT_VIEW"),
+                ("dbt-assets.json", "dbt_assets", "PASS_REMAINING_DBT_ASSETS"),
+                (
+                    "dbt-publication.json",
+                    "dbt_publication",
+                    "PASS_SCRATCH_CHECKED_PUBLICATION_AND_NATIVE_TRANSACTION",
+                ),
+                (
+                    "native-namespaces.json",
+                    "native_namespaces",
+                    "PASS_NATIVE_ACTOR_CATALOG_INDEPENDENCE",
+                ),
+            ]:
+                proof = json.loads((root / "work" / file).read_text())
+                assert proof["status"] == expected
+                result[field] = proof["status"]
         disk_gate(rig, 0, "after-native-diagnostic")
-        result["status"] = "PASS_DBT_DRIVER_DIAGNOSTIC"
+        result["status"] = (
+            "PASS_SOURCE_PINNED_DLT_DUCKLAKE_CAPTURE"
+            if producer_capture
+            else "PASS_DBT_DRIVER_DIAGNOSTIC"
+        )
     except Exception as error:
         result["error"] = str(error)
     finally:
@@ -314,9 +360,11 @@ def main():
         assert admin not in text
         (root / "evidence/result.json").write_text(text + "\n")
         rig.save()
-    assert result["status"] == "PASS_DBT_DRIVER_DIAGNOSTIC", (
-        "Diagnostic failed; sanitized evidence retained"
-    )
+    assert result["status"] == (
+        "PASS_SOURCE_PINNED_DLT_DUCKLAKE_CAPTURE"
+        if producer_capture
+        else "PASS_DBT_DRIVER_DIAGNOSTIC"
+    ), "Diagnostic failed; sanitized evidence retained"
 
 
 if __name__ == "__main__":

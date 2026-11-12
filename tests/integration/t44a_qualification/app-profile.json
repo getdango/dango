@@ -396,5 +396,32 @@
     "extra_initial_peak_bytes": 134217728,
     "fit": "64MiB combined actor data allocated blocks +actual PG total_relation_size;16MiB report +16MiB export;32MiB source/filesystem reserve. Charge before acquisition/install; existing30GB/separate2GiBheadroom/actualdf/WAL reserves and producer+PG CPU/RAM unchanged.",
     "evidence": "Only <=16MiB native-namespaces.json via existing raw-secret/perfile guard and owned capture/cleanup; no native file or Parquet export, new dependency, image, service or profile."
+  },
+  "source_pinned_producer_experiment": {
+    "state": "CANDIDATE_IMPLEMENTED_NATIVE_UNRUN_REVIEW_REQUIRED",
+    "grant": "DANGO110-T44A-DLT-PR4600-20261112-11",
+    "source_commit": "d220927d13a79740ac799419d08ed9847f7b5069",
+    "source_archive_sha256": "e387800c06da45fe2e8e5b72c93f58335a8935a88f5172a54bab215aff7d82b1",
+    "disposition": "Exact unmerged upstream source qualification only, not released dlt1.32.0 or shipping admission. Prior released dlt[ducklake]1.32.0/DuckDB2 resolver refusal remains separate.",
+    "workflow_mode": "run.py <ownedroot> <pinnedbaseline> --producer-capture; no fullapp acquisition/build/runtime and no repeat of five accepted groups",
+    "artifacts": {
+      "source_compressed": 11094372,
+      "source_expanded_upper": 50982912,
+      "wheels": 41,
+      "wheel_compressed": 87370344,
+      "wheel_expanded_upper": 295956480,
+      "licenses": "Exact source Apache2 +each frozen wheel METADATA/classifier/license notices; hashes in dlt-source-pins.json",
+      "source_build": "Normal unchanged-source offline PEP517/Hatchling, frozen build closure, no native dependency builds; TMPDIR in owned work, not bounded /tmp64MiB"
+    },
+    "preinstall_remaining": 4203224041,
+    "fit": "Existing fail-closed wholeowned+allplannedimagebound+remaining+2GiB <=30GB AND actualdf before acquisition/install/native. Archive+3expanded copies; source build/temp residual64MiB; newfixture/PG/state256MiB; reports32MiB+export32MiB; inherited spill512MiB/PG256MiB/four128MiBWAL/log16MiB. Target actual fit UNRUN.",
+    "profiles": "Unchanged pinned R08 installer alone then producer+PG; CPU/RAM total<=4/4.5GiB, real fresh populated Python and authenticatedPG smoke, loopback-only namespace/no runtime egress.",
+    "oracles": [
+      "Exact source direct_url archive hash, all601 installed package .py hashes, frozen dependency/native/notices/version/extra requirements and pip check",
+      "Real dlt DuckLake merge load and authentic state/load receipts, raw350 and PG spec1.1/nonempty bound Parquet",
+      "Selected physical native capture and actor input350 with distinct metadataOID/tableUUID/root; explicit readonly source binding",
+      "Actual source file changes id2 200->210, real second dlt load raw360/3keys/newsource/state/load IDs; captured and actor rows/snapshot/file identities remain350 exactly"
+    ],
+    "limitations": "Scratch native producer/capture only, not integrated Dango protocol or security/tenancy; held-reader gap and all other UNRUN groups unchanged."
   }
 }
