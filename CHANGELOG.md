@@ -89,6 +89,7 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - Cloud: `dango remote upgrade` run again at the installed version applies pending migrations and checks health; a failed migration or health check is reported instead of "healthy".
 - Cloud backups: a scheduled backup whose Spaces upload cannot be verified keeps the local archive, does not run retention and is recorded as failed; the local manifest of a verified upload is now removed together with its archive.
 - The SQL query endpoint interrupts a query that times out or is cancelled and closes its connection after the worker stops, and allows at most four queries at once (HTTP 429 beyond that).
+- `dango remote env set|get|list|delete` works on servers created by `dango deploy`: the command connects as the `dango` user, which cannot call `runuser`, so it now runs the file scripts directly and stages the upload in a private temporary directory. Sessions as root are unchanged.
 
 ### Security
 

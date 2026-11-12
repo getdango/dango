@@ -13,6 +13,11 @@ a symlink can only reach what ``dango`` could reach anyway:
   over the destination (a rename replaces a symlink instead of writing through it).
 - :func:`append_env_line_if_missing` and :func:`read_project_file` append and
   read as ``dango``.
+
+A session that is already the ``dango`` user (``dango remote env ...`` connects as
+``dango``) may not call ``runuser`` (only root may), so for such a session the same
+scripts run directly and the upload is staged in a private ``mktemp -d`` directory
+instead of ``/root``.  Every other session keeps the ``runuser`` form unchanged.
 """
 
 from __future__ import annotations
@@ -26,12 +31,14 @@ from dango.exceptions import CloudProvisioningError
 
 __all__ = [
     "AS_DANGO",
+    "SERVICE_USER",
     "append_env_line_if_missing",
     "read_project_file",
     "write_project_file",
 ]
 
-AS_DANGO = "runuser -u dango --"
+SERVICE_USER = "dango"
+AS_DANGO = f"runuser -u {SERVICE_USER} --"
 
 # Runs as dango: $1 = destination, $2 = octal mode, stdin = content.
 _WRITE_SCRIPT = (
@@ -51,6 +58,19 @@ _ABSENT_EXIT = 3
 _APPEND_SCRIPT = 'grep -q "^$2=" "$1" 2>/dev/null || printf "%s\\n" "$3" >> "$1"'
 
 
+def _is_service_session(ssh: Any) -> bool:
+    """True when the SSH session itself logs in as ``dango`` (``runuser`` is root-only).
+
+    The session's own login identity decides, never the provider or the address.
+    """
+    return getattr(ssh, "username", None) == SERVICE_USER
+
+
+def _as_dango(ssh: Any) -> str:
+    """Command prefix (with trailing space) that runs a command as ``dango``."""
+    return "" if _is_service_session(ssh) else f"{AS_DANGO} "
+
+
 def write_project_file(
     ssh: Any,
     path: str,
@@ -62,7 +82,7 @@ def write_project_file(
     """Write *content* to *path* as the ``dango`` user, replacing (not following) it.
 
     Args:
-        ssh: Connected root ``SSHManager``.
+        ssh: Connected ``SSHManager`` (root, or the ``dango`` user itself).
         path: Absolute destination path inside the project directory.
         content: File content (ignored when *source* is given).
         mode: Permission bits for the new file.
@@ -72,8 +92,11 @@ def write_project_file(
     Raises:
         CloudProvisioningError: If the copy into place fails.
     """
-    staging = f"/root/.dango-upload-{secrets.token_hex(8)}"
     q = shlex.quote
+    if _is_service_session(ssh):
+        _write_as_service_session(ssh, path, content, mode, source)
+        return
+    staging = f"/root/.dango-upload-{secrets.token_hex(8)}"
     if source is not None:
         ssh.upload_file(source, staging)
         ssh.exec_command(f"chmod 600 {q(staging)}", timeout=30, check=False)
@@ -82,6 +105,43 @@ def write_project_file(
     command = (
         f"{AS_DANGO} sh -c {q(_WRITE_SCRIPT)} _ {q(path)} {mode:o} < {q(staging)}; "
         f"rc=$?; rm -f {q(staging)}; exit $rc"
+    )
+    result = ssh.exec_command(command, timeout=30)
+    if result.exit_code != 0:
+        raise CloudProvisioningError(
+            f"Failed to write {path}: {(result.stderr or result.stdout or '').strip()}"
+        )
+
+
+def _write_as_service_session(
+    ssh: Any, path: str, content: str | bytes, mode: int, source: Path | None
+) -> None:
+    """:func:`write_project_file` for a session that already is ``dango``.
+
+    The content is staged in a private ``mktemp -d`` directory (0700, owned by
+    ``dango``) instead of ``/root``; the same write script then runs directly.
+    """
+    q = shlex.quote
+    made = ssh.exec_command("mktemp -d", timeout=30)
+    stage_dir = (made.stdout or "").strip()
+    if made.exit_code != 0 or not stage_dir.startswith("/"):
+        raise CloudProvisioningError(
+            f"Failed to write {path}: could not create a staging directory: "
+            f"{(made.stderr or made.stdout or '').strip()}"
+        )
+    staging = f"{stage_dir}/content"
+    try:
+        if source is not None:
+            ssh.upload_file(source, staging)
+            ssh.exec_command(f"chmod 600 {q(staging)}", timeout=30, check=False)
+        else:
+            ssh.write_remote_file(staging, content, mode=0o600)
+    except BaseException:
+        ssh.exec_command(f"rm -rf {q(stage_dir)}", timeout=30, check=False)
+        raise
+    command = (
+        f"sh -c {q(_WRITE_SCRIPT)} _ {q(path)} {mode:o} < {q(staging)}; "
+        f"rc=$?; rm -rf {q(stage_dir)}; exit $rc"
     )
     result = ssh.exec_command(command, timeout=30)
     if result.exit_code != 0:
@@ -100,7 +160,7 @@ def append_env_line_if_missing(ssh: Any, path: str, key: str, value: str) -> Any
         raise ValueError("env key and value must not contain newline or NUL characters")
     q = shlex.quote
     return ssh.exec_command(
-        f"{AS_DANGO} sh -c {q(_APPEND_SCRIPT)} _ {q(path)} {q(key)} {q(f'{key}={value}')}"
+        f"{_as_dango(ssh)}sh -c {q(_APPEND_SCRIPT)} _ {q(path)} {q(key)} {q(f'{key}={value}')}"
     )
 
 
@@ -112,7 +172,7 @@ def read_project_file(ssh: Any, path: str) -> str:
             or SSH error); an unreadable file is not the same as an absent one.
     """
     q = shlex.quote
-    result = ssh.exec_command(f"{AS_DANGO} sh -c {q(_READ_SCRIPT)} _ {q(path)}")
+    result = ssh.exec_command(f"{_as_dango(ssh)}sh -c {q(_READ_SCRIPT)} _ {q(path)}")
     if result.exit_code == _ABSENT_EXIT:
         return ""
     if result.exit_code != 0:
