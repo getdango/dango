@@ -182,7 +182,7 @@ class ShellSSH:
         self.disconnected = False
 
     def _map(self, text: str) -> str:
-        return text.replace("/root/", f"{self.root_dir}/")
+        return re.sub(r"(?<![\w./-])/root/", f"{self.root_dir}/", text)
 
     def exec_command(self, command: str, timeout: int | None = None, check: bool = False) -> Any:
         self.issued.append(command)
@@ -241,7 +241,7 @@ def _install_shims(bin_dir: Path, *, root_session: bool) -> None:
 
 @pytest.fixture(params=["dango", "root"])
 def session(request, tmp_path):
-    root_dir = tmp_path / "root"
+    root_dir = tmp_path / "fakeroot"
     root_dir.mkdir()
     project = tmp_path / "project"
     project.mkdir()
@@ -311,7 +311,7 @@ class TestNonRootPathNeverEmitsRunuser:
     """Fails if a command issued from a ``dango`` session would call runuser."""
 
     def test_all_remote_env_commands_issue_no_runuser(self, tmp_path):
-        root_dir = tmp_path / "root"
+        root_dir = tmp_path / "fakeroot"
         root_dir.mkdir()
         bin_dir = tmp_path / "bin"
         _install_shims(bin_dir, root_session=False)
