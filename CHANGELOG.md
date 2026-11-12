@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.14] - YYYY-MM-DD (unreleased)
+## [1.0.14] - 2026-11-13
 
 This release hardens access control, backups, cloud servers and the Metabase and notebook paths. Read "Upgrade" before installing.
 
@@ -92,6 +92,19 @@ First-start and upgrade work (each step is safe to retry; restarting, or running
 - `dango remote env set|get|list|delete` works on servers created by `dango deploy`: the command connects as the `dango` user, which cannot call `runuser`, so it now runs the file scripts directly and stages the upload in a private temporary directory. Sessions as root are unchanged.
 
 ### Security
+
+Security advisories for the following fixes are published with this release:
+
+- Notebook WebSocket connections on cloud servers now require a signed-in user with notebook permission; `dango remote upgrade` updates existing servers (GHSA-f929-p2q2-cr9r).
+- SQL queries, monitoring queries, agent-created models and Metabase's DuckDB connection can no longer read files on the server (GHSA-wfcx-9495-46q7).
+- Agent-created sources can no longer reuse an existing credential or send it to an unvalidated host (GHSA-7fp5-4pqp-9r4r).
+- An unreadable authentication setting no longer turns authentication off (GHSA-8hhf-mrw2-f633).
+- `dango remote push` and `dango deploy` verify the server's pinned SSH host key for file transfers (GHSA-x2r8-3fx7-pgv8).
+- Deploys without a domain require restricting web access by IP or explicitly accepting HTTP exposure (GHSA-7gwh-37gx-q49m).
+- Restores remove stale write-ahead logs and fail on failed copies; backups fail when a copy fails (GHSA-w289-hqp6-m2w5).
+- The notebook proxy no longer forwards Dango session cookies or API keys to the notebook server (GHSA-4fh5-vgx3-7m8v).
+- With `auth.require_2fa`, users without TOTP get an enrollment-only session until setup is complete (GHSA-4fh5-vgx3-7m8v).
+- Cloud servers require authentication even when the authentication setting file is missing or incomplete (GHSA-4fh5-vgx3-7m8v).
 
 - Authentication fails closed: an unreadable auth setting no longer turns login off, and WebSocket connections are authenticated. `dango auth disable` keeps working locally.
 - The SQL query endpoint and the monitoring and drill-down queries run on a restricted read-only connection that cannot read files. Metabase's DuckDB connection is restricted the same way.
