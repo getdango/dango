@@ -16,7 +16,10 @@ import click
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
-from dango.cli.commands.remote_sync import _PROJECT_ROOT, _VENV_PYTHON
+from dango.cli.commands.remote_sync import _PROJECT_ROOT, _VENV_PYTHON, SERVICE_ENV
+
+# Server-side Dango code runs as the service user from /, never as root.
+_AS_SERVICE_USER = "cd / && runuser -u dango --"
 
 _METABASE_SECRET_PROJECT_ID_RE = re.compile(r"[a-f0-9]{32}|[a-f0-9]{8}")
 
@@ -33,7 +36,7 @@ def _metabase_secret_project_id_command(server_project_dir: str) -> str:
         "from dango.security.metabase_credentials import MetabaseCredentialStore; "
         f"print(MetabaseCredentialStore(Path({server_project_dir!r}), cloud_mode=True).project_id)"
     )
-    return f"/srv/dango/venv/bin/python -c {shlex.quote(script)}"
+    return f"{_AS_SERVICE_USER} /srv/dango/venv/bin/python -I -c {shlex.quote(script)}"
 
 
 def _validated_metabase_secret_project_id(output: str) -> str | None:
@@ -46,12 +49,13 @@ def _validated_metabase_secret_project_id(output: str) -> str | None:
 
 _USER_RESYNC_SCRIPT = """
 import sqlite3
+import sys
 from pathlib import Path
 
 from dango.auth.admin import get_auth_db_path
 from dango.auth.metabase_sync import sync_all_users_to_metabase
 
-p = Path(".")
+p = Path(sys.argv[1])
 db = get_auth_db_path(p)
 c = sqlite3.connect(str(db))
 c.execute("UPDATE users SET metabase_user_id = NULL")
@@ -65,12 +69,13 @@ print(f"Synced: {r['synced']}, Created: {r['created']}")
 def _metabase_schema_scan_script() -> str:
     """Build the server-side script that triggers a Metabase schema scan.
 
-    The command runs from the cloud project directory.  Credential resolution
+    The project directory is passed as ``argv[1]`` (root runs it from ``/``).  Credential resolution
     is intentionally delegated to the installed Dango security boundary so a
     protected cloud credential is used when one exists, with the narrowly
     scoped legacy compatibility behavior retained there during migration.
     """
     return """
+import sys
 from pathlib import Path
 
 from dango.security.metabase_config import (
@@ -78,12 +83,17 @@ from dango.security.metabase_config import (
     load_metabase_metadata,
 )
 
-project_root = Path(".")
+project_root = Path(sys.argv[1])
 metadata = load_metabase_metadata(project_root)
 credentials = load_metabase_admin_credentials(project_root)
 database = metadata.get("database") if metadata else None
 database_id = database.get("id") if isinstance(database, dict) else None
-if not credentials or not database_id:
+if (
+    not credentials
+    or isinstance(database_id, bool)
+    or not isinstance(database_id, int)
+    or database_id <= 0
+):
     raise SystemExit(0)
 
 email, password = credentials
@@ -114,9 +124,8 @@ def _metabase_schema_scan_command(server_project_dir: str) -> str:
     server-owned ``/srv/dango/secrets`` path rather than a local fallback.
     """
     return (
-        f"cd {shlex.quote(server_project_dir)} && "
-        "DANGO_CLOUD_MODE=true /srv/dango/venv/bin/python -c "
-        f"{shlex.quote(_metabase_schema_scan_script())}"
+        f"{_AS_SERVICE_USER} env DANGO_CLOUD_MODE=true /srv/dango/venv/bin/python -I -c "
+        f"{shlex.quote(_metabase_schema_scan_script())} {shlex.quote(server_project_dir)}"
     )
 
 
@@ -197,20 +206,42 @@ def remote_repair(ctx: click.Context) -> None:
         console.print("[bold]Restarting services...[/bold]")
 
         _server_project_dir = "/srv/dango/project"
-        from dango.platform.cloud.backup import get_remote_compose_project_name
+        from dango.platform.cloud.backup import (
+            DOCKER_BUSY_MESSAGE,
+            get_remote_compose_project_name,
+            helper_branch_active,
+            root_helper_timeout,
+        )
+        from dango.platform.cloud.compose_helper import server_compose_cmd
+        from dango.platform.compose_exec import EXIT_BUSY
 
         _proj_name = get_remote_compose_project_name(ssh, _server_project_dir)
 
-        # Start Docker containers
-        ssh.exec_command(
-            f"cd {_server_project_dir} && "
-            f"COMPOSE_PROJECT_NAME={_proj_name} docker compose start metabase "
-            "2>/dev/null || true",
-            timeout=120,
+        # Start Docker containers (through the compose helper when the server has one)
+        helper_on = helper_branch_active(ssh)
+        start_mb = ssh.exec_command(
+            server_compose_cmd(
+                "start",
+                "metabase",
+                legacy=(
+                    f"cd {_server_project_dir} && "
+                    f"COMPOSE_PROJECT_NAME={_proj_name} docker compose start metabase "
+                    "2>/dev/null || true"
+                ),
+            ),
+            timeout=root_helper_timeout("start") if helper_on else 120,
         )
+        if start_mb.exit_code != 0:
+            detail = (
+                DOCKER_BUSY_MESSAGE
+                if start_mb.exit_code == EXIT_BUSY
+                else f"the compose helper exited {start_mb.exit_code}."
+            )
+            console.print(f"  [red]Metabase was not started:[/red] {detail}")
+            issues_found += 1
 
         # Restart dango-web
-        result = ssh.exec_command("systemctl restart dango-web", timeout=30)
+        result = ssh.exec_command("systemctl restart dango-web", timeout=190)
         if result.success:
             console.print("  [green]OK[/green] — dango-web restarted")
         else:
@@ -297,7 +328,14 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         ssh.connect(cloud_cfg.droplet_ip)
 
         _server_project_dir = "/srv/dango/project"
-        from dango.platform.cloud.backup import get_remote_compose_project_name
+        from dango.platform.cloud.backup import (
+            DOCKER_BUSY_MESSAGE,
+            get_remote_compose_project_name,
+            helper_branch_active,
+            root_helper_timeout,
+        )
+        from dango.platform.cloud.compose_helper import server_compose_cmd
+        from dango.platform.compose_exec import EXIT_BUSY
 
         _proj_name = get_remote_compose_project_name(ssh, _server_project_dir)
 
@@ -328,17 +366,36 @@ def remote_reset_metabase(ctx: click.Context) -> None:
 
         # 2. Stop and remove Metabase container + volume
         console.print("Removing Metabase data...")
-        ssh.exec_command(
-            f"cd {_server_project_dir} && "
-            f"COMPOSE_PROJECT_NAME={_proj_name} docker compose down metabase --volumes "
-            "2>/dev/null || true",
-            timeout=60,
+        down_mb = ssh.exec_command(
+            server_compose_cmd(
+                "down-volumes",
+                "metabase",
+                legacy=(
+                    f"cd {_server_project_dir} && "
+                    f"COMPOSE_PROJECT_NAME={_proj_name} docker compose down metabase --volumes "
+                    "2>/dev/null || true"
+                ),
+            ),
+            timeout=root_helper_timeout("down-volumes") if helper_branch_active(ssh) else 60,
         )
+        if down_mb.exit_code != 0:
+            # The volume was not removed (busy or failed): nothing else is deleted. Put
+            # dango-web back and let the user retry.
+            ssh.exec_command("systemctl start dango-web", timeout=30)
+            detail = (
+                DOCKER_BUSY_MESSAGE
+                if down_mb.exit_code == EXIT_BUSY
+                else f"The Metabase volume could not be removed (exit {down_mb.exit_code}); retry later."
+            )
+            console.print(
+                f"[red]Error:[/red] {detail} Nothing was removed; dango-web was started again."
+            )
+            raise click.Abort()
 
         # 3. Remove metabase.yml so setup re-runs
         console.print("Removing metabase.yml...")
         ssh.exec_command(
-            f"rm -f {_server_project_dir}/.dango/metabase.yml",
+            f"{_AS_SERVICE_USER} rm -f {_server_project_dir}/.dango/metabase.yml",
             timeout=10,
         )
 
@@ -403,9 +460,8 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         # the shortcut path that only applies roles.
         console.print("Re-syncing users to Metabase...")
         sync_result = ssh.exec_command(
-            f"cd {_PROJECT_ROOT} && "
-            f"sudo -u dango -H env DANGO_CLOUD_MODE=true {_VENV_PYTHON} "
-            f"-c {shlex.quote(_USER_RESYNC_SCRIPT)}",
+            f"{_AS_SERVICE_USER} {SERVICE_ENV} {_VENV_PYTHON} "
+            f"-c {shlex.quote(_USER_RESYNC_SCRIPT)} {shlex.quote(_PROJECT_ROOT)}",
             timeout=60,
         )
         if sync_result.success:

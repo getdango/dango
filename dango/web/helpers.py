@@ -19,6 +19,7 @@ import duckdb
 import httpx
 import yaml
 
+from dango.utils.redact import redact_project_text
 from dango.web.models import SourceStatus, TableInfo
 
 logger = logging.getLogger(__name__)
@@ -687,7 +688,11 @@ def check_service_via_http(service_name: str) -> str:
 
 
 def check_service_via_docker(service_name: str) -> str:
-    """Check service via Docker command (fast on Mac/Linux)."""
+    """Check service via Docker command (fast on Mac/Linux); HTTP on helper servers."""
+    from dango.platform.compose_exec import uses_helper
+
+    if uses_helper():  # dango has no Docker access there, and sudo per poll is noise
+        return check_service_via_http(service_name)
     try:
         result = subprocess.run(
             ["docker", "ps", "--filter", f"name={service_name}", "--format", "{{.Status}}"],
@@ -857,8 +862,12 @@ async def get_platform_health_data():
                                         {
                                             "source": src,
                                             "count": 1,
-                                            "last_error": record.get(
-                                                "error", "Schedule execution failed"
+                                            "last_error": redact_project_text(
+                                                project_root,
+                                                str(
+                                                    record.get("error")
+                                                    or "Schedule execution failed"
+                                                ),
                                             ),
                                         }
                                     )

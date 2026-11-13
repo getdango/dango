@@ -32,6 +32,39 @@ _HOP_BY_HOP = frozenset(
 )
 
 
+# Request headers handed to Marimo. Marimo runs the code Editors write, so it must never
+# receive the user's Dango session cookie, API key or CSRF header: only content negotiation,
+# cache validators and Marimo's own request headers go through.
+_FORWARDED_HEADERS = frozenset(
+    {
+        "accept",
+        "accept-encoding",
+        "accept-language",
+        "cache-control",
+        "content-type",
+        "if-match",
+        "if-modified-since",
+        "if-none-match",
+        "origin",
+        "range",
+        "referer",
+        "user-agent",
+        "x-notebook-id",
+    }
+)
+_FORWARDED_PREFIXES = ("marimo-",)
+
+
+def _forwarded_headers(items: Any) -> dict[str, str]:
+    """Keep only the allow-listed request headers (names compared case-insensitively)."""
+    headers: dict[str, str] = {}
+    for key, value in items:
+        lower = key.lower()
+        if lower in _FORWARDED_HEADERS or lower.startswith(_FORWARDED_PREFIXES):
+            headers[key] = value
+    return headers
+
+
 def _build_marimo_url(port: int, path: str, query: str | None = None) -> str:
     """Build a full URL targeting the local Marimo server.
 
@@ -95,10 +128,7 @@ async def proxy_to_marimo(
     query = str(request.url.query) if request.url.query else None
     url = _build_marimo_url(marimo_port, target_path, query)
 
-    headers: dict[str, str] = {}
-    for key, value in request.headers.items():
-        if key.lower() not in _HOP_BY_HOP and key.lower() != "host":
-            headers[key] = value
+    headers = _forwarded_headers(request.headers.items())
 
     body: bytes | None = None
     if request.method in ("POST", "PUT", "PATCH"):

@@ -170,7 +170,8 @@ metrics:
         assert results == []
 
     @patch("dango.analysis.metrics.duckdb")
-    def test_runs_metrics(self, mock_duckdb, tmp_path):
+    @patch("dango.utils.query_connection.open_locked_query_connection")
+    def test_runs_metrics(self, mock_open, mock_duckdb, tmp_path):
         """Runs metrics and returns AnalysisResult objects."""
         self._write_config(
             tmp_path,
@@ -186,7 +187,7 @@ metrics:
 
         mock_conn = MagicMock()
         mock_conn.execute.return_value.fetchone.return_value = (42.5,)
-        mock_duckdb.connect.return_value = mock_conn
+        mock_open.return_value = mock_conn
         mock_duckdb.Error = Exception
 
         results = run_analysis(tmp_path)
@@ -197,7 +198,8 @@ metrics:
         assert results[0].comparison is not None
 
     @patch("dango.analysis.metrics.duckdb")
-    def test_handles_query_error(self, mock_duckdb, tmp_path):
+    @patch("dango.utils.query_connection.open_locked_query_connection")
+    def test_handles_query_error(self, mock_open, mock_duckdb, tmp_path):
         """DuckDB query error is caught and stored in MetricValue.error."""
         self._write_config(
             tmp_path,
@@ -212,7 +214,7 @@ metrics:
         warehouse_path.touch()
 
         mock_duckdb.Error = Exception
-        mock_duckdb.connect.return_value.execute.side_effect = Exception("Table not found")
+        mock_open.return_value.execute.side_effect = Exception("Table not found")
 
         results = run_analysis(tmp_path)
 
@@ -221,7 +223,8 @@ metrics:
         assert results[0].comparison is None
 
     @patch("dango.analysis.metrics.duckdb")
-    def test_source_filter(self, mock_duckdb, tmp_path):
+    @patch("dango.utils.query_connection.open_locked_query_connection")
+    def test_source_filter(self, mock_open, mock_duckdb, tmp_path):
         """source_filter limits which metrics are executed."""
         self._write_config(
             tmp_path,
@@ -240,7 +243,7 @@ metrics:
 
         mock_conn = MagicMock()
         mock_conn.execute.return_value.fetchone.return_value = (10.0,)
-        mock_duckdb.connect.return_value = mock_conn
+        mock_open.return_value = mock_conn
         mock_duckdb.Error = Exception
 
         results = run_analysis(tmp_path, source_filter=["raw_stripe"])
@@ -249,7 +252,8 @@ metrics:
         assert results[0].metric.metric_name == "m1"
 
     @patch("dango.analysis.metrics.duckdb")
-    def test_null_result_from_duckdb(self, mock_duckdb, tmp_path):
+    @patch("dango.utils.query_connection.open_locked_query_connection")
+    def test_null_result_from_duckdb(self, mock_open, mock_duckdb, tmp_path):
         """DuckDB returning NULL is stored as None value."""
         self._write_config(
             tmp_path,
@@ -265,7 +269,7 @@ metrics:
 
         mock_conn = MagicMock()
         mock_conn.execute.return_value.fetchone.return_value = (None,)
-        mock_duckdb.connect.return_value = mock_conn
+        mock_open.return_value = mock_conn
         mock_duckdb.Error = Exception
 
         results = run_analysis(tmp_path)
@@ -275,7 +279,8 @@ metrics:
         assert results[0].metric.error is None
 
     @patch("dango.analysis.metrics.duckdb")
-    def test_compare_none_skips_comparison(self, mock_duckdb, tmp_path):
+    @patch("dango.utils.query_connection.open_locked_query_connection")
+    def test_compare_none_skips_comparison(self, mock_open, mock_duckdb, tmp_path):
         """compare: none skips compute_comparison (freshness metrics)."""
         self._write_config(
             tmp_path,
@@ -292,7 +297,7 @@ metrics:
 
         mock_conn = MagicMock()
         mock_conn.execute.return_value.fetchone.return_value = (123456,)
-        mock_duckdb.connect.return_value = mock_conn
+        mock_open.return_value = mock_conn
         mock_duckdb.Error = Exception
 
         with patch("dango.analysis.metrics.compute_comparison") as mock_compare:

@@ -209,7 +209,11 @@ class TestWaitForDropletReady:
     def test_already_active(self):
         """Droplet that is already active returns immediately."""
         client = MagicMock()
-        active = {"id": 1, "status": "active"}
+        active = {
+            "id": 1,
+            "status": "active",
+            "networks": {"v4": [{"type": "public", "ip_address": "1.2.3.4"}]},
+        }
         client.get_droplet.return_value = active
 
         with patch("dango.platform.cloud.provisioning.time.sleep") as mock_sleep:
@@ -224,7 +228,11 @@ class TestWaitForDropletReady:
         client.get_droplet.side_effect = [
             {"id": 1, "status": "new"},
             {"id": 1, "status": "new"},
-            {"id": 1, "status": "active"},
+            {
+                "id": 1,
+                "status": "active",
+                "networks": {"v4": [{"type": "public", "ip_address": "1.2.3.4"}]},
+            },
         ]
 
         with patch("dango.platform.cloud.provisioning.time.sleep") as mock_sleep:

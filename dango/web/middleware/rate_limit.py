@@ -72,7 +72,8 @@ class RateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Skip localhost
+        # Skip localhost. Behind the cloud reverse proxy the real client IP comes from
+        # uvicorn's proxy-header handling in `dango serve`, so only local callers are loopback.
         client_ip = self._get_client_ip(scope)
         if client_ip in _LOCALHOST_IPS:
             await self.app(scope, receive, send)

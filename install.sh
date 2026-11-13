@@ -2,7 +2,7 @@
 set -e
 
 # Dango Bootstrap Installer
-# Version: 0.1.0
+# Version: see getdango on PyPI
 # Purpose: Install Dango with per-project virtual environment
 # Platform: macOS / Linux / Windows
 
@@ -49,7 +49,7 @@ check_python() {
 
     # Try multiple Python commands in order of preference
     PYTHON_CMD=""
-    for cmd in python3.12 python3.11 python3.10 python3 python; do
+    for cmd in python3.13 python3.12 python3.11 python3 python; do
         if command -v $cmd &> /dev/null; then
             # Check if this version meets requirements
             version=$($cmd -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
@@ -57,8 +57,8 @@ check_python() {
                 major=$(echo $version | cut -d. -f1)
                 minor=$(echo $version | cut -d. -f2)
 
-                # Check if version is 3.10-3.12
-                if [ "$major" -eq 3 ] && [ "$minor" -ge 10 ] && [ "$minor" -le 12 ]; then
+                # Check if version is 3.11-3.13 (matches requires-python >=3.11,<3.14)
+                if [ "$major" -eq 3 ] && [ "$minor" -ge 11 ] && [ "$minor" -le 13 ]; then
                     PYTHON_CMD="$cmd"
                     PYTHON_VERSION="$version"
                     break
@@ -69,15 +69,13 @@ check_python() {
 
     # If no suitable Python found
     if [ -z "$PYTHON_CMD" ]; then
-        print_error "Python 3.10-3.12 not found"
+        print_error "Python 3.11-3.13 not found"
         echo
-        echo "Dango requires Python 3.10, 3.11, or 3.12 (recommended)"
+        echo "Dango requires Python 3.11-3.13 (3.12 recommended)"
         echo
         echo "Install options:"
         echo "  macOS:   brew install python@3.12"
         echo "  Ubuntu:  sudo apt install python3.12"
-        echo
-        echo "Note: Python 3.13+ not yet supported due to dependency compatibility"
         echo
         exit 1
     fi
@@ -865,5 +863,7 @@ main() {
     esac
 }
 
-# Run main function
-main
+# Run main function (skipped when sourced for testing)
+if [ -z "${DANGO_INSTALL_SOURCED:-}" ]; then
+    main
+fi

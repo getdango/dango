@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +43,7 @@ def _safe_confirm(prompt: str, default: bool = True, *, non_interactive: bool = 
 # Data structures
 # ---------------------------------------------------------------------------
 
-_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 
 
 @dataclass
@@ -63,6 +64,10 @@ class WizardConfig:
     spaces_access_key: str | None = None
     spaces_secret_key: str | None = None
     spaces_bucket_name: str | None = None  # Existing bucket to reuse, None = create new
+    # Web access without a domain: IPv4 CIDRs for ports 80/443 (["detect"] = use the
+    # deployer's address as the server sees it), or an explicit acknowledgement.
+    allowed_ips: list[str] = field(default_factory=list)
+    http_exposure_acknowledged: bool = False
 
 
 @dataclass
@@ -77,6 +82,181 @@ class BYOSConfig:
     admin_password: str
     skip_oauth: bool
     push_secrets: bool = True
+    http_exposure_acknowledged: bool = False
+
+
+# ---------------------------------------------------------------------------
+# HTTP-only exposure (no domain)
+# ---------------------------------------------------------------------------
+
+_HTTP_WARNING = (
+    "HTTP only: your admin password and session cookie are sent unencrypted "
+    "between your browser and the server. Add a domain later for HTTPS: "
+    "dango remote domain set <domain>"
+)
+_BYOS_ALLOW_IP_ERROR = (
+    "IP restriction needs a DigitalOcean firewall. On your own server, restrict "
+    "ports 80/443 with your own firewall and pass --accept-http-exposure."
+)
+_IP_PROMPT = (
+    "  Restrict web access to your IP (recommended). Enter your public IPv4/CIDR, "
+    "'detect' (your address as the server sees it), or press Enter to leave the "
+    "server open to the internet"
+)
+
+
+def resolve_exposure_flags(
+    *,
+    domain: str | None,
+    allow_ip: Sequence[str],
+    accept_http_exposure: bool,
+    byos: bool,
+    require: bool,
+) -> tuple[list[str], bool]:
+    """Validate ``--allow-ip`` / ``--accept-http-exposure`` against the deploy mode.
+
+    Args:
+        domain: The ``--domain`` value, if any.
+        allow_ip: Raw ``--allow-ip`` values.
+        accept_http_exposure: Whether ``--accept-http-exposure`` was given.
+        byos: True for a BYOS deploy (no DigitalOcean firewall).
+        require: True when one of the flags is mandatory without a domain
+            (non-interactive); False when the wizard asks instead.
+
+    Returns:
+        Tuple of (normalised CIDR list, acknowledged).
+
+    Raises:
+        click.UsageError: For an invalid value or combination, or a missing flag.
+    """
+    from dango.exceptions import CloudError
+    from dango.platform.cloud.firewall import validate_ip_or_cidr
+
+    if byos and allow_ip:
+        raise click.UsageError(_BYOS_ALLOW_IP_ERROR)
+    allowed: list[str] = []
+    for value in allow_ip:
+        if value.strip().lower() == "detect":
+            raise click.UsageError(
+                "--allow-ip detect is only available as an answer in the interactive "
+                "wizard. Pass your public IPv4 address or CIDR."
+            )
+        try:
+            cidr = validate_ip_or_cidr(value)
+        except CloudError as exc:
+            raise click.UsageError(f"--allow-ip {value}: {exc}") from exc
+        if cidr not in allowed:
+            allowed.append(cidr)
+    if domain and allowed:
+        raise click.UsageError(
+            "--allow-ip cannot be combined with --domain: Let's Encrypt must reach "
+            "ports 80/443 to issue and renew the certificate. With a domain, keep "
+            "ports 80/443 open: HTTPS and the login protect the app. IP restriction "
+            "is for deploys without a domain."
+        )
+    if require and not domain and not allowed and not accept_http_exposure:
+        if byos:
+            raise click.UsageError(
+                "Without --domain the server serves plain HTTP. Pass "
+                "--accept-http-exposure to deploy anyway (restrict ports 80/443 "
+                "with your own firewall), or pass --domain."
+            )
+        raise click.UsageError(
+            "Without --domain the server serves plain HTTP. Pass --allow-ip <your-ip> "
+            "to restrict web access (recommended), --accept-http-exposure to leave it "
+            "open to the internet, or --domain for HTTPS."
+        )
+    return allowed, accept_http_exposure
+
+
+def _print_http_warning() -> None:
+    from rich.panel import Panel
+
+    console.print(Panel(_HTTP_WARNING, title="No domain: HTTP only", border_style="yellow"))
+
+
+def _step_web_exposure(
+    allowed_ips: list[str] | None = None,
+    accepted: bool = False,
+) -> tuple[list[str], bool]:
+    """Ask how to expose a deploy that has no domain (HTTP only).
+
+    Args:
+        allowed_ips: Pre-answer from ``--allow-ip`` (already validated).
+        accepted: Pre-answer from ``--accept-http-exposure``.
+
+    Returns:
+        Tuple of (allowed IPv4 CIDRs or ``["detect"]``, acknowledged).
+    """
+    from dango.exceptions import CloudError
+    from dango.platform.cloud.firewall import validate_ip_or_cidr
+
+    console.print("\n[bold]Web access[/bold]")
+    _print_http_warning()
+    if allowed_ips:
+        console.print(f"  Web access will be restricted to {', '.join(allowed_ips)} (--allow-ip).")
+        return list(allowed_ips), False
+    if accepted:
+        console.print("  Web ports stay open to the internet (--accept-http-exposure).")
+        return [], True
+
+    while True:
+        answer = str(click.prompt(_IP_PROMPT, default="", show_default=False)).strip()
+        if answer.lower() == "detect":
+            return ["detect"], False
+        if not answer:
+            confirm = click.prompt(
+                "  Type 'yes' to deploy with the web ports open to the internet",
+                default="",
+                show_default=False,
+            )
+            if str(confirm).strip().lower() == "yes":
+                return [], True
+            continue
+        try:
+            cidrs = [validate_ip_or_cidr(part) for part in answer.split(",") if part.strip()]
+        except CloudError as exc:
+            console.print(f"  [red]Error:[/red] {exc}")
+            continue
+        if not cidrs:
+            continue
+        return cidrs, False
+
+
+def _step_byos_http_ack(accepted: bool = False) -> bool:
+    """Require an explicit acknowledgement for a BYOS deploy without a domain.
+
+    Raises:
+        click.Abort: If the user does not type ``yes``.
+    """
+    _print_http_warning()
+    console.print(
+        "  Dango does not manage your server's firewall: ports 80/443 are open in ufw. "
+        "Restrict them with your own firewall if you can."
+    )
+    if accepted:
+        console.print("  Acknowledged (--accept-http-exposure).")
+        return True
+    confirm = click.prompt("  Type 'yes' to deploy over plain HTTP", default="", show_default=False)
+    if str(confirm).strip().lower() != "yes":
+        console.print("[yellow]Aborted.[/yellow] Re-run with a domain, or type 'yes'.")
+        raise click.Abort()
+    return True
+
+
+def _require_root_ssh_user(ssh_user: str) -> None:
+    """Refuse a non-root BYOS SSH user before any connection.
+
+    Raises:
+        click.Abort: If *ssh_user* is not ``root``.
+    """
+    if ssh_user != "root":
+        console.print(
+            f"[red]Error:[/red] BYOS deploys need SSH as root; sudo-based setup is not "
+            f"supported (got '{ssh_user}'). Enable root SSH on the server and use "
+            "--ssh-user root."
+        )
+        raise click.Abort()
 
 
 # ---------------------------------------------------------------------------
@@ -136,12 +316,27 @@ def _step_prereqs(project_root: Path) -> None:
                 "  Generate a new token at: https://cloud.digitalocean.com/account/api/tokens"
             )
             raise SystemExit(1)
-        resp.raise_for_status()
-        console.print("[green]  \u2713 DigitalOcean token validated[/green]")
+        if resp.status_code == 403:
+            # A scoped token cannot read /account; permissions are checked
+            # when resources are created.
+            console.print(
+                "[green]  \u2713 Token accepted but cannot read the account "
+                "(normal for a scoped token); permissions are checked when "
+                "resources are created.[/green]"
+            )
+        else:
+            resp.raise_for_status()
+            console.print("[green]  \u2713 DigitalOcean token validated[/green]")
     except (httpx.ConnectError, httpx.TimeoutException):
         console.print(
             "[yellow]  Warning: Could not reach DigitalOcean API "
             "(network error). Proceeding...[/yellow]"
+        )
+    except httpx.HTTPStatusError as exc:
+        console.print(
+            "[yellow]  Warning: Could not validate token "
+            f"(unexpected API response: HTTP {exc.response.status_code}). "
+            "Proceeding...[/yellow]"
         )
     except httpx.HTTPError:
         console.print(
@@ -317,7 +512,7 @@ def _step_admin() -> tuple[str, str]:
     # Email (with confirmation — BUG-237)
     while True:
         email = click.prompt("  Admin email")
-        if not _EMAIL_RE.match(email):
+        if not _EMAIL_RE.fullmatch(email):
             console.print("  [red]Invalid email format.[/red]")
             continue
         confirm = click.prompt("  Confirm admin email")
@@ -673,11 +868,20 @@ def _step_cost_summary(
 # ---------------------------------------------------------------------------
 
 
-def run_wizard(project_root: Path) -> WizardConfig:
+def run_wizard(
+    project_root: Path,
+    *,
+    allowed_ips: list[str] | None = None,
+    accept_http_exposure: bool = False,
+    domain: str | None = None,
+) -> WizardConfig:
     """Run the interactive deployment wizard (steps 1-8).
 
     Args:
         project_root: Path to the Dango project root.
+        allowed_ips: Pre-answer for the web-access step (validated ``--allow-ip``).
+        accept_http_exposure: Pre-answer for the web-access step.
+        domain: ``--domain`` (HTTPS); when set, the web-access step is skipped.
 
     Returns:
         Completed ``WizardConfig`` ready for provisioning.
@@ -713,6 +917,11 @@ def run_wizard(project_root: Path) -> WizardConfig:
         project_root, region
     )
 
+    # Web access: without --domain the deploy is HTTP only
+    web_ips, http_ack = (
+        ([], False) if domain else _step_web_exposure(allowed_ips, accept_http_exposure)
+    )
+
     # Step 8: Cost summary + confirm
     monthly_cost = _step_cost_summary(region, size_slug, enable_backups)
 
@@ -720,7 +929,7 @@ def run_wizard(project_root: Path) -> WizardConfig:
         region=region,
         size_slug=size_slug,
         size_tier=size_tier,
-        domain=None,
+        domain=domain,
         admin_email=admin_email,
         admin_password=admin_password,
         skip_oauth=skip_oauth,
@@ -730,6 +939,8 @@ def run_wizard(project_root: Path) -> WizardConfig:
         spaces_access_key=spaces_access_key,
         spaces_secret_key=spaces_secret_key,
         spaces_bucket_name=spaces_bucket_name,
+        allowed_ips=web_ips,
+        http_exposure_acknowledged=http_ack,
     )
 
 
@@ -742,6 +953,8 @@ def run_non_interactive(
     admin_email: str | None = None,
     admin_password: str | None = None,
     skip_backups: bool = False,
+    allow_ip: Sequence[str] = (),
+    accept_http_exposure: bool = False,
 ) -> WizardConfig:
     """Validate CLI flags for non-interactive deployment.
 
@@ -753,12 +966,15 @@ def run_non_interactive(
         admin_email: Required admin email.
         admin_password: Required admin password (or from DANGO_ADMIN_PASSWORD env).
         skip_backups: Skip backup setup.
+        allow_ip: ``--allow-ip`` values (IPv4/CIDR) for ports 80/443.
+        accept_http_exposure: Acknowledge an unrestricted HTTP-only deploy.
 
     Returns:
         Validated ``WizardConfig``.
 
     Raises:
         SystemExit: If required params are missing or invalid.
+        click.UsageError: Without a domain and without either exposure flag.
     """
     from dango.auth.security import check_password_strength
     from dango.platform.cloud.provisioning import (
@@ -766,6 +982,14 @@ def run_non_interactive(
         get_size_tier,
         suggest_nearest_region,
         validate_custom_size,
+    )
+
+    allowed_ips, http_ack = resolve_exposure_flags(
+        domain=domain,
+        allow_ip=allow_ip,
+        accept_http_exposure=accept_http_exposure,
+        byos=False,
+        require=True,
     )
 
     # Prerequisites
@@ -794,7 +1018,7 @@ def run_non_interactive(
     if not admin_email:
         console.print("[red]Error:[/red] --admin-email is required for --non-interactive.")
         raise SystemExit(1)
-    if not _EMAIL_RE.match(admin_email):
+    if not _EMAIL_RE.fullmatch(admin_email):
         console.print(f"[red]Error:[/red] Invalid email format: {admin_email}")
         raise SystemExit(1)
 
@@ -825,6 +1049,8 @@ def run_non_interactive(
         skip_oauth=True,
         enable_backups=not skip_backups,
         monthly_cost=monthly_cost,
+        allowed_ips=allowed_ips,
+        http_exposure_acknowledged=http_ack,
     )
 
 
@@ -847,6 +1073,7 @@ def _step_byos_server(project_root: Path) -> tuple[str, str, str]:
         "  [dim]Common SSH users: root (DO/Hetzner), ubuntu (AWS), your username (GCP)[/dim]"
     )
     ssh_user = click.prompt("  SSH user", default="root", show_default=True)
+    _require_root_ssh_user(ssh_user)
 
     console.print("\n  SSH key options:")
     console.print("    1. Use an existing SSH key")
@@ -921,11 +1148,18 @@ def _validate_ssh_connectivity(
         ssh.disconnect()
 
 
-def run_byos_wizard(project_root: Path) -> BYOSConfig:
+def run_byos_wizard(
+    project_root: Path,
+    *,
+    accept_http_exposure: bool = False,
+    domain: str | None = None,
+) -> BYOSConfig:
     """Run the BYOS interactive wizard.
 
     Args:
         project_root: Path to the Dango project root.
+        accept_http_exposure: Pre-answer for the HTTP-only acknowledgement.
+        domain: ``--domain`` (HTTPS); when set, no acknowledgement is needed.
 
     Returns:
         Completed ``BYOSConfig`` ready for server setup.
@@ -959,6 +1193,9 @@ def run_byos_wizard(project_root: Path) -> BYOSConfig:
     # Step 5: OAuth
     skip_oauth = _step_oauth()
 
+    # Without --domain the deploy is HTTP only and must be acknowledged
+    http_ack = False if domain else _step_byos_http_ack(accept_http_exposure)
+
     # Confirmation
     console.print("\n[bold]Deployment Summary[/bold]\n")
     console.print(f"  Server:    {server_ip} (SSH user: {ssh_user})")
@@ -974,11 +1211,12 @@ def run_byos_wizard(project_root: Path) -> BYOSConfig:
         server_ip=server_ip,
         ssh_user=ssh_user,
         ssh_key_path=ssh_key_path,
-        domain=None,
+        domain=domain,
         admin_email=admin_email,
         admin_password=admin_password,
         skip_oauth=skip_oauth,
         push_secrets=push_secrets,
+        http_exposure_acknowledged=http_ack,
     )
 
 
@@ -991,6 +1229,8 @@ def run_byos_non_interactive(
     domain: str | None = None,
     admin_email: str | None = None,
     admin_password: str | None = None,
+    allow_ip: Sequence[str] = (),
+    accept_http_exposure: bool = False,
 ) -> BYOSConfig:
     """Validate params for non-interactive BYOS deployment.
 
@@ -1002,12 +1242,16 @@ def run_byos_non_interactive(
         domain: Optional custom domain.
         admin_email: Required admin email.
         admin_password: Required admin password (or from DANGO_ADMIN_PASSWORD env).
+        allow_ip: Refused: BYOS has no DigitalOcean firewall.
+        accept_http_exposure: Required when no domain is given.
 
     Returns:
         Validated ``BYOSConfig``.
 
     Raises:
         SystemExit: If required params are missing or invalid.
+        click.UsageError: For ``allow_ip``, or no domain without the acknowledgement.
+        click.Abort: For a non-root SSH user.
     """
     from dango.auth.security import check_password_strength
 
@@ -1036,7 +1280,7 @@ def run_byos_non_interactive(
     if not admin_email:
         console.print("[red]Error:[/red] --admin-email is required for --byos.")
         raise SystemExit(1)
-    if not _EMAIL_RE.match(admin_email):
+    if not _EMAIL_RE.fullmatch(admin_email):
         console.print(f"[red]Error:[/red] Invalid email format: {admin_email}")
         raise SystemExit(1)
 
@@ -1053,6 +1297,16 @@ def run_byos_non_interactive(
         console.print(f"[red]Error:[/red] Weak password: {'; '.join(issues)}")
         raise SystemExit(1)
 
+    # Exposure flags and SSH user, before any connection
+    _allowed, http_ack = resolve_exposure_flags(
+        domain=domain,
+        allow_ip=allow_ip,
+        accept_http_exposure=accept_http_exposure,
+        byos=True,
+        require=True,
+    )
+    _require_root_ssh_user(ssh_user)
+
     # Validate SSH connectivity
     _validate_ssh_connectivity(server_ip, ssh_user, ssh_key_path)
 
@@ -1064,4 +1318,5 @@ def run_byos_non_interactive(
         admin_email=admin_email,
         admin_password=admin_password,
         skip_oauth=True,
+        http_exposure_acknowledged=http_ack,
     )

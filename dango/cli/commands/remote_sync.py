@@ -17,9 +17,12 @@ from rich.status import Status
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
+from dango.cli.commands.remote_mgmt import _VENV_PYTHON
 
-_VENV_PYTHON = "/srv/dango/venv/bin/python3"
 _PROJECT_ROOT = "/srv/dango/project"
+# Environment dango.service gives the web and scheduled syncs: dlt state under the project,
+# and logging/config rooted at the project even though SSH-launched commands start from /.
+SERVICE_ENV = f"env DANGO_CLOUD_MODE=true DANGO_PROJECT_ROOT={_PROJECT_ROOT} DLT_DATA_DIR={_PROJECT_ROOT}/.dlt"
 
 
 @remote.command("sync")
@@ -92,15 +95,14 @@ def remote_sync(
         payload["backfill_days"] = backfill_days
 
     escaped_payload = shlex.quote(json.dumps(payload))
-    # Run as dango user (not root) to avoid file ownership pollution,
-    # and set DANGO_CLOUD_MODE so sync_trigger stops Metabase before writing.
-    # cd to project dir first — SSH session starts in /root/ which dango can't access.
-    cd_prefix = f"cd {_PROJECT_ROOT} &&"
+    # Run as the dango user (not root) from /, isolated (-I): root never enters or
+    # imports from the dango-owned project directory. DANGO_CLOUD_MODE makes
+    # sync_trigger stop Metabase before writing; the project root is in the payload.
     sudo_cmd = (
-        f"sudo -u dango -H env DANGO_CLOUD_MODE=true"
+        f"runuser -u dango -- {SERVICE_ENV}"
         f" {_VENV_PYTHON} -m dango.platform.scheduling.sync_trigger {escaped_payload}"
     )
-    cmd = f"{cd_prefix} {sudo_cmd}"
+    cmd = f"cd / && {sudo_cmd}"
 
     try:
         if wait:
@@ -132,7 +134,7 @@ def remote_sync(
         else:
             # Fire-and-forget: only the sync command is backgrounded; the directory check
             # and a short liveness check run in the foreground (see remote_launch).
-            script = build_background_launch(_PROJECT_ROOT, sudo_cmd)
+            script = build_background_launch("/", sudo_cmd)
             result = ssh.exec_command(f"sh -c {shlex.quote(script)}", timeout=30, check=False)
             if not result.success:
                 stderr = result.stderr.strip() if result.stderr else "Could not start sync"

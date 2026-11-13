@@ -333,7 +333,10 @@ class TestRunProfiling:
 
     def test_missing_warehouse_graceful(self, tmp_path):
         """Missing warehouse.duckdb causes graceful early return."""
-        _run_profiling(tmp_path, ["shopify"])
+        with patch("duckdb.connect") as mock_dc:
+            # does-not-raise: returns before opening any connection
+            _run_profiling(tmp_path, ["shopify"])
+        mock_dc.assert_not_called()
 
     @patch("dango.utils.post_sync.profile_table")
     @patch("duckdb.connect")

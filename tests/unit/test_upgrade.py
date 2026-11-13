@@ -5,12 +5,25 @@ Unit tests for dango/platform/cloud/upgrade.py.
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from dango.exceptions import CloudError
 from dango.platform.cloud.ssh import CommandResult
+from tests.factories.cloud_factories import host_python_server
+
+
+@pytest.fixture(autouse=True)
+def _trusted_server_venv() -> Any:
+    """SSH mocks here are loose; the venv trust probe is tested in test_runtime_ownership*."""
+    with (
+        patch("dango.platform.cloud.runtime_ownership.venv_trust_findings", return_value=[]),
+        host_python_server(),
+    ):
+        yield
+
 
 # Patch paths — lazy imports mean we patch at the SOURCE module.
 _PATCH_PYPI = "dango.platform.cloud.server_status.check_latest_pypi_version"
@@ -45,16 +58,20 @@ class TestValidateVersionString:
     def test_valid_versions(self) -> None:
         from dango.platform.cloud.upgrade import validate_version_string
 
-        validate_version_string("1.0.0")
-        validate_version_string("0.1.1")
-        validate_version_string("99.88.77")
-        # PEP 440 pre-release versions
-        validate_version_string("1.0.0b4")
-        validate_version_string("1.0.0rc1")
-        validate_version_string("1.0.0a1")
-        # PEP 440 shorthand (e.g. "1.0" normalizes to "1.0")
-        validate_version_string("1.0")
-        validate_version_string("v1.0.0")
+        # does-not-raise: every version is valid
+        for version in (
+            "1.0.0",
+            "0.1.1",
+            "99.88.77",
+            # PEP 440 pre-release versions
+            "1.0.0b4",
+            "1.0.0rc1",
+            "1.0.0a1",
+            # PEP 440 shorthand (e.g. "1.0" normalizes to "1.0")
+            "1.0",
+            "v1.0.0",
+        ):
+            assert validate_version_string(version) is None
 
     def test_invalid_versions(self) -> None:
         from dango.platform.cloud.upgrade import validate_version_string

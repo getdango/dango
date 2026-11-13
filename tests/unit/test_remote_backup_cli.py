@@ -179,8 +179,10 @@ class TestBackupEnable:
         from dango.platform.cloud.ssh import CommandResult
 
         ssh = _make_ssh_mock()
-        # grep for SPACES_ACCESS_KEY succeeds
-        ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=0)
+        # the service-user read of .env contains SPACES_ACCESS_KEY
+        ssh.exec_command.return_value = CommandResult(
+            stdout="SPACES_ACCESS_KEY=abc\nSPACES_SECRET_KEY=def\n", stderr="", exit_code=0
+        )
 
         with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
             with patch(_PATCH_LOADER, return_value=_make_loader()):
@@ -189,8 +191,11 @@ class TestBackupEnable:
 
         assert result.exit_code == 0
         assert "enabled" in result.output.lower()
-        # Verify systemd files were written
-        assert ssh.write_remote_file.call_count == 2
+        # Verify systemd files were written (and the destination the server lacked: its .env)
+        written = [c.args[0] for c in ssh.write_remote_file.call_args_list]
+        assert "/etc/systemd/system/dango-backup.service" in written
+        assert "/etc/systemd/system/dango-backup.timer" in written
+        assert len(written) == 3
         ssh.disconnect.assert_called_once()
 
     def test_missing_spaces_credentials_fails(self, tmp_path):
@@ -198,7 +203,7 @@ class TestBackupEnable:
         from dango.platform.cloud.ssh import CommandResult
 
         ssh = _make_ssh_mock()
-        ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=1)
+        ssh.exec_command.return_value = CommandResult(stdout="FOO=1\n", stderr="", exit_code=0)
 
         with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
             with patch(_PATCH_LOADER, return_value=_make_loader()):
@@ -366,12 +371,15 @@ class TestBackupRestoreFromLocal:
         backup_file.write_bytes(b"fake-archive")
 
         runner = CliRunner()
-        result = runner.invoke(
-            remote,
-            ["backup", "restore", str(backup_file), "--from-local"],
-            obj={"project_root": tmp_path},
-            input="n\n",
-        )
+        with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
+            with patch(_PATCH_LOADER, return_value=_make_loader()):
+                with patch(_PATCH_SSH_MANAGER, return_value=_make_ssh_mock()):
+                    result = runner.invoke(
+                        remote,
+                        ["backup", "restore", str(backup_file), "--from-local"],
+                        obj={"project_root": tmp_path},
+                        input="n\n",
+                    )
 
         assert result.exit_code == 0
         assert "cancelled" in result.output.lower()

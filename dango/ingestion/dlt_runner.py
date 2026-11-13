@@ -212,6 +212,84 @@ def _apply_dlt_telemetry_env(project_root: Path) -> None:
     os.environ["RUNTIME__DLTHUB_TELEMETRY"] = "true" if enabled else "false"
 
 
+def _enable_load_package_cleanup() -> None:
+    """Ask dlt to delete completed job files after a successful load.
+
+    Without this dlt keeps every loaded batch (row data included) under
+    ``<pipelines_dir>/<pipeline>/load/loaded/<package>/completed_jobs/``. dlt reads
+    ``LOAD__DELETE_COMPLETED_JOBS`` from ``os.environ`` at load time. ``setdefault``
+    so an operator can override it. Failed packages keep their job files either way.
+    """
+    os.environ.setdefault("LOAD__DELETE_COMPLETED_JOBS", "true")
+
+
+def _dlt_pipelines_dir() -> Path:
+    """Directory dlt keeps pipeline working dirs in (honours ``DLT_DATA_DIR``)."""
+    from dlt.common.pipeline import get_dlt_pipelines_dir
+
+    return Path(get_dlt_pipelines_dir())
+
+
+def _package_sort_key(package_dir: Path) -> tuple[float, str]:
+    """Order load package directories oldest to newest (load ids are unix timestamps)."""
+    try:
+        return (float(package_dir.name), package_dir.name)
+    except ValueError:
+        return (package_dir.stat().st_mtime, package_dir.name)
+
+
+def _prune_loaded_packages(pipeline: Any) -> None:
+    """After a successful load: drop old load packages and restrict the pipeline dir.
+
+    Removes every ``load/loaded/<package>`` directory except the newest one (packages
+    written by earlier syncs, before completed-job deletion was enabled, still hold
+    row data). Never touches ``load/new`` or ``load/normalized``. Best effort: a
+    failure is logged and never fails the sync.
+    """
+    import re
+    import shutil
+
+    raw_working_dir = getattr(pipeline, "working_dir", None)
+    if not isinstance(raw_working_dir, (str, Path)):
+        return
+    working_dir = Path(raw_working_dir)
+    try:
+        loaded_dir = working_dir / "load" / "loaded"
+        if loaded_dir.is_dir():
+            packages = sorted(
+                (d for d in loaded_dir.iterdir() if d.is_dir()), key=_package_sort_key
+            )
+            for old_package in packages[:-1]:
+                shutil.rmtree(old_package, ignore_errors=False)
+    except OSError as exc:
+        _logging.getLogger(__name__).warning(
+            "dlt_loaded_cleanup_failed: pipeline=%s error=%s",
+            getattr(pipeline, "pipeline_name", "?"),
+            exc,
+        )
+    # Older versions backed up the whole pipeline dir (load packages included) to a
+    # sibling "<name>_backup_<timestamp>" dir. State-only backups have no load/ dir.
+    try:
+        legacy_pattern = re.compile(rf"^{re.escape(working_dir.name)}_backup_\d{{8}}_\d{{6}}$")
+        removed = 0
+        for sibling in working_dir.parent.iterdir():
+            if legacy_pattern.match(sibling.name) and (sibling / "load").is_dir():
+                shutil.rmtree(sibling)
+                removed += 1
+        if removed:
+            _logging.getLogger(__name__).info(
+                "dlt_legacy_backups_removed: pipeline=%s count=%d", working_dir.name, removed
+            )
+    except OSError as exc:
+        _logging.getLogger(__name__).warning(
+            "dlt_legacy_backup_cleanup_failed: pipeline=%s error=%s", working_dir.name, exc
+        )
+    try:
+        os.chmod(working_dir, 0o700)
+    except OSError:
+        pass  # best effort (e.g. Windows)
+
+
 class DltPipelineRunner:
     """
     Generic pipeline runner for all dlt sources
@@ -1161,6 +1239,7 @@ class DltPipelineRunner:
         # too late — confirmed empirically while building this: the
         # opt-out silently didn't apply until this was moved here.
         _apply_dlt_telemetry_env(self.project_root)
+        _enable_load_package_cleanup()
 
         try:
             # Try to import source from custom_sources/ directory first
@@ -1650,6 +1729,7 @@ class DltPipelineRunner:
         # the identical comment in _run_dlt_native_source for why this can't
         # wait until right before dlt.pipeline().
         _apply_dlt_telemetry_env(self.project_root)
+        _enable_load_package_cleanup()
 
         try:
             # Dynamic import of dlt source
@@ -2835,7 +2915,9 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 _LOCK_RETRY_WAIT = 10  # seconds
                 for _attempt in range(_LOCK_MAX_RETRIES):
                     try:
-                        return pipeline.load()
+                        load_info = pipeline.load()
+                        _prune_loaded_packages(pipeline)
+                        return load_info
                     except PipelineStepFailed as _exc:
                         # pipeline.load() always wraps step exceptions in
                         # PipelineStepFailed (see dlt's Pipeline.load()) — the
@@ -3106,6 +3188,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
         _cleanup_staging()
 
         console.print("  🔄 Full refresh: staging reload before swapping into destination")
+        _enable_load_package_cleanup()
         staging_pipeline = dlt.pipeline(
             pipeline_name=staging_pipeline_name,
             destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
@@ -3263,7 +3346,8 @@ Need help? Visit: https://github.com/getdango/dango/issues
         """
         Backup dlt pipeline state before running.
 
-        dlt stores state in ~/.dlt/pipelines/{pipeline_name}/
+        dlt stores state in <DLT_DATA_DIR or ~/.dlt>/pipelines/{pipeline_name}/. Only
+        state.json and schemas/ are copied (no extracted/loaded row data), mode 0700.
 
         Args:
             pipeline_name: Name of the dlt pipeline
@@ -3271,13 +3355,9 @@ Need help? Visit: https://github.com/getdango/dango/issues
         Returns:
             Path to backup directory if backup was created, None otherwise
         """
-        import os
         import shutil
 
-        # Determine dlt state location
-        # dlt uses ~/.dlt by default
-        dlt_home = Path(os.path.expanduser("~/.dlt"))
-        pipeline_state_dir = dlt_home / "pipelines" / pipeline_name
+        pipeline_state_dir = _dlt_pipelines_dir() / pipeline_name
 
         if not pipeline_state_dir.exists():
             # No state to backup (first run)
@@ -3287,11 +3367,25 @@ Need help? Visit: https://github.com/getdango/dango/issues
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_dir = pipeline_state_dir.parent / f"{pipeline_name}_backup_{timestamp}"
 
+        # Only pipeline state and schemas are needed to restore. load/ and normalize/
+        # hold the row data of extracted/loaded packages and must not be duplicated.
         try:
-            shutil.copytree(pipeline_state_dir, backup_dir)
+            backup_dir.mkdir(mode=0o700)
+        except OSError as e:  # e.g. a backup from the same second already exists
+            console.print(f"  [dim]⚠️  Could not backup state: {e}[/dim]")
+            return None
+        try:
+            os.chmod(backup_dir, 0o700)
+            for name in ("state.json", "schemas"):
+                src = pipeline_state_dir / name
+                if src.is_dir():
+                    shutil.copytree(src, backup_dir / name)
+                elif src.is_file():
+                    shutil.copy2(src, backup_dir / name)
             console.print(f"  [dim]💾 State backed up to {backup_dir.name}[/dim]")
             return backup_dir
         except Exception as e:
+            shutil.rmtree(backup_dir, ignore_errors=True)
             console.print(f"  [dim]⚠️  Could not backup state: {e}[/dim]")
             return None
 
@@ -3311,8 +3405,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
         """
         import shutil
 
-        dlt_home = Path(os.path.expanduser("~/.dlt"))
-        pipeline_state_dir = dlt_home / "pipelines" / pipeline_name
+        pipeline_state_dir = _dlt_pipelines_dir() / pipeline_name
 
         if not pipeline_state_dir.exists():
             return
@@ -3347,12 +3440,20 @@ Need help? Visit: https://github.com/getdango/dango/issues
         pipeline_state_dir = backup_dir.parent / pipeline_name
 
         try:
-            # Remove current (corrupted) state
-            if pipeline_state_dir.exists():
-                shutil.rmtree(pipeline_state_dir)
-
-            # Restore from backup
-            shutil.copytree(backup_dir, pipeline_state_dir)
+            # Replace only what the backup holds (state.json, schemas/). load/ and
+            # normalize/ are left alone: a failed load's package must stay for dlt to
+            # retry, and the backup never contains row data.
+            pipeline_state_dir.mkdir(parents=True, exist_ok=True)
+            for entry in backup_dir.iterdir():
+                target = pipeline_state_dir / entry.name
+                if target.is_dir():
+                    shutil.rmtree(target)
+                elif target.exists():
+                    target.unlink()
+                if entry.is_dir():
+                    shutil.copytree(entry, target)
+                else:
+                    shutil.copy2(entry, target)
             console.print("  [green]✓ State restored from backup[/green]")
 
             # Clean up backup

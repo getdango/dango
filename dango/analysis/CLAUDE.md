@@ -38,6 +38,7 @@ Automated monitoring and comparison engine. Executes user-defined monitors again
 - `exceptions` — `AnalysisConfigError` (config.py)
 - `logging` — `get_logger` (all files)
 - `utils.dango_db` — `connect()` (comparisons.py, drilldown.py, metrics.py)
+- `utils.query_connection` — `open_locked_query_connection()` (drilldown.py, metrics.py; lazy import)
 
 **External packages:** `pydantic`, `yaml`, `duckdb`
 

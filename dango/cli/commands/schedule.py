@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
-_SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+_SLUG_RE = re.compile(r"[a-z][a-z0-9_]*")
 
 _FREQUENCY_CHOICES = [
     ("Every hour", "1h"),
@@ -824,7 +824,7 @@ def schedule_add(ctx: click.Context) -> None:
         if answers is None:
             return
         name: str = answers["name"]
-        if not _SLUG_RE.match(name):
+        if not _SLUG_RE.fullmatch(name):
             console.print(
                 "[red]Invalid name.[/red] Must be lowercase, start with a letter, "
                 "and contain only letters, digits, and underscores."

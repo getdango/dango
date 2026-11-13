@@ -15,6 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from dango.auth.models import Role, User
 from dango.web.routes.initial_sync import (
     InitialSyncState,
     SyncPhase,
@@ -32,6 +33,14 @@ from dango.web.routes.initial_sync import (
 def app(tmp_path):
     """Create a test FastAPI app with initial_sync router."""
     test_app = FastAPI()
+
+    @test_app.middleware("http")
+    async def inject_admin(request, call_next):
+        # Stand-in for AuthMiddleware: permissions are covered in
+        # test_route_permissions_state_changing.py
+        request.state.user = User(id="admin-id", email="admin@test.com", role=Role.ADMIN)
+        return await call_next(request)
+
     test_app.include_router(router)
 
     # Patch get_project_root to return tmp_path

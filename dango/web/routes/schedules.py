@@ -20,7 +20,7 @@ from pydantic import BaseModel
 import dango
 from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
-from dango.auth.permissions import require_permission
+from dango.auth.permissions import has_permission, require_permission
 from dango.config.schedules import (
     ScheduleConfig,
     SchedulesConfig,
@@ -35,6 +35,7 @@ from dango.platform.notifications.webhook import (
     NotificationConfig,
     WebhookSender,
     load_notification_config,
+    mask_webhook_url,
 )
 from dango.platform.scheduling.history import (
     VALID_STATUSES,
@@ -43,6 +44,7 @@ from dango.platform.scheduling.history import (
     get_schedule_history,
     get_scheduler_db_path,
 )
+from dango.utils.redact import redact_error_fields
 from dango.web.helpers import append_log_entry, get_project_root, load_sources_config
 from dango.web.models import TriggerRequest
 from dango.web.routes.ui import _render_template
@@ -173,9 +175,18 @@ async def get_notification_config(
     project_root = get_project_root()
     config = load_notification_config(project_root) or NotificationConfig()
 
+    # A webhook URL is a bearer secret: only users who can manage schedules see it.
+    can_see_url = has_permission(user, "scheduler.manage")
+    webhooks = []
+    for wh in config.webhooks:
+        entry = wh.model_dump()
+        if not can_see_url:
+            entry["url"] = mask_webhook_url(wh.url)
+        webhooks.append(entry)
+
     return JSONResponse(
         content={
-            "webhooks": [wh.model_dump() for wh in config.webhooks],
+            "webhooks": webhooks,
             "on_failure": config.on_failure,
             "on_success": config.on_success,
             "on_stale": config.on_stale,
@@ -234,7 +245,7 @@ async def recent_executions(
     if not db_path.exists():
         return []
 
-    return get_recent_history(db_path, limit=limit)
+    return [redact_error_fields(project_root, r) for r in get_recent_history(db_path, limit=limit)]
 
 
 @router.post("/api/internal/schedules/reload")
@@ -538,6 +549,7 @@ async def get_schedule(
     history: list[dict[str, Any]] = []
     if db_path.exists():
         history, _ = get_schedule_history(db_path, name, limit=10)
+        history = [redact_error_fields(project_root, h) for h in history]
 
     result = sched.model_dump(exclude_none=True, mode="json")
     result["next_run_time"] = next_run_time
@@ -703,7 +715,7 @@ async def schedule_history(
     return JSONResponse(
         content={
             "schedule_name": name,
-            "items": items,
+            "items": [redact_error_fields(project_root, i) for i in items],
             "total": total,
             "limit": limit,
             "offset": offset,

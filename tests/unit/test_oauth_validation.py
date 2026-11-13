@@ -424,7 +424,8 @@ class TestValidateBeforeSync:
             source_type="google_sheets", provider="google", valid=True, message="ok"
         )
 
-        validate_before_sync("google_sheets", tmp_path)  # Should not raise
+        # does-not-raise: passes silently
+        assert validate_before_sync("google_sheets", tmp_path) is None
 
     @patch("dango.oauth.validation.OAuthStorage")
     @patch("dango.oauth.validation.validate_token")
@@ -486,7 +487,8 @@ class TestValidateBeforeSync:
             error_code="network_error",
         )
 
-        validate_before_sync("google_sheets", tmp_path)  # Should not raise
+        # does-not-raise: passes silently
+        assert validate_before_sync("google_sheets", tmp_path) is None
 
     @patch("dango.oauth.validation.OAuthStorage")
     def test_no_stored_credential_passes(self, mock_storage_cls: MagicMock, tmp_path: Path) -> None:
@@ -495,7 +497,8 @@ class TestValidateBeforeSync:
         mock_storage.get.return_value = None
         mock_storage_cls.return_value = mock_storage
 
-        validate_before_sync("google_sheets", tmp_path)  # Should not raise
+        # does-not-raise: passes silently
+        assert validate_before_sync("google_sheets", tmp_path) is None
 
     @patch("dango.oauth.validation.OAuthStorage")
     @patch("dango.oauth.validation.validate_token")
@@ -536,7 +539,8 @@ class TestValidateBeforeSync:
             error_code="server_error",
         )
 
-        validate_before_sync("google_sheets", tmp_path)  # Should not raise
+        # does-not-raise: passes silently
+        assert validate_before_sync("google_sheets", tmp_path) is None
 
 
 @pytest.mark.unit

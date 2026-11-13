@@ -27,6 +27,7 @@ from dango.ingestion.sources.registry import (
     get_source_metadata,
     get_sources_by_category,
 )
+from dango.ingestion.sources.setup_hosts import insecure_host_warning, validate_host_param
 from dango.ingestion.sources.setup_service import (
     REPLACE_MODE_SOURCE_TYPES,
     SourceSetupError,
@@ -1084,12 +1085,19 @@ def {module_name}_resource(api_key: str):
                 message="Base URL (e.g., https://api.example.com)",
             )
         ]
-        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
-        if not answers:
-            return None
-        if answers["base_url"].strip().lower() == "back":
-            return "← Back"
-        base_url = answers["base_url"].strip()
+        while True:  # re-ask until the base URL is usable
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+            if answers["base_url"].strip().lower() == "back":
+                return "← Back"
+            base_url = answers["base_url"].strip()
+            host_problem = validate_host_param("rest_api", base_url, human_entry=True)
+            if not host_problem:
+                break
+            console.print(f"[red]❌ {escape(host_problem)}[/red]")
+        if warning := insecure_host_warning("rest_api", base_url):
+            console.print(f"[yellow]⚠️  {escape(warning)}[/yellow]")
 
         # 2. Auth type
         auth_choices = [

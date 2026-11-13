@@ -297,7 +297,8 @@ class TestResetFailedLogins:
     def test_no_error_for_unknown_email(self, tmp_path: Path) -> None:
         """Resetting an unknown email is a no-op (no error)."""
         db_path = _make_db(tmp_path)
-        reset_failed_logins(db_path, "nobody@example.com")
+        # does-not-raise: unknown email is a no-op
+        assert reset_failed_logins(db_path, "nobody@example.com") is None
 
 
 @pytest.mark.unit

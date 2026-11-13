@@ -196,6 +196,8 @@ class TestMissingData:
         assert status.last_deploy is None
         assert status.last_backup is None
         assert status.last_sync_per_source == {}
+        assert status.docker_access == "unknown"
+        assert status.server_recorded_version is None
 
     def test_empty_stdout_returns_none(self):
         """Empty stdout with success=True returns None."""

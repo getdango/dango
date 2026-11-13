@@ -1,0 +1,388 @@
+"""tests/unit/test_g3f3_byos_caddy.py
+
+BYOS refuses a dango-owned /srv/dango before any root step; Caddy answers a controlled 503 while starting.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import getpass
+import os
+import re
+import shlex
+import subprocess
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
+from dango.exceptions import CloudProvisioningError
+from dango.platform.cloud.ssh import CommandResult
+
+_ME = getpass.getuser()
+
+
+def _run(script: str, path: str | None = None) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "PATH": path} if path else None
+    return subprocess.run(
+        ["sh", "-c", script], capture_output=True, text=True, check=False, env=env
+    )
+
+
+# Stands in for /proc/sys/fs/protected_hardlinks, which a Mac running these tests does not have.
+_HARDLINKS_ON = str(Path(tempfile.mkdtemp()) / "protected_hardlinks")
+Path(_HARDLINKS_ON).write_text("1\n")
+
+
+def _ls_with_acl(directory: Path) -> str:
+    """A PATH whose ``ls -ld`` shows the ``+`` of an extended or default ACL (as GNU ls does)."""
+    shim = directory / "bin"
+    shim.mkdir()
+    fake = shim / "ls"
+    fake.write_text(
+        '#!/bin/sh\nfor last; do :; done\necho "drwxr-xr-x+ 2 root root 4096 Oct 31 $last"\n'
+    )
+    fake.chmod(0o755)
+    return f"{shim}{os.pathsep}{os.environ['PATH']}"
+
+
+@pytest.mark.unit
+class TestPreflightScript:
+    """The shell check, run for real on temp paths (the owner stands in for root)."""
+
+    @staticmethod
+    def _script(*paths: Path, owner: str = _ME) -> str:
+        from dango.platform.cloud.srv_preflight import preflight_script
+
+        return preflight_script(
+            tuple(str(p) for p in paths), owner=owner, protected_hardlinks_file=_HARDLINKS_ON
+        )
+
+    def test_absent_paths_pass(self, tmp_path: Path) -> None:
+        assert _run(self._script(tmp_path / "srv", tmp_path / "srv" / "dango")).returncode == 0
+
+    def test_owned_closed_directories_pass(self, tmp_path: Path) -> None:
+        srv = tmp_path / "srv"
+        (srv / "dango").mkdir(parents=True)
+        for path in (srv, srv / "dango"):
+            path.chmod(0o755)
+        assert _run(self._script(srv, srv / "dango")).returncode == 0
+
+    def test_directory_of_another_owner_is_refused_and_named(self, tmp_path: Path) -> None:
+        (tmp_path / "dango").mkdir(mode=0o755)
+        result = _run(self._script(tmp_path / "dango", owner=str(os.getuid() + 1)))
+        assert result.returncode == 3
+        assert str(tmp_path / "dango") in result.stdout
+
+    @pytest.mark.parametrize("mode", [0o775, 0o757, 0o777])
+    def test_group_or_other_writable_is_refused(self, tmp_path: Path, mode: int) -> None:
+        target = tmp_path / "dango"
+        target.mkdir()
+        target.chmod(mode)
+        assert _run(self._script(target)).returncode == 3
+
+    def test_symlink_is_refused_even_to_a_closed_directory(self, tmp_path: Path) -> None:
+        real = tmp_path / "real"
+        real.mkdir(mode=0o755)
+        link = tmp_path / "dango"
+        link.symlink_to(real)
+        assert _run(self._script(link)).returncode == 3
+
+    def test_regular_file_is_refused(self, tmp_path: Path) -> None:
+        target = tmp_path / "dango"
+        target.write_text("x")
+        assert _run(self._script(target)).returncode == 3
+
+    def test_the_parent_is_checked_too(self, tmp_path: Path) -> None:
+        srv = tmp_path / "srv"
+        (srv / "dango").mkdir(parents=True)
+        (srv / "dango").chmod(0o755)
+        srv.chmod(0o777)
+        assert _run(self._script(srv, srv / "dango")).returncode == 3
+
+    def test_the_unsafe_path_is_printed_first_then_its_listing(self, tmp_path: Path) -> None:
+        srv = tmp_path / "srv"
+        (srv / "dango").mkdir(parents=True)
+        for path in (srv, srv / "dango"):
+            path.chmod(0o755)
+        (srv / "dango").chmod(0o775)
+        result = _run(self._script(srv, srv / "dango"))
+        assert result.returncode == 3
+        lines = result.stdout.strip().splitlines()
+        assert lines[0] == str(srv / "dango"), lines
+        assert lines[-1].endswith(str(srv / "dango")), lines
+
+    def test_an_extended_or_default_acl_is_refused(self, tmp_path: Path) -> None:
+        target = tmp_path / "dango"
+        target.mkdir(mode=0o755)
+        result = _run(self._script(target), path=_ls_with_acl(tmp_path))
+        assert result.returncode == 3, result.stdout
+        assert result.stdout.splitlines()[0] == str(target)
+
+    def test_acl_check_does_not_depend_on_getfacl(self) -> None:
+        from dango.platform.cloud.srv_preflight import preflight_script
+
+        assert "getfacl" not in preflight_script()
+
+    def test_a_listing_that_cannot_be_read_fails_the_check(self, tmp_path: Path) -> None:
+        target = tmp_path / "dango"
+        target.mkdir(mode=0o755)
+        shim = tmp_path / "bin"
+        shim.mkdir()
+        (shim / "ls").write_text("#!/bin/sh\nexit 1\n")
+        (shim / "ls").chmod(0o755)
+        result = _run(self._script(target), path=f"{shim}{os.pathsep}{os.environ['PATH']}")
+        assert result.returncode not in (0,)
+
+    def test_default_paths_are_srv_and_srv_dango(self) -> None:
+        from dango.platform.cloud.srv_preflight import preflight_script
+
+        script = preflight_script()
+        assert "/srv " in script and "/srv/dango" in script
+        assert "-user root" in script
+
+
+def _is_check(command: str) -> bool:
+    from dango.platform.cloud.srv_preflight import preflight_script
+
+    return shlex.quote(preflight_script()) in command
+
+
+def _byos_ssh(
+    unsafe: bool,
+    bad_path: str = "/srv/dango",
+    *,
+    exists: bool = True,
+    venv_findings: str = "",
+) -> tuple[MagicMock, list[str]]:
+    """Fake BYOS host: the preflight script, ``test -d /srv/dango`` and the venv trust probe."""
+    commands: list[str] = []
+
+    def _exec(command: str, **kwargs: object) -> CommandResult:
+        commands.append(command)
+        if command == "test -d /srv/dango":
+            return CommandResult(stdout="", stderr="", exit_code=0 if exists else 1)
+        if "DANGO_PROBE_OK" in command and not _is_check(command):
+            return CommandResult(stdout=f"{venv_findings}DANGO_PROBE_OK\n", stderr="", exit_code=0)
+        if unsafe and _is_check(command):
+            return CommandResult(
+                stdout=f"{bad_path}\ndrwxr-xr-x 2 dango dango 4096 Oct 31 {bad_path}\n",
+                stderr="",
+                exit_code=3,
+            )
+        return CommandResult(stdout="", stderr="", exit_code=0)
+
+    ssh = MagicMock()
+    ssh.exec_command.side_effect = _exec
+    return ssh, commands
+
+
+@pytest.mark.unit
+class TestByosRefusesAnUntrustedVenv:
+    """A root-owned /srv/dango can still hold a venv the dango user owns (a failed rebuild)."""
+
+    def test_dango_owned_venv_under_a_root_owned_srv_dango_is_refused(self) -> None:
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh, commands = _byos_ssh(unsafe=False, venv_findings="/srv/dango/venv\n")
+        with pytest.raises(CloudProvisioningError) as excinfo:
+            setup_server(ssh, setup_ufw=True)
+        text = str(excinfo.value)
+        assert "/srv/dango/venv" in text
+        assert "dango remote upgrade" in text and "mv /srv/dango /srv/dango.old" in text
+        assert "fresh host" in text
+        assert "chown" not in text and "chmod" not in text
+        assert len(commands) == 3, commands
+        ssh.write_remote_file.assert_not_called()
+
+    def test_control_characters_in_a_finding_are_stripped(self) -> None:
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh, _commands = _byos_ssh(unsafe=False, venv_findings="/srv/dango/venv/\x1b[2Jx\n")
+        with pytest.raises(CloudProvisioningError) as excinfo:
+            setup_server(ssh, setup_ufw=True)
+        assert "/srv/dango/venv/" in str(excinfo.value)
+        assert "\x1b" not in str(excinfo.value)
+
+    def test_a_probe_that_does_not_finish_refuses(self) -> None:
+        from dango.platform.cloud.srv_preflight import check_srv_dango
+
+        ssh = MagicMock()
+
+        def _exec(command: str, **kwargs: object) -> CommandResult:
+            if command == "test -d /srv/dango" or _is_check(command):
+                return CommandResult(stdout="", stderr="", exit_code=0)
+            return CommandResult(stdout="", stderr="", exit_code=2)  # the probe prints nothing
+
+        ssh.exec_command.side_effect = _exec
+        with pytest.raises(CloudProvisioningError, match=r"did not complete"):
+            check_srv_dango(ssh)
+
+    def test_a_clean_existing_host_passes(self) -> None:
+        from dango.platform.cloud.srv_preflight import check_srv_dango
+
+        ssh, commands = _byos_ssh(unsafe=False)
+        check_srv_dango(ssh)
+        assert len(commands) == 3, commands
+
+    def test_a_fresh_host_passes_without_running_the_venv_probe(self) -> None:
+        from dango.platform.cloud.srv_preflight import check_srv_dango
+
+        ssh, commands = _byos_ssh(unsafe=False, exists=False)
+        check_srv_dango(ssh)
+        assert not any("DANGO_PROBE_OK" in c and not _is_check(c) for c in commands), commands
+
+
+@pytest.mark.unit
+class TestByosSetupRefuses:
+    def test_unsafe_srv_dango_is_refused_before_any_other_step(self) -> None:
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh, commands = _byos_ssh(unsafe=True)
+        with pytest.raises(CloudProvisioningError, match=r"/srv/dango") as excinfo:
+            setup_server(ssh, setup_ufw=True)
+        text = str(excinfo.value)
+        assert "dango dango" in text
+        assert len(commands) == 1, commands
+        ssh.write_remote_file.assert_not_called()
+
+    def test_advice_is_to_move_it_aside_or_upgrade_never_a_non_recursive_chown(self) -> None:
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh, _commands = _byos_ssh(unsafe=True)
+        with pytest.raises(CloudProvisioningError) as excinfo:
+            setup_server(ssh, setup_ufw=True)
+        text = str(excinfo.value)
+        assert "mv /srv/dango /srv/dango.old" in text
+        assert "dango remote upgrade" in text
+        assert "fresh host" in text
+        assert "chown" not in text and "chmod" not in text
+
+    def test_the_message_names_the_path_that_is_unsafe(self) -> None:
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh, _commands = _byos_ssh(unsafe=True, bad_path="/srv")
+        with pytest.raises(CloudProvisioningError) as excinfo:
+            setup_server(ssh, setup_ufw=True)
+        text = str(excinfo.value)
+        assert "/srv " in text or "/srv:" in text or "/srv is" in text
+        assert "mv /srv/dango /srv/dango.old" not in text
+        assert "mv /srv " not in text
+
+    def test_safe_host_continues_into_setup(self) -> None:
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh, commands = _byos_ssh(unsafe=False)
+        with contextlib.suppress(Exception):  # a loose mock may stop a later step
+            setup_server(ssh, setup_ufw=True)
+        assert _is_check(commands[0])
+        assert len(commands) > 1
+
+    def test_a_check_that_cannot_run_refuses_too(self) -> None:
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh = MagicMock()
+        ssh.exec_command.return_value = CommandResult(stdout="", stderr="boom", exit_code=2)
+        with pytest.raises(CloudProvisioningError, match=r"could not be checked"):
+            setup_server(ssh, setup_ufw=True)
+        assert ssh.exec_command.call_count == 1
+
+    def test_digitalocean_setup_does_not_run_the_check(self) -> None:
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh, commands = _byos_ssh(unsafe=True)
+        with contextlib.suppress(Exception):  # a loose mock may stop a later step
+            setup_server(ssh)
+        assert not any(_is_check(c) for c in commands)
+
+
+# ---------------------------------------------------------------------------
+# AF-19: a controlled 503 while dango-web is not up yet
+# ---------------------------------------------------------------------------
+
+_ERRORS = (
+    "\thandle_errors {\n"
+    "\t\t@starting expression `{http.error.status_code} == 502"
+    " || {http.error.status_code} == 503 || {http.error.status_code} == 504`\n"
+    "\t\thandle @starting {\n"
+    '\t\t\theader Retry-After "30"\n'
+    '\t\t\theader Cache-Control "no-store"\n'
+    '\t\t\trespond "Dango is starting. Please try again in a minute." 503\n'
+    "\t\t}\n"
+    "\t}\n"
+)
+
+#: ``build_caddyfile`` output at 0a3574c9, before the error handler existed.
+_OLD_HTTP = (
+    ":80 {\n"
+    "\thandle /notebooks/marimo/ws {\n"
+    "\t\tforward_auth localhost:8800 {\n"
+    "\t\t\turi /api/notebooks/ws-auth\n"
+    "\t\t\theader_up -Connection\n"
+    "\t\t\theader_up -Upgrade\n"
+    "\t\t\theader_up -Sec-WebSocket-Key\n"
+    "\t\t\theader_up -Sec-WebSocket-Version\n"
+    "\t\t\theader_up -Sec-WebSocket-Extensions\n"
+    "\t\t}\n"
+    "\t\treverse_proxy localhost:7805\n"
+    "\t}\n"
+    "\thandle {\n"
+    "\t\treverse_proxy localhost:8800\n"
+    "\t}\n"
+    "\theader {\n"
+    "\t\tX-Content-Type-Options nosniff\n"
+    "\t\tX-Frame-Options SAMEORIGIN\n"
+    "\t\tReferrer-Policy strict-origin-when-cross-origin\n"
+    '\t\tPermissions-Policy "interest-cohort=()"\n'
+    "\t}\n"
+    "}\n"
+)
+_OLD_HTTPS = _OLD_HTTP.replace(":80 {", "app.example.com {", 1).replace(
+    '"interest-cohort=()"\n\t}\n}\n',
+    '"interest-cohort=()"\n'
+    '\t\tStrict-Transport-Security "max-age=63072000; includeSubDomains"\n'
+    "\t}\n}\n"
+    '\n:80 {\n\trespond "Use the configured domain to access this server." 403\n}\n',
+)
+
+
+_REQUEST_BODY_CAP = "\trequest_body {\n\t\tmax_size 110MB\n\t}\n"
+_UPSTREAM_STRIPS = " {\n\t\t\theader_up -Cookie\n\t\t\theader_up -Authorization\n\t\t}"
+
+
+def _without_later_additions(text: str) -> str:
+    """Drop the request-body cap and the upstream credential strips added after this task."""
+    text = text.replace(_REQUEST_BODY_CAP, "")
+    return text.replace(
+        f"reverse_proxy localhost:7805{_UPSTREAM_STRIPS}", "reverse_proxy localhost:7805"
+    )
+
+
+@pytest.mark.unit
+class TestStartingPage:
+    def test_http_only_caddyfile_is_the_old_one_plus_the_error_handler(self) -> None:
+        from dango.platform.cloud._server_templates import build_caddyfile
+
+        new = build_caddyfile()
+        assert _without_later_additions(new).replace(_ERRORS, "") == _OLD_HTTP
+        assert _ERRORS in new
+
+    def test_domain_caddyfile_is_the_old_one_plus_the_error_handler(self) -> None:
+        from dango.platform.cloud._server_templates import build_caddyfile
+
+        new = build_caddyfile("app.example.com")
+        assert _without_later_additions(new).replace(_ERRORS, "") == _OLD_HTTPS
+        assert new.count("handle_errors") == 1  # the bare :80 refusal block is unchanged
+
+    @pytest.mark.parametrize("domain", [None, "app.example.com"])
+    def test_the_page_leaks_nothing(self, domain: str | None) -> None:
+        from dango.platform.cloud._server_templates import build_caddyfile
+
+        block = re.search(r"\thandle_errors \{.*?\n\t\}\n", build_caddyfile(domain), re.S)
+        assert block is not None
+        text = block.group(0)
+        assert "Retry-After" in text and " 503" in text
+        assert "{http.error.message}" not in text and "{err." not in text
+        assert "version" not in text.lower()
+        assert "reverse_proxy" not in text

@@ -26,6 +26,7 @@ from dango.auth.database import (
     get_user_by_id,
     invalidate_all_user_sessions,
     list_users,
+    revoke_all_user_api_keys,
     update_user,
 )
 from dango.auth.models import Role, User, UserResponse, UserUpdate
@@ -73,17 +74,22 @@ def _count_active_admins(db_path: Path) -> int:
     return sum(1 for u in list_users(db_path, active_only=True) if u.role == Role.ADMIN)
 
 
-def _metabase_sync_role(db_path: Path, user_id: str, request: Request) -> None:
-    """Sync role change to Metabase (best-effort)."""
+def _metabase_sync_role(db_path: Path, user_id: str, request: Request) -> bool:
+    """Sync a role change to Metabase. ``False`` if the Metabase update did not complete.
+
+    Metabase not being configured is not a failure: there is nothing to update.
+    """
     try:
         from dango.auth.metabase_sync import _load_metabase_credentials, sync_user_role
 
         project_root: Path = request.app.state.project_root
         creds = _load_metabase_credentials(project_root)
         if creds and creds.get("metabase_url"):
-            sync_user_role(db_path, user_id, project_root, creds["metabase_url"])
+            return sync_user_role(db_path, user_id, project_root, creds["metabase_url"])
+        return True
     except Exception:
         logger.warning("metabase_role_sync_failed", user_id=user_id, exc_info=True)
+        return False
 
 
 def _metabase_deactivate(db_path: Path, user_id: str, request: Request) -> None:
@@ -296,15 +302,32 @@ async def admin_change_role(
 
     old_role = target.role
     updated = update_user(db_path, user_id, UserUpdate(role=new_role))
-    _metabase_sync_role(db_path, user_id, request)
+    metabase_synced = _metabase_sync_role(db_path, user_id, request)
     log_auth_event(
         AuditEvent.ROLE_CHANGED,
         user_id=user_id,
         email=target.email,
         ip=_get_client_ip(request),
-        details={"old_role": old_role.value, "new_role": new_role.value, "changed_by": user.email},
+        details={
+            "old_role": old_role.value,
+            "new_role": new_role.value,
+            "changed_by": user.email,
+            "metabase_synced": metabase_synced,
+        },
     )
     resp = UserResponse.model_validate(updated)
+    if not metabase_synced:
+        return JSONResponse(
+            status_code=502,
+            content={
+                "message": (
+                    "The role was changed in Dango, but the Metabase update did not complete. "
+                    "The user's Metabase access is suspended until it does; re-apply the role "
+                    "to retry."
+                ),
+                "user": resp.model_dump(mode="json"),
+            },
+        )
     return JSONResponse(content=resp.model_dump(mode="json"))
 
 
@@ -323,6 +346,7 @@ async def admin_reset_password(
     password = generate_temp_password()
     updated = set_password(target.email, password, db_path, must_change_password=True)
     invalidate_all_user_sessions(db_path, user_id)
+    revoke_all_user_api_keys(db_path, user_id)
     log_auth_event(
         AuditEvent.PASSWORD_RESET,
         user_id=user_id,
@@ -360,6 +384,7 @@ async def admin_deactivate_user(
 
     deactivate_user(db_path, user_id)
     invalidate_all_user_sessions(db_path, user_id)
+    revoke_all_user_api_keys(db_path, user_id)
     _metabase_deactivate(db_path, user_id, request)
     log_auth_event(
         AuditEvent.USER_DEACTIVATED,
@@ -483,6 +508,7 @@ async def admin_revoke_sessions(
         return JSONResponse(status_code=404, content={"message": "User not found"})
 
     revoked_count = invalidate_all_user_sessions(db_path, user_id)
+    revoke_all_user_api_keys(db_path, user_id)
     log_auth_event(
         AuditEvent.SESSION_EXPIRED,
         user_id=user_id,

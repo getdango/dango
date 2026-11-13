@@ -125,7 +125,7 @@ class TestUploadBackupToSpaces:
         assert key == "migration/backup-test.tar.gz"
         # Script written to file, then executed + cleaned up
         ssh.write_remote_file.assert_called_once()
-        assert ssh.exec_command.call_count == 2  # exec + rm cleanup
+        assert ssh.exec_command.call_count == 3  # private mkdir + exec + rm cleanup
 
     def test_raises_on_failure(self) -> None:
         from dango.platform.cloud.migrate import _upload_backup_to_spaces
@@ -170,8 +170,8 @@ class TestCopySecretsBetweenServers:
 
         old_ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/.env": ("DB_URL=test", "", 0),
-                "cat /srv/dango/project/.dlt/secrets.toml": ("[sources]", "", 0),
+                "_ /srv/dango/project/.env": ("DB_URL=test", "", 0),
+                "_ /srv/dango/project/.dlt/secrets.toml": ("[sources]", "", 0),
             }
         )
         new_ssh = _make_ssh_mock()
@@ -185,8 +185,8 @@ class TestCopySecretsBetweenServers:
 
         old_ssh = _make_ssh_mock(
             exec_results={
-                "cat /srv/dango/project/.env": ("", "", 1),
-                "cat /srv/dango/project/.dlt/secrets.toml": ("", "", 1),
+                "_ /srv/dango/project/.env": ("", "", 3),
+                "_ /srv/dango/project/.dlt/secrets.toml": ("", "", 3),
             }
         )
         new_ssh = _make_ssh_mock()
@@ -434,4 +434,6 @@ class TestMigrateServer:
                 project_root=tmp_path,
             )
 
+        # Add only: DigitalOcean detaches the old droplet when it is deleted.
         client.update_firewall.assert_called_once()
+        assert set(client.update_firewall.call_args[1]["droplet_ids"]) == {42, 99}

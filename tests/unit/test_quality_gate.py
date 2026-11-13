@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -58,6 +59,12 @@ class TestApiVersionEndpoints:
         app = FastAPI()
         app.state.project_root = tmp_path
         app.state.scheduler = None
+
+        @app.middleware("http")
+        async def _auth_disabled(request: Any, call_next: Any) -> Any:
+            request.state.auth_disabled = True
+            return await call_next(request)
+
         app.include_router(router)
 
         with (
@@ -117,7 +124,9 @@ class TestConfigureLoggingWiring:
         """Import and call configure_logging() — no exception raised."""
         from dango.logging import configure_logging
 
+        # does-not-raise: configuration succeeds and creates the log directory
         configure_logging(log_dir=tmp_path / "logs", json_console=True)
+        assert (tmp_path / "logs").is_dir()
 
     def test_structlog_configured_after_call(self, tmp_path: Path) -> None:
         """After configure_logging(), a structlog logger produces structured JSON output."""

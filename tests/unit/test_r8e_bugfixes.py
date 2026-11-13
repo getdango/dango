@@ -53,6 +53,7 @@ class TestLoginRedirect:
             patch("dango.auth.admin.is_auth_enabled", return_value=True),
             patch("dango.auth.admin.get_auth_db_path", return_value="/tmp/.dango/auth.db"),
             patch("dango.auth.sessions.validate_session", return_value=mock_user),
+            patch("dango.config.auth_loading.idle_timeout_minutes", return_value=60),
         ):
             from dango.web.routes.ui import login_page
 

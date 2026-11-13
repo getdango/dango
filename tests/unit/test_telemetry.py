@@ -248,8 +248,10 @@ class TestPing:
 
     def test_send_ping_silent_on_network_failure(self) -> None:
         """A network failure inside _send_ping never propagates."""
-        with patch("urllib.request.urlopen", side_effect=ConnectionError("boom")):
-            telemetry._send_ping("install", None)  # must not raise
+        with patch("urllib.request.urlopen", side_effect=ConnectionError("boom")) as mock_open:
+            # does-not-raise: the network failure is swallowed
+            telemetry._send_ping("install", None)
+        mock_open.assert_called_once()
 
     def test_send_ping_payload_shape(self) -> None:
         """The outgoing payload matches the deployed Worker's schema.

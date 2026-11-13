@@ -83,4 +83,5 @@ class TestEnsureDbtSchemas:
         # If connection was not closed, this write would fail with a lock error
         conn = duckdb.connect(str(db_path))
         conn.execute("CREATE TABLE raw.verify_no_lock (id INTEGER)")
+        assert conn.execute("SELECT COUNT(*) FROM raw.verify_no_lock").fetchone() == (0,)
         conn.close()

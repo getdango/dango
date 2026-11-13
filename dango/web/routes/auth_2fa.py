@@ -21,7 +21,7 @@ from dango.auth.admin import get_auth_db_path
 from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.database import get_session_by_token, get_user_by_id, update_user
 from dango.auth.models import User, UserResponse, UserUpdate
-from dango.auth.security import generate_recovery_codes, hash_token, verify_password
+from dango.auth.security import generate_recovery_codes, hash_token
 from dango.auth.sessions import (
     DEFAULT_SESSION_MAX_DAYS,
     create_session,
@@ -38,6 +38,7 @@ from dango.auth.totp import (
     setup_totp,
     verify_totp_code,
 )
+from dango.auth.totp_guard import accept_totp_code, reset_totp_failures, totp_lock_remaining
 from dango.config.models import AuthConfig
 from dango.logging import get_logger
 from dango.web.middleware.auth import COOKIE_NAME, is_secure_request
@@ -49,6 +50,13 @@ from dango.web.models import (
     TwoFAVerifySetupRequest,
 )
 from dango.web.routes.auth import _bridge_metabase_session
+from dango.web.routes.auth_checks import (
+    password_failure,
+    second_factor_failure,
+    totp_failed,
+    totp_failure,
+    totp_locked_response,
+)
 
 router = APIRouter(tags=["auth-2fa"])
 logger = get_logger(__name__)
@@ -144,9 +152,19 @@ async def setup_2fa(request: Request) -> JSONResponse:
     except (ValueError, ValidationError):
         return JSONResponse(status_code=400, content={"message": "Invalid request body"})
 
-    # Verify password before allowing setup
-    if user.password_hash is None or not verify_password(data.password, user.password_hash):
-        return JSONResponse(status_code=400, content={"message": "Invalid password"})
+    # Verify password before allowing setup. An enrollment session of an account with no password
+    # (OAuth sign-in) was authenticated by the provider; there is no password to ask for.
+    enrolling = getattr(request.state, "session_partial", False) is True
+    if not (enrolling and user.password_hash is None):
+        refused = password_failure(
+            db_path,
+            user,
+            data.password,
+            client_ip=_get_client_ip(request),
+            auth_config=_get_auth_config(request),
+        )
+        if refused is not None:
+            return refused
 
     # Reject if 2FA is already active — user must disable first
     current_user = get_user_by_id(db_path, user.id)
@@ -206,7 +224,36 @@ async def verify_setup_2fa(request: Request) -> JSONResponse:
         return JSONResponse(status_code=400, content={"message": "Invalid verification code"})
 
     enable_totp(db_path, user.id)
-    return JSONResponse(content={"success": True})
+    response = JSONResponse(content={"success": True})
+    if getattr(request.state, "session_partial", False) is True:
+        # TOTP is now verified: replace the enrollment-only session with the full session
+        await _complete_enrollment_login(request, db_path, current_user, response)
+    return response
+
+
+async def _complete_enrollment_login(
+    request: Request, db_path: Path, user: User, response: JSONResponse
+) -> None:
+    """Swap the enrollment-only session for a full one and finish the login (cookie, Metabase)."""
+    cookie_token = request.cookies.get(COOKIE_NAME)
+    partial = get_session_by_token(db_path, hash_token(cookie_token)) if cookie_token else None
+    if partial:
+        invalidate_session(db_path, partial.id)
+    auth_config = _get_auth_config(request)
+    session_max_days = auth_config.session_max_days if auth_config else DEFAULT_SESSION_MAX_DAYS
+    raw_token, _session = create_session(
+        db_path,
+        user.id,
+        ip_address=_get_client_ip(request),
+        user_agent=_get_user_agent(request),
+        session_max_days=session_max_days,
+    )
+    update_user(db_path, user.id, UserUpdate(last_login=datetime.now(timezone.utc)))
+    log_auth_event(
+        AuditEvent.LOGIN_SUCCESS, user_id=user.id, email=user.email, ip=_get_client_ip(request)
+    )
+    _set_session_cookie(response, raw_token, request, max_age_seconds=session_max_days * 86400)
+    await _bridge_metabase_session(user, request, response, log_context="2fa_enrollment")
 
 
 @router.post("/api/auth/2fa/verify")
@@ -253,6 +300,11 @@ async def verify_2fa(request: Request) -> JSONResponse:
             status_code=400, content={"message": "2FA is not enabled for this account"}
         )
 
+    # Account-level limit: kept in auth.db, so a fresh password login does not reset it
+    locked_for = totp_lock_remaining(db_path, current_user.id)
+    if locked_for:
+        return totp_locked_response(locked_for)
+
     # Verify code (TOTP or recovery)
     verified = False
     if data.is_recovery:
@@ -260,9 +312,13 @@ async def verify_2fa(request: Request) -> JSONResponse:
             db_path, current_user.id, current_user.recovery_codes, data.code
         )
     else:
-        verified = verify_totp_code(current_user.totp_secret, data.code)
+        verified = accept_totp_code(
+            db_path, current_user.id, current_user.email, current_user.totp_secret, data.code
+        )
 
     if not verified:
+        reason = "invalid_recovery_code" if data.is_recovery else "invalid_totp"
+        locked_for = totp_failed(db_path, current_user, reason, client_ip=_get_client_ip(request))
         _2fa_attempt_counts[cookie_token] = _2fa_attempt_counts.get(cookie_token, 0) + 1
         remaining = _MAX_2FA_ATTEMPTS - _2fa_attempt_counts[cookie_token]
         if remaining <= 0:
@@ -276,10 +332,13 @@ async def verify_2fa(request: Request) -> JSONResponse:
                 status_code=401,
                 content={"message": "Too many failed attempts. Please log in again."},
             )
+        if locked_for:
+            return totp_locked_response(locked_for)
         return JSONResponse(status_code=400, content={"message": "Invalid verification code"})
 
-    # Success — clean up brute-force counter
+    # Success — clean up brute-force counters
     _2fa_attempt_counts.pop(cookie_token, None)
+    reset_totp_failures(db_path, current_user.id)
 
     # Invalidate the partial session
     token_hash = hash_token(cookie_token)
@@ -336,13 +395,28 @@ async def disable_2fa(request: Request) -> JSONResponse:
         return JSONResponse(status_code=400, content={"message": "Invalid request body"})
 
     # Verify password
-    if user.password_hash is None or not verify_password(data.password, user.password_hash):
-        return JSONResponse(status_code=400, content={"message": "Invalid password"})
+    refused = password_failure(
+        db_path,
+        user,
+        data.password,
+        client_ip=_get_client_ip(request),
+        auth_config=_get_auth_config(request),
+    )
+    if refused is not None:
+        return refused
 
     # Check that 2FA is actually enabled
     current_user = get_user_by_id(db_path, user.id)
-    if current_user is None or not current_user.totp_enabled:
+    if current_user is None or not current_user.totp_enabled or not current_user.totp_secret:
         return JSONResponse(status_code=400, content={"message": "2FA is not enabled"})
+
+    # The password alone must not switch the second factor off: a TOTP code (or, for a user who
+    # lost the device, a recovery code) is required too
+    refused = second_factor_failure(
+        db_path, current_user, data.code or "", client_ip=_get_client_ip(request)
+    )
+    if refused is not None:
+        return refused
 
     disable_totp(db_path, user.id)
     return JSONResponse(content={"success": True})
@@ -363,16 +437,30 @@ async def regenerate_recovery(request: Request) -> JSONResponse:
         return JSONResponse(status_code=400, content={"message": "Invalid request body"})
 
     # Verify password
-    if user.password_hash is None or not verify_password(data.password, user.password_hash):
-        return JSONResponse(status_code=400, content={"message": "Invalid password"})
+    refused = password_failure(
+        db_path,
+        user,
+        data.password,
+        client_ip=_get_client_ip(request),
+        auth_config=_get_auth_config(request),
+    )
+    if refused is not None:
+        return refused
 
     # Verify TOTP code
     current_user = get_user_by_id(db_path, user.id)
     if current_user is None or not current_user.totp_enabled or not current_user.totp_secret:
         return JSONResponse(status_code=400, content={"message": "2FA is not enabled"})
 
-    if not verify_totp_code(current_user.totp_secret, data.code):
-        return JSONResponse(status_code=400, content={"message": "Invalid TOTP code"})
+    refused = totp_failure(db_path, current_user, data.code, client_ip=_get_client_ip(request))
+    if refused is not None:
+        return refused
 
     codes = regenerate_recovery_codes(db_path, user.id)
+    log_auth_event(
+        AuditEvent.RECOVERY_CODES_REGENERATED,
+        user_id=user.id,
+        email=user.email,
+        ip=request.client.host if request.client else None,
+    )
     return JSONResponse(content={"recovery_codes": codes})

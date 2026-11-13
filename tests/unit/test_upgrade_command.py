@@ -56,7 +56,9 @@ class TestUpgradeHelp:
 
     def test_import_upgrade_module(self) -> None:
         """Module imports without errors."""
-        from dango.cli.commands import upgrade  # noqa: F401
+        from dango.cli.commands import upgrade
+
+        assert upgrade.__name__ == "dango.cli.commands.upgrade"
 
 
 # ---------------------------------------------------------------------------
@@ -71,10 +73,8 @@ class TestVersionValidation:
     def test_valid_version(self) -> None:
         from dango.cli.commands.upgrade import _validate_version
 
-        # Should not raise
-        _validate_version("1.2.3")
-        _validate_version("0.0.1")
-        _validate_version("10.20.30")
+        versions = ("1.2.3", "0.0.1", "10.20.30")
+        assert all(_validate_version(v) is None for v in versions)  # does-not-raise
 
     def test_invalid_version_raises(self) -> None:
         import click

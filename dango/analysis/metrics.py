@@ -126,7 +126,9 @@ def _execute_metric(duckdb_path: Path, metric: MonitorConfig) -> MetricValue:
     sql = _build_metric_sql(metric)
 
     try:
-        conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
+        from dango.utils.query_connection import open_locked_query_connection
+
+        conn = open_locked_query_connection(duckdb_path)
         try:
             row = conn.execute(sql).fetchone()
         finally:

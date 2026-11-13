@@ -77,14 +77,28 @@ def read_pid_record(pid_file: Path) -> PidRecord | None:
         return None
     try:
         data = json.loads(text)
-        return PidRecord(pid=int(data["pid"]), start_time=data.get("start_time"))
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-        # Not JSON (or not the expected shape) — likely an old-format bare-integer
-        # PID file. Fall back to parsing it as a plain int with unknown identity.
-        try:
-            return PidRecord(pid=int(text), start_time=None)
-        except ValueError:
+    except json.JSONDecodeError:
+        data = None
+    if isinstance(data, dict):
+        # Current JSON format. Hand-edited or unexpected values must not reach the
+        # arithmetic in is_process_running(): the pid must be a positive int, and a
+        # start time that is not a real number is treated as unknown.
+        pid = data.get("pid")
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
             return None
+        raw_start = data.get("start_time")
+        start_time: float | None = None
+        if isinstance(raw_start, (int, float)) and not isinstance(raw_start, bool):
+            try:
+                start_time = float(raw_start)
+            except OverflowError:
+                start_time = None
+        return PidRecord(pid=pid, start_time=start_time)
+    # Not a JSON object — likely an old-format bare-integer PID file. Parse it as a
+    # plain positive int with unknown identity.
+    if isinstance(data, int) and not isinstance(data, bool) and data > 0:
+        return PidRecord(pid=data, start_time=None)
+    return None
 
 
 def ensure_std_fds() -> None:

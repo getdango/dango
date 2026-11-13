@@ -35,6 +35,18 @@ def _make_cloud_config(
     return cfg
 
 
+def _public_firewall_client():
+    """Fake DO client whose firewall leaves 80/443 open (nothing to reopen)."""
+    public = {"addresses": ["0.0.0.0/0", "::/0"]}
+    client = MagicMock()
+    client.get_firewall.return_value = {
+        "inbound_rules": [
+            {"protocol": "tcp", "ports": port, "sources": public} for port in ("22", "80", "443")
+        ]
+    }
+    return client
+
+
 def _invoke_domain_cmd(args, cloud_cfg=None, domain_result=None, connect_error=None):
     """Run a domain CLI command with mocked dependencies.
 
@@ -66,6 +78,7 @@ def _invoke_domain_cmd(args, cloud_cfg=None, domain_result=None, connect_error=N
         patch.dict("os.environ", {}, clear=False),
         patch("dango.cli.commands.remote._require_cloud_deployment") as mock_req,
         patch("dango.cli.commands.remote._connect_ssh") as mock_ssh,
+        patch("dango.cli.commands.remote._make_client", return_value=_public_firewall_client()),
     ):
         mock_req.return_value = (cloud_cfg, Path("/tmp/project"))
         mock_ssh.return_value = ssh_mock

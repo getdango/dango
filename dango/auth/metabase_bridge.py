@@ -18,6 +18,7 @@ from typing import Any
 import httpx
 import yaml
 
+from dango.auth import metabase_access
 from dango.auth.models import User
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,10 @@ async def bridge_metabase_login(
     startup and the initial sync silently failed.
     """
     try:
+        if metabase_access.is_pending(project_root, user.id):
+            logger.warning("Metabase bridge refused for %s: role change not applied", user.email)
+            return None
+
         if user.metabase_password_enc is None or user.metabase_user_id is None:
             if db_path is None:
                 logger.debug("Metabase bridge skip: no credentials for %s", user.email)
@@ -122,6 +127,8 @@ async def bridge_metabase_login(
             session_id = resp.json().get("id")
             if isinstance(session_id, str) and session_id:
                 logger.info("Metabase bridge login for %s: %s...", user.email, session_id[:8])
+                # Remembered so a later role change can delete this session in Metabase.
+                metabase_access.record_session(project_root, user.id, session_id)
                 return session_id
 
         logger.warning(

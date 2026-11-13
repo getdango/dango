@@ -15,9 +15,15 @@ from typing import Any
 import httpx
 import yaml
 from fastapi import APIRouter, Request
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 
+from dango.auth.metabase_access import is_pending
 from dango.web.middleware.auth import is_secure_request
+from dango.web.routes.metabase_recovery import (
+    RECOVERY_SCRIPT,
+    RECOVERY_SCRIPT_PATH,
+    inject_recovery_script,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +53,11 @@ _METABASE_UNAVAILABLE_HTML = """\
     .retry { margin-top: 1.5rem; }
     .retry a { color: #3b82f6; text-decoration: none; }
     .retry a:hover { text-decoration: underline; }
+    button { margin-top: 0.5rem; padding: 0.4rem 1rem; border: 1px solid #d1d5db;
+             border-radius: 6px; background: #fff; color: #374151; cursor: pointer; }
+    button:hover { background: #f3f4f6; }
   </style>
-  <meta http-equiv="refresh" content="15">
+  <noscript><meta http-equiv="refresh" content="15"></noscript>
 </head>
 <body>
   <div class="card">
@@ -56,9 +65,11 @@ _METABASE_UNAVAILABLE_HTML = """\
     <h1>Metabase is temporarily unavailable</h1>
     <p>Metabase is restarting, likely due to a data sync in progress.
        This usually takes 1&ndash;2 minutes.</p>
-    <p>This page will automatically refresh.</p>
+    <p id="dango-status" role="status">This page will reload automatically when Metabase is back.</p>
+    <button type="button" id="dango-retry">Retry now</button>
     <div class="retry"><a href="/">&larr; Back to Dango</a></div>
   </div>
+  <script defer src="/metabase/_dango/recovery.js" data-initial-state="down"></script>
 </body>
 </html>
 """
@@ -151,6 +162,19 @@ async def _rebridge_if_needed(request: Request, metabase_url: str) -> str | None
 # compressed bytes it is told are plain (C13).
 _SKIP_REQUEST_HEADERS = frozenset(("host", "connection", "content-length", "accept-encoding"))
 
+# Dango credentials never go to Metabase: the Authorization header (a Dango API key) is
+# dropped, and of the Cookie header only the user's own ``metabase.SESSION`` is kept.
+_CREDENTIAL_HEADERS = frozenset(("authorization", "proxy-authorization"))
+
+
+def _metabase_cookie_only(cookie_header: str) -> str | None:
+    """The ``metabase.SESSION`` pair of a Cookie header, or ``None`` when it has none."""
+    for part in cookie_header.split(";"):
+        pair = part.strip()
+        if pair.startswith(f"{_MB_SESSION_COOKIE}="):
+            return pair
+    return None
+
 
 async def proxy_to_metabase(
     request: Request,
@@ -170,6 +194,24 @@ async def proxy_to_metabase(
         Response from Metabase
     """
     project_root = _get_project_root(request)
+
+    # A role change that is not fully applied in Metabase suspends the user's Metabase access:
+    # the old session may still carry the previous role's privileges.
+    user = getattr(request.state, "user", None)
+    if user is not None:
+        if is_pending(project_root, user.id):
+            suspended = JSONResponse(
+                status_code=403,
+                content={
+                    "message": (
+                        "Metabase access is suspended until this account's role change is "
+                        "applied. Ask an administrator to re-apply the role."
+                    )
+                },
+            )
+            _clear_mb_session_cookie(suspended)
+            return suspended
+
     if metabase_url is None:
         metabase_url = _get_metabase_url(project_root)
 
@@ -182,8 +224,15 @@ async def proxy_to_metabase(
     # Prepare headers
     headers: dict[str, str] = {}
     for key, value in request.headers.items():
-        if key.lower() not in _SKIP_REQUEST_HEADERS:
-            headers[key] = value
+        lower = key.lower()
+        if lower in _SKIP_REQUEST_HEADERS or lower in _CREDENTIAL_HEADERS:
+            continue
+        if lower == "cookie":
+            kept = _metabase_cookie_only(value)
+            if kept is not None:
+                headers[key] = kept
+            continue
+        headers[key] = value
 
     # Get request body if present
     body: bytes | None = None
@@ -203,16 +252,16 @@ async def proxy_to_metabase(
                     target_url, request.method, headers, body, new_session, client
                 )
                 if response.status_code not in (401, 403):
-                    final = _build_response(response)
+                    final = _finalize(request, response)
                     _set_mb_session_cookie(final, new_session, request)
                     return final
             # Re-bridge failed or retry still 401/403 — clear stale cookie so
             # the next request hits the auto-bridge path instead of looping.
-            final = _build_response(response)
+            final = _finalize(request, response)
             _clear_mb_session_cookie(final)
             return final
 
-        return _build_response(response)
+        return _finalize(request, response)
 
     except Exception:
         logger.error("Metabase proxy error for %s", target_path, exc_info=True)
@@ -266,6 +315,21 @@ async def _do_proxy(
     return await client.request(method=method, url=url, headers=proxy_headers, content=body)
 
 
+def _is_html_document(request: Request, response: httpx.Response) -> bool:
+    """True for a successful GET that returned an HTML document (not JSON/assets/errors)."""
+    content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+    return request.method == "GET" and response.status_code == 200 and content_type == "text/html"
+
+
+def _finalize(request: Request, response: httpx.Response) -> Response:
+    """Build the outgoing response, adding the recovery script to HTML documents only."""
+    final = _build_response(response)
+    if _is_html_document(request, response):
+        final.body = inject_recovery_script(bytes(final.body))
+        final.headers["content-length"] = str(len(final.body))
+    return final
+
+
 _SKIP_HEADERS = frozenset(("content-encoding", "transfer-encoding", "content-length"))
 
 
@@ -310,11 +374,10 @@ def _build_response(proxy_response: httpx.Response) -> Response:
 # ==============================================================================
 
 
-@router.api_route("/api/health", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+@router.get("/api/health")
 async def metabase_api_health(request: Request) -> Response:
-    """Proxy Metabase health check API."""
-    session_id = _get_user_mb_session(request)
-    return await proxy_to_metabase(request, "/api/health", session_id)
+    """Proxy the Metabase health check (GET only; the route is public, so no session is sent)."""
+    return await proxy_to_metabase(request, "/api/health")
 
 
 @router.api_route("/api/session", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
@@ -357,6 +420,16 @@ async def metabase_public_assets(request: Request, path: str) -> Response:
 async def metabase_styles(request: Request) -> Response:
     """Proxy Metabase styles.css."""
     return await proxy_to_metabase(request, "/styles.css")
+
+
+@router.get(RECOVERY_SCRIPT_PATH)
+async def metabase_recovery_script() -> Response:
+    """Serve the Dango-owned browser recovery script (registered before the catch-all)."""
+    return Response(
+        content=RECOVERY_SCRIPT,
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @router.api_route(

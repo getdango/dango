@@ -12,6 +12,13 @@ import duckdb
 import jinja2
 
 from dango.config.models import DataSource
+from dango.utils.dbt_escaping import (
+    comment_text,
+    jinja_string_literal,
+    needs_identifier_quoting,
+    neutralize_jinja,
+    yaml_scalar,
+)
 
 
 def _has_not_null_test(tests: list) -> bool:
@@ -25,10 +32,14 @@ def _has_not_null_test(tests: list) -> bool:
 
 
 def _quote_column_name(name: str) -> str:
-    """Double-quote a column name if it contains special characters."""
-    if name and all(c.isalnum() or c == "_" for c in name):
+    """Double-quote a column name unless it is a plain, non-keyword identifier.
+
+    Names with special characters, names starting with a digit and DuckDB
+    keywords are quoted; embedded double quotes are doubled.
+    """
+    if not needs_identifier_quoting(name):
         return name
-    return f'"{name}"'
+    return '"' + name.replace('"', '""') + '"'
 
 
 def _strip_generated_timestamp(content: str) -> str:
@@ -82,6 +93,11 @@ class DbtModelGenerator:
             trim_blocks=True,
             lstrip_blocks=True,
         )
+        # Filters that keep data-derived strings from being rendered as Jinja by dbt.
+        self.jinja_env.filters["ysc"] = yaml_scalar
+        self.jinja_env.filters["nq"] = needs_identifier_quoting
+        self.jinja_env.filters["cmt"] = comment_text
+        self.jinja_env.filters["jsl"] = jinja_string_literal
 
     def is_auto_generated(self, model_path: Path) -> bool:
         """
@@ -371,7 +387,7 @@ class DbtModelGenerator:
             prepared_columns.append(
                 {
                     "name": col["name"],
-                    "quoted_name": _quote_column_name(col["name"]),
+                    "quoted_name": neutralize_jinja(_quote_column_name(col["name"])),
                 }
             )
 

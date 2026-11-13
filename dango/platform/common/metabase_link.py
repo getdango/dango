@@ -130,9 +130,11 @@ def link_metabase_admin(project_root: Path, admin_email: str) -> None:
         _write_password_free_metadata(project_root, metadata)
         _store_sso_password(project_root, db_path, dango_user.id, mb_user["id"], password)
         logger.info("metabase_admin_linked", email=admin_email, metabase_user_id=mb_user["id"])
-    except Exception:
-        # Non-critical — SSO bridge will lazy-sync on next login.
-        pass
+    except Exception as exc:
+        # Non-critical — SSO bridge will lazy-sync on next login. Log the type only (no secrets).
+        from dango.logging import get_logger as _get_logger
+
+        _get_logger(__name__).warning("metabase_admin_link_failed", error_type=type(exc).__name__)
 
 
 def _write_password_free_metadata(project_root: Path, metadata: dict[str, Any]) -> dict[str, Any]:

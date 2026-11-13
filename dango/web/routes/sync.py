@@ -26,6 +26,7 @@ from dango.platform.scheduling.history import (
     record_failure,
     record_start,
 )
+from dango.utils.redact import redact_project_text
 from dango.validation import (
     parse_backfill_duration,
     validate_date_string,
@@ -46,12 +47,19 @@ router = APIRouter(tags=["sync"])
 
 
 @router.post("/api/sources/{source_name}/sync", response_model=SyncResponse)
-async def trigger_sync(source_name: str, sync_request: SyncRequest) -> SyncResponse:
+async def trigger_sync(
+    request: Request,
+    source_name: str,
+    sync_request: SyncRequest,
+    user: User = Depends(require_permission("source.sync")),
+) -> SyncResponse:
     """Trigger sync for a specific source.
 
     Args:
+        request: Incoming request (client address for the audit event)
         source_name: Name of the source to sync
         sync_request: Sync parameters (full_refresh, date range)
+        user: Authenticated user holding ``source.sync``
 
     Returns:
         Sync response with status
@@ -79,6 +87,17 @@ async def trigger_sync(source_name: str, sync_request: SyncRequest) -> SyncRespo
             sync_request.end_date,
             allow_empty_replace=sync_request.allow_empty_replace,
         )
+    )
+
+    log_auth_event(
+        AuditEvent.SYNC_TRIGGERED,
+        user_id=user.id,
+        email=user.email,
+        ip=request.client.host if request.client else None,
+        details={
+            "sources": [source_name],
+            "full_refresh": sync_request.full_refresh,
+        },
     )
 
     return SyncResponse(
@@ -158,6 +177,8 @@ async def run_sync_task(
         # Calculate duration
         duration = time.time() - start_time
         error_message = result.get("error") if result else None
+        if error_message:
+            error_message = redact_project_text(project_root, str(error_message))
 
         # Sync history is saved by the subprocess (dlt_runner.py run_source).
         # Do NOT save again here — it creates duplicate records.
@@ -174,7 +195,7 @@ async def run_sync_task(
 
     except Exception as e:
         _logger.warning("sync_task_error", source=source_name, error=str(e), exc_info=True)
-        error_message = str(e)
+        error_message = redact_project_text(project_root, str(e))
 
         duration = time.time() - start_time
         append_log_entry(
@@ -347,12 +368,12 @@ async def _run_manual_sync(
         # the chance (crash, timeout, poller-detected failure).
         if not success:
             error = _result.get("error", "Unknown error") if _result else "Unknown error"
-            record_failure(db_path, record_id, error)
+            record_failure(db_path, record_id, redact_project_text(project_root, str(error)))
 
         cleanup_sync_status(project_root, sync_id=sync_id)
     except Exception as exc:
         _logger.warning("manual_sync_failed", error=str(exc), exc_info=True)
-        record_failure(db_path, record_id, str(exc))
+        record_failure(db_path, record_id, redact_project_text(project_root, str(exc)))
         if sync_id is not None:
             cleanup_sync_status(project_root, sync_id=sync_id)
 

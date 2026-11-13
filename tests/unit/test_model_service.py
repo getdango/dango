@@ -154,7 +154,7 @@ def test_validate_seed_and_snapshot_refs_allowed(proj: Path) -> None:
     _write(proj, "dbt/seeds/countries.csv", "a\n1\n")
     _write(proj, "dbt/snapshots/snap_orders.sql", "select 1")
     sql = "select * from {{ ref('countries') }}, {{ ref('snap_orders') }}"
-    validate_model_sql(proj, "fct_x", "marts", sql)
+    assert validate_model_sql(proj, "fct_x", "marts", sql) == []  # does-not-raise: refs resolve
 
 
 def test_validate_warnings(proj: Path) -> None:
@@ -431,7 +431,8 @@ def test_find_cycle_handles_reconverging_dag(proj: Path) -> None:
             _write(proj, f"dbt/models/intermediate/{n}.sql", f"select * from {refs}")
         prev = names
     refs = " ".join("{{ ref('" + p + "') }}" for p in prev)
-    validate_model_sql(proj, "fct_top", "marts", f"select * from {refs}")  # must return quickly
+    result = validate_model_sql(proj, "fct_top", "marts", f"select * from {refs}")
+    assert result == []  # does-not-raise: reconverging DAG completes
 
 
 def test_update_docs_only_leaves_sql_bytes_untouched(proj: Path) -> None:

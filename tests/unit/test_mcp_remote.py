@@ -105,7 +105,7 @@ def test_remote_logs_redacts_and_caps(deployed: Any) -> None:
     assert out["lines"][-1].startswith("line 399")
 
     def _metabase(cmd: str) -> SimpleNamespace:
-        if cmd.startswith("cat "):
+        if "project.yml" in cmd:
             return _res(stdout="project:\n  id: ab12cd34ef56\n")
         if cmd.startswith("docker ps"):
             return _res(stdout="dango-ab12cd34-metabase-1")
@@ -172,7 +172,7 @@ def test_remote_query_masks_union_of_local_and_remote_pii(
     # both remote commands run as the dango user from the project dir
     for cmd, _ in deployed.ssh.commands:
         assert cmd.startswith(
-            "cd /srv/dango/project && sudo -u dango -H /srv/dango/venv/bin/python3 -c "
+            "cd /srv/dango/project && sudo -u dango -H /srv/dango/venv/bin/python3 -I -c "
         )
     q = deployed.ssh.commands[0]
     assert q[1]["timeout"] == 40 and q[0].endswith(f" {shlex.quote('SELECT * FROM t')} 30")
@@ -244,8 +244,8 @@ def test_remote_sync_builds_cli_command(deployed: Any, known_source: str) -> Non
         "backfill_days": 14,
     }
     expected = (
-        "cd /srv/dango/project && sudo -u dango -H env DANGO_CLOUD_MODE=true"
-        " /srv/dango/venv/bin/python3 -m dango.platform.scheduling.sync_trigger "
+        "cd / && runuser -u dango -- env DANGO_CLOUD_MODE=true DANGO_PROJECT_ROOT=/srv/dango/project DLT_DATA_DIR=/srv/dango/project/.dlt"
+        " /srv/dango/venv/bin/python3 -I -m dango.platform.scheduling.sync_trigger "
         + shlex.quote(json.dumps(payload))
     )
     assert deployed.ssh.commands == [(expected, {"timeout": 3600, "check": False})]
@@ -261,8 +261,11 @@ def test_remote_sync_no_wait_uses_background_launcher(deployed: Any, known_sourc
     cmd, kw = deployed.ssh.commands[0]
     assert cmd.startswith("sh -c ")
     script = shlex.split(cmd)[2]
-    assert script.startswith("cd /srv/dango/project || {")
-    assert "\nnohup sudo -u dango -H env DANGO_CLOUD_MODE=true" in script
+    assert script.startswith("cd / || {")
+    assert (
+        "\nnohup runuser -u dango -- env DANGO_CLOUD_MODE=true DANGO_PROJECT_ROOT=/srv/dango/project DLT_DATA_DIR=/srv/dango/project/.dlt "
+        in script
+    )
     assert "nohup cd" not in script and "> /dev/null 2>&1 &\n" in script
     assert kw == {"timeout": 30, "check": False}
     assert out == {"status": "started", "source": known_source}

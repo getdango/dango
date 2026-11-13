@@ -15,7 +15,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from dango.web.routes.health import router
@@ -34,6 +34,12 @@ def _make_app(project_root: Path) -> FastAPI:
     app = FastAPI()
     app.state.project_root = project_root
     app.state.scheduler = None
+
+    @app.middleware("http")
+    async def _auth_disabled(request: Request, call_next: Any) -> Any:
+        request.state.auth_disabled = True  # permission is covered in the route-permission tests
+        return await call_next(request)
+
     app.include_router(router)
     return app
 
