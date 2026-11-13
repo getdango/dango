@@ -1,0 +1,176 @@
+// tests/integration/t44a_qualification/app_actor.cjs
+// Real normal API actors and CLI; credentials/cookies remain in memory, never evidence.
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const crypto = require('node:crypto');
+const {spawnSync} = require('node:child_process');
+const {secret} = require('./app_runtime_smoke.cjs');
+const {runHeldReader} = require('./held_actor.cjs');
+const URL_BASE = 'http://127.0.0.1:8080';
+const s = secret();
+const privateValues = Object.values(s);
+const evidence = {status: 'FAIL', requests: [], queries: []};
+function safe(text) {
+  assert.ok(!privateValues.some(v => text.includes(v)), 'Raw credential exposure');
+  return text;
+}
+async function api(jar, method, path, body, expected = 200) {
+  const response = await fetch(URL_BASE + path, {method,
+    headers: {'Content-Type': 'application/json', Origin: URL_BASE, Cookie: jar.cookie || ''},
+    body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(90000)});
+  const cookies = response.headers.getSetCookie();
+  if (cookies.length) {
+    jar.cookie = cookies.map(c => c.split(';', 1)[0]).join('; ');
+    privateValues.push(...[jar.cookie, ...cookies.map(c => c.split(';', 1)[0].split('=').slice(1).join('='))].filter(Boolean));
+  }
+  const text = await response.text();
+  evidence.requests.push({method, path, status: response.status});
+  if (response.status !== expected) {
+    safe(text); throw new Error(method + ' ' + path + ': HTTP' + response.status + ' ' + text.slice(0, 4096));
+  }
+  const payload = text ? JSON.parse(text) : undefined;
+  if (expected === 403) {
+    safe(text);
+    assert.equal(payload.status, 'error');
+    assert.equal(payload.error.statusCode, 403);
+    assert.equal(payload.error.name, 'ForbiddenError');
+    assert.equal(typeof payload.error.message, 'string');
+    (evidence.denials ||= []).push({method, path, status: response.status,
+      error: {name: payload.error.name, message: payload.error.message}});
+  }
+  return payload?.results;
+}
+async function reviewerPermissionProbe(owner, projectUuid, spaceUuid, chartUuid, editorUuid, metricQuery) {
+  const fresh = {};
+  await api(fresh, 'POST', '/api/v1/login', {email: 'editor@t44a.invalid', password: s.editorPassword});
+  const before = await api(fresh, 'GET', '/api/v1/user');
+  assert.equal(before.userUuid, editorUuid); assert.equal(before.role, 'member');
+  const submitted = await api(fresh, 'POST', '/api/v2/projects/' + projectUuid + '/query/metric-query',
+    {query: metricQuery, context: 'exploreView', invalidateCache: true});
+  let completed;
+  for (let n = 0; n < 180; n++) {
+    const result = await api(fresh, 'GET', '/api/v2/projects/' + projectUuid + '/query/' + submitted.queryUuid);
+    if (result.status === 'ready') { completed = result; break; }
+    assert.ok(!['error', 'expired', 'cancelled'].includes(result.status), 'Reviewer query control failed');
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  assert.ok(completed, 'Reviewer query control deadline'); assert.equal(completed.rows.length, 1);
+  assert.equal(Number(completed.rows[0].orders_total_amount.value.raw), 350);
+  const chartPath = '/api/v1/saved/' + chartUuid + '/results';
+  const ownerResult = await api(owner, 'POST', chartPath, {});
+  assert.equal(Number(ownerResult.rows[0].orders_total_amount.value.raw), 350);
+  await api(fresh, 'POST', chartPath, {}, 403);
+  const deniedBefore = evidence.denials.at(-1);
+  const sharePath = '/api/v1/projects/' + projectUuid + '/spaces/' + spaceUuid + '/share';
+  await api(owner, 'POST', sharePath, {userUuid: editorUuid, spaceRole: 'viewer'});
+  const shared = await api(fresh, 'POST', chartPath, {});
+  assert.equal(Number(shared.rows[0].orders_total_amount.value.raw), 350);
+  await api(owner, 'DELETE', sharePath + '/' + editorUuid);
+  await api(fresh, 'POST', chartPath, {}, 403);
+  const deniedAfter = evidence.denials.at(-1);
+  const after = await api(fresh, 'GET', '/api/v1/user');
+  assert.equal(after.userUuid, editorUuid); assert.equal(after.role, 'member');
+  evidence.reviewerPermissionProbe = {userUuid: editorUuid, orgRole: after.role,
+    projectUuid, spaceUuid, chartUuid, queryUuid: submitted.queryUuid, queryControl: 350,
+    ownerControl: 350, deniedBefore, sharedResult: 350, deniedAfter, finalIdentityStatus: 200};
+}
+async function main() {
+  for (let n = 0; ; n++) {
+    try { const r = await fetch(URL_BASE + '/api/v1/health', {signal: AbortSignal.timeout(2000)});
+      if (r.ok) break; } catch { /* real service readiness */ }
+    assert.ok(n < 180, 'App readiness deadline'); await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  const page = await fetch(URL_BASE + '/'); assert.equal(page.status, 200);
+  const html = await page.text(); assert.ok(html.includes('lightdash-build-hash'));
+  const asset = html.match(/(?:src|href)="(\/assets\/[^" ]+\.js)"/);
+  assert.ok(asset, 'Built frontend script asset missing');
+  const response = await fetch(URL_BASE + asset[1]); assert.equal(response.status, 200);
+  const bytes = Buffer.from(await response.arrayBuffer()); assert.ok(bytes.length > 0);
+  evidence.frontend = {index_sha256: crypto.createHash('sha256').update(html).digest('hex'),
+    asset: asset[1], asset_sha256: crypto.createHash('sha256').update(bytes).digest('hex')};
+  const owner = {};
+  await api(owner, 'POST', '/api/v1/user', {firstName: 'Synthetic', lastName: 'Owner',
+    email: 'owner@t44a.invalid', password: s.ownerPassword});
+  await api(owner, 'PUT', '/api/v1/org', {name: 'Owned T44A qualification'});
+  const ownerIdentity = await api(owner, 'GET', '/api/v1/user');
+  assert.equal(ownerIdentity.role, 'admin');
+  const project = await api(owner, 'POST', '/api/v1/org/projects', {
+    name: 'Native DuckLake first slice', type: 'DEFAULT', dbtConnection: {type: 'none'},
+    dbtVersion: 'v1.12', warehouseConnection: {type: 'duckdb', connectionType: 'ducklake',
+      catalog: {type: 'postgres', host: '127.0.0.1', port: 5432, database: 'probe', user: 'postgres', password: s.pg},
+      dataPath: {type: 'local', path: '/work/held-data'}, catalogAlias: 'lake', schema: 'sales', threads: 2}});
+  const projectUuid = project.project.projectUuid; assert.match(projectUuid, /^[0-9a-f-]{36}$/);
+  const token = await api(owner, 'POST', '/api/v1/user/me/personal-access-tokens', {
+    description: 'Owned qualification CLI', expiresAt: new Date(Date.now() + 3600000).toISOString(), autoGenerated: true});
+  privateValues.push(token.token);
+  const cli = spawnSync(process.execPath, ['/work/app/project/packages/cli/dist/index.js', '--non-interactive',
+    'deploy', '--project', projectUuid, '--project-dir', '/work/project', '--target-path', '/work/project/target',
+    '--skip-dbt-compile', '--skip-warehouse-catalog'], {encoding: 'utf8', timeout: 180000, maxBuffer: 8 * 1024 ** 2,
+    env: {...process.env, LIGHTDASH_URL: URL_BASE, LIGHTDASH_API_KEY: token.token, LIGHTDASH_DBT_VERSION: 'dbt-oss 2.0.8',
+      HOME: '/work/actor-home', XDG_CONFIG_HOME: '/work/actor-home/config', XDG_CACHE_HOME: '/work/actor-home/cache'}});
+  const output = safe((cli.stdout || '') + (cli.stderr || ''));
+  evidence.cli = {status: cli.status, stdout: cli.stdout, stderr: cli.stderr,
+    genuine_dbt_version: 'dbt-oss 2.0.8', supported_metadata_fallback: 'v1.12'};
+  assert.equal(cli.status, 0, 'Normal CLI deploy failed: ' + output.slice(-4096));
+  const invite = await api(owner, 'POST', '/api/v1/invite-links', {role: 'member', email: 'editor@t44a.invalid',
+    expiresAt: new Date(Date.now() + 3600000).toISOString()}, 201);
+  await api(owner, 'POST', '/api/v1/projects/' + projectUuid + '/access',
+    {role: 'editor', email: 'editor@t44a.invalid', sendEmail: false});
+  const editor = {};
+  await api(editor, 'POST', '/api/v1/user', {inviteCode: invite.inviteCode,
+    firstName: 'Ordinary', lastName: 'Editor', password: s.editorPassword});
+  await api(editor, 'POST', '/api/v1/login', {email: 'editor@t44a.invalid', password: s.editorPassword});
+  const identity = await api(editor, 'GET', '/api/v1/user');
+  assert.equal(identity.role, 'member'); assert.notEqual(identity.userUuid, ownerIdentity.userUuid);
+  evidence.ordinaryActor = {userUuid: identity.userUuid, orgRole: identity.role, assignedProjectRole: 'editor'};
+  const metricQuery = {exploreName: 'orders', dimensions: [], metrics: ['orders_total_amount'], filters: {},
+    limit: 100, sorts: [], tableCalculations: [], additionalMetrics: []};
+  async function query(filters, expected) {
+    const query = {...metricQuery, filters};
+    const compiled = await api(editor, 'POST', '/api/v1/projects/' + projectUuid + '/explores/orders/compileQuery', query);
+    assert.equal(typeof compiled.query, 'string'); assert.ok(compiled.query.length);
+    assert.ok(!compiled.compilationErrors?.length);
+    const submitted = await api(editor, 'POST', '/api/v2/projects/' + projectUuid + '/query/metric-query',
+      {query, context: 'exploreView', invalidateCache: true});
+    let ready;
+    for (let n = 0; n < 180; n++) {
+      const result = await api(editor, 'GET', '/api/v2/projects/' + projectUuid + '/query/' + submitted.queryUuid);
+      if (result.status === 'ready') { ready = result; break; }
+      assert.ok(!['error', 'expired', 'cancelled'].includes(result.status), 'Async query failed');
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    assert.ok(ready, 'Completed query required'); assert.equal(ready.rows.length, 1);
+    assert.equal(Number(ready.rows[0].orders_total_amount.value.raw), expected);
+    evidence.queries.push({expected, queryUuid: submitted.queryUuid, generatedSQL: compiled.query, result: ready});
+  }
+  await query({}, 350);
+  await query({dimensions: {id: crypto.randomUUID(), and: [
+    {id: crypto.randomUUID(), target: {fieldId: 'orders_order_date_day'}, operator: 'greaterThanOrEqual', values: ['2026-09-01']},
+    {id: crypto.randomUUID(), target: {fieldId: 'orders_order_date_day'}, operator: 'lessThan', values: ['2026-10-01']}]}}, 300);
+  const space = await api(owner, 'POST', '/api/v1/projects/' + projectUuid + '/spaces', {name: 'Owner private'});
+  assert.equal(space.inheritParentPermissions, false);
+  const chart = await api(owner, 'POST', '/api/v1/projects/' + projectUuid + '/saved', {
+    name: 'Private synthetic metric', tableName: 'orders', metricQuery,
+    tableConfig: {columnOrder: ['orders_total_amount']},
+    chartConfig: {type: 'cartesian', config: {layout: {}, eChartsConfig: {}}}, spaceUuid: space.uuid});
+  const ownerResult = await api(owner, 'POST', '/api/v1/saved/' + chart.uuid + '/results', {});
+  assert.equal(Number(ownerResult.rows[0].orders_total_amount.value.raw), 350);
+  await api(editor, 'POST', '/api/v1/saved/' + chart.uuid + '/results', {}, 403);
+  evidence.privateResult = {ownerAccessible: true, editorStatus: 403, chartUuid: chart.uuid};
+  await reviewerPermissionProbe(owner, projectUuid, space.uuid, chart.uuid, identity.userUuid, metricQuery);
+  fs.writeFileSync('/work/held-baseline-ready', 'read-only-oracles-complete\n');
+  for (let n = 0; !fs.existsSync('/work/held-baseline-verified'); n++) {
+    assert.ok(n < 900, 'Host invariance verification deadline');
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  await runHeldReader({api, editor, projectUuid, identity, safe});
+  evidence.status = 'PASS_FIRST_RUNNING_APP_SLICE';
+}
+main().catch(error => {
+  const message = String(error); evidence.error = privateValues.reduce((s, v) => s.split(v).join('[REDACTED]'), message);
+  process.exitCode = 1;
+}).finally(() => {
+  fs.rmSync('/work/actor-home', {recursive: true, force: true});
+  const data = JSON.stringify(evidence, null, 2); safe(data);
+  fs.writeFileSync('/work/app-slice.json', data + '\n'); console.log(evidence.status);
+});
