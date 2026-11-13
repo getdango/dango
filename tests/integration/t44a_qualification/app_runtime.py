@@ -5,7 +5,6 @@ First real complete-app slice, using the frozen launcher and audited resource up
 
 import importlib
 import json
-import re
 import secrets
 import sys
 import tarfile
@@ -15,6 +14,7 @@ from pathlib import Path
 
 from app_build import build_outputs, verify_build_update
 from canvas_prebuild import load_inventory, verify_archive
+from held_reader import EXTRA_PEAK, export_reports, install_gate, pg_snapshot, run_actor
 from run import PINS, disk_gate, download, image_present, sha
 from runtime_cleanup import cleanup_runtime_storage
 
@@ -182,6 +182,9 @@ def main():
             "diagnostic.py",
             "app-profile.json",
             "runtime_cleanup.py",
+            "held_reader.py",
+            "held_actor.cjs",
+            "producer_capture.py",
         ]
     }
     result = {"status": "FAIL", "full_app": "UNRUN", "fixture": "UNRUN", "profiles": PROFILES}
@@ -212,33 +215,6 @@ def main():
         finally:
             path.unlink()
 
-    def pg_snapshot():
-        raw = rig.call(
-            [
-                "docker",
-                "exec",
-                rig.pg,
-                "pg_dump",
-                "--host=127.0.0.1",
-                "--username=postgres",
-                "--dbname=probe",
-                "--no-owner",
-                "--no-acl",
-            ]
-        ).stdout
-        # PostgreSQL emits random psql restriction tokens on otherwise identical dumps.
-        normalized = "\n".join(
-            line
-            for line in raw.splitlines()
-            if not re.fullmatch(r"\\(?:un)?restrict [A-Za-z0-9]+", line)
-        )
-        files = {
-            p.relative_to(root / "fixture/data").as_posix(): sha(p.read_bytes())
-            for p in (root / "fixture/data").rglob("*.parquet")
-        }
-        assert files
-        return {"catalog_dump_sha256": sha(normalized.encode()), "parquet": files}
-
     try:
         rig.docker_root = Path(
             json.loads(rig.call(["docker", "info", "--format", "{{json .DockerRootDir}}"]).stdout)
@@ -256,6 +232,7 @@ def main():
         )
         # Download + local archive copy, installed files + one full extraction/temp copy.
         remaining += 2 * canvas["compressed"] + 2 * canvas["allocated_upper"]
+        remaining += EXTRA_PEAK  # New branch/gate and both bounded evidence copies.
         result["remaining_runtime_upper"] = remaining
         disk_gate(rig, remaining, "before-fresh-runtime-artifacts-images-and-fixture")
         for role, pin in PINS["images"].items():
@@ -278,6 +255,8 @@ def main():
             ("fixture/data", "work/prior-fixture-data"),
             ("work/project", "work/prior-dbt-project"),
             ("home/adbc", "work/prior-adbc"),
+            ("work/dlt-data", "work/prior-dlt-data"),
+            ("work/dlt-project", "work/prior-dlt-project"),
         ]:
             assert (root / old).is_dir() and not (root / new).exists()
             rig.call(["sudo", "mv", str(root / old), str(root / new)])
@@ -312,6 +291,8 @@ def main():
             "diagnostic.py",
             "app-profile.json",
             "canvas-prebuild.json",
+            "held_reader.py",
+            "held_actor.cjs",
         ]:
             install(HERE / name, root / "scripts" / name)
         for artifact, url in [
@@ -394,11 +375,21 @@ def main():
                 "CREATE DATABASE lightdash",
             ]
         )
+        install_gate(rig)
         rig.component = "fixture"
         rig.run("producer", ["-c", "/work/venv/bin/python /scripts/smoke.py postgres"], smoke=True)
         rig.smokes["producer"] = rig.signature("producer")
         disk_gate(rig, remaining, "before-real-dbt-fresh-runtime-fixture")
-        rig.run("producer", ["-c", "/work/venv/bin/python /scripts/diagnostic.py"], timeout=900)
+        rig.run(
+            "producer",
+            [
+                "-c",
+                "/work/venv/bin/python /scripts/diagnostic.py --held-reader-fixture"
+                " && /work/venv/bin/python /scripts/producer_capture.py"
+                " && /work/venv/bin/python /scripts/held_reader.py prepare",
+            ],
+            timeout=900,
+        )
         result["fixture"] = "PASS_REAL_DBT_WITH_COLUMN_METRIC_YAML"
         manifest = json.loads((root / "work/project/target/manifest.json").read_text())
         model = manifest["nodes"]["model.t44a_probe.orders"]
@@ -408,7 +399,7 @@ def main():
             n: sha((root / "work/project/target" / n).read_bytes())
             for n in ["manifest.json", "run_results.json", "catalog.json"]
         }
-        result["catalog_before"] = pg_snapshot()
+        result["catalog_before"] = pg_snapshot(rig)
         for component in ["garage", "app", "actor"]:
             rig.component = component
             heap = PROFILES[component][2]
@@ -437,15 +428,11 @@ def main():
         rig.start_owned(names["garage"])
         rig.start_owned(names["app"])
         result["full_app"] = "STARTED_NOT_YET_ACCEPTED"
-        rig.start_owned(names["actor"], attached=True)
+        run_actor(rig, names["actor"], install, result)
         actor = json.loads((root / "work/app-slice.json").read_text())
         assert actor["status"] == "PASS_FIRST_RUNNING_APP_SLICE"
         result["canvas_prebuild"]["installation"] = (
             "PASS_OFFLINE_INSTALL_HASHES_LOAD_PNG_REQUIRED_BEFORE_ACCEPTED_APP"
-        )
-        result["catalog_after"] = pg_snapshot()
-        assert result["catalog_before"] == result["catalog_after"], (
-            "Read-only catalog/parquet changed"
         )
         disk_gate(rig, 0, "after-first-real-running-app-slice")
         result["status"] = "PASS_FIRST_RUNNING_APP_SLICE"
@@ -454,6 +441,7 @@ def main():
         result["error"] = str(error)
     finally:
         try:
+            export_reports(rig, generated, disk_gate)
             candidate = root / "work/app-slice.json"
             if candidate.exists():
                 data = candidate.read_bytes()

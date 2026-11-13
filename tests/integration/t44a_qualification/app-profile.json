@@ -423,5 +423,25 @@
       "Actual source file changes id2 200->210, real second dlt load raw360/3keys/newsource/state/load IDs; captured and actor rows/snapshot/file identities remain350 exactly"
     ],
     "limitations": "Scratch native producer/capture only, not integrated Dango protocol or security/tenancy; held-reader gap and all other UNRUN groups unchanged."
+  },
+  "held_reader": {
+    "state": "CANDIDATE_NATIVE_UNRUN_PREEXECUTION_REVIEW_REQUIRED",
+    "scope": "Ordinary full-app held350/fresh360 snapshot discriminator only; six scoped passes retained, no integrated Dango or shipping claim.",
+    "source_order": "Exact DuckDB2 d54cbbe3df17e8e5ce68312f483b4155836112aa base-table RegisterDBRead in persisted-view child binder; EXECUTE checks read catalog in new transaction; DuckLake417a9117f5 GetCatalogVersion/GetSnapshot precedes scheduled postgres_query row execution. Prepare-only and job/cache states are not witnesses.",
+    "fixture": "Reuse exact source-dlt d220927d13a79740ac799419d08ed9847f7b5069 and unchanged frozen dbt/dbc closures. A48-artifact union rejects differing bytes for the same file. Genuine producer raw350\u2192360 preserves captured/actor350; working branch copies selected actor350 with real native SQL and genuine dbt view/YAML artifacts. Initial normal diagnostic retains the expected original dbt/ADBC paths; fresh runtime moves original dlt pipeline/project state to owned prior-* alongside prior PG/data before recreating source fixture.",
+    "storage": "Captured inputs remain /fixture RO in actor. Only deliberate working branch data uses existing /work/held-data RW. No mount/user/security/resource/engine/source/lock change.",
+    "gate": "Normal owned PG VOLATILE function t44a_held_gate(key) returns0 after transaction advisory lock. Persisted held_orders references real orders, snapshot id and indispensable PGzero. Internal __ducklake_metadata_lake is an exact-revision fixture dependency, not public API or security support.",
+    "admission": "One ordinary editor request, compiledSQL hash and UUID, unique per-fixture key/view definition hash; exact executing COPY(SELECT gate(key) AS zero) string, one active wait PID, exact owner blocker. PQprepare/SELECT-only, other key/PID/blocker, multiple waiters, pruning/cache/completion beforehold fail before native commit.",
+    "oracles": "Preserve350/Sept300/private403, NB permission and S3 probes plus whole probe catalog/Parquet invariance BEFORE handshake permits mutation. One transaction350/7/350/r0\u2192360/8/360/r1, snapshot+1, captured metadata/Parquet unchanged; exact waiter remains blocked after commit. Release then heldsameUUID350/r0, freshdifferentUUID360/r1, sameSQLhash/editor/appID/PID/StartedAt/restartcount.",
+    "limits": "Existing4352MiB/4CPU runtime only. Writer128MB memory_limit/one thread within existing actor1024MiB alongside existing Node640MiB heap; actual cgroup remains1GiB. No extra process outside profiles/service/container. Standard inherited timeout cleanup guard, no authority subcap.",
+    "fit": {
+      "additional_peak_bytes": 67108864,
+      "physical_fixture_max_bytes": 54525952,
+      "reports": "Three <=2MiB reports plus original/export copies reserve12MiB; incremental export measures exact bytes before/after. Existing remaining runtime bounds cover PG/data/tmpfs/logs; fresh wholeowned/images/remaining+2GiB<=30e9 and actualdf gate before growth. Native fit is UNRUN.",
+      "initial_remaining_upper": 6515318096,
+      "additional_dlt_artifact_bound_vs_prior_full_app": 889403579,
+      "prior_actual_based_runtime_projection_including_extra_dlt_and_64MiB": 17374574974
+    },
+    "failure": "Unknown metadata attachment/view/decoder/SQL format/order/profile/identity errors remain fail-closed and preserve receipts; no fallback or product patch. New native results UNRUN until reviewed Ubuntu execution."
   }
 }

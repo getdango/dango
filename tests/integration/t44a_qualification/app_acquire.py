@@ -20,6 +20,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from held_reader import require_acquisition_prerequisite
 from run import PINS, disk_gate, sha
 
 HERE = Path(__file__).resolve().parent
@@ -157,9 +158,7 @@ def main():
     """Follow the proven diagnostic with bounded public acquisition, then stop."""
     root, baseline = [Path(p).resolve() for p in sys.argv[1:]]
     assert platform.system() == "Linux" and platform.machine() == "x86_64"
-    assert json.loads((root / "evidence/result.json").read_text())["status"] == (
-        "PASS_DBT_DRIVER_DIAGNOSTIC"
-    ), "Prior real native diagnostic must pass"
+    require_acquisition_prerequisite(root)
     assert not any(p.is_file() for p in (root / "secrets").rglob("*")), "Prior secret cleanup"
     base = baseline / "tests/integration/lightdash_probe"
     assert sha((base / "runtime.py").read_bytes()) == PINS["baseline_runtime_sha256"]

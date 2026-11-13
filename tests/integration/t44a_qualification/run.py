@@ -22,6 +22,7 @@ from dbt_publication import export_candidates as publication_exports
 from dlt_source import artifacts as dlt_artifacts
 from dlt_source import install_command as dlt_install_command
 from dlt_source import remaining as dlt_remaining
+from held_reader import PREREQUISITE, artifact_union, prerequisite
 from native_namespaces import EXTRA_PEAK as NAMESPACES_PEAK
 
 HERE = Path(__file__).resolve().parent
@@ -79,7 +80,7 @@ def stage(rig):
     """Populate only the exact small diagnostic artifacts; no full app acquisition."""
     artifacts = rig.root / "tools/artifacts"
     artifacts.mkdir()
-    for pin in dlt_artifacts(PINS) if rig.producer_capture else PINS["artifacts"]:
+    for pin in rig.artifact_pins:
         disk_gate(rig, rig.remaining, "before-artifact-" + pin["file"])
         path = artifacts / pin["file"]
         path.write_bytes(download(pin["url"], pin["sha256"], pin["compressed"]))
@@ -158,7 +159,15 @@ def main():
     """Run one standard isolated dbt diagnostic and capture before owned cleanup."""
     assert len(sys.argv) in {3, 4}
     producer_capture = len(sys.argv) == 4
-    assert not producer_capture or sys.argv[3] == "--producer-capture"
+    assert not producer_capture or sys.argv[3] in {"--producer-capture", "--held-reader"}
+    held_reader = producer_capture and sys.argv[3] == "--held-reader"
+    expected_status = (
+        PREREQUISITE
+        if held_reader
+        else "PASS_SOURCE_PINNED_DLT_DUCKLAKE_CAPTURE"
+        if producer_capture
+        else "PASS_DBT_DRIVER_DIAGNOSTIC"
+    )
     root, baseline = [Path(p).resolve() for p in sys.argv[1:3]]
     assert not root.exists(), "Task root must be fresh"
     code = baseline / "tests/integration/lightdash_probe"
@@ -183,6 +192,13 @@ def main():
     print("::add-mask::" + admin, flush=True)
     rig = runtime.Rig(root, {"adminPassword": admin})
     rig.producer_capture = producer_capture
+    rig.artifact_pins = (
+        artifact_union(PINS, dlt_artifacts(PINS))
+        if held_reader
+        else dlt_artifacts(PINS)
+        if producer_capture
+        else PINS["artifacts"]
+    )
     rig.label = "t44a03-" + str(os.getpid())
     result = {
         "status": "FAIL",
@@ -199,6 +215,7 @@ def main():
                 "dbt_publication.py",
                 "native_namespaces.py",
                 "run.py",
+                "held_reader.py",
                 "pins.json",
             ]
             + DLT_FILES
@@ -228,6 +245,10 @@ def main():
         rig.remaining += NAMESPACES_PEAK
         if producer_capture:
             rig.remaining = dlt_remaining(PINS)
+            if held_reader:
+                rig.remaining += sum(
+                    p["compressed"] + 3 * p["expanded_upper"] for p in PINS["artifacts"]
+                )
         disk_gate(rig, rig.remaining, "before-public-acquisition-and-image-pulls")
         for role, pin in PINS["images"].items():
             existing[role] = image_present(rig, pin["ref"])
@@ -245,6 +266,7 @@ def main():
             "native_namespaces.py",
             "pins.json",
             "requirements.txt",
+            "held_reader.py",
         ] + DLT_FILES:
             shutil.copyfile(HERE / name, root / "scripts" / name)
             assert sha((root / "scripts" / name).read_bytes()) == sha((HERE / name).read_bytes())
@@ -266,7 +288,14 @@ def main():
             "installer",
             [
                 "-c",
-                dlt_install_command()
+                (
+                    dlt_install_command()
+                    + (
+                        " && /work/venv/bin/python -m pip install --no-index --find-links=/tools/artifacts --require-hashes --no-compile -r /scripts/requirements.txt"
+                        if held_reader
+                        else ""
+                    )
+                )
                 if producer_capture
                 else py
                 + " -m venv /work/venv && /work/venv/bin/python -m pip install --no-index --find-links=/tools/artifacts --require-hashes --no-compile -r /scripts/requirements.txt",
@@ -295,6 +324,8 @@ def main():
                 sha((root / "scripts" / name).read_bytes()) == result["qualification_inputs"][name]
             )
         result["native"] = "RAN"
+        if held_reader:
+            rig.run("producer", ["-c", "/work/venv/bin/python /scripts/diagnostic.py"], timeout=900)
         rig.run(
             "producer",
             [
@@ -309,6 +340,10 @@ def main():
             captured = json.loads((root / "work/producer-capture.json").read_text())
             assert captured["status"] == "PASS_SOURCE_PINNED_DLT_DUCKLAKE_CAPTURE"
             result["producer_capture"] = captured["status"]
+            if held_reader:
+                result["held_prerequisite"] = prerequisite(
+                    root / "work", root / "work/project/target"
+                )
         else:
             for file, field, expected in [
                 ("dbt-view.json", "dbt_view", "PASS_REAL_DBT_VIEW"),
@@ -328,11 +363,7 @@ def main():
                 assert proof["status"] == expected
                 result[field] = proof["status"]
         disk_gate(rig, 0, "after-native-diagnostic")
-        result["status"] = (
-            "PASS_SOURCE_PINNED_DLT_DUCKLAKE_CAPTURE"
-            if producer_capture
-            else "PASS_DBT_DRIVER_DIAGNOSTIC"
-        )
+        result["status"] = expected_status
     except Exception as error:
         result["error"] = str(error)
     finally:
@@ -360,11 +391,7 @@ def main():
         assert admin not in text
         (root / "evidence/result.json").write_text(text + "\n")
         rig.save()
-    assert result["status"] == (
-        "PASS_SOURCE_PINNED_DLT_DUCKLAKE_CAPTURE"
-        if producer_capture
-        else "PASS_DBT_DRIVER_DIAGNOSTIC"
-    ), "Diagnostic failed; sanitized evidence retained"
+    assert result["status"] == expected_status, "Diagnostic failed; sanitized evidence retained"
 
 
 if __name__ == "__main__":

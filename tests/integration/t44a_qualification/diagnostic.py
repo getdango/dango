@@ -45,12 +45,14 @@ def main():
         "Installed manifest driver path mismatch"
     )
     assert duckdb.__version__ == "2.0.0"
+    data_path = "/work/held-data" if "--held-reader-fixture" in sys.argv else "/fixture/data"
+    Path(data_path).mkdir(exist_ok=True)
     metadata = "postgres:host=127.0.0.1 port=5432 dbname=probe user=postgres"
     with duckdb.connect(config={"memory_limit": "512MB", "threads": "2"}) as connection:
         connection.execute("LOAD postgres_scanner")
         connection.execute("LOAD ducklake")
         connection.execute(
-            f"ATTACH 'ducklake:{metadata}' AS lake (DATA_PATH '/fixture/data', "
+            f"ATTACH 'ducklake:{metadata}' AS lake (DATA_PATH '{data_path}', "
             "DUCKLAKE_VERSION '1.1', AUTOMATIC_MIGRATION FALSE, DATA_INLINING_ROW_LIMIT 0)"
         )
         assert connection.execute("SELECT version()").fetchone()[0].startswith("v2.")
@@ -73,7 +75,7 @@ def main():
     (project / "catalogs.yml").write_text(
         "catalogs:\n  - name: lake\n    type: ducklake\n    table_format: default\n"
         "    config:\n      duckdb:\n"
-        f"        metadata_path: '{metadata}'\n        data_path: /fixture/data\n"
+        f"        metadata_path: '{metadata}'\n        data_path: {data_path}\n"
         "        catalog_database: lake\n        automatic_migration: false\n"
         "        data_inlining_row_limit: 0\n"
     )
@@ -138,7 +140,7 @@ def main():
         assert connection.execute(
             "SELECT sum(amount) FROM lake.sales.orders WHERE order_date < DATE '2026-10-01'"
         ).fetchone() == (300,)
-    assert list(Path("/fixture/data").rglob("*.parquet")), "Expected physical DuckLake data"
+    assert list(Path(data_path).rglob("*.parquet")), "Expected physical DuckLake data"
     if "--view-gate" in sys.argv[1:]:
         from dbt_view import run_view
 

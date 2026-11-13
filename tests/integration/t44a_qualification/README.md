@@ -346,3 +346,32 @@ Only the safe `native-namespaces.json` report is added to evidence. The extra
 source/filesystem reserve before acquisition/install. Actual allocation caps,
 30GB/separate2GiBheadroom/df and unchanged profiles still apply. Case2 remains
 native UNRUN until reviewed CI; no new dependency/service/profile is introduced.
+
+
+The next candidate is the held-reader discriminator (native **UNRUN**). The workflow
+restores the already-qualified normal full build after the exact-source dlt gate.
+It combines only the existing frozen dbt/dbc and source-dlt artifacts for offline
+installation. A fresh real producer capture supplies immutable selected350 inputs;
+a native working branch uses `/work/held-data` inside the existing RW work mount.
+Captured data stays on the actor's RO fixture mount. No product source or runtime
+profile changes are made.
+
+The real ordinary actor compiles/submits one `held_orders` metric query with cache
+invalidation. A trusted persisted view adds an indispensable zero from the owned
+VOLATILE PG gate and a snapshot marker. Exact pinned engine source orders the
+execution transaction's DuckLake snapshot acquisition before the scheduled PG
+row-query gate. Admission requires the exact executing COPY SQL/key, unique PID
+and exact lock owner, linked to the sole request UUID/compiledSQL/view hash. Queue,
+prepare/describe, SELECT-only, cache state or a snapshot projection alone cannot
+pass. Internal metadata attachment accessibility is an explicit first native
+unknown, not assumed public API support.
+
+Only after the original350/300/403 and whole-catalog/Parquet read-only invariance
+checks pass does a host handshake permit this extension. While the query is held,
+one actual native transaction commits360/8/360/r1 in the existing actor profile;
+captured/selected metadata and file hashes must remain unchanged. The same waiter
+must still be blocked after verified commit. Release must yield held350/r0 and a
+fresh same-actor query360/r1 with unchanged app ID/PID/start/restart identity.
+Three reports are bounded to2MiB each, both copies accounted, with64MiB extra peak
+and fresh30GB/2GiB-headroom/df checks. Native runtime memory/fit and all held/fresh
+oracles remain pending review and execution; no fixture fallback implies a pass.
