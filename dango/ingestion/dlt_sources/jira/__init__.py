@@ -65,7 +65,7 @@ def jira_search(
 
     @dlt.resource(write_disposition="replace")
     def issues(jql_queries: List[str]) -> Iterable[TDataItem]:
-        api_path = "rest/api/3/search"
+        api_path = "rest/api/3/search/jql"
 
         for jql in jql_queries:
             params = {
@@ -115,8 +115,33 @@ def get_paginated_data(
     headers = {"Accept": "application/json"}
     auth = (email, api_token)
     params = {} if params is None else params
-    params["startAt"] = start_at = 0
     params["maxResults"] = page_size
+
+    if api_path.strip("/").endswith("search/jql"):
+        # token-paginated: no startAt or total, isLast marks the last page
+        while True:
+            response = requests.get(url, auth=auth, headers=headers, params=params)
+            response.raise_for_status()
+            result = response.json()
+
+            next_page_token = result.get("nextPageToken")
+            is_last = result.get("isLast", not next_page_token)
+
+            if data_path:
+                results_page = result.pop(data_path)
+            else:
+                results_page = result
+
+            if len(results_page) > 0:
+                yield results_page
+
+            if is_last or not next_page_token:
+                break
+
+            params["nextPageToken"] = next_page_token
+        return
+
+    params["startAt"] = start_at = 0
 
     while True:
         response = requests.get(url, auth=auth, headers=headers, params=params)
