@@ -237,6 +237,7 @@ def prepare():
             "--no-send-anonymous-usage-stats",
         ],
         check=True,
+        env={**os.environ, "ADBC_DRIVER_PATH": "/home/probe/adbc"},
     )
     manifest = json.loads((project / "target/manifest.json").read_text())
     assert manifest["nodes"]["model.t44a_probe.held_orders"]["config"]["materialized"] == "view"
