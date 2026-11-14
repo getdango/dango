@@ -428,7 +428,7 @@ def main():
         rig.start_owned(names["garage"])
         rig.start_owned(names["app"])
         result["full_app"] = "STARTED_NOT_YET_ACCEPTED"
-        run_actor(rig, names["actor"], install, result)
+        run_actor(rig, names["actor"], names["app"], install, result)
         actor = json.loads((root / "work/app-slice.json").read_text())
         assert actor["status"] == "PASS_FIRST_RUNNING_APP_SLICE"
         result["canvas_prebuild"]["installation"] = (

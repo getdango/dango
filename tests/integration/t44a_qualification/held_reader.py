@@ -358,13 +358,17 @@ def export_reports(rig, generated, disk_gate):
     disk_gate(rig, 0, "after-held-report-export")
 
 
-def run_actor(rig, name, install, result):
+def run_actor(rig, name, app_name, install, result):
     """Verify read-only invariance before authorizing deliberate branch mutation."""
-    app_name = next(n for n, (component, _) in rig.objects.items() if component == "app")
+    assert rig.objects[app_name][0] == "app", "Expected exact current app role"
+    assert rig.objects[name][0] == "actor", "Expected exact current actor role"
 
     def identity():
         info = json.loads(rig.call(["docker", "inspect", app_name]).stdout)[0]
-        assert info["Id"] == rig.objects[app_name][1]["Id"] and info["State"]["Running"]
+        frozen = rig.objects[app_name][1]
+        assert info["Id"] == frozen["Id"] and info["State"]["Running"]
+        assert info["Name"] == "/" + app_name and info["Image"] == frozen["Image"]
+        assert info["Config"]["Labels"]["probe.owner"] == rig.label
         return {
             "id": info["Id"],
             "image": info["Image"],
