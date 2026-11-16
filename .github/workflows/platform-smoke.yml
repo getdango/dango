@@ -1,0 +1,151 @@
+name: Platform smoke
+
+# Informational only: not a required check. Builds the wheel, installs it in a clean venv as a
+# user would (no constraints), and runs a small first-run smoke on Windows, macOS and Ubuntu.
+# A red job is the intended signal; do not hide it with continue-on-error.
+#
+# Triggers: pushes to main and v1.0.15 (after each merge), PRs that touch any of the files below
+# (never every task PR), nightly, and manual dispatch. `schedule` and `workflow_dispatch` only
+# work once this file exists on the default branch (main); until then the pull_request trigger
+# on the PR that changes this file is what exercises it.
+on:
+  push:
+    branches: [main, v1.0.15]
+  pull_request:
+    branches: [main, 'v1.0.*']
+    paths:
+      - .github/workflows/platform-smoke.yml
+      - scripts/check_wheel_imports.py
+      - scripts/platform_smoke_init.py
+      - pyproject.toml
+      - install.ps1
+      - install.sh
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  DO_NOT_TRACK: "1"
+  # Fixed throwaway value for the disposable smoke project; not a secret.
+  DANGO_ADMIN_PASSWORD: "Smoke-Test-9xQ!pL3z"
+
+jobs:
+  smoke:
+    name: Smoke (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            python-version: "3.12"
+          - os: macos-latest # Apple Silicon (arm64)
+            python-version: "3.12"
+          - os: macos-15-intel # Intel (x64)
+            python-version: "3.12"
+          - os: ubuntu-24.04
+            python-version: "3.12"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Resolve venv paths
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then VBIN=Scripts; EXE=.exe; else VBIN=bin; EXE=; fi
+          echo "FRESH_PY=$RUNNER_TEMP/fresh/$VBIN/python$EXE" >> "$GITHUB_ENV"
+          echo "FRESH_DANGO=$RUNNER_TEMP/fresh/$VBIN/dango$EXE" >> "$GITHUB_ENV"
+          echo "DEV_PY=$RUNNER_TEMP/dev/$VBIN/python$EXE" >> "$GITHUB_ENV"
+
+      - name: Build wheel
+        id: build
+        run: |
+          python -m pip install build
+          python -m build --wheel --outdir dist
+          {
+            echo "### Wheel (${{ matrix.os }})"
+            python -c "import glob,hashlib; [print(hashlib.sha256(open(p,'rb').read()).hexdigest(), p) for p in glob.glob('dist/*.whl')]"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install wheel in a clean venv (no constraints, as a user would)
+        id: install
+        run: |
+          python -m venv "$RUNNER_TEMP/fresh"
+          "$FRESH_PY" -m pip install dist/*.whl
+          "$FRESH_PY" -m pip check
+
+      - name: dango --version
+        id: version
+        if: ${{ !cancelled() }}
+        run: |
+          "$FRESH_DANGO" --version
+
+      - name: Import every dango module (from outside the workspace)
+        id: imports
+        if: ${{ !cancelled() }}
+        run: |
+          cd "$RUNNER_TEMP"
+          "$FRESH_PY" "$GITHUB_WORKSPACE/scripts/check_wheel_imports.py"
+
+      # WP-02 adds: python scripts/first_user_journey.py
+
+      - name: dango init --skip-wizard (UTF-8)
+        id: init_utf8
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          python scripts/platform_smoke_init.py --dango "$FRESH_DANGO" \
+            --workdir "$RUNNER_TEMP/init-utf8" --label "utf8 (${{ matrix.os }})"
+
+      # Legacy code page: PYTHONUTF8=0 only. Expected to pass on UTF-8 Linux/macOS (UTF-8
+      # locale) and to reproduce the cp1252 encoding failure on Windows.
+      - name: dango init --skip-wizard (legacy cp1252 code page)
+        id: init_cp1252
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONUTF8: "0"
+        run: |
+          python scripts/platform_smoke_init.py --dango "$FRESH_DANGO" \
+            --workdir "$RUNNER_TEMP/init-cp1252" --label "cp1252 (${{ matrix.os }})"
+
+      - name: Unit subset (local-logic tests from the checkout)
+        id: unit
+        if: ${{ !cancelled() }}
+        env:
+          PYTHON_KEYRING_BACKEND: keyring.backends.fail.Keyring
+        run: |
+          python -m venv "$RUNNER_TEMP/dev"
+          "$DEV_PY" -m pip install -e ".[dev]"
+          "$DEV_PY" -m pytest -p no:cacheprovider -q \
+            tests/unit/test_dbt_lock_stale.py \
+            tests/unit/test_marimo_local_token.py \
+            tests/unit/test_config_loader.py \
+            tests/unit/test_config_models.py \
+            tests/unit/test_config_exceptions.py \
+            tests/unit/test_config_credentials.py \
+            tests/unit/test_scripts_config_env.py \
+            tests/unit/test_schedules_config.py
+
+      - name: Result summary
+        if: always()
+        run: |
+          {
+            echo "### Platform smoke: ${{ matrix.os }}"
+            echo "- build wheel: ${{ steps.build.outcome }}"
+            echo "- install wheel + pip check: ${{ steps.install.outcome }}"
+            echo "- dango --version: ${{ steps.version.outcome }}"
+            echo "- import every module: ${{ steps.imports.outcome }}"
+            echo "- init (UTF-8): ${{ steps.init_utf8.outcome }}"
+            echo "- init (cp1252): ${{ steps.init_cp1252.outcome }}"
+            echo "- unit subset: ${{ steps.unit.outcome }}"
+          } >> "$GITHUB_STEP_SUMMARY"
