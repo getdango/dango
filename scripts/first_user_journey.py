@@ -7,6 +7,7 @@ on a real machine (scripts/first_user_journey.ps1). Standard library only.
 """
 
 import argparse
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -81,7 +82,7 @@ print("NAMED %d" % named)
 def _fail_from(name: str, proc: Proc, what: str) -> Step | None:
     """FAIL step for a command that did not exit 0, else None."""
     if proc.error is not None:
-        return failure(name, proc.error, proc.output)
+        return failure(name, f"{what}: {proc.error}", proc.output)
     if proc.returncode != 0:
         return failure(name, f"{what}: exit code {proc.returncode}", proc.output)
     return None
@@ -213,6 +214,13 @@ def step_second_sync(j: Journey) -> Step:
     return Step("second-sync", "PASS", f"{table} still has {count} rows")
 
 
+def _absolute_if_path(value: str) -> str:
+    """Absolute form of a path-like value; a bare command name is left for PATH lookup."""
+    if os.sep in value or "/" in value:
+        return os.path.abspath(value)
+    return value
+
+
 def main() -> int:
     """Parse arguments, run the steps in order and report; returns the exit code."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -247,7 +255,13 @@ def main() -> int:
     parser.add_argument("--steps", help=argparse.SUPPRESS)  # comma separated subset (tests)
     parser.add_argument("--output-encoding", help=argparse.SUPPRESS)  # override (tests)
     parser.add_argument("--port-free-timeout", type=float, default=10, help=argparse.SUPPRESS)
+    parser.add_argument("--up-timeout", type=float, default=60, help=argparse.SUPPRESS)
     args = parser.parse_args()
+    # Children run with cwd=workdir, so every path must be absolute before they start.
+    args.workdir = args.workdir.absolute()
+    args.log = args.log.absolute()
+    args.dango = _absolute_if_path(args.dango)
+    args.python = _absolute_if_path(args.python) if args.python else None
     if args.workdir.exists() and (not args.workdir.is_dir() or any(args.workdir.iterdir())):
         parser.error(safe(f"--workdir {args.workdir} is not empty; use a new or empty directory"))
 
@@ -266,6 +280,7 @@ def main() -> int:
         utf8_mode=args.utf8_mode,
         legacy_stdio=args.legacy_stdio,
         port_free_timeout=args.port_free_timeout,
+        up_timeout=args.up_timeout,
         output_encoding_override=args.output_encoding,
     )
     args.log.parent.mkdir(parents=True, exist_ok=True)

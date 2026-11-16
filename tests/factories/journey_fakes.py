@@ -11,7 +11,10 @@ import stat
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "first_user_journey.py"
 FAKE_PROJECT = "dango-abcdef12"
@@ -356,6 +359,7 @@ def run_journey(
     docker: bool = False,
     steps: str | None = None,
     relative: bool = False,
+    seed: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the journey script against a fake dango (and, with docker=True, a fake docker)."""
     exe = dango or make_fake_exe(tmp_path / "fakebin", "dango", FAKE_DANGO)
@@ -366,6 +370,8 @@ def run_journey(
     full_env["FAKE_PROJECT"] = FAKE_PROJECT
     full_env["FAKE_REAL_PYTHON"] = sys.executable
     (tmp_path / "fakestate").mkdir(exist_ok=True)
+    for name, content in (seed or {}).items():  # pre-existing fake docker state
+        (tmp_path / "fakestate" / name).write_text(content, encoding="utf-8")
     full_env["FAKE_STATE_DIR"] = str(tmp_path / "fakestate")
     if docker:
         bin_dir = tmp_path / "dockerbin"
@@ -439,3 +445,31 @@ def reap_orphans(tmp_path: Path) -> list[int]:
 def lines_of(result: subprocess.CompletedProcess[str], verdict: str) -> list[str]:
     """Report lines of one verdict (PASS, FAIL or SKIP) from the journey's stdout."""
     return [ln for ln in result.stdout.splitlines() if ln.startswith(verdict + " ")]
+
+
+Outcome = tuple["subprocess.CompletedProcess[str]", Path]
+
+
+def run_scenarios(
+    tmp_path_factory: Any,
+    scenarios: dict[str, dict[str, Any]],
+    workers: int = 6,
+    expect_survivors: frozenset[str] = frozenset(),
+) -> Iterator[dict[str, Outcome]]:
+    """Run every scenario once, in parallel, each in its own directory.
+
+    Yields {name: (result, directory)}; afterwards kills every fake process still alive and fails
+    if one survived in a scenario that is not named in `expect_survivors`.
+    """
+    dirs = {name: tmp_path_factory.mktemp(name) for name in scenarios}
+
+    def run(name: str) -> subprocess.CompletedProcess[str]:
+        return run_journey(dirs[name], **scenarios[name])
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(run, scenarios))
+    yield {name: (res, dirs[name]) for name, res in zip(scenarios, results, strict=True)}
+    survivors = [
+        pid for name, d in dirs.items() for pid in reap_orphans(d) if name not in expect_survivors
+    ]
+    assert not survivors, f"fake processes survived: {survivors}"

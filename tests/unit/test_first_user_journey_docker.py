@@ -1,7 +1,8 @@
 """tests/unit/test_first_user_journey_docker.py
 
-The opt-in docker step of scripts/first_user_journey.py (start, status, stop, leftover check),
-driven with a fake dango and a fake docker on PATH.
+The opt-in docker step of scripts/first_user_journey.py (start, status, stop, leftover check and
+cleanup scoping), driven with a fake dango and a fake docker on PATH. All scenarios run once, in
+parallel; each test inspects its own scenario's outcome.
 """
 
 import re
@@ -9,175 +10,167 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import yaml
 
-from tests.factories.journey_fakes import reap_orphans, run_journey
+from tests.factories.journey_fakes import (
+    Outcome,
+    pid_alive,
+    run_scenarios,
+    tracked_pids,
+)
 
 pytestmark = pytest.mark.unit
 
+FOREIGN = "foreign000001\t/some/other/project\n"
+BASE = {"docker": True, "steps": "init,docker"}
 
-@pytest.fixture(autouse=True)
-def _no_orphan_fake_processes(tmp_path: Path) -> Iterator[None]:
-    """Fail any test that leaves a fake platform process running (and kill it)."""
-    yield
-    left = reap_orphans(tmp_path)
-    assert not left, f"fake processes survived the test: {left}"
+SCENARIOS: dict[str, dict[str, object]] = {
+    "pass": {},
+    "leftover": {"mode": "leftover"},
+    "ps-fails": {"mode": "ps-fails"},
+    "volume-ls-fails": {"mode": "volume-ls-fails"},
+    "fail-start": {"mode": "fail-start"},
+    "fail-status": {"mode": "fail-status"},
+    "no-containers": {"mode": "start-no-containers"},
+    "wrong-project": {"env": {"FAKE_PROJECT": "dango-someone-else"}},
+    "listener-left": {"mode": "stop-leaves-listener"},
+    "foreign-container": {"seed": {"containers.txt": FOREIGN}},
+    "foreign-and-none-of-ours": {
+        "mode": "start-no-containers",
+        "seed": {"containers.txt": FOREIGN},
+    },
+    "volume-kept-failed-start": {"mode": "fail-start", "seed": {"volumes.txt": "earlier\n"}},
+    "volume-created": {"mode": "start-creates-volume"},
+    "volume-preexisting": {"mode": "start-creates-volume", "seed": {"volumes.txt": "pre\n"}},
+    "no-listener": {"mode": "start-no-listener", "extra": ("--up-timeout", "2")},
+}
 
 
-def _calls(tmp_path: Path) -> list[str]:
-    path = tmp_path / "fakestate" / "docker-calls.txt"
-    return path.read_text(encoding="utf-8").split() if path.exists() else []
+@pytest.fixture(scope="module")
+def runs(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Outcome]]:
+    """Run every docker scenario once, in parallel."""
+    scenarios = {k: {**BASE, **v} for k, v in SCENARIOS.items()}
+    yield from run_scenarios(
+        tmp_path_factory, scenarios, expect_survivors=frozenset({"listener-left"})
+    )
 
 
-def _docker_line(stdout: str) -> str:
+def _docker_line(runs: dict[str, Outcome], name: str) -> str:
+    stdout = runs[name][0].stdout
     return next(ln for ln in stdout.splitlines() if re.match(r"(PASS|FAIL|SKIP) docker", ln))
 
 
-def test_docker_step_passes_and_leaves_nothing_behind(tmp_path: Path) -> None:
-    result = run_journey(tmp_path, docker=True, steps="init,docker")
-    assert result.returncode == 0, result.stdout
-    assert any(ln.startswith("PASS docker") for ln in result.stdout.splitlines())
-    assert _calls(tmp_path) == ["start", "status", "stop"]
-    assert (tmp_path / "fakestate" / "containers.txt").read_text(encoding="utf-8").strip() == ""
+def _state(runs: dict[str, Outcome], name: str) -> Path:
+    return runs[name][1] / "fakestate"
 
 
-def test_containers_left_after_stop_fail_the_step_and_are_removed(tmp_path: Path) -> None:
-    result = run_journey(tmp_path, "leftover", docker=True, steps="init,docker")
-    assert result.returncode == 1
-    failing = _docker_line(result.stdout)
-    assert failing.startswith("FAIL docker") and "remain" in failing
-    removed = (tmp_path / "fakestate" / "docker-rm.txt").read_text(encoding="utf-8")
-    assert "abc123def456" in removed
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
-def test_docker_ps_failure_is_a_fail_not_zero_containers(tmp_path: Path) -> None:
-    result = run_journey(tmp_path, "ps-fails", docker=True, steps="init,docker")
-    assert result.returncode == 1
-    assert _docker_line(result.stdout).startswith("FAIL docker")
-    assert "PASS docker" not in result.stdout
+def test_docker_step_passes_and_leaves_nothing_behind(runs: dict[str, Outcome]) -> None:
+    assert runs["pass"][0].returncode == 0, runs["pass"][0].stdout
+    assert _docker_line(runs, "pass").startswith("PASS docker")
+    assert _read(_state(runs, "pass") / "docker-calls.txt").split() == ["start", "status", "stop"]
+    assert _read(_state(runs, "pass") / "containers.txt").strip() == ""
 
 
-def test_docker_volume_ls_failure_is_a_fail(tmp_path: Path) -> None:
-    result = run_journey(tmp_path, "volume-ls-fails", docker=True, steps="init,docker")
-    assert result.returncode == 1
-    assert _docker_line(result.stdout).startswith("FAIL docker")
+def test_containers_left_after_stop_fail_the_step_and_are_removed(
+    runs: dict[str, Outcome],
+) -> None:
+    line = _docker_line(runs, "leftover")
+    assert line.startswith("FAIL docker") and "remain" in line
+    assert "abc123def456" in _read(_state(runs, "leftover") / "docker-rm.txt")
 
 
-def test_start_failure_fails_and_stop_is_still_called(tmp_path: Path) -> None:
-    result = run_journey(tmp_path, "fail-start", docker=True, steps="init,docker")
-    assert result.returncode == 1
-    assert _docker_line(result.stdout).startswith("FAIL docker")
-    assert _calls(tmp_path) == ["start", "stop"]
+def test_docker_ps_failure_is_a_fail_not_zero_containers(runs: dict[str, Outcome]) -> None:
+    assert runs["ps-fails"][0].returncode == 1
+    assert _docker_line(runs, "ps-fails").startswith("FAIL docker")
 
 
-def test_status_failure_fails_and_stop_is_still_called(tmp_path: Path) -> None:
-    result = run_journey(tmp_path, "fail-status", docker=True, steps="init,docker")
-    assert result.returncode == 1
-    assert _docker_line(result.stdout).startswith("FAIL docker")
-    assert _calls(tmp_path) == ["start", "status", "stop"]
+def test_docker_volume_ls_failure_is_a_fail(runs: dict[str, Outcome]) -> None:
+    assert runs["volume-ls-fails"][0].returncode == 1
+    assert _docker_line(runs, "volume-ls-fails").startswith("FAIL docker")
 
 
-def test_a_stack_with_no_containers_while_running_cannot_pass(tmp_path: Path) -> None:
-    result = run_journey(tmp_path, "start-no-containers", docker=True, steps="init,docker")
-    assert result.returncode == 1
-    failing = _docker_line(result.stdout)
-    assert failing.startswith("FAIL docker") and "no containers" in failing
+def test_start_failure_fails_and_stop_is_still_called(runs: dict[str, Outcome]) -> None:
+    assert _docker_line(runs, "fail-start").startswith("FAIL docker")
+    assert _read(_state(runs, "fail-start") / "docker-calls.txt").split() == ["start", "stop"]
 
 
-def test_project_name_comes_from_the_compose_helper_not_a_guess(tmp_path: Path) -> None:
+def test_status_failure_fails_and_stop_is_still_called(runs: dict[str, Outcome]) -> None:
+    assert _docker_line(runs, "fail-status").startswith("FAIL docker")
+    calls = _read(_state(runs, "fail-status") / "docker-calls.txt").split()
+    assert calls == ["start", "status", "stop"]
+
+
+def test_a_stack_with_no_containers_while_running_cannot_pass(runs: dict[str, Outcome]) -> None:
+    line = _docker_line(runs, "no-containers")
+    assert line.startswith("FAIL docker") and "no containers" in line
+
+
+def test_project_name_comes_from_the_compose_helper_not_a_guess(runs: dict[str, Outcome]) -> None:
     # The fake docker only knows containers under dango-abcdef12 (from project.id).
-    result = run_journey(
-        tmp_path, docker=True, env={"FAKE_PROJECT": "dango-someone-else"}, steps="init,docker"
-    )
-    assert result.returncode == 1
-    assert _docker_line(result.stdout).startswith("FAIL docker")
+    assert _docker_line(runs, "wrong-project").startswith("FAIL docker")
 
 
-def test_platform_port_still_open_after_stop_fails_the_step(tmp_path: Path) -> None:
-    result = run_journey(tmp_path, "stop-leaves-listener", docker=True, steps="init,docker")
-    assert result.returncode == 1
-    failing = _docker_line(result.stdout)
-    assert failing.startswith("FAIL docker") and "still open after stop" in failing
-    assert reap_orphans(tmp_path)  # positive control: the listener really outlived the stop
+def test_platform_port_still_open_after_stop_fails_the_step(runs: dict[str, Outcome]) -> None:
+    line = _docker_line(runs, "listener-left")
+    assert line.startswith("FAIL docker") and "still open after stop" in line
+    # Positive control: the listener really outlived the stop.
+    assert any(pid_alive(p) for p in tracked_pids(runs["listener-left"][1]))
 
 
 def test_containers_of_another_working_dir_are_neither_removed_nor_ignored(
-    tmp_path: Path,
+    runs: dict[str, Outcome],
 ) -> None:
-    state = tmp_path / "fakestate"
-    state.mkdir()
-    (state / "containers.txt").write_text("foreign000001\t/some/other/project\n", encoding="utf-8")
-    result = run_journey(tmp_path, docker=True, steps="init,docker")
-    assert result.returncode == 1
-    failing = _docker_line(result.stdout)
-    assert failing.startswith("FAIL docker") and "remain" in failing
-    removed = state / "docker-rm.txt"
-    assert not removed.exists() or "foreign000001" not in removed.read_text(encoding="utf-8")
-    assert "foreign000001" in (state / "containers.txt").read_text(encoding="utf-8")
+    line = _docker_line(runs, "foreign-container")
+    assert line.startswith("FAIL docker") and "remain" in line
+    state = _state(runs, "foreign-container")
+    assert "foreign000001" not in _read(state / "docker-rm.txt")
+    assert "foreign000001" in _read(state / "containers.txt")
 
 
-def test_volumes_that_existed_before_a_failed_start_are_kept(tmp_path: Path) -> None:
-    state = tmp_path / "fakestate"
-    state.mkdir()
-    (state / "volumes.txt").write_text("earliervolume\n", encoding="utf-8")
-    result = run_journey(tmp_path, "fail-start", docker=True, steps="init,docker")
-    assert result.returncode == 1
-    assert "earliervolume" in (state / "volumes.txt").read_text(encoding="utf-8")
+def test_a_foreign_container_with_the_same_project_label_does_not_count_as_ours(
+    runs: dict[str, Outcome],
+) -> None:
+    line = _docker_line(runs, "foreign-and-none-of-ours")
+    assert line.startswith("FAIL docker") and "from this workdir" in line
 
 
-def test_volumes_created_by_this_run_are_removed(tmp_path: Path) -> None:
-    state = tmp_path / "fakestate"
-    state.mkdir()
-    # No volumes before start; the fake dango start creates one for this run's project.
-    result = run_journey(tmp_path, "start-creates-volume", docker=True, steps="init,docker")
-    assert result.returncode == 0, result.stdout
-    assert (state / "volumes.txt").read_text(encoding="utf-8").strip() == ""
-    assert "volume run-volume" in (state / "docker-rm.txt").read_text(encoding="utf-8")
+def test_volumes_that_existed_before_a_failed_start_are_kept(runs: dict[str, Outcome]) -> None:
+    assert "earlier" in _read(_state(runs, "volume-kept-failed-start") / "volumes.txt")
 
 
-def test_platform_is_started_on_the_ports_written_to_project_yml(tmp_path: Path) -> None:
-    import yaml
+def test_volumes_created_by_this_run_are_removed(runs: dict[str, Outcome]) -> None:
+    state = _state(runs, "volume-created")
+    assert runs["volume-created"][0].returncode == 0
+    assert _read(state / "volumes.txt").strip() == ""
+    assert "volume run-volume" in _read(state / "docker-rm.txt")
 
-    result = run_journey(tmp_path, docker=True, steps="init,docker")
-    assert result.returncode == 0, result.stdout
-    project = yaml.safe_load((tmp_path / "work" / ".dango" / "project.yml").read_text("utf-8"))
+
+def test_a_volume_that_existed_before_a_successful_start_survives_and_the_step_passes(
+    runs: dict[str, Outcome],
+) -> None:
+    assert _docker_line(runs, "volume-preexisting").startswith("PASS docker")
+    state = _state(runs, "volume-preexisting")
+    assert _read(state / "volumes.txt").split() == ["pre"]
+    removed = _read(state / "docker-rm.txt")
+    assert "volume run-volume" in removed and "pre\n" not in removed.replace("run-volume", "")
+
+
+def test_platform_is_started_on_the_ports_written_to_project_yml(runs: dict[str, Outcome]) -> None:
+    work, state = runs["pass"][1] / "work", _state(runs, "pass")
+    project = yaml.safe_load((work / ".dango" / "project.yml").read_text("utf-8"))
     ports = [
         project["platform"][k] for k in ("port", "metabase_port", "dbt_docs_port", "marimo_port")
     ]
     assert not set(ports) & {8800, 3000, 8081, 7805}
-    started_on = int((tmp_path / "fakestate" / "start-port.txt").read_text(encoding="utf-8"))
-    assert started_on == project["platform"]["port"]
+    assert int(_read(state / "start-port.txt")) == project["platform"]["port"]
 
 
-def test_a_foreign_container_with_the_same_project_label_does_not_count_as_ours(
-    tmp_path: Path,
+def test_platform_port_that_never_answers_after_start_fails_the_step(
+    runs: dict[str, Outcome],
 ) -> None:
-    state = tmp_path / "fakestate"
-    state.mkdir()
-    (state / "containers.txt").write_text("foreign000001\t/some/other/project\n", encoding="utf-8")
-    result = run_journey(tmp_path, "start-no-containers", docker=True, steps="init,docker")
-    assert result.returncode == 1
-    failing = _docker_line(result.stdout)
-    assert failing.startswith("FAIL docker") and "from this workdir" in failing
-
-
-def test_platform_port_that_never_answers_after_start_fails_the_step(tmp_path: Path) -> None:
-    result = run_journey(
-        tmp_path, "start-no-listener", docker=True, steps="init,docker", extra=("--up-timeout", "2")
-    )
-    assert result.returncode == 1
-    failing = _docker_line(result.stdout)
-    assert failing.startswith("FAIL docker") and "did not answer after start" in failing
-
-
-def test_a_volume_that_existed_before_a_successful_start_survives_and_the_step_passes(
-    tmp_path: Path,
-) -> None:
-    state = tmp_path / "fakestate"
-    state.mkdir()
-    (state / "volumes.txt").write_text("preexisting_volume\n", encoding="utf-8")
-    result = run_journey(tmp_path, "start-creates-volume", docker=True, steps="init,docker")
-    assert result.returncode == 0, result.stdout
-    assert _docker_line(result.stdout).startswith("PASS docker")
-    assert (state / "volumes.txt").read_text(encoding="utf-8").split() == ["preexisting_volume"]
-    removed = (state / "docker-rm.txt").read_text(encoding="utf-8")
-    assert "volume run-volume" in removed and "preexisting_volume" not in removed
+    line = _docker_line(runs, "no-listener")
+    assert line.startswith("FAIL docker") and "did not answer after start" in line

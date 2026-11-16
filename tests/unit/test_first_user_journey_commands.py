@@ -7,12 +7,11 @@ must exit 1 with exactly the right step FAIL and a message naming the failing co
 
 import subprocess
 from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
 
-from tests.factories.journey_fakes import lines_of, reap_orphans, run_journey
+from tests.factories.journey_fakes import Outcome, lines_of, run_scenarios
 
 pytestmark = pytest.mark.unit
 
@@ -115,19 +114,9 @@ def _scenarios() -> dict[str, dict[str, Any]]:
 
 
 @pytest.fixture(scope="module")
-def runs(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Run]]:
+def runs(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Outcome]]:
     """Run every scenario once (in parallel, each in its own directory)."""
-    scenarios = _scenarios()
-    dirs = {name: tmp_path_factory.mktemp(name) for name in scenarios}
-
-    def run(name: str) -> Run:
-        return run_journey(dirs[name], **scenarios[name])
-
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        results = dict(zip(scenarios, pool.map(run, scenarios), strict=True))
-    yield results
-    survivors = [pid for d in dirs.values() for pid in reap_orphans(d)]
-    assert not survivors, f"fake processes survived: {survivors}"
+    yield from run_scenarios(tmp_path_factory, _scenarios())
 
 
 def _only_failure(result: Run, step: str) -> str:
@@ -139,9 +128,9 @@ def _only_failure(result: Run, step: str) -> str:
 
 @pytest.mark.parametrize("row", JOURNEY_ROWS, ids=[r[0] for r in JOURNEY_ROWS])
 def test_a_failing_command_fails_exactly_its_step(
-    runs: dict[str, Run], row: tuple[str, str, int, str, str, str, tuple[str, ...]]
+    runs: dict[str, Outcome], row: tuple[str, str, int, str, str, str, tuple[str, ...]]
 ) -> None:
-    result = runs[f"fail-{row[0]}"]
+    result = runs[f"fail-{row[0]}"][0]
     assert result.returncode == 1, result.stdout
     line = _only_failure(result, row[5])
     for part in row[6]:
@@ -150,18 +139,18 @@ def test_a_failing_command_fails_exactly_its_step(
 
 @pytest.mark.parametrize("row", HANG_ROWS, ids=[r[0] for r in HANG_ROWS])
 def test_a_hanging_command_times_out_in_exactly_its_step(
-    runs: dict[str, Run], row: tuple[str, str, int, str, str, str, tuple[str, ...]]
+    runs: dict[str, Outcome], row: tuple[str, str, int, str, str, str, tuple[str, ...]]
 ) -> None:
-    result = runs[f"hang-{row[0]}"]
+    result = runs[f"hang-{row[0]}"][0]
     assert result.returncode == 1, result.stdout
     assert "timed out after" in _only_failure(result, row[5])
 
 
 @pytest.mark.parametrize("row", DOCKER_ROWS, ids=[r[0] for r in DOCKER_ROWS])
 def test_a_failing_docker_step_command_fails_the_docker_step(
-    runs: dict[str, Run], row: tuple[str, str, int, str, tuple[str, ...]]
+    runs: dict[str, Outcome], row: tuple[str, str, int, str, tuple[str, ...]]
 ) -> None:
-    result = runs[f"docker-{row[0]}"]
+    result = runs[f"docker-{row[0]}"][0]
     assert result.returncode == 1, result.stdout
     line = _only_failure(result, "docker")
     for part in row[4]:

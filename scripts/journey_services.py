@@ -11,11 +11,10 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import IO, Any
+from typing import IO
 
 from journey_support import BUDGET_EXHAUSTED, Journey, Step, failure, free_ports, port_is_open, safe
 
-WEB_UP_TIMEOUT_SECONDS = 60
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -66,7 +65,7 @@ def _run_web_once(j: Journey, port: int, label: str, grace: float) -> str | None
         proc = subprocess.Popen(
             argv, cwd=j.workdir, env=j.env(), stdout=out, stderr=subprocess.STDOUT
         )
-        wait = min(WEB_UP_TIMEOUT_SECONDS, j.remaining())
+        wait = min(j.up_timeout, j.remaining())
         deadline = time.monotonic() + wait
         while True:
             if proc.poll() is not None:
@@ -117,8 +116,8 @@ class DockerQueryError(Exception):
     """A docker CLI query failed, so its (empty) answer cannot be trusted."""
 
 
-def _docker_query(argv: list[str], split: bool = True) -> Any:
-    """Run a docker CLI query; return its output words (or text), or raise DockerQueryError."""
+def _docker_run(argv: list[str]) -> str:
+    """Run a docker CLI query and return its stdout, or raise DockerQueryError."""
     try:
         proc = subprocess.run(
             argv, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30
@@ -128,7 +127,12 @@ def _docker_query(argv: list[str], split: bool = True) -> Any:
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip().splitlines()[-1:] or [""]
         raise DockerQueryError(f"{' '.join(argv[:3])} exited {proc.returncode}: {detail[0]}")
-    return proc.stdout.split() if split else proc.stdout
+    return proc.stdout
+
+
+def _docker_words(argv: list[str]) -> list[str]:
+    """Whitespace-separated words of a docker query's output."""
+    return _docker_run(argv).split()
 
 
 _WORKING_DIR_LABEL = "com.docker.compose.project.working_dir"
@@ -138,7 +142,7 @@ def _compose_containers(project: str) -> list[tuple[str, str]]:
     """(container id, compose working_dir label) of every container of the project."""
     label = f"label=com.docker.compose.project={project}"
     fmt = '{{.ID}}\t{{.Label "' + _WORKING_DIR_LABEL + '"}}'
-    out = _docker_query(["docker", "ps", "-a", "--filter", label, "--format", fmt], split=False)
+    out = _docker_run(["docker", "ps", "-a", "--filter", label, "--format", fmt])
     entries = [line.split("\t", 1) for line in out.splitlines() if line.strip()]
     return [(e[0], e[1] if len(e) > 1 else "") for e in entries]
 
@@ -152,7 +156,7 @@ def _same_dir(a: str, b: str | Path) -> bool:
 
 def _compose_volumes(project: str) -> list[str]:
     label = f"label=com.docker.compose.project={project}"
-    return _docker_query(["docker", "volume", "ls", "-q", "--filter", label])
+    return _docker_words(["docker", "volume", "ls", "-q", "--filter", label])
 
 
 _PROJECT_INFO = (
@@ -196,16 +200,14 @@ def docker_step(j: Journey) -> Step:
         volumes_before = _compose_volumes(project)
     except DockerQueryError as exc:
         return failure("docker", safe(str(exc)))
-    start_ok = False
     try:
         start = j.dango_run("start", "--yes")
-        start_ok = start.returncode == 0
         if start.returncode != 0:
             result = failure(
                 "docker", start.error or f"start: exit code {start.returncode}", start.output
             )
         else:
-            deadline = time.monotonic() + min(WEB_UP_TIMEOUT_SECONDS, j.remaining())
+            deadline = time.monotonic() + min(j.up_timeout, j.remaining())
             while not _http_up(platform_port) and time.monotonic() < deadline:
                 time.sleep(0.5)
             if not _http_up(platform_port):
@@ -248,37 +250,47 @@ def docker_step(j: Journey) -> Step:
                 result = failure("docker", f"platform port {platform_port} still open after stop")
     except DockerQueryError as exc:
         result = failure("docker", safe(str(exc)))
-    cleanup_error = _remove_leftovers(j, project, start_ok, volumes_before)
-    if result is None and cleanup_error:
-        result = failure("docker", cleanup_error)
+    cleanup_error = _remove_leftovers(j, project, volumes_before)
+    if cleanup_error:
+        result = (
+            failure("docker", cleanup_error)
+            if result is None
+            else Step(result.name, "FAIL", f"{result.detail}; {cleanup_error}", result.tail)
+        )
     return result or Step(
         "docker", "PASS", f"start, status, stop; no {safe(project)} containers remain"
     )
 
 
-def _remove_leftovers(
-    j: Journey, project: str, start_ok: bool, volumes_before: list[str]
-) -> str | None:
-    """Remove what THIS run created in its Compose project (best effort).
+def _remove_leftovers(j: Journey, project: str, volumes_before: list[str]) -> str | None:
+    """Remove what THIS run created in its Compose project.
 
     Containers are removed only when their compose working_dir label is this run's workdir.
-    Volumes carry no working_dir label, so they are removed only when `dango start` succeeded
-    or the project had no volumes before the run. Returns an error message if a docker query
-    or removal failed, else None.
+    Volumes carry no working_dir label, so only volumes that were not in the pre-start snapshot
+    are removed. Returns an error message when a docker query or removal failed, else None.
     """
+    errors: list[str] = []
     try:
         for cid, working_dir in _compose_containers(project):
             if _same_dir(working_dir, j.workdir):
-                subprocess.run(["docker", "rm", "-f", cid], capture_output=True, timeout=30)
-        volumes = _compose_volumes(project)
-        if start_ok or not volumes_before:
-            for vol in volumes:
-                subprocess.run(
-                    ["docker", "volume", "rm", "-f", vol], capture_output=True, timeout=30
-                )
-        elif volumes:
-            j.note("[kept volumes of the project: they existed before this run and start failed]")
-    except (DockerQueryError, OSError, subprocess.TimeoutExpired) as exc:
-        j.note(f"[docker cleanup incomplete: {exc}]")
-        return safe(f"docker cleanup incomplete: {exc}")
+                _remove(["docker", "rm", "-f", cid], errors)
+        for vol in _compose_volumes(project):
+            if vol not in volumes_before:
+                _remove(["docker", "volume", "rm", "-f", vol], errors)
+    except DockerQueryError as exc:
+        errors.append(str(exc))
+    if errors:
+        j.note(f"[docker cleanup incomplete: {'; '.join(errors)}]")
+        return safe(f"docker cleanup incomplete: {'; '.join(errors)}")
     return None
+
+
+def _remove(argv: list[str], errors: list[str]) -> None:
+    """Run one docker removal; record a failure (non-zero exit, timeout, no docker)."""
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        errors.append(f"{' '.join(argv[:3])} could not run: {exc}")
+        return
+    if proc.returncode != 0:
+        errors.append(f"{' '.join(argv)} exited {proc.returncode}")

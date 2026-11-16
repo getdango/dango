@@ -87,6 +87,7 @@ class Journey:
     utf8_mode: bool = False
     legacy_stdio: bool = False
     port_free_timeout: float = 10
+    up_timeout: float = 60
     output_encoding_override: str | None = None
     counted: tuple[str, int] | None = None  # (schema.table, rows) seen by the count step
     results: dict[str, Step] = field(default_factory=dict)
