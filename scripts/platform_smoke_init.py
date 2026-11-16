@@ -5,6 +5,7 @@ Prints one PASS/FAIL line for the label; used by the platform smoke workflow.
 """
 
 import argparse
+import os
 import subprocess
 from pathlib import Path
 
@@ -34,6 +35,7 @@ def _check(dango: str, workdir: Path, timeout: float) -> tuple[str | None, str]:
         proc = subprocess.run(
             [dango, "init", "--skip-wizard"],
             cwd=workdir,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
             capture_output=True,
             text=True,
             encoding="utf-8",

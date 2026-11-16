@@ -17,6 +17,10 @@ on:
       - .github/workflows/platform-smoke.yml
       - scripts/check_wheel_imports.py
       - scripts/platform_smoke_init.py
+      - scripts/first_user_journey.py
+      - scripts/first_user_journey.ps1
+      - scripts/journey_support.py
+      - scripts/journey_services.py
       - pyproject.toml
       - install.ps1
       - install.sh
@@ -36,7 +40,9 @@ jobs:
   smoke:
     name: Smoke (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # Worst case: steps before the journey (up to ~10 min on macos-15-intel) + journey budget
+    # (12 min) + cleanup after the budget (~5 min) = ~27 min.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -96,8 +102,6 @@ jobs:
           cd "$RUNNER_TEMP"
           "$FRESH_PY" "$GITHUB_WORKSPACE/scripts/check_wheel_imports.py"
 
-      # WP-02 adds: python scripts/first_user_journey.py
-
       - name: dango init --skip-wizard (UTF-8)
         id: init_utf8
         if: ${{ !cancelled() }}
@@ -136,6 +140,31 @@ jobs:
             tests/unit/test_scripts_config_env.py \
             tests/unit/test_schedules_config.py
 
+      # The journey keeps file encodings at the platform default on purpose so encoding defects
+      # surface; the dango children's console output is UTF-8 (PYTHONIOENCODING), as in a terminal.
+      - name: First-user journey (init, source, sync, count, dbt, web, restart, second sync)
+        id: journey
+        if: ${{ !cancelled() }}
+        env:
+          JOURNEY_DOCKER: ${{ matrix.os == 'ubuntu-24.04' && '--with-docker' || '' }}
+        run: |
+          set +e
+          python scripts/first_user_journey.py --dango "$FRESH_DANGO" \
+            --workdir "$RUNNER_TEMP/journey" --log "$RUNNER_TEMP/journey.log" \
+            --isolate-keyring --budget 720 $JOURNEY_DOCKER | tee "$RUNNER_TEMP/journey.out"
+          rc=${PIPESTATUS[0]}
+          {
+            echo "### First-user journey (${{ matrix.os }})"
+            echo '```'
+            grep -E '^(PASS|FAIL|SKIP) ' "$RUNNER_TEMP/journey.out"
+            echo '```'
+            echo "Log tail:"
+            echo '```'
+            tail -n 40 "$RUNNER_TEMP/journey.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
       - name: Result summary
         if: always()
         run: |
@@ -148,4 +177,5 @@ jobs:
             echo "- init (UTF-8): ${{ steps.init_utf8.outcome }}"
             echo "- init (cp1252): ${{ steps.init_cp1252.outcome }}"
             echo "- unit subset: ${{ steps.unit.outcome }}"
+            echo "- first-user journey: ${{ steps.journey.outcome }}"
           } >> "$GITHUB_STEP_SUMMARY"
