@@ -51,7 +51,7 @@ FAKE_EXIT1_NO_TRACEBACK = (
     + 'print("Error: dbt command not found", file=sys.stderr)\nsys.exit(1)\n'
 )
 
-# Exit 0 and project.yml exists, but auth setup was skipped (no auth.yml).
+# Exit 0 and project.yml exists, but auth setup did not run (no auth.yml).
 FAKE_NO_AUTH = _MAKE_PROJECT + 'print("Skipping auth setup.")\n'
 
 # Exit 0 with both files, but init reported it finished with warnings.

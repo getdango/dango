@@ -4,7 +4,7 @@ name: Platform smoke
 # user would (no constraints), and runs a small first-run smoke on Windows, macOS and Ubuntu.
 # A red job is the intended signal; do not hide it with continue-on-error.
 #
-# Triggers: pushes to main and v1.0.15 (after each merge), PRs that touch only the files below
+# Triggers: pushes to main and v1.0.15 (after each merge), PRs that touch any of the files below
 # (never every task PR), nightly, and manual dispatch. `schedule` and `workflow_dispatch` only
 # work once this file exists on the default branch (main); until then the pull_request trigger
 # on the PR that changes this file is what exercises it.
