@@ -107,12 +107,13 @@ jobs:
           python scripts/platform_smoke_init.py --dango "$FRESH_DANGO" \
             --workdir "$RUNNER_TEMP/init-utf8" --label "utf8 (${{ matrix.os }})"
 
+      # Legacy code page: PYTHONUTF8=0 only. Expected to pass on UTF-8 Linux/macOS (UTF-8
+      # locale) and to reproduce the cp1252 encoding failure on Windows.
       - name: dango init --skip-wizard (legacy cp1252 code page)
         id: init_cp1252
         if: ${{ !cancelled() }}
         env:
           PYTHONUTF8: "0"
-          PYTHONIOENCODING: cp1252
         run: |
           python scripts/platform_smoke_init.py --dango "$FRESH_DANGO" \
             --workdir "$RUNNER_TEMP/init-cp1252" --label "cp1252 (${{ matrix.os }})"
