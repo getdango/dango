@@ -7,10 +7,13 @@ results, and ASCII-safe reporting. Standard library only; safe on Windows, macOS
 import os
 import socket
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 FAIL_TAIL_LINES = 15
+DEFAULT_BUDGET_SECONDS = 900
+BUDGET_EXHAUSTED = "journey time budget exhausted"
 THROWAWAY_ADMIN_PASSWORD = "Smoke-Test-9xQ!pL3z"  # disposable journey project; not a secret
 
 
@@ -78,7 +81,15 @@ class Journey:
     log: Path
     step_timeout: float
     isolate_keyring: bool
+    budget: float = DEFAULT_BUDGET_SECONDS
+    legacy_encoding: bool = False
+    port_free_timeout: float = 10
     results: dict[str, Step] = field(default_factory=dict)
+    started: float = field(default_factory=time.monotonic)
+
+    def remaining(self) -> float:
+        """Seconds left of the total time budget (never negative)."""
+        return max(0.0, self.budget - (time.monotonic() - self.started))
 
     def env(self) -> dict[str, str]:
         """Environment for every child process of the journey."""
@@ -86,6 +97,12 @@ class Journey:
         env["DO_NOT_TRACK"] = "1"
         env["DANGO_ADMIN_PASSWORD"] = THROWAWAY_ADMIN_PASSWORD
         env["PYTHONUNBUFFERED"] = "1"
+        env["NO_COLOR"] = "1"  # plain text in the pasted log
+        env["TERM"] = "dumb"
+        if self.legacy_encoding:
+            env.pop("PYTHONUTF8", None)
+        else:
+            env["PYTHONUTF8"] = "1"  # UTF-8 mode, so output encoding does not hide later steps
         if self.isolate_keyring:
             env["PYTHON_KEYRING_BACKEND"] = "keyring.backends.fail.Keyring"
         return env
@@ -95,9 +112,20 @@ class Journey:
         with open(self.log, "a", encoding="utf-8", newline="\n") as fh:
             fh.write(line + "\n")
 
-    def run(self, argv: list[str], timeout: float | None = None) -> Proc:
-        """Run a command in the workdir, append command, exit code and output to the log."""
+    def run(
+        self, argv: list[str], timeout: float | None = None, ignore_budget: bool = False
+    ) -> Proc:
+        """Run a command in the workdir, append command, exit code and output to the log.
+
+        The timeout is capped by what is left of the total budget, except for cleanup commands
+        (ignore_budget=True) that must still run once the budget is spent.
+        """
         limit = timeout if timeout is not None else self.step_timeout
+        if not ignore_budget:
+            limit = min(limit, self.remaining())
+            if limit <= 0:
+                self.note(f"$ {' '.join(argv)}\n[not run: {BUDGET_EXHAUSTED}]")
+                return Proc(None, "", BUDGET_EXHAUSTED)
         self.note(f"$ {' '.join(argv)}")
         try:
             proc = subprocess.run(
@@ -121,9 +149,9 @@ class Journey:
         self.note(f"[exit code {proc.returncode}]\n{output}")
         return Proc(proc.returncode, output)
 
-    def dango_run(self, *args: str) -> Proc:
+    def dango_run(self, *args: str, ignore_budget: bool = False) -> Proc:
         """Run the dango executable with `args` in the workdir."""
-        return self.run([self.dango, *args])
+        return self.run([self.dango, *args], ignore_budget=ignore_budget)
 
 
 def failure(name: str, reason: str, output: str = "") -> Step:

@@ -12,7 +12,16 @@ from collections.abc import Callable
 from pathlib import Path
 
 from journey_services import docker_step, web_step
-from journey_support import Journey, Proc, Step, failure, free_ports, report
+from journey_support import (
+    DEFAULT_BUDGET_SECONDS,
+    Journey,
+    Proc,
+    Step,
+    failure,
+    free_ports,
+    report,
+    safe,
+)
 
 DEFAULT_STEP_TIMEOUT_SECONDS = 300
 DEFAULT_STOP_GRACE_SECONDS = 15
@@ -186,29 +195,6 @@ def step_second_sync(j: Journey) -> Step:
     return Step("second-sync", "PASS", f"{table} still has {count} rows")
 
 
-def _compose_project(j: Journey) -> str:
-    """Compose project name for this run's project (reads project.id; legacy hash not needed)."""
-    code = (
-        "import sys, yaml; d = yaml.safe_load(open(sys.argv[1], encoding='utf-8')) or {};"
-        "print('dango-' + str((d.get('project') or {}).get('id', ''))[:8])"
-    )
-    proc = j.run([j.python, "-c", code, str(j.workdir / ".dango" / "project.yml")])
-    return (
-        proc.output.strip().splitlines()[-1]
-        if proc.returncode == 0 and proc.output.strip()
-        else "dango-unknown"
-    )
-
-
-def _platform_port(j: Journey) -> int:
-    code = (
-        "import sys, yaml; d = yaml.safe_load(open(sys.argv[1], encoding='utf-8')) or {};"
-        "print((d.get('platform') or {}).get('port', 8800))"
-    )
-    proc = j.run([j.python, "-c", code, str(j.workdir / ".dango" / "project.yml")])
-    return int(proc.output.strip().splitlines()[-1])
-
-
 def main() -> int:
     """Parse arguments, run the steps in order and report; returns the exit code."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -224,13 +210,35 @@ def main() -> int:
     )
     parser.add_argument("--python", help="python of the dango venv (default: next to --dango)")
     parser.add_argument("--stop-grace", type=float, default=DEFAULT_STOP_GRACE_SECONDS)
+    parser.add_argument(
+        "--budget",
+        type=float,
+        default=DEFAULT_BUDGET_SECONDS,
+        help="total seconds for all steps; step timeouts shrink to what is left",
+    )
+    parser.add_argument(
+        "--legacy-encoding",
+        action="store_true",
+        help="do not force UTF-8 mode (PYTHONUTF8=1) in the dango child processes",
+    )
+    parser.add_argument("--port-free-timeout", type=float, default=10, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     dango = Path(args.dango)
     python = args.python or str(
         dango.parent / ("python.exe" if sys.platform == "win32" else "python")
     )
-    j = Journey(str(dango), python, args.workdir, args.log, args.step_timeout, args.isolate_keyring)
+    j = Journey(
+        str(dango),
+        python,
+        args.workdir,
+        args.log,
+        args.step_timeout,
+        args.isolate_keyring,
+        budget=args.budget,
+        legacy_encoding=args.legacy_encoding,
+        port_free_timeout=args.port_free_timeout,
+    )
     args.log.parent.mkdir(parents=True, exist_ok=True)
     j.note(f"# first-user journey: dango={dango} python={python} workdir={args.workdir}")
 
@@ -244,9 +252,7 @@ def main() -> int:
         ("second-sync", step_second_sync),
     ]
     if args.with_docker:
-        steps.append(
-            ("docker", lambda jj: docker_step(jj, _compose_project(jj), _platform_port(jj)))
-        )
+        steps.append(("docker", docker_step))
     failed = False
     for name, fn in steps:
         missing = next((d for d in DEPENDS.get(name, []) if j.results[d].status != "PASS"), None)
@@ -262,7 +268,7 @@ def main() -> int:
         report(step)
     if not args.with_docker:
         report(Step("docker", "SKIP", "not requested"))
-    print(f"log: {args.log}")
+    print(safe(f"log: {args.log}"))
     return 1 if failed else 0
 
 

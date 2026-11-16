@@ -10,6 +10,7 @@ import signal
 import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "first_user_journey.py"
@@ -318,6 +319,9 @@ def reap_orphans(tmp_path: Path) -> list[int]:
             os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
         except OSError:
             pass
+    deadline = time.monotonic() + 5
+    while any(pid_alive(p) for p in alive) and time.monotonic() < deadline:
+        time.sleep(0.05)
     return alive
 
 

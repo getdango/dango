@@ -40,7 +40,7 @@ jobs:
   smoke:
     name: Smoke (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 25 # the journey step has its own 15 minute total budget (--budget)
     strategy:
       fail-fast: false
       matrix:
