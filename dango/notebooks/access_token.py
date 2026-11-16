@@ -5,9 +5,9 @@ Per-start access token for the local Marimo server (file mode 0600, never in arg
 
 from __future__ import annotations
 
-import fcntl
 import os
 import secrets
+import sys
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -82,26 +82,65 @@ def open_private_log(path: Path) -> IO[str]:
     return os.fdopen(fd, "w")
 
 
+def _try_lock_exclusive(fd: int) -> bool:
+    """Try to take an exclusive lock on *fd* without blocking.
+
+    Returns True when the lock is held, False when another holder has it.
+    Any other ``OSError`` propagates. The lock is released when *fd* is closed.
+    """
+    if sys.platform == "win32":
+        import msvcrt
+
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        except OSError:
+            return False
+        return True
+    import fcntl
+
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    return True
+
+
+def _release_lock(fd: int) -> None:
+    """Unlock *fd* before it is closed. Only Windows needs this (errors are ignored).
+
+    POSIX ``flock`` locks go away with the descriptor; a Windows ``msvcrt`` byte-range
+    lock should be released explicitly (mirrors ``DbtLock.release``).
+    """
+    if sys.platform == "win32":
+        import msvcrt
+
+        try:
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+
+
 @contextmanager
 def start_lock(project_root: Path, timeout: float = 90.0) -> Iterator[None]:
     """Serialize Marimo starts (``flock`` on a never-unlinked file).
 
     A second caller waits up to *timeout* seconds, then proceeds to see the
-    running instance (or fails like any other start).
+    running instance (or fails like any other start). On Windows the lock is
+    a one-byte ``msvcrt`` lock, unlocked explicitly before the file is closed.
     """
     lock_path = token_file_path(project_root).with_name("marimo.start.lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    locked = False
     try:
         deadline = time.monotonic() + timeout
-        while True:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if time.monotonic() >= deadline:
-                    raise RuntimeError("Timed out waiting for another Marimo start") from None
-                time.sleep(0.1)
+        while not _try_lock_exclusive(fd):
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Timed out waiting for another Marimo start") from None
+            time.sleep(0.1)
+        locked = True
         yield
     finally:
+        if locked:
+            _release_lock(fd)
         os.close(fd)
