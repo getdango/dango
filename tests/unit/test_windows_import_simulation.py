@@ -76,7 +76,7 @@ def root_frame(exc):
     frames = [f for f in traceback.extract_tb(exc.__traceback__) if not f.filename.startswith("<")]
     return exc, (frames[-1] if frames else None)
 
-failures, excused, skipped = [], [], []
+failures, excused, optional_missing = [], [], []
 def record(name, exc):
     root, frame = root_frame(exc)
     where = f"{frame.filename.replace(chr(92), '/')}:{frame.lineno}" if frame else ""
@@ -84,7 +84,7 @@ def record(name, exc):
         isinstance(root, ImportError) or type(root).__name__ == "MissingDependencyException"
     ) and getattr(root, "name", None) not in blocked and "halted" not in str(root)
     if name.startswith("dango.ingestion.dlt_sources.") and missing_dep:
-        skipped.append(name)
+        optional_missing.append(name)
         return
     entry = [name, type(root).__name__, str(root).splitlines()[0] if str(root) else "", where]
     for prefix, suffix, _reason in artefacts:
@@ -108,7 +108,7 @@ for info in pkgutil.walk_packages(dango.__path__, prefix="dango.", onerror=on_er
         record(info.name, exc)
 
 with open(out_path, "w", encoding="utf-8") as handle:
-    json.dump({"failures": failures, "excused": excused, "skipped": skipped}, handle)
+    json.dump({"failures": failures, "excused": excused, "optional_missing": optional_missing}, handle)
 """
 )
 
