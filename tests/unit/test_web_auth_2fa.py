@@ -337,8 +337,12 @@ class TestTwoFADisable:
 
     def test_success(self, tmp_path: Path) -> None:
         tc, db_path, user = _authed(tmp_path)
-        _enable_2fa(db_path, user.id)
-        resp = tc.post("/api/auth/2fa/disable", json={"password": _TEST_PASSWORD}, headers=_hdrs())
+        secret = _enable_2fa(db_path, user.id)
+        resp = tc.post(
+            "/api/auth/2fa/disable",
+            json={"password": _TEST_PASSWORD, "code": pyotp.TOTP(secret).now()},
+            headers=_hdrs(),
+        )
         assert resp.status_code == 200
         u = db.get_user_by_id(db_path, user.id)
         assert u is not None and u.totp_enabled is False and u.totp_secret is None
@@ -440,7 +444,7 @@ class TestLoginWith2FA:
         )
         data = resp.json()
         assert data["requires_2fa_setup"] is True
-        assert "user" in data
+        assert "user" not in data
 
 
 # ---------------------------------------------------------------------------

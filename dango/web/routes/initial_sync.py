@@ -8,7 +8,8 @@ progress via WebSocket for the dashboard banner.  State is persisted to
 
 Authentication: The ``/start`` endpoint accepts a one-time deploy token
 (generated during ``dango deploy``) via ``Authorization: Bearer <token>``.
-Other endpoints require a valid session or API key (handled by auth middleware).
+``/status`` requires ``health.view``; ``/skip-source`` and ``/cancel`` require
+``platform.manage`` (admin).
 """
 
 from __future__ import annotations
@@ -23,9 +24,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
+from dango.auth.audit import AuditEvent, log_auth_event
+from dango.auth.models import User
+from dango.auth.permissions import require_permission
 from dango.logging import get_logger
+from dango.utils.redact import redact_error_fields, redact_project_text
 from dango.web.helpers import get_project_root
 from dango.web.routes.websocket import ws_manager
 
@@ -110,7 +115,11 @@ def _load_state() -> None:
             current_source_index=data.get("current_source_index", 0),
             current_source_name=data.get("current_source_name", ""),
             completed_sources=data.get("completed_sources", []),
-            failed_sources=data.get("failed_sources", []),
+            # state files written before errors were redacted can still hold raw text
+            failed_sources=[
+                redact_error_fields(get_project_root(), f) if isinstance(f, dict) else f
+                for f in data.get("failed_sources", [])
+            ],
             skipped_sources=data.get("skipped_sources", []),
             cancel_requested=data.get("cancel_requested", False),
             skip_current_requested=data.get("skip_current_requested", False),
@@ -172,7 +181,8 @@ def _get_admin_user_from_session(request: Request) -> Any:
     from dango.auth.admin import get_auth_db_path, is_auth_enabled
     from dango.auth.models import Role
     from dango.auth.sessions import validate_session
-    from dango.web.middleware.auth import COOKIE_NAME
+    from dango.config.auth_loading import idle_timeout_minutes
+    from dango.web.middleware.auth import COOKIE_NAME, has_csrf_header
 
     project_root = get_project_root()
     if not is_auth_enabled(project_root):
@@ -187,12 +197,23 @@ def _get_admin_user_from_session(request: Request) -> Any:
     if not cookie_value:
         return None
 
-    user = validate_session(db_path, cookie_value)
+    # This route is public, so the middleware's CSRF check does not run: repeat it for the cookie path
+    if not has_csrf_header(request.scope.get("headers", [])):
+        return None
+
+    # Configured idle timeout; a partial session never validates. The role is checked before
+    # the session's activity is refreshed, so a non-admin cookie is not kept alive by this route.
+    idle = idle_timeout_minutes(project_root)
+    user = validate_session(
+        db_path, cookie_value, idle_timeout_minutes=idle, refresh_activity=False
+    )
     if user is None:
         return None
 
     if user.role != Role.ADMIN:
         return None
+
+    validate_session(db_path, cookie_value, idle_timeout_minutes=idle)
 
     return user
 
@@ -249,7 +270,10 @@ async def _run_initial_sync(project_root: Path, sources: list[dict[str, str]]) -
                 error=str(exc),
                 exc_info=True,
             )
-            _sync_state.failed_sources.append({"name": source_name, "error": str(exc)})
+            # Viewers read this through /status: redact the text once, where it is built
+            _sync_state.failed_sources.append(
+                {"name": source_name, "error": redact_project_text(project_root, str(exc))}
+            )
 
         await _save_and_broadcast()
 
@@ -361,6 +385,7 @@ async def start_initial_sync(request: Request, background_tasks: BackgroundTasks
     auth_header = request.headers.get("authorization", "")
 
     token_valid = False
+    actor = None
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
         token_valid = _validate_deploy_token(token)
@@ -371,6 +396,7 @@ async def start_initial_sync(request: Request, background_tasks: BackgroundTasks
         user = _get_admin_user_from_session(request)
         if user is None:
             raise HTTPException(status_code=401, detail="Unauthorized")
+        actor = user
 
     if _sync_state.phase == SyncPhase.SYNCING:
         raise HTTPException(status_code=409, detail="Sync already in progress")
@@ -383,7 +409,10 @@ async def start_initial_sync(request: Request, background_tasks: BackgroundTasks
         config = load_config(project_root)
         sources = [{"name": src.name, "type": src.type.value} for src in config.sources.sources]
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to load sources: {exc}") from exc
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load sources: {redact_project_text(project_root, str(exc))}",
+        ) from exc
 
     if not sources:
         return {"status": "skipped", "message": "No sources configured"}
@@ -391,12 +420,26 @@ async def start_initial_sync(request: Request, background_tasks: BackgroundTasks
     # Reset state and start
     _sync_state = InitialSyncState()
 
+    log_auth_event(
+        AuditEvent.SYNC_TRIGGERED,
+        user_id=actor.id if actor else None,
+        email=actor.email if actor else None,
+        ip=request.client.host if request.client else None,
+        details={
+            "initial_sync": True,
+            "auth": "session" if actor else "deploy_token",
+            "sources": len(sources),
+        },
+        log_dir=project_root / ".dango" / "logs",
+    )
     background_tasks.add_task(_run_initial_sync, project_root, sources)
     return {"status": "started", "message": f"Syncing {len(sources)} source(s)"}
 
 
 @router.get("/status")
-async def get_sync_status(request: Request) -> dict[str, Any]:
+async def get_sync_status(
+    user: User = Depends(require_permission("health.view")),
+) -> dict[str, Any]:
     """Return current initial sync state."""
     # Lazy load state from disk on first call
     if _sync_state.phase == SyncPhase.IDLE and _sync_state.total_sources == 0:
@@ -405,34 +448,40 @@ async def get_sync_status(request: Request) -> dict[str, Any]:
 
 
 @router.post("/skip-source")
-async def skip_current_source(request: Request) -> dict[str, str]:
+async def skip_current_source(
+    request: Request,
+    user: User = Depends(require_permission("platform.manage")),
+) -> dict[str, str]:
     """Skip the currently syncing source."""
-    user = getattr(request.state, "user", None) if hasattr(request, "state") else None
-    if user is not None and getattr(user, "role", None) is not None:
-        from dango.auth.models import Role
-
-        if user.role != Role.ADMIN:
-            raise HTTPException(status_code=403, detail="Admin access required")
-
     if _sync_state.phase != SyncPhase.SYNCING:
         raise HTTPException(status_code=409, detail="No sync in progress")
 
     _sync_state.skip_current_requested = True
+    log_auth_event(
+        AuditEvent.INITIAL_SYNC_SKIPPED,
+        user_id=user.id,
+        email=user.email,
+        ip=request.client.host if request.client else None,
+        details={"source": _sync_state.current_source_name},
+    )
     return {"status": "ok", "message": f"Skipping {_sync_state.current_source_name}"}
 
 
 @router.post("/cancel")
-async def cancel_sync(request: Request) -> dict[str, str]:
+async def cancel_sync(
+    request: Request,
+    user: User = Depends(require_permission("platform.manage")),
+) -> dict[str, str]:
     """Cancel the entire initial sync."""
-    user = getattr(request.state, "user", None) if hasattr(request, "state") else None
-    if user is not None and getattr(user, "role", None) is not None:
-        from dango.auth.models import Role
-
-        if user.role != Role.ADMIN:
-            raise HTTPException(status_code=403, detail="Admin access required")
-
     if _sync_state.phase not in (SyncPhase.SYNCING, SyncPhase.DBT_DOCS, SyncPhase.METABASE):
         raise HTTPException(status_code=409, detail="No sync in progress")
 
     _sync_state.cancel_requested = True
+    log_auth_event(
+        AuditEvent.INITIAL_SYNC_CANCELLED,
+        user_id=user.id,
+        email=user.email,
+        ip=request.client.host if request.client else None,
+        details={"phase": _sync_state.phase.value},
+    )
     return {"status": "ok", "message": "Cancellation requested"}

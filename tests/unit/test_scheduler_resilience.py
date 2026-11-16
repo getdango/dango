@@ -116,7 +116,7 @@ class TestCancellation:
         assert "job-1" not in svc._cancel_flags
 
     def test_clear_cancel_flag_noop_for_unknown(self, tmp_path):
-        _make_service(tmp_path)._clear_cancel_flag("nonexistent")
+        assert _make_service(tmp_path)._clear_cancel_flag("x") is None  # does-not-raise
 
     def test_register_cancel_flag_warns_on_overwrite(self, tmp_path):
         svc = _make_service(tmp_path)

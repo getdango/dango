@@ -16,6 +16,7 @@ from dango.utils.driver import (
     read_driver_version,
     write_driver_version,
 )
+from tests.factories.driver_fakes import GOOD_JAR, pin_driver
 
 
 @pytest.mark.unit
@@ -62,9 +63,10 @@ class TestDriverNeedsUpdate:
         write_driver_version(tmp_path, "1.3.0")
         assert driver_needs_update(tmp_path) is True
 
-    def test_up_to_date(self, tmp_path):
-        """No update needed when jar exists and version matches pinned."""
-        (tmp_path / "duckdb.metabase-driver.jar").touch()
+    def test_up_to_date(self, tmp_path, monkeypatch):
+        """No update needed when a verified jar exists and version matches pinned."""
+        pin_driver(monkeypatch)
+        (tmp_path / "duckdb.metabase-driver.jar").write_bytes(GOOD_JAR)
         write_driver_version(tmp_path, METABASE_DUCKDB_DRIVER_VERSION)
         assert driver_needs_update(tmp_path) is False
 
@@ -74,7 +76,8 @@ class TestCheckVersionAlignment:
     def test_matching_versions_no_error(self):
         """No exception when Python DuckDB and driver share major.minor."""
         with patch("duckdb.__version__", "1.5.2"):
-            check_version_alignment()  # Should not raise
+            # does-not-raise: same major.minor
+            assert check_version_alignment() is None
 
     def test_mismatched_versions_raises(self):
         """VersionMismatchError raised when major.minor differs."""
@@ -88,4 +91,5 @@ class TestCheckVersionAlignment:
         # Python: "1.5.0" → major.minor "1.5"
         # Driver: "1.5.1.0" → major.minor "1.5"
         with patch("duckdb.__version__", "1.5.0"):
-            check_version_alignment()  # Should not raise
+            # does-not-raise: same major.minor
+            assert check_version_alignment() is None

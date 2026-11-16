@@ -6,11 +6,12 @@ File-level locking for notebook concurrent editing protection.
 from __future__ import annotations
 
 import logging
-import shutil
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from dango.notebooks.safe_files import UnsafeFileError, copy_regular_file
 from dango.utils.dango_db import connect
 
 logger = logging.getLogger(__name__)
@@ -263,13 +264,16 @@ def copy_locked_notebook(project_root: Path, notebook_id: str, new_owner: str) -
     """
     notebooks_dir = project_root / "notebooks"
     original = notebooks_dir / f"{notebook_id}.py"
-    if not original.exists():
+    if not os.path.lexists(original):
         raise FileNotFoundError(f"Notebook file not found: {original}")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     copy_name = f"{notebook_id}_copy_{timestamp}"
     copy_path = notebooks_dir / f"{copy_name}.py"
-    shutil.copy2(str(original), str(copy_path))
+    try:
+        copy_regular_file(original, copy_path, src_root=notebooks_dir, dst_root=notebooks_dir)
+    except UnsafeFileError as exc:
+        raise FileNotFoundError(f"Notebook file not found: {original}") from exc
 
     new_id = str(uuid.uuid4())
     now = datetime.now().isoformat()

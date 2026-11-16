@@ -5,7 +5,7 @@ Dango can be deployed to any Ubuntu 22.04+ server — not just DigitalOcean. Thi
 ## Requirements
 
 - **Ubuntu 22.04+** (tested on 22.04 LTS and 24.04 LTS)
-- **Root SSH access** (key-based authentication — see [Enabling Root SSH](#enabling-root-ssh) for GCP/AWS/Azure)
+- **Root SSH access** (key-based authentication — see [Enabling Root SSH](#enabling-root-ssh) for GCP/AWS/Azure). `dango deploy` refuses any other SSH user: setup runs as root and sudo-based setup is not supported
 - **4 GB RAM minimum** (Metabase alone needs ~1.5 GB)
 - **30 GB disk minimum** (Docker images ~5 GB, Python venv ~1.2 GB, plus data)
 - **Ports 22, 80, 443** open in your provider's firewall/security group
@@ -31,6 +31,8 @@ dango deploy --byos \
   --admin-email admin@example.com \
   --admin-password "YourSecurePassword123!"
 ```
+
+Without `--domain`, add `--accept-http-exposure` (see [Domain & HTTPS](#domain-https)).
 
 ## What Gets Installed
 
@@ -116,7 +118,14 @@ The wizard offers two choices:
 
 If you configure a domain, Caddy auto-provisions a Let's Encrypt TLS certificate. Point a DNS A record to your server IP before or immediately after deployment.
 
-Without a domain, Dango is accessible at `http://<server-ip>` (HTTP only).
+Without a domain, Dango is accessible at `http://<server-ip>` over **plain HTTP**: the admin password, the session cookie and API keys cross the network unencrypted. `dango deploy` therefore asks you to acknowledge this:
+
+- Interactive: the wizard shows a warning and you type `yes` to continue.
+- Non-interactive: pass `--accept-http-exposure`, or `--domain` for HTTPS.
+
+Dango opens ports 80 and 443 in `ufw` on your server. To limit who can reach them, restrict those ports in your provider's firewall or with `ufw` (`--allow-ip` is only available on DigitalOcean, where Dango manages the cloud firewall). `dango remote status` shows "HTTP only (unencrypted)" until you add a domain with `dango remote domain set <domain>`.
+
+On DigitalOcean the same rule applies, and the deploy can restrict the web ports for you: `--allow-ip <your-ip>` (repeatable, IPv4 address or CIDR), or the wizard's IP question (which also accepts `detect`). Without a restriction, the DigitalOcean firewall allows ports 22, 80 and 443 from anywhere. `dango remote domain set` reopens 80/443 before switching to HTTPS, because Let's Encrypt must reach them to issue and renew the certificate. With a domain, keep 80/443 open: HTTPS and the login protect the app, and restricting the ports would break automatic certificate renewal. IP restriction is for deploys without a domain.
 
 ## Post-Deployment
 
@@ -138,9 +147,12 @@ dango remote backup         # On-demand backup (SSH-based)
 These require DigitalOcean API access:
 
 - `dango remote resize` — Resize through your hosting provider instead
-- `dango remote migrate` — Provision a new server and redeploy manually
+- `dango remote migrate` — Switched off in 1.0.14 for every provider; it prints the manual path. To move servers: `dango remote backup download --from-server -o ./backup.tar.gz`, `dango deploy destroy`, `dango deploy`, then `dango remote backup restore ./backup.tar.gz --from-local`. Re-enter secrets (they are not in backups by default) and update DNS
 - `dango remote firewall` — Use `ufw` commands via SSH instead
-- `dango remote backup enable/disable` — Spaces-based scheduled backups are DO-only
+
+### Backups on BYOS
+
+`dango remote backup enable` and `disable` work on BYOS: they install or remove a daily systemd timer (02:00 UTC) on your server. Without Spaces credentials in the server's `.env`, backups are local-only: they stay on the server and are lost with it. Copy one to your machine with `dango remote backup download --from-server -o ./backup.tar.gz`.
 
 ## Teardown
 

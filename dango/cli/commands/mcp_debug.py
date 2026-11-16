@@ -13,16 +13,8 @@ from typing import Any
 
 from dango.cli.commands.mcp_helpers import _get_project_root
 from dango.cli.commands.mcp_server import mcp
+from dango.utils.redact import SECRET_KEY_RE, load_secret_values, redact_text
 
-_SECRET_KEY_RE = re.compile(
-    r"(?i)(password|passwd|secret|token|api[_-]?key|authorization|credential|private[_-]?key)"
-)
-_SECRET_INLINE_RE = re.compile(
-    r"(?i)(?<![A-Za-z0-9])([\w-]*(?:password|passwd|secret|token|api[_-]?key|authorization)[\w-]*)"
-    r"([\"']?\s*[=:]\s*)((?:Bearer|Basic|Token)\s+\S+|\"[^\"]*\"|'[^']*'|[^\s,;&}]+)"
-)
-_URL_CRED_RE = re.compile(r"(://[^/\s:@]+:)[^@\s/]+(@)")
-_BEARER_RE = re.compile(r"(?i)\b(Bearer|Basic)(\s+)[A-Za-z0-9._~+/=-]{6,}")
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 _TAIL_BYTES = 2 * 1024 * 1024
@@ -36,24 +28,26 @@ _LOG_FILES = {
 }
 
 
-def _redact_text(text: str) -> str:
-    """Mask secret-looking key=value pairs and URL credentials in free text."""
-    text = _SECRET_INLINE_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}****", text)
-    text = _URL_CRED_RE.sub(r"\1****\2", text)
-    return _BEARER_RE.sub(r"\1\2****", text)
+def _redact_text(text: str, secrets: frozenset[str] = frozenset()) -> str:
+    """Mask secret-looking key=value pairs and URL credentials, plus known secret values."""
+    return redact_text(text, secrets)
 
 
-def _redact_obj(obj: Any) -> Any:
+def _redact_obj(obj: Any, secrets: frozenset[str] = frozenset()) -> Any:
     """Recursively mask values whose KEY looks secret."""
     if isinstance(obj, dict):
         return {
-            k: ("****" if isinstance(k, str) and _SECRET_KEY_RE.search(k) else _redact_obj(v))
+            k: (
+                "****"
+                if isinstance(k, str) and SECRET_KEY_RE.search(k)
+                else _redact_obj(v, secrets)
+            )
             for k, v in obj.items()
         }
     if isinstance(obj, list):
-        return [_redact_obj(v) for v in obj]
+        return [_redact_obj(v, secrets) for v in obj]
     if isinstance(obj, str):
-        return _redact_text(obj)
+        return _redact_text(obj, secrets)
     return obj
 
 
@@ -184,6 +178,7 @@ def get_logs(
                 "note": "Log file not found (nothing logged yet)",
             }
         lines = max(1, min(int(lines), _MAX_LINES))
+        secrets = load_secret_values(project_root)
         needle = contains.lower() if contains else None
         want_level = level.lower() if level else None
         entries: list[Any] = []
@@ -191,7 +186,7 @@ def get_logs(
             if not raw.strip():
                 continue
             if log == "dbt":
-                text = _redact_text(_ANSI_RE.sub("", raw))
+                text = _redact_text(_ANSI_RE.sub("", raw), secrets)
                 if needle and needle not in text.lower():
                     continue
                 if want_level and not re.search(
@@ -207,7 +202,7 @@ def get_logs(
             if not isinstance(parsed, dict):
                 if want_level or source:
                     continue
-                parsed = {"raw": _redact_text(raw)}
+                parsed = {"raw": _redact_text(raw, secrets)}
                 if needle and needle not in parsed["raw"].lower():
                     continue
                 entries.append(parsed)
@@ -218,7 +213,7 @@ def get_logs(
                 val = parsed.get("source", parsed.get("sources"))
                 if not (val == source or (isinstance(val, list) and source in val)):
                     continue
-            parsed = _redact_obj(parsed)
+            parsed = _redact_obj(parsed, secrets)
             if needle and needle not in json.dumps(parsed, default=str).lower():
                 continue
             entries.append(parsed)

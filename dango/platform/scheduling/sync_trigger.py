@@ -150,6 +150,7 @@ def run_manual_sync(
     """
     from dango.config.helpers import load_config
     from dango.ingestion import run_sync
+    from dango.utils.redact import redact_project_text
 
     state_dir = project_root / ".dango" / "state"
     db_path = get_scheduler_db_path(project_root)
@@ -184,7 +185,9 @@ def run_manual_sync(
             if src is not None:
                 validate_before_sync(src.type.value, project_root)
     except (OAuthTokenExpiredError, OAuthTokenRevokedError) as oauth_err:
-        error_msg = f"OAuth validation failed: {oauth_err.user_message}"
+        error_msg = redact_project_text(
+            project_root, f"OAuth validation failed: {oauth_err.user_message}"
+        )
         _write_failed_sync_history(project_root, sources, error_msg)
         record_failure(db_path, record_id, error_msg)
         duration = round(time.time() - start_time, 1)
@@ -209,7 +212,9 @@ def run_manual_sync(
                 resolved.append(src)
 
         if not resolved:
-            msg = f"No valid sources found for: {', '.join(sources)}"
+            msg = redact_project_text(
+                project_root, f"No valid sources found for: {', '.join(sources)}"
+            )
             logger.warning("manual_sync_no_sources", source_names=sources)
             _write_failed_sync_history(project_root, sources, msg)
             record_failure(db_path, record_id, msg)
@@ -284,7 +289,9 @@ def run_manual_sync(
             }
 
         if failed_sources:
-            error_msg = "; ".join(f["error"] for f in failed_sources if isinstance(f, dict))
+            error_msg = redact_project_text(
+                project_root, "; ".join(f["error"] for f in failed_sources if isinstance(f, dict))
+            )
             record_failure(db_path, record_id, error_msg)
             # Only meaningful when exactly one source is in this batch — jobs.py's scheduled-sync
             # loop is the only caller that relies on this key, and it always calls with a single
@@ -326,7 +333,7 @@ def run_manual_sync(
         }
     except Exception as exc:
         logger.warning("manual_sync_failed", error=str(exc), exc_info=True)
-        error_msg = str(exc)
+        error_msg = redact_project_text(project_root, str(exc))
         record_failure(db_path, record_id, error_msg)
         _write_failed_sync_history(project_root, sources, error_msg)
 

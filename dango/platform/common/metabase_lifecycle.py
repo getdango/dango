@@ -17,11 +17,16 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+#: Caller timeouts (seconds). Through the compose helper each must exceed its lock wait
+#: plus the verb's budget (stop 30 + 45, start 30 + 90), so a timeout never leaves a
+#: queued helper call behind.
+STOP_TIMEOUT = 90
+START_TIMEOUT = 150
 
 
 def stop_metabase_for_writes(project_root: Path, force: bool = False) -> bool:
@@ -39,23 +44,9 @@ def stop_metabase_for_writes(project_root: Path, force: bool = False) -> bool:
         return False
 
     try:
-        from dango.platform.docker import get_compose_project_name
+        from dango.platform.compose_exec import run_compose
 
-        proj_name = get_compose_project_name(project_root)
-        env = {**os.environ, "COMPOSE_PROJECT_NAME": proj_name}
-        result = subprocess.run(
-            [
-                "docker",
-                "compose",
-                "-f",
-                str(project_root / "docker-compose.yml"),
-                "stop",
-                "metabase",
-            ],
-            capture_output=True,
-            timeout=60,
-            env=env,
-        )
+        result = run_compose(project_root, "stop", "metabase", timeout=STOP_TIMEOUT)
         if result.returncode != 0:
             logger.warning(
                 "metabase_stop_nonzero",
@@ -84,23 +75,9 @@ def start_metabase_after_writes(project_root: Path) -> bool:
     (logged, not raised).
     """
     try:
-        from dango.platform.docker import get_compose_project_name
+        from dango.platform.compose_exec import run_compose
 
-        proj_name = get_compose_project_name(project_root)
-        env = {**os.environ, "COMPOSE_PROJECT_NAME": proj_name}
-        subprocess.run(
-            [
-                "docker",
-                "compose",
-                "-f",
-                str(project_root / "docker-compose.yml"),
-                "start",
-                "metabase",
-            ],
-            capture_output=True,
-            timeout=120,
-            env=env,
-        )
+        run_compose(project_root, "start", "metabase", timeout=START_TIMEOUT)
         return True
     except Exception:
         logger.warning("metabase_start_after_writes_failed", exc_info=True)

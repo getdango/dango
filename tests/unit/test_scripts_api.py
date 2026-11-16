@@ -114,7 +114,7 @@ class TestRunScript:
 
         with (
             patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path),
-            patch(f"{_PATCH_API}.subprocess.Popen", return_value=mock_proc) as mock_popen,
+            patch("subprocess.Popen", return_value=mock_proc) as mock_popen,
             patch(f"{_PATCH_API}.ws_manager") as mock_ws,
             patch(f"{_PATCH_API}.append_log_entry") as mock_log,
         ):
@@ -200,7 +200,7 @@ class TestRunScript:
 
         with (
             patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path),
-            patch(f"{_PATCH_API}.subprocess.Popen", return_value=mock_proc),
+            patch("subprocess.Popen", return_value=mock_proc),
             patch(f"{_PATCH_HELPERS}.log_auth_event") as mock_audit,
             patch(f"{_PATCH_API}.ws_manager") as mock_ws,
             patch(f"{_PATCH_API}.append_log_entry"),

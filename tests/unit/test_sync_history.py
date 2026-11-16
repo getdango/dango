@@ -38,8 +38,9 @@ class TestUpdateLastSyncEntry:
         """Should silently return when history file doesn't exist."""
         from dango.utils.sync_history import update_last_sync_entry
 
-        # Should not raise
-        update_last_sync_entry(tmp_path, "nonexistent", {"transform_error": "dbt failed"})
+        # does-not-raise: missing history file is a no-op and is not created
+        assert update_last_sync_entry(tmp_path, "nonexistent", {"transform_error": "x"}) is None
+        assert not (tmp_path / ".dango" / "history" / "nonexistent.json").exists()
 
     def test_no_crash_on_empty_history(self, tmp_path):
         """Should handle empty history list gracefully."""

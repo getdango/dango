@@ -300,8 +300,9 @@ class TestPostSyncEnrichStagingTests:
         staging_dir = tmp_path / "dbt" / "models" / "staging"
         staging_dir.mkdir(parents=True)
 
-        # No schema file — should silently return
+        # does-not-raise: no schema file means nothing to enrich, and nothing gets created
         _enrich_staging_tests(tmp_path, ["shopify"])
+        assert list(staging_dir.iterdir()) == []
 
     def test_skips_when_no_zero_null_columns(self, tmp_path):
         """Should not modify schema when no columns have 0% null rate."""

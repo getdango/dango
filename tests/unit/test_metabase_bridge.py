@@ -254,11 +254,12 @@ class TestEnsureMetabaseSynced:
             )
 
     def test_exception_swallowed(self, tmp_path: Path) -> None:
-        with patch(_SYNC_TARGET, side_effect=RuntimeError("boom")):
-            # Should not raise
+        with patch(_SYNC_TARGET, side_effect=RuntimeError("boom")) as mock_sync:
+            # does-not-raise: the sync failure is swallowed
             self._run(
                 ensure_metabase_synced(tmp_path / "auth.db", "user-1", tmp_path, "http://mb:3000")
             )
+        mock_sync.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

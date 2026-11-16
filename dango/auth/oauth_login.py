@@ -149,10 +149,16 @@ class GoogleOAuthProvider(OAuthLoginProvider):
                 email = user_data.get("email")
                 if not email:
                     raise OAuthLoginError("No email in Google user info")
+                # Only an email Google affirms as verified may reach account lookup or linking.
+                if user_data.get("verified_email") is not True:
+                    raise OAuthLoginError("Your Google email address is not verified")
+                subject = user_data.get("id")
+                if not isinstance(subject, str | int) or not str(subject):
+                    raise OAuthLoginError("No account identifier in Google user info")
 
                 return OAuthUserInfo(
                     provider="google",
-                    provider_id=str(user_data.get("id", "")),
+                    provider_id=str(subject),
                     email=email,
                     name=user_data.get("name"),
                 )
@@ -228,11 +234,13 @@ class GitHubOAuthProvider(OAuthLoginProvider):
                     raise OAuthLoginError("Failed to fetch GitHub user info")
 
                 user_data: dict[str, Any] = user_resp.json()
-                email = user_data.get("email")
+                subject = user_data.get("id")
+                if not isinstance(subject, str | int) or not str(subject):
+                    raise OAuthLoginError("No account identifier in GitHub user info")
 
-                # Fallback: fetch primary verified email from /user/emails
-                if not email:
-                    email = await self._fetch_primary_email(client, auth_headers)
+                # The profile email is never trusted: it carries no verification flag. Always
+                # resolve the address from a /user/emails entry marked verified.
+                email = await self._fetch_primary_email(client, auth_headers)
 
                 if not email:
                     raise OAuthLoginError(
@@ -242,7 +250,7 @@ class GitHubOAuthProvider(OAuthLoginProvider):
 
                 return OAuthUserInfo(
                     provider="github",
-                    provider_id=str(user_data.get("id", "")),
+                    provider_id=str(subject),
                     email=email,
                     name=user_data.get("name") or user_data.get("login"),
                 )

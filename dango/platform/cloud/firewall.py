@@ -415,3 +415,27 @@ def save_firewall_metadata(project_root: Path, firewall_id: str) -> None:
 
     updated = existing.model_copy(update={"firewall_id": firewall_id})
     loader.save_cloud_config(updated)
+
+
+def update_firewall_droplets(
+    client: Any,
+    firewall_id: str,
+    old_droplet_id: int | None,
+    new_droplet_id: int | None,
+) -> None:
+    """Add *new_droplet_id* to the firewall and/or remove *old_droplet_id* from it."""
+    fw = client.get_firewall(firewall_id)
+    droplet_ids: list[int] = list(fw.get("droplet_ids", []))
+
+    if old_droplet_id in droplet_ids:
+        droplet_ids.remove(old_droplet_id)
+    if new_droplet_id is not None and new_droplet_id not in droplet_ids:
+        droplet_ids.append(new_droplet_id)
+
+    client.update_firewall(
+        firewall_id=firewall_id,
+        name=fw["name"],
+        inbound_rules=fw.get("inbound_rules", []),
+        outbound_rules=fw.get("outbound_rules", []),
+        droplet_ids=droplet_ids,
+    )

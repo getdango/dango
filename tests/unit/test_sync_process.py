@@ -108,7 +108,8 @@ class TestCleanupSyncStatus:
     def test_noop_when_no_file(self, tmp_path):
         from dango.platform.sync_process import cleanup_sync_status
 
-        cleanup_sync_status(tmp_path)  # should not raise
+        # does-not-raise: no status file to clean
+        assert cleanup_sync_status(tmp_path) is None
 
     def test_keeps_active_status(self, tmp_path):
         from dango.platform.sync_process import cleanup_sync_status, get_sync_status_path

@@ -8,6 +8,41 @@ from __future__ import annotations
 import click
 
 from dango.cli import console
+from dango.utils.dbt_escaping import comment_text, jinja_string_literal
+
+
+def _render_snapshot(
+    *,
+    generated_at: str,
+    snapshot_name: str,
+    source_name: str,
+    table_name: str,
+    strategy: str,
+    unique_key: str,
+    updated_at: str,
+) -> str:
+    """Render ``snapshot.sql.j2`` for the given snapshot settings."""
+    import re
+    from pathlib import Path
+
+    import jinja2
+
+    templates_dir = Path(__file__).parent.parent.parent / "templates" / "dbt"
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(templates_dir)),
+        keep_trailing_newline=True,
+    )
+    env.filters["cmt"] = comment_text
+    env.filters["jsl"] = jinja_string_literal
+    return env.get_template("snapshot.sql.j2").render(
+        generated_at=generated_at,
+        snapshot_name=re.sub(r"[^0-9A-Za-z_]", "_", snapshot_name),
+        source_name=source_name,
+        table_name=table_name,
+        strategy=strategy,
+        unique_key=unique_key,
+        updated_at=updated_at,
+    )
 
 
 @click.group(invoke_without_command=True)
@@ -38,7 +73,6 @@ def snapshot_add(ctx: click.Context) -> None:
     """
     import re
     from datetime import datetime
-    from pathlib import Path
 
     import duckdb
     import inquirer
@@ -198,7 +232,8 @@ def snapshot_add(ctx: click.Context) -> None:
         updated_at = answers["updated_at"].strip()
 
     # 6. Generate snapshot SQL file
-    snapshot_name = f"snap_{selected_source}_{selected_table}"
+    # Table names are data-derived: keep the snapshot name a plain identifier (file name + tag).
+    snapshot_name = re.sub(r"[^0-9A-Za-z_]", "_", f"snap_{selected_source}_{selected_table}")
     # Sanitize: only allow alphanumeric and underscores
     snapshot_name = re.sub(r"[^a-zA-Z0-9_]", "_", snapshot_name)
 
@@ -220,16 +255,7 @@ def snapshot_add(ctx: click.Context) -> None:
             console.print("[dim]Cancelled.[/dim]")
             return
 
-    # Render template
-    import jinja2
-
-    templates_dir = Path(__file__).parent.parent.parent / "templates" / "dbt"
-    env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(str(templates_dir)),
-        keep_trailing_newline=True,
-    )
-    template = env.get_template("snapshot.sql.j2")
-    rendered = template.render(
+    rendered = _render_snapshot(
         generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
         snapshot_name=snapshot_name,
         source_name=selected_source,
@@ -368,6 +394,7 @@ def snapshot_db(ctx: click.Context, user: str) -> None:
     """Create a DuckDB read-only snapshot for notebook use."""
     from dango.cli.utils import require_project_context
     from dango.notebooks.snapshot import create_snapshot
+    from dango.platform.run_as import IsolationRequiredError
 
     project_root = require_project_context(ctx)
 
@@ -376,6 +403,9 @@ def snapshot_db(ctx: click.Context, user: str) -> None:
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise SystemExit(1) from e
+    except IsolationRequiredError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise click.Abort() from e
 
     size_mb = snap_path.stat().st_size / (1024 * 1024)
     console.print(f"[green]✓[/green] Snapshot created: [bold]{snap_path.name}[/bold]")

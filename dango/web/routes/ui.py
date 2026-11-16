@@ -300,8 +300,15 @@ async def login_page(request: Request) -> Response:
             token = request.cookies.get("dango_session")
             if token:
                 from dango.auth.sessions import validate_session
+                from dango.config.auth_loading import idle_timeout_minutes
 
-                user = validate_session(get_auth_db_path(project_root), token)
+                # Public route: honour the configured idle timeout and never extend a session
+                user = validate_session(
+                    get_auth_db_path(project_root),
+                    token,
+                    idle_timeout_minutes=idle_timeout_minutes(project_root),
+                    refresh_activity=False,
+                )
                 if user is not None:
                     return RedirectResponse(url="/", status_code=302)
     except Exception:  # noqa: BLE001

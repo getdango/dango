@@ -101,6 +101,8 @@ def _drive_wizard(
             return size_choice
         if "Enter DO size slug" in text:
             return next(queue)
+        if "Type 'yes'" in text:  # web-access step: leave the HTTP-only server open
+            return "yes"
         return str(default)
 
     real_size, real_region = deploy_wizard._step_size, deploy_wizard._step_region

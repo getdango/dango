@@ -40,6 +40,8 @@ from typing import Any
 import click
 
 from dango.cli import console
+from dango.cli.commands import remote_report
+from dango.cli.commands.remote_isolation import isolation_group
 from dango.cli.utils import safe_confirm
 
 # ---------------------------------------------------------------------------
@@ -195,7 +197,7 @@ def _ssh_connect_or_fail(ctx: click.Context) -> tuple[Any, Any, Path]:
     try:
         ssh.connect(cloud_cfg.droplet_ip, username="dango")
     except Exception as exc:
-        console.print(f"[red]Error:[/red] SSH connection failed: {exc}")
+        remote_report.failure("SSH connection failed", exc)
         raise SystemExit(1) from exc
 
     return cloud_cfg, ssh, project_root
@@ -269,16 +271,18 @@ def remote_rollback(ctx: click.Context, backup: str | None, yes: bool) -> None:
             result = rollback(ssh, backup_path=backup, on_progress=_on_progress)
 
         console.print("\n[green]Rollback complete.[/green]")
-        console.print(f"  Restored from: [bold]{result.restored_from}[/bold]")
+        console.print(
+            f"  Restored from: [bold]{remote_report.literal(result.restored_from)}[/bold]"
+        )
         console.print(f"  Duration: {result.duration_seconds}s")
         if result.health_check_passed:
             console.print("  Health check: [green]passed[/green]")
         else:
             console.print("  Health check: [yellow]did not pass (services may need time)[/yellow]")
         for warning in result.warnings:
-            console.print(f"  [yellow]Warning:[/yellow] {warning}")
+            remote_report.warning(warning)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Rollback failed: {exc}")
+        remote_report.failure("Rollback failed", exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -295,6 +299,11 @@ def remote_rollback(ctx: click.Context, backup: str | None, yes: bool) -> None:
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
 @click.option("--allow-dirty", is_flag=True, help="Allow deployment with uncommitted changes.")
 @click.option("--allow-branch", is_flag=True, help="Allow deployment from any branch.")
+@click.option(
+    "--allow-empty",
+    is_flag=True,
+    help="Mirror an empty local directory over a non-empty server copy (erases the server files).",
+)
 @click.pass_context
 def remote_push(
     ctx: click.Context,
@@ -303,6 +312,7 @@ def remote_push(
     yes: bool,
     allow_dirty: bool,
     allow_branch: bool,
+    allow_empty: bool,
 ) -> None:
     """Push local project files to the remote server and rebuild.
 
@@ -318,6 +328,7 @@ def remote_push(
     """
     from rich.status import Status
 
+    from dango.exceptions import CloudError
     from dango.platform.cloud.deployer import push_deploy
     from dango.utils.git_info import check_git_guardrails, collect_git_info
 
@@ -359,7 +370,11 @@ def remote_push(
             console.print("[yellow]Push cancelled.[/yellow]")
             return
 
-    ssh = _connect_ssh(cloud_cfg, project_root)
+    try:
+        ssh = _connect_ssh(cloud_cfg, project_root)
+    except CloudError as exc:  # e.g. a changed host key: one clean line, like `remote status`
+        console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
+        raise SystemExit(1) from exc
 
     try:
         with Status("[bold blue]Deploying...", console=console) as status:
@@ -389,6 +404,7 @@ def remote_push(
                 cloud_cfg.droplet_ip,
                 dry_run=dry_run,
                 force=force,
+                allow_empty=allow_empty,
                 on_progress=_on_progress,
                 git_info=git_info_param,
             )
@@ -428,10 +444,10 @@ def remote_push(
             console.print(f"  Duration: {result.duration_seconds}s")
 
         for warning in result.warnings:
-            console.print(f"  [yellow]Warning:[/yellow] {warning}")
+            remote_report.warning(warning)
 
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Push failed: {exc}")
+        remote_report.failure("Push failed", exc)
         if not dry_run:
             console.print(
                 "[dim]A pre-deploy backup may have been created. "
@@ -468,7 +484,7 @@ def firewall_list(ctx: click.Context) -> None:
     try:
         fw = get_firewall_rules(client, firewall_id)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to retrieve firewall rules: {exc}")
+        remote_report.failure("Failed to retrieve firewall rules", exc)
         raise SystemExit(1) from exc
 
     rows = format_firewall_rules(fw)
@@ -522,13 +538,13 @@ def firewall_allow_ip(ctx: click.Context, ip_address: str) -> None:
     """
     from dango.platform.cloud.firewall import add_allowed_ip
 
-    _cloud_cfg, firewall_id = _load_cloud_config_or_fail(ctx)
+    cloud_cfg, firewall_id = _load_cloud_config_or_fail(ctx)
     client = _make_client()
 
     try:
         fw = add_allowed_ip(client, firewall_id, ip_address)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
 
     console.print(
@@ -536,6 +552,13 @@ def firewall_allow_ip(ctx: click.Context, ip_address: str) -> None:
         f"Ports 80/443 now restricted to [bold]{ip_address}[/bold]."
     )
     console.print(f"  Firewall: {fw.get('name', firewall_id)}")
+    if cloud_cfg.domain:
+        console.print(
+            f"[yellow]Warning:[/yellow] {cloud_cfg.domain} is configured. Restricting "
+            "ports 80/443 stops Let's Encrypt from reaching the server, so the "
+            "certificate cannot renew. Run [bold]dango remote firewall allow-all[/bold] "
+            "to keep HTTPS working."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -562,7 +585,7 @@ def firewall_allow_all(ctx: click.Context) -> None:
     try:
         fw = allow_all_web(client, firewall_id)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
 
     console.print("[green]Firewall updated.[/green] Ports 80/443 are now open to all traffic.")
@@ -595,6 +618,30 @@ def _connect_ssh(cloud_cfg: Any, project_root: Path) -> Any:
     return ssh
 
 
+def _reopen_web_ports_for_certificate(cloud_cfg: Any) -> None:
+    """Open 80/443 to all if the DO firewall restricts them (certificate issuance)."""
+    from dango.exceptions import CloudError
+    from dango.platform.cloud.firewall import allow_all_web, get_firewall_rules
+
+    if cloud_cfg.provider == "byos" or not cloud_cfg.firewall_id:
+        return
+    try:
+        client = _make_client()
+        fw = get_firewall_rules(client, cloud_cfg.firewall_id)
+        web = [r for r in fw.get("inbound_rules", []) if r.get("ports") in ("80", "443")]
+        if web and all("0.0.0.0/0" in r.get("sources", {}).get("addresses", []) for r in web):
+            return
+        allow_all_web(client, cloud_cfg.firewall_id)
+    except CloudError as exc:
+        console.print(
+            f"[yellow]Warning:[/yellow] Could not check the firewall: {exc}\n"
+            "  The certificate may fail to issue until ports 80/443 are open to all. Run "
+            "[bold]dango remote firewall allow-all[/bold]"
+        )
+        return
+    console.print("Web ports 80/443 reopened to all traffic for certificate issuance.")
+
+
 # ---------------------------------------------------------------------------
 # domain set
 # ---------------------------------------------------------------------------
@@ -624,9 +671,11 @@ def domain_set(ctx: click.Context, domain_name: str) -> None:
 
     ssh = _connect_ssh(cloud_cfg, project_root)
     try:
+        # Before Caddy is switched to HTTPS: Let's Encrypt must reach 80/443.
+        _reopen_web_ports_for_certificate(cloud_cfg)
         result = set_domain(ssh, project_root, domain_name)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -673,7 +722,7 @@ def domain_remove(ctx: click.Context) -> None:
     try:
         result = remove_domain(ssh, project_root)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -689,6 +738,17 @@ def domain_remove(ctx: click.Context) -> None:
     else:
         console.print("Caddyfile was already HTTP-only.")
 
+    restrict = (
+        "restrict ports 80/443 with ufw on the server or your provider's firewall"
+        if cloud_cfg.provider == "byos"
+        else "restrict web access with [bold]dango remote firewall allow-ip <your-ip>[/bold]"
+    )
+    console.print(
+        "[yellow]Warning:[/yellow] The server is now HTTP only: your admin password "
+        f"and session cookie are sent unencrypted. {restrict[0].upper()}{restrict[1:]}, "
+        "or add a domain with [bold]dango remote domain set <domain>[/bold]."
+    )
+
 
 # ---------------------------------------------------------------------------
 # Register subgroups from separate modules
@@ -699,6 +759,7 @@ import dango.cli.commands.remote_mgmt as _remote_mgmt  # noqa: E402, F401
 import dango.cli.commands.remote_ops as _remote_ops  # noqa: E402, F401
 import dango.cli.commands.remote_repair as _remote_repair  # noqa: E402, F401
 import dango.cli.commands.remote_sync as _remote_sync  # noqa: E402, F401
+import dango.cli.commands.remote_upload as _remote_upload  # noqa: E402, F401
 from dango.cli.commands.remote_auth import auth_group  # noqa: E402
 from dango.cli.commands.remote_backup import backup_group  # noqa: E402
 from dango.cli.commands.remote_env import env  # noqa: E402
@@ -706,3 +767,4 @@ from dango.cli.commands.remote_env import env  # noqa: E402
 remote.add_command(auth_group)
 remote.add_command(backup_group)
 remote.add_command(env)
+remote.add_command(isolation_group)

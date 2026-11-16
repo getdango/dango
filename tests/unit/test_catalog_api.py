@@ -375,7 +375,8 @@ class TestRefreshTableProfile:
         assert resp.status_code == 400
 
     def test_requires_permission(self, tmp_path: Path) -> None:
-        """Endpoint requires governance.view permission."""
-        client, _ = _setup_client(tmp_path, role=Role.VIEWER)
-        resp = client.post("/api/catalog/shopify/orders/profile")
-        assert resp.status_code != 403
+        """Endpoint requires dbt.run: Viewer is refused, Editor is not."""
+        viewer, _ = _setup_client(tmp_path, role=Role.VIEWER)
+        assert viewer.post("/api/catalog/shopify/orders/profile").status_code == 403
+        editor, _ = _setup_client(tmp_path, role=Role.EDITOR)
+        assert editor.post("/api/catalog/shopify/orders/profile").status_code != 403

@@ -16,7 +16,7 @@ import yaml
 from dango.cli import console
 
 # dbt identifier rules: start with a letter/underscore, then letters/digits/underscores.
-_VALID_DBT_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_VALID_DBT_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 @click.group()
@@ -63,7 +63,7 @@ def seed_add(ctx: click.Context, path: str) -> None:
 
         seed_name = src.stem
 
-        if not _VALID_DBT_IDENTIFIER_RE.match(seed_name):
+        if not _VALID_DBT_IDENTIFIER_RE.fullmatch(seed_name):
             console.print(
                 f"[red]Error:[/red] '{src.name}' is not a valid dbt seed name. "
                 "Rename the file to use only letters, digits, and underscores "

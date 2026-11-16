@@ -86,6 +86,13 @@ _PROJECT_ROOT = Path("/tmp/dango-test-project")
 _M = "dango.web.middleware.auth"
 
 
+@pytest.fixture(autouse=True)
+def _no_enrollment_session_lookup() -> Any:
+    """These tests mock the auth DB path; the enrollment-session lookup would open it for real."""
+    with patch(f"{_M}.enrollment_user", return_value=None):
+        yield
+
+
 def _db_exists() -> MagicMock:
     """Return a fresh mock Path whose .exists() returns True."""
     return MagicMock(exists=MagicMock(return_value=True))

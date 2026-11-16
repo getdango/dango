@@ -19,6 +19,9 @@ Retry policy
 - 429 rate-limit: respects ``Retry-After`` header, else falls back to backoff
 - 500/502/503/504 server errors: exponential backoff
 - Connection / timeout errors: exponential backoff
+- Create POSTs (droplet, firewall, SSH key) are repeated only when the request
+  provably did not take effect (429, or a connection failure before sending);
+  any other failure is reconciled by name instead (``create_reconcile.py``)
 - 401: raises ``CloudAuthError`` immediately (no retry)
 - 400/403/404/422: raises ``CloudAPIError`` immediately (no retry)
 """
@@ -27,13 +30,42 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Callable
 from typing import Any, cast
 
 import httpx
 
 from dango.exceptions import CloudAPIError, CloudAuthError, CloudError
+from dango.platform.cloud.create_reconcile import (
+    CreateOutcomeUnknown,
+    list_firewalls,
+    reconcile_create,
+    same_public_key,
+)
 
 _BASE_URL = "https://api.digitalocean.com/v2"
+_MAX_ERROR_MESSAGE_CHARS = 300
+
+
+def _format_api_error(status: int, response: httpx.Response) -> str:
+    """Build an error string from DO's JSON ``message``/``id``, if present."""
+    text = f"DigitalOcean API error: HTTP {status}"
+    try:
+        data = response.json()
+    except Exception:
+        return text
+    if not isinstance(data, dict):
+        return text
+    message = data.get("message")
+    if not isinstance(message, str) or not message:
+        return text
+    text = f"{text}: {message[:_MAX_ERROR_MESSAGE_CHARS]}"
+    error_id = data.get("id")
+    if isinstance(error_id, str) and error_id:
+        text = f"{text} ({error_id[:_MAX_ERROR_MESSAGE_CHARS]})"
+    return text
+
+
 _NO_RETRY_CODES = {400, 401, 403, 404, 422}
 _RETRY_CODES = {429, 500, 502, 503, 504}
 
@@ -117,7 +149,7 @@ class DigitalOceanClient:
                 "DigitalOcean API authentication failed. Check your token.",
             )
         raise CloudAPIError(
-            f"DigitalOcean API error: HTTP {response.status_code}",
+            _format_api_error(response.status_code, response),
             status_code=response.status_code,
             response_body=body,
         )
@@ -129,8 +161,14 @@ class DigitalOceanClient:
         *,
         json: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
+        create: bool = False,
     ) -> httpx.Response:
         """Execute a request with exponential-backoff retry on transient errors.
+
+        With ``create=True`` (a POST that creates a resource) only 429 and
+        connection failures before the request was sent are retried; any other
+        transient failure raises ``CreateOutcomeUnknown`` so the caller can
+        look the resource up instead of creating it twice.
 
         Retries on:
         - HTTP 429 (rate limit) — respects ``Retry-After`` header
@@ -155,6 +193,8 @@ class DigitalOceanClient:
             try:
                 response = self._request(method, path, json=json, params=params)
             except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                if create and not isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+                    raise CreateOutcomeUnknown(type(exc).__name__) from exc
                 if attempt == self._max_retries:
                     raise CloudError(
                         f"Network error after {self._max_retries} retries: {exc}",
@@ -162,6 +202,10 @@ class DigitalOceanClient:
                 time.sleep(delay)
                 delay *= 2.0
                 continue
+            except httpx.TransportError as exc:
+                if create:
+                    raise CreateOutcomeUnknown(type(exc).__name__) from exc
+                raise
 
             # Non-retryable errors — raise immediately
             if response.status_code in _NO_RETRY_CODES:
@@ -170,6 +214,9 @@ class DigitalOceanClient:
             # Success
             if response.is_success:
                 return response
+
+            if create and response.status_code >= 500:
+                raise CreateOutcomeUnknown(f"HTTP {response.status_code}")
 
             # Retryable server errors
             if response.status_code in _RETRY_CODES:
@@ -196,6 +243,24 @@ class DigitalOceanClient:
         # Should never reach here, but satisfies the type checker
         raise CloudError("Retry loop exhausted without result")  # pragma: no cover
 
+    def _create(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        key: str,
+        kind: str,
+        find: Callable[[], list[dict[str, Any]]],
+    ) -> dict[str, Any]:
+        """POST a create request once; on an unknown outcome adopt the resource by name."""
+        try:
+            response = self._request_with_retry("POST", path, json=payload, create=True)
+            return cast(dict[str, Any], response.json()[key])
+        except CreateOutcomeUnknown as exc:
+            detail = exc.detail
+        except (ValueError, KeyError, TypeError):
+            detail = "unreadable response"
+        return reconcile_create(kind, str(payload["name"]), detail, find)
+
     # ------------------------------------------------------------------
     # Size catalogue
     # ------------------------------------------------------------------
@@ -211,13 +276,13 @@ class DigitalOceanClient:
         """
         sizes: list[dict[str, Any]] = []
         path: str | None = "/sizes"
-        params: dict[str, Any] = {"per_page": 200}
+        params: dict[str, Any] | None = {"per_page": 200}
 
         while path:
             response = self._request_with_retry("GET", path, params=params)
             data: dict[str, Any] = response.json()
             sizes.extend(data.get("sizes", []))
-            params = {}
+            params = None
             path = _next_page_path(data)
 
         return sizes
@@ -263,9 +328,13 @@ class DigitalOceanClient:
         if user_data:
             payload["user_data"] = user_data
 
-        response = self._request_with_retry("POST", "/droplets", json=payload)
-        data: dict[str, Any] = response.json()
-        return cast(dict[str, Any], data["droplet"])
+        return self._create(
+            "/droplets",
+            payload,
+            "droplet",
+            "droplet",
+            lambda: [d for d in self.list_droplets() if d.get("name") == name],
+        )
 
     def get_droplet(self, droplet_id: int) -> dict[str, Any]:
         """Retrieve a single Droplet by ID.
@@ -288,9 +357,10 @@ class DigitalOceanClient:
         Returns:
             List of ``droplet`` objects.
         """
-        params: dict[str, Any] = {"per_page": 200}
+        first_page: dict[str, Any] = {"per_page": 200}
         if tag_name:
-            params["tag_name"] = tag_name
+            first_page["tag_name"] = tag_name
+        params: dict[str, Any] | None = first_page
 
         droplets: list[dict[str, Any]] = []
         path: str | None = "/droplets"
@@ -299,8 +369,8 @@ class DigitalOceanClient:
             response = self._request_with_retry("GET", path, params=params)
             data: dict[str, Any] = response.json()
             droplets.extend(data.get("droplets", []))
-            # Clear params after first page (next URL already includes them)
-            params = {}
+            # None, not {}: an empty dict would replace the next-page URL's query string
+            params = None
             path = _next_page_path(data)
 
         return droplets
@@ -412,9 +482,17 @@ class DigitalOceanClient:
             The ``ssh_key`` object from the DO API response.
         """
         payload = {"name": name, "public_key": public_key}
-        response = self._request_with_retry("POST", "/account/keys", json=payload)
-        data: dict[str, Any] = response.json()
-        return cast(dict[str, Any], data["ssh_key"])
+        return self._create(
+            "/account/keys",
+            payload,
+            "ssh_key",
+            "SSH key",
+            lambda: [
+                k
+                for k in self.list_ssh_keys()
+                if k.get("name") == name and same_public_key(k, public_key)
+            ],
+        )
 
     def list_ssh_keys(self) -> list[dict[str, Any]]:
         """List all SSH keys on the DO account.
@@ -426,13 +504,13 @@ class DigitalOceanClient:
         """
         keys: list[dict[str, Any]] = []
         path: str | None = "/account/keys"
-        params: dict[str, Any] = {"per_page": 200}
+        params: dict[str, Any] | None = {"per_page": 200}
 
         while path:
             response = self._request_with_retry("GET", path, params=params)
             data: dict[str, Any] = response.json()
             keys.extend(data.get("ssh_keys", []))
-            params = {}
+            params = None
             path = _next_page_path(data)
 
         return keys
@@ -478,9 +556,13 @@ class DigitalOceanClient:
         if tags:
             payload["tags"] = tags
 
-        response = self._request_with_retry("POST", "/firewalls", json=payload)
-        data: dict[str, Any] = response.json()
-        return cast(dict[str, Any], data["firewall"])
+        return self._create(
+            "/firewalls",
+            payload,
+            "firewall",
+            "firewall",
+            lambda: [f for f in list_firewalls(self) if f.get("name") == name],
+        )
 
     def add_droplets_to_firewall(self, firewall_id: str, droplet_ids: list[int]) -> None:
         """Associate one or more Droplets with an existing Firewall.

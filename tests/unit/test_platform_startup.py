@@ -21,6 +21,7 @@ from dango.platform.common.startup import (
 )
 from dango.platform.docker import render_docker_compose
 from dango.utils.driver import METABASE_DUCKDB_DRIVER_VERSION
+from tests.factories.driver_fakes import GOOD_JAR, patch_network, pin_driver, seed_jar
 
 # Patch target for NetworkConfig.get_project_info: dango.platform.local.network is the
 # source module (metabase.py lazy-imports it inside _should_apply_local_site_url()
@@ -58,90 +59,56 @@ class TestEnsureDbtSchemas:
 
 @pytest.mark.unit
 class TestEnsureDuckdbDriver:
+    @pytest.fixture(autouse=True)
+    def _pinned(self, monkeypatch):
+        pin_driver(monkeypatch)
+
     def test_no_op_if_driver_exists_and_version_matches(self, tmp_path):
-        """ensure_duckdb_driver skips download when jar and version match."""
-        plugins_dir = tmp_path / "metabase-plugins"
-        plugins_dir.mkdir(parents=True)
-        (plugins_dir / "duckdb.metabase-driver.jar").touch()
-        (plugins_dir / ".driver-version").write_text(f"{METABASE_DUCKDB_DRIVER_VERSION}\n")
-
-        with patch("urllib.request.urlretrieve") as mock_retrieve:
+        """ensure_duckdb_driver makes no download when a verified jar and version match."""
+        seed_jar(tmp_path, GOOD_JAR, METABASE_DUCKDB_DRIVER_VERSION)
+        with patch_network([OSError("offline")]) as (script, _sleep):
             ensure_duckdb_driver(tmp_path)
-
-        mock_retrieve.assert_not_called()
+        assert script.calls == []
 
     def test_downloads_driver_if_missing(self, tmp_path):
-        """ensure_duckdb_driver calls urlretrieve when driver is absent."""
-
-        def fake_retrieve(url: str, dest: Path) -> None:
-            """Simulate download by creating the destination file."""
-            Path(dest).touch()
-
-        with patch("urllib.request.urlretrieve", side_effect=fake_retrieve):
+        with patch_network([GOOD_JAR]) as (script, _sleep):
             ensure_duckdb_driver(tmp_path)
-
         plugins_dir = tmp_path / "metabase-plugins"
-        driver_path = plugins_dir / "duckdb.metabase-driver.jar"
-        assert driver_path.exists()
+        assert (plugins_dir / "duckdb.metabase-driver.jar").read_bytes() == GOOD_JAR
         assert (
             plugins_dir / ".driver-version"
         ).read_text().strip() == METABASE_DUCKDB_DRIVER_VERSION
 
     def test_raises_runtime_error_after_3_failures(self, tmp_path):
         """ensure_duckdb_driver raises RuntimeError when all 3 attempts fail."""
-        with patch("urllib.request.urlretrieve", side_effect=OSError("network error")):
-            with patch("time.sleep"):  # Skip retry delays
-                with pytest.raises(RuntimeError, match="3 attempts"):
-                    ensure_duckdb_driver(tmp_path)
+        with patch_network([OSError("network error")]):
+            with pytest.raises(RuntimeError, match="3 attempts"):
+                ensure_duckdb_driver(tmp_path)
 
     def test_retries_on_failure(self, tmp_path):
         """ensure_duckdb_driver retries up to 3 times before giving up."""
-        call_count = 0
-
-        def failing_retrieve(url: str, dest: Path) -> None:
-            """Always raises to simulate persistent network failure."""
-            nonlocal call_count
-            call_count += 1
-            raise OSError("network error")
-
-        with patch("urllib.request.urlretrieve", side_effect=failing_retrieve):
-            with patch("time.sleep"):
-                with pytest.raises(RuntimeError):
-                    ensure_duckdb_driver(tmp_path)
-
-        assert call_count == 3
+        with patch_network([OSError("network error")]) as (script, sleep):
+            with pytest.raises(RuntimeError):
+                ensure_duckdb_driver(tmp_path)
+        assert len(script.calls) == 3
+        assert sleep.call_count == 2
 
     def test_redownloads_on_version_mismatch(self, tmp_path):
-        """ensure_duckdb_driver re-downloads when version file doesn't match."""
-        plugins_dir = tmp_path / "metabase-plugins"
-        plugins_dir.mkdir(parents=True)
-        (plugins_dir / "duckdb.metabase-driver.jar").touch()
-        (plugins_dir / ".driver-version").write_text("1.3.0\n")
-
-        def fake_retrieve(url: str, dest: Path) -> None:
-            Path(dest).touch()
-
-        with patch("urllib.request.urlretrieve", side_effect=fake_retrieve) as mock_ret:
+        """A jar with a stale marker and unverified bytes is replaced by a verified one."""
+        plugins_dir = seed_jar(tmp_path, b"old", "1.3.0")
+        with patch_network([GOOD_JAR]) as (script, _sleep):
             ensure_duckdb_driver(tmp_path)
-
-        mock_ret.assert_called_once()
+        assert len(script.calls) == 1
         assert (
             plugins_dir / ".driver-version"
         ).read_text().strip() == METABASE_DUCKDB_DRIVER_VERSION
 
-    def test_redownloads_when_version_file_missing(self, tmp_path):
-        """ensure_duckdb_driver re-downloads when version file is absent."""
-        plugins_dir = tmp_path / "metabase-plugins"
-        plugins_dir.mkdir(parents=True)
-        (plugins_dir / "duckdb.metabase-driver.jar").touch()
-
-        def fake_retrieve(url: str, dest: Path) -> None:
-            Path(dest).touch()
-
-        with patch("urllib.request.urlretrieve", side_effect=fake_retrieve) as mock_ret:
+    def test_verified_jar_with_missing_version_file_needs_no_download(self, tmp_path):
+        """A verified jar without a marker is reused offline and the marker repaired."""
+        plugins_dir = seed_jar(tmp_path, GOOD_JAR, None)
+        with patch_network([OSError("offline")]) as (script, _sleep):
             ensure_duckdb_driver(tmp_path)
-
-        mock_ret.assert_called_once()
+        assert script.calls == []
         assert (
             plugins_dir / ".driver-version"
         ).read_text().strip() == METABASE_DUCKDB_DRIVER_VERSION

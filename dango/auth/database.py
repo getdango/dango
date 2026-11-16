@@ -517,6 +517,20 @@ def revoke_api_key(db_path: Path, key_id: str) -> None:
         conn.close()
 
 
+def revoke_all_user_api_keys(db_path: Path, user_id: str) -> int:
+    """Mark every active API key of a user as inactive. Returns the count."""
+    conn = _connect(db_path)
+    try:
+        cursor = conn.execute(
+            "UPDATE api_keys SET is_active = 0 WHERE user_id = ? AND is_active = 1",
+            (user_id,),
+        )
+        conn.commit()
+        return cursor.rowcount
+    finally:
+        conn.close()
+
+
 def update_api_key_last_used(db_path: Path, key_id: str) -> None:
     """Update an API key's last_used_at timestamp to now."""
     now = datetime.now(timezone.utc).isoformat()

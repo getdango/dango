@@ -155,13 +155,16 @@ class TestMarkSourceModelsStale:
     def test_no_manifest_silently_returns(self, tmp_path: Path):
         from dango.utils.dbt_status import mark_source_models_stale
 
-        # No manifest file — should not raise
-        mark_source_models_stale(tmp_path, ["my_source"])
+        # does-not-raise: no manifest means nothing to mark, and nothing is written
+        assert mark_source_models_stale(tmp_path, ["my_source"]) is None
+        assert list(tmp_path.iterdir()) == []
 
     def test_empty_failed_sources_returns_early(self, tmp_path: Path):
         from dango.utils.dbt_status import mark_source_models_stale
 
-        mark_source_models_stale(tmp_path, [])
+        # does-not-raise: no failed sources, returns before touching disk
+        assert mark_source_models_stale(tmp_path, []) is None
+        assert list(tmp_path.iterdir()) == []
 
 
 # ---------------------------------------------------------------------------

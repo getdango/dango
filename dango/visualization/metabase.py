@@ -17,6 +17,7 @@ import yaml
 
 from dango.security.metabase_config import load_metabase_admin_credentials, write_metabase_metadata
 from dango.security.metabase_credentials import MetabaseCredentialStore
+from dango.visualization.metabase_connection_lock import apply_lock_catchup, locked_duckdb_details
 
 logger = logging.getLogger(__name__)
 
@@ -509,6 +510,7 @@ def _wait_for_metabase_log_ready(
     since: str,
     max_wait_seconds: int = 90,
     poll_interval: int = 2,
+    project_root: Path | None = None,
 ) -> bool:
     """Poll ``docker logs <container_name> --since <since>`` for Metabase's own
     startup-complete banner line, instead of attempting a real login -- see
@@ -542,20 +544,38 @@ def _wait_for_metabase_log_ready(
     as "readiness not confirmed" and fall back accordingly, matching this module's
     existing best-effort contract for restart-readiness checks.
     """
+    from dango.platform import compose_exec
+
     deadline = time.monotonic() + max_wait_seconds
     while time.monotonic() < deadline:
         try:
-            result = subprocess.run(
-                ["docker", "logs", "--since", since, container_name],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
+            if compose_exec.uses_helper():  # server: the root-owned helper reads the logs
+                result = compose_exec.run_compose(
+                    project_root or Path.cwd(),
+                    "logs",
+                    "metabase",
+                    "--since",
+                    since,
+                    timeout=5,
+                    text=True,
+                )
+            else:
+                result = subprocess.run(
+                    ["docker", "logs", "--since", since, container_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
             if "Metabase Initialization COMPLETE" in result.stdout:
                 return True
             if "Metabase Initialization COMPLETE" in result.stderr:
                 return True
-        except (subprocess.SubprocessError, OSError):
+        except (
+            subprocess.SubprocessError,
+            OSError,
+            compose_exec.ComposeBusy,
+            compose_exec.ComposeInterrupted,
+        ):
             pass
         time.sleep(poll_interval)
 
@@ -1102,7 +1122,9 @@ def setup_metabase(
     since = datetime.now(timezone.utc).isoformat()
     print("  ⏳ Waiting for Metabase to be ready...")
     if not (
-        _wait_for_metabase_log_ready(container_name, since, max_wait_seconds=ready_timeout)
+        _wait_for_metabase_log_ready(
+            container_name, since, max_wait_seconds=ready_timeout, project_root=project_root
+        )
         or wait_for_metabase_ready(metabase_url, timeout=ready_timeout)
     ):
         summary["errors"].append(f"Metabase not ready after {ready_timeout} seconds")
@@ -1224,7 +1246,11 @@ def setup_metabase(
                     "site_name": f"{org_name} Analytics",
                 },
                 "database": None,  # We'll add DuckDB separately
-                "prefs": {"site_name": f"{org_name} Analytics", "allow_tracking": False},
+                "prefs": {
+                    "site_name": f"{org_name} Analytics",
+                    # Off unless the `dango init` prompt recorded an explicit "yes"
+                    "allow_tracking": get_metabase_telemetry_intent(project_root),
+                },
             }
 
             response = session.post(f"{metabase_url}/api/setup", json=setup_data, timeout=30)
@@ -1315,14 +1341,16 @@ def setup_metabase(
         duckdb_config = {
             "name": db_name,
             "engine": "duckdb",
-            "details": {
-                "database_file": docker_duckdb_path,
-                "old_implicit_casting": True,
-                "read_only": True,
-                # Note: DuckDB driver doesn't support schema-filters-type/patterns
-                # Users will see all schemas (raw_*, main, staging)
-                # This is a limitation of the DuckDB Metabase driver
-            },
+            "details": locked_duckdb_details(
+                {
+                    "database_file": docker_duckdb_path,
+                    "old_implicit_casting": True,
+                    "read_only": True,
+                    # Note: DuckDB driver doesn't support schema-filters-type/patterns
+                    # Users will see all schemas (raw_*, main, staging)
+                    # This is a limitation of the DuckDB Metabase driver
+                }
+            ),
         }
 
         if existing_db_id:
@@ -1427,6 +1455,7 @@ def setup_metabase(
             pass  # Not critical
 
         # Remove example dashboards and collections
+        live_collections: list[Any] | None = None
         try:
             # Get all collections
             collections_response = session.get(
@@ -1435,6 +1464,7 @@ def setup_metabase(
 
             if collections_response.status_code == 200:
                 collections = collections_response.json()
+                live_collections = collections if isinstance(collections, list) else None
                 for collection in collections:
                     collection_id = collection.get("id")
                     collection_name = collection.get("name", "").lower()
@@ -1459,11 +1489,21 @@ def setup_metabase(
             pass  # Not critical
 
         # Create "Shared" and "Personal" collections
+        # A retried first setup must reuse root collections that already exist (K-34).
+        from dango.visualization.collection_repair import index_live
+
+        existing_paths = (
+            index_live([c for c in live_collections if isinstance(c, dict)]).by_path
+            if live_collections is not None
+            else {}
+        )
         collections_created = []
         for collection_name, description in [
             ("Shared", "Dashboards shared with the team (exported to git)"),
             ("Personal", "Personal dashboards and experiments (not exported)"),
         ]:
+            if (collection_name,) in existing_paths:
+                continue
             try:
                 collection_data = {
                     "name": collection_name,
@@ -1936,6 +1976,15 @@ def set_metabase_telemetry(
         raise click.ClickException(f"Failed to set Metabase telemetry: {e}") from e
 
 
+def get_metabase_telemetry_intent(project_root: Path) -> bool:
+    """True only if telemetry consent recorded an explicit "yes" for Metabase."""
+    state_file = project_root / ".dango" / "metabase_telemetry_state"
+    try:
+        return state_file.read_text().strip() == "true"
+    except OSError:
+        return False
+
+
 def get_metabase_telemetry_state(project_root: Path | None) -> bool:
     """Return Metabase's last-known opt-in state.
 
@@ -2013,15 +2062,28 @@ def refresh_metabase_connection(
         dm = DockerManager(project_root)
         container_name = f"{dm.compose_project_name}-metabase-1"
 
-        # Check if container exists and is running
-        check_result = subprocess.run(
-            ["docker", "ps", "--filter", f"name={container_name}", "--format", "{{.Names}}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
+        from dango.platform import compose_exec
 
-        if container_name not in check_result.stdout:
+        helper = compose_exec.uses_helper()
+        # Check if container exists and is running
+        if helper:
+            from dango.platform.docker import ServiceStatus
+
+            running = dm.get_service_status().get("metabase") in (
+                ServiceStatus.RUNNING,
+                ServiceStatus.STARTING,
+                ServiceStatus.UNHEALTHY,
+            )
+        else:
+            check_result = subprocess.run(
+                ["docker", "ps", "--filter", f"name={container_name}", "--format", "{{.Names}}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            running = container_name in check_result.stdout
+
+        if not running:
             # Container not running
             return (False, "Metabase container not running", None)
 
@@ -2032,9 +2094,20 @@ def refresh_metabase_connection(
         restart_time = datetime.now(timezone.utc).isoformat()
 
         # Restart Metabase container to force reconnection
-        restart_result = subprocess.run(
-            ["docker", "restart", container_name], capture_output=True, text=True, timeout=30
-        )
+        try:
+            if helper:
+                restart_result = compose_exec.run_compose(
+                    project_root, "restart", "metabase", timeout=30, text=True
+                )
+            else:
+                restart_result = subprocess.run(
+                    ["docker", "restart", container_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+        except (compose_exec.ComposeBusy, compose_exec.ComposeInterrupted) as exc:
+            return (False, f"Docker restart failed: {exc}"[:200], None)
 
         if restart_result.returncode != 0:
             return (False, f"Docker restart failed: {restart_result.stderr[:200]}", None)
@@ -2065,7 +2138,10 @@ def refresh_metabase_connection(
         # guessed round number.
         max_wait_seconds = 60
         log_ready = _wait_for_metabase_log_ready(
-            container_name, restart_time, max_wait_seconds=max_wait_seconds
+            container_name,
+            restart_time,
+            max_wait_seconds=max_wait_seconds,
+            project_root=project_root,
         )
         health_ready = False
         if not log_ready:
@@ -2124,6 +2200,15 @@ def refresh_metabase_connection(
                 )
             except Exception:  # noqa: BLE001
                 pass  # Not critical — site URL refresh is best-effort
+
+            # Re-check the file-access restriction on every call (one GET, a PUT only when the
+            # details differ): a restored Metabase database may be unlocked while the marker says
+            # applied. Reuses this login; never raises.
+            if session_id and (
+                apply_lock_catchup(project_root, metabase_url, session_id=session_id, recheck=True)
+                is False
+            ):
+                print("  ⚠ Could not confirm Metabase's file-access lock this time; will retry")
 
             return (True, None, session_id)
 

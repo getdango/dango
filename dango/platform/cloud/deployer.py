@@ -9,6 +9,7 @@ always restarts services and releases the lock.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import platform
 import re
@@ -22,6 +23,9 @@ from typing import TYPE_CHECKING, Any
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.cloud import compose_helper as ch
+from dango.platform.cloud import deploy_lock_cmds as lock_cmds
+from dango.platform.cloud.project_files import read_project_file
 
 logger = get_logger(__name__)
 
@@ -42,10 +46,18 @@ VENV_BIN = "/srv/dango/venv/bin"
 DBT_PROJECT_DIR = "/srv/dango/project/dbt"
 
 #: Pattern for valid dbt model/macro names (shell-safe for SSH commands).
-_SAFE_DBT_NAME = re.compile(r"^[a-zA-Z0-9_]+$")
+_SAFE_DBT_NAME = re.compile(r"[a-zA-Z0-9_]+")
 
 #: Docker files that require ``docker compose up --build`` when changed.
 _DOCKER_FILES = {"docker-compose.yml", "Dockerfile.metabase", "entrypoint.sh"}
+
+
+def _render_needed(synced_files: list[str]) -> bool:
+    """True when a synced file feeds the server compose render (Docker files, plugins, project.yml)."""
+    return any(
+        f in _DOCKER_FILES or f == ".dango/project.yml" or f.startswith("metabase-plugins")
+        for f in synced_files
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +72,8 @@ class DeployLock:
     deployer: str
     started_at: str
     expires_at: str
+    #: False when the lock file exists but could not be parsed (treated as held).
+    readable: bool = True
 
 
 @dataclass
@@ -106,25 +120,48 @@ def _check_existing_lock(ssh: SSHManager) -> DeployLock | None:
     Returns:
         ``DeployLock`` if a lock file exists, ``None`` otherwise.
     """
-    result = ssh.exec_command(f"cat {DEPLOY_LOCK_PATH} 2>/dev/null")
+    result = ssh.exec_command(lock_cmds.read_cmd(DEPLOY_LOCK_PATH))
+    if result.exit_code == lock_cmds.FOREIGN_LOCK_EXIT:
+        # Something other than a root-owned lock directory is at the lock path: held.
+        logger.warning("deploy_lock_foreign_entry", path=DEPLOY_LOCK_PATH)
+        return DeployLock(deployer="unknown", started_at="", expires_at="", readable=False)
     if not result.success or not result.stdout.strip():
         return None
 
     try:
-        data: dict[str, Any] = json.loads(result.stdout.strip())
+        data = json.loads(result.stdout.strip())
+        if not isinstance(data, dict):
+            raise ValueError("lock file is not a JSON object")
         return DeployLock(
-            deployer=data.get("deployer", "unknown"),
-            started_at=data.get("started_at", ""),
-            expires_at=data.get("expires_at", ""),
+            deployer=str(data.get("deployer", "unknown")),
+            started_at=str(data.get("started_at", "")),
+            expires_at=str(data.get("expires_at", "")),
         )
-    except (json.JSONDecodeError, KeyError):
+    except ValueError:  # includes json.JSONDecodeError
+        # Fail safe: an unreadable lock file may belong to a running deploy.
+        logger.warning("deploy_lock_unreadable", path=DEPLOY_LOCK_PATH)
+        return DeployLock(deployer="unknown", started_at="", expires_at="", readable=False)
+
+
+def _lock_file_age_seconds(ssh: SSHManager) -> float | None:
+    """Age of the lock file by mtime, or ``None`` if it cannot be determined."""
+    result = ssh.exec_command(f"echo $(( $(date +%s) - $(stat -c %Y {DEPLOY_LOCK_PATH}) ))")
+    try:
+        return float(result.stdout.strip()) if result.success else None
+    except ValueError:
         return None
 
 
-def _is_lock_expired(lock: DeployLock) -> bool:
-    """Return True if the lock has passed its expiration time."""
+def _is_lock_expired(lock: DeployLock, file_age_seconds: float | None = None) -> bool:
+    """Return True if the lock has passed its expiration time.
+
+    A missing or unparseable expiry is not trusted: the lock then counts as expired only
+    when the lock file's own age (``file_age_seconds``) exceeds the maximum lock lifetime.
+    """
+    stale_by_mtime = file_age_seconds is not None and file_age_seconds > LOCK_TIMEOUT_MINUTES * 60
     if not lock.expires_at:
-        return True
+        logger.warning("deploy_lock_expiry_missing")
+        return stale_by_mtime
     try:
         expires_str = lock.expires_at
         # Python 3.10 fromisoformat does not parse timezone suffixes;
@@ -136,18 +173,23 @@ def _is_lock_expired(lock: DeployLock) -> bool:
         expires = datetime.fromisoformat(expires_str).replace(tzinfo=timezone.utc)
         return datetime.now(tz=timezone.utc) > expires
     except (ValueError, TypeError):
-        return True
+        logger.warning("deploy_lock_expiry_unparseable", expires_at=lock.expires_at)
+        return stale_by_mtime
 
 
-def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
+def _acquire_lock(
+    ssh: SSHManager, *, force: bool = False, lock_json_out: list[str] | None = None
+) -> DeployLock:
     """Acquire the deploy lock on the remote server.
 
-    Uses shell ``set -C`` (noclobber) for atomic lock creation so that
+    Creates the lock with ``mkdir`` (atomic, never follows a link) so that
     two concurrent ``dango remote push`` invocations cannot both succeed.
 
     Args:
         ssh: Connected SSHManager.
         force: Override any existing lock.
+        lock_json_out: Receives the lock file content before it is written, so the caller
+            can remove the file if it is interrupted before it holds the returned lock.
 
     Returns:
         The newly created :class:`DeployLock`.
@@ -158,14 +200,20 @@ def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
     """
     existing = _check_existing_lock(ssh)
     if existing is not None:
-        if not force and not _is_lock_expired(existing):
+        if not force and not existing.readable:
+            raise CloudProvisioningError(
+                f"Deploy lock {DEPLOY_LOCK_PATH} is unreadable or was not created by this "
+                "Dango (corrupt, or left by an older version), so another deploy may be running. "
+                "Use --force to override, or remove it on the server."
+            )
+        if not force and not _is_lock_expired(existing, _lock_file_age_seconds(ssh)):
             raise CloudProvisioningError(
                 f"Deploy lock held by {existing.deployer} "
                 f"(started {existing.started_at}). "
                 "Use --force to override."
             )
         # Remove stale or force-overridden lock before creating new one
-        ssh.exec_command(f"rm -f {DEPLOY_LOCK_PATH}")  # cleanup: silent OK
+        ssh.exec_command(lock_cmds.remove_cmd(DEPLOY_LOCK_PATH))  # cleanup: silent OK
 
     now = datetime.now(tz=timezone.utc)
     expires = now + timedelta(minutes=LOCK_TIMEOUT_MINUTES)
@@ -188,12 +236,11 @@ def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
         logger.warning(
             "mkdir_failed", path=str(Path(DEPLOY_LOCK_PATH).parent), stderr=result.stderr
         )
-    # Atomic creation: noclobber (set -C) makes > fail if the file
-    # already exists, preventing a concurrent deployer from silently
-    # overwriting our lock.
-    result = ssh.exec_command(
-        f"(set -C; echo {shlex.quote(lock_json)} > {DEPLOY_LOCK_PATH}) 2>/dev/null"
-    )
+    # Atomic creation: mkdir fails if anything exists at the lock path, so a concurrent
+    # deployer (or an entry the service user planted) cannot be overwritten or written through.
+    if lock_json_out is not None:
+        lock_json_out.append(lock_json)
+    result = ssh.exec_command(lock_cmds.create_cmd(DEPLOY_LOCK_PATH, lock_json))
     if not result.success:
         raise CloudProvisioningError(
             "Failed to acquire deploy lock — another deployment may have "
@@ -205,12 +252,17 @@ def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
 
 def _release_lock(ssh: SSHManager) -> None:
     """Remove the deploy lock file from the remote server."""
-    ssh.exec_command(f"rm -f {DEPLOY_LOCK_PATH}")  # cleanup: silent OK
+    ssh.exec_command(lock_cmds.remove_cmd(DEPLOY_LOCK_PATH))  # cleanup: silent OK
+
+
+def _release_lock_if_ours(ssh: SSHManager, lock_json: str) -> None:
+    """Remove the lock file only if it still holds *lock_json* (never another deployer's)."""
+    ssh.exec_command(lock_cmds.remove_if_ours_cmd(DEPLOY_LOCK_PATH, lock_json))
 
 
 def _stop_web_service(ssh: SSHManager) -> None:
     """Stop the dango-web systemd service."""
-    result = ssh.exec_command("systemctl stop dango-web", timeout=60)
+    result = ssh.exec_command("systemctl stop dango-web", timeout=190)
     if result.exit_code != 0:
         logger.warning("service_stop_failed", service="dango-web", stderr=result.stderr)
 
@@ -222,7 +274,13 @@ def _start_web_service(ssh: SSHManager) -> None:
         logger.warning("service_start_failed", service="dango-web", stderr=result.stderr)
 
 
-def _start_all_services(ssh: SSHManager, *, rebuild_docker: bool = False) -> None:
+def _start_all_services(
+    ssh: SSHManager,
+    *,
+    rebuild_docker: bool = False,
+    render: bool = False,
+    warnings: list[str] | None = None,
+) -> None:
     """Start dango-web (systemd), which starts Docker services via DockerManager.
 
     Docker services (Metabase, dbt-docs) are started by the dango-web lifespan
@@ -233,19 +291,44 @@ def _start_all_services(ssh: SSHManager, *, rebuild_docker: bool = False) -> Non
         ssh: Connected SSHManager.
         rebuild_docker: If True, force Docker image rebuild on next service start
             by removing the existing image before restarting the service.
+        render: If True, re-render the compose file first (with the compose helper in use;
+            dango-web renders it itself on start, but image removal needs the new file).
+        warnings: Collects problems with the helper steps (never raises for them).
     """
+    from dango.platform.cloud import compose_migrate as cm
+    from dango.platform.cloud.backup import helper_branch_active, root_helper_timeout
+
+    sink = warnings if warnings is not None else []
+    helper = (rebuild_docker or render) and helper_branch_active(ssh)
+    if helper:
+        rendered = ssh.exec_command(
+            f"bash -c {shlex.quote(cm.render_script())}", timeout=cm.RENDER_TIMEOUT
+        )
+        if not rendered.success:
+            sink.append(
+                "The server compose file could not be re-rendered "
+                f"({(rendered.stderr or rendered.stdout).strip()}); Docker keeps the previous one."
+            )
     if rebuild_docker:
         from dango.platform.cloud.backup import get_remote_compose_project_name
 
         compose_project = get_remote_compose_project_name(ssh, REMOTE_PROJECT_DIR)
         # Remove existing images so DockerManager rebuilds them on startup. The variable is passed
         # through `env` *after* sudo so sudo's env_reset cannot drop it.
-        ssh.exec_command(
+        legacy = (
             f"cd {REMOTE_PROJECT_DIR} && sudo -u dango env COMPOSE_PROJECT_NAME={compose_project} "
-            "docker compose down --rmi local 2>/dev/null || true",
-            timeout=120,
+            "docker compose down --rmi local 2>/dev/null || true"
         )
-    result = ssh.exec_command("systemctl restart dango-web", timeout=60)
+        removed = ssh.exec_command(
+            ch.server_compose_cmd("down-rmi", legacy=legacy),
+            timeout=root_helper_timeout("down-rmi") if helper else 120,
+        )
+        if helper and not removed.success:
+            sink.append(
+                "The old Docker images could not be removed through the compose helper "
+                f"(exit {removed.exit_code}); Metabase is rebuilt on a later start."
+            )
+    result = ssh.exec_command("systemctl restart dango-web", timeout=190)
     if result.exit_code != 0:
         logger.warning("service_start_failed", service="dango-web", stderr=result.stderr)
 
@@ -265,19 +348,22 @@ def _validate_remote_sources(ssh: SSHManager) -> list[str]:
     errors: list[str] = []
 
     # Read sources.yml
-    sources_result = ssh.exec_command(f"cat {REMOTE_PROJECT_DIR}/.dango/sources.yml 2>/dev/null")
-    if not sources_result.success or not sources_result.stdout.strip():
-        return errors  # No sources configured — nothing to validate
+    try:
+        sources_text = read_project_file(ssh, f"{REMOTE_PROJECT_DIR}/.dango/sources.yml")
+        if not sources_text.strip():
+            return errors  # No sources configured — nothing to validate
 
-    # Read secrets.toml
-    secrets_result = ssh.exec_command(f"cat {REMOTE_PROJECT_DIR}/.dlt/secrets.toml 2>/dev/null")
-    secrets_content = secrets_result.stdout if secrets_result.success else ""
+        # Read secrets.toml
+        secrets_content = read_project_file(ssh, f"{REMOTE_PROJECT_DIR}/.dlt/secrets.toml")
+    except CloudProvisioningError as exc:
+        # An unreadable file is reported but never fails the deploy.
+        return [f"Could not validate sources: {exc}"]
 
     # Parse source names from sources.yml (look for name: fields)
     try:
         import yaml
 
-        sources_data: dict[str, Any] = yaml.safe_load(sources_result.stdout) or {}
+        sources_data: dict[str, Any] = yaml.safe_load(sources_text) or {}
     except Exception:
         # If YAML parsing fails, skip validation
         return errors
@@ -314,7 +400,7 @@ def _validate_model_names(names: list[str]) -> None:
             ``[a-zA-Z0-9_]``.
     """
     for name in names:
-        if not _SAFE_DBT_NAME.match(name):
+        if not _SAFE_DBT_NAME.fullmatch(name):
             raise CloudProvisioningError(
                 f"Invalid model name for remote execution: {name!r}. "
                 "Model names must contain only alphanumeric characters and underscores."
@@ -412,6 +498,7 @@ def push_deploy(
     *,
     dry_run: bool = False,
     force: bool = False,
+    allow_empty: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
     git_info: GitInfo | None = None,
 ) -> DeployResult:
@@ -426,6 +513,8 @@ def push_deploy(
         remote_host: Hostname or IP for rsync transport.
         dry_run: If True, show what would change without applying.
         force: Override any existing deploy lock.
+        allow_empty: Mirror an empty local directory over a non-empty server copy
+            (default: refuse; ``rsync --delete`` would erase the server files).
         on_progress: Optional ``(step, status)`` callback for UI updates.
         git_info: Optional ``GitInfo`` from :func:`collect_git_info`.
 
@@ -437,6 +526,11 @@ def push_deploy(
             dbt run failure, or other deployment errors.
     """
     from dango.platform.cloud.backup import create_backup
+    from dango.platform.cloud.deploy_pending import (
+        build_pending,
+        clear_build_pending,
+        mark_build_pending,
+    )
     from dango.platform.cloud.file_sync import SyncResult, sync_project_files
 
     start_time = time.monotonic()
@@ -444,6 +538,7 @@ def push_deploy(
     backup_result: BackupResult | None = None
     dbt_deps_run = False
     dbt_compile_success = False
+    force_rebuild = False
     models_rebuilt: list[str] = []
     sync_result = SyncResult(dry_run=dry_run)
 
@@ -455,6 +550,7 @@ def push_deploy(
             local_project_root,
             remote_host=remote_host,
             dry_run=True,
+            allow_empty=allow_empty,
             on_progress=on_progress,
         )
         _notify(on_progress, "sync_files", "done")
@@ -473,6 +569,7 @@ def push_deploy(
 
     # --- Full deploy ---
     lock: DeployLock | None = None
+    attempted_lock_json: list[str] = []
     services_stopped = False
     deploy_succeeded = False
     deploy_error: str | None = None
@@ -481,8 +578,15 @@ def push_deploy(
         try:
             # Step 1: Acquire deploy lock
             _notify(on_progress, "acquire_lock", "running")
-            lock = _acquire_lock(ssh, force=force)
+            lock = _acquire_lock(ssh, force=force, lock_json_out=attempted_lock_json)
             _notify(on_progress, "acquire_lock", "done")
+
+            # An older client does not know the compose helper: say so before it changes anything.
+            from dango.platform.cloud.compose_migrate import client_version_notice
+            from dango.platform.cloud.server_status import local_client_version
+
+            if notice := client_version_notice(ssh, local_client_version()):
+                warnings.append(notice)
 
             # Step 2: Stop dango-web BEFORE backup (DuckDB single-writer).
             # Backup will also stop services (web already stopped = noop,
@@ -490,8 +594,8 @@ def push_deploy(
             # restart_services=False, services remain stopped throughout
             # the entire sync + dbt workflow.
             _notify(on_progress, "stop_web", "running")
+            services_stopped = True  # set first: an interruption inside the stop must restart
             _stop_web_service(ssh)
-            services_stopped = True
             _notify(on_progress, "stop_web", "done")
 
             # Step 3: Pre-deploy backup (services stay down after backup)
@@ -508,10 +612,22 @@ def push_deploy(
                 warnings.extend(backup_result.warnings)
             _notify(on_progress, "create_backup", "done")
 
-            # Step 4: Sync files
+            # Step 4: Sync files.  Once files are copied a retry sees no difference, so
+            # record that the build is outstanding first; it is cleared only on success.
+            force_rebuild = build_pending(ssh)
+            mark_build_pending(ssh)
+            if force_rebuild:
+                warnings.append(
+                    "An earlier push did not finish building: running dbt deps and a full "
+                    "dbt run now."
+                )
             _notify(on_progress, "sync_files", "running")
             sync_result = sync_project_files(
-                ssh, local_project_root, remote_host=remote_host, on_progress=on_progress
+                ssh,
+                local_project_root,
+                remote_host=remote_host,
+                allow_empty=allow_empty,
+                on_progress=on_progress,
             )
             _notify(on_progress, "sync_files", "done")
 
@@ -522,51 +638,28 @@ def push_deploy(
             )
             if chown_result.exit_code != 0:
                 logger.warning("chown_failed", path=REMOTE_PROJECT_DIR, stderr=chown_result.stderr)
+            # The sync can recreate protected paths (.dango, .dlt, data): services are stopped,
+            # so put the runner users' denials back before anything starts again.
+            from dango.platform.cloud import runner_reapply
+
+            runner_reapply.reapply(ssh, warnings)
             _notify(on_progress, "fix_ownership", "done")
 
-            # Step 5b: Install project dependencies (if requirements.txt exists on server).
-            # Runs every deploy (not just when the file changed) because the old
-            # sync_result.synced_files check missed deploys where the file existed
-            # but wasn't modified. pip resolves already-installed packages quickly.
-            req_check = ssh.exec_command(
-                f"test -f {REMOTE_PROJECT_DIR}/requirements.txt && echo exists"
-            )
-            if req_check.stdout.strip() == "exists":
-                _notify(on_progress, "install_deps", "running")
-                pip_result = ssh.exec_command(
-                    f"sudo -u dango {VENV_BIN}/pip install -r {REMOTE_PROJECT_DIR}/requirements.txt",
-                    timeout=300,
-                )
-                if pip_result.exit_code != 0:
-                    warnings.append(
-                        f"pip install -r requirements.txt failed: {pip_result.stderr.strip()}"
-                    )
-                else:
-                    logger.info("requirements_installed", path="requirements.txt")
-                _notify(on_progress, "install_deps", "done")
+            # Step 5b/5c: Install requirements.txt and scripts/requirements.txt as root
+            # into the root-owned venv, from the pushed local files (never the server
+            # copies, which the dango user can change). Runs every deploy.
+            from dango.platform.cloud import runtime_ownership as ro
+            from dango.platform.cloud.pushed_requirements import install_pushed_requirements
 
-            # Step 5c: Install script dependencies (if scripts/requirements.txt exists)
-            script_req_check = ssh.exec_command(
-                f"test -f {REMOTE_PROJECT_DIR}/scripts/requirements.txt && echo exists"
-            )
-            if script_req_check.stdout.strip() == "exists":
-                _notify(on_progress, "install_script_deps", "running")
-                script_pip_result = ssh.exec_command(
-                    f"sudo -u dango {VENV_BIN}/pip install "
-                    f"-r {REMOTE_PROJECT_DIR}/scripts/requirements.txt",
-                    timeout=300,
+            _notify(on_progress, "install_deps", "running")
+            if ro.venv_is_untrusted(ssh):  # never run that venv's pip as root
+                warnings.append(
+                    "Requirements not installed: the server venv can be written by a non-root "
+                    "user. Run `dango remote upgrade` first (it rebuilds the venv), then push."
                 )
-                if script_pip_result.exit_code != 0:
-                    warnings.append(
-                        "pip install -r scripts/requirements.txt failed: "
-                        f"{script_pip_result.stderr.strip()}"
-                    )
-                else:
-                    logger.info(
-                        "script_requirements_installed",
-                        path="scripts/requirements.txt",
-                    )
-                _notify(on_progress, "install_script_deps", "done")
+            else:
+                install_pushed_requirements(ssh, local_project_root, f"{VENV_BIN}/pip", warnings)
+            _notify(on_progress, "install_deps", "done")
 
             # Step 6: Validate sources
             _notify(on_progress, "validate_sources", "running")
@@ -577,11 +670,13 @@ def push_deploy(
             _notify(on_progress, "validate_sources", "done")
 
             # Step 7: dbt deps (if packages.yml changed)
-            if sync_result.packages_changed:
+            deps_failed = False
+            if sync_result.packages_changed or force_rebuild:
                 _notify(on_progress, "dbt_deps", "running")
                 deps_result = _run_remote_dbt(ssh, "deps")
                 dbt_deps_run = True
                 if not deps_result.success:
+                    deps_failed = True
                     warnings.append(
                         f"dbt deps failed: {deps_result.stderr.strip() or deps_result.stdout.strip()}"
                     )
@@ -601,11 +696,15 @@ def push_deploy(
             # If macros changed, any model could be affected → full rebuild.
             # If only models changed, selective rebuild by name.
             all_changed = sync_result.added_models + sync_result.changed_models
-            if sync_result.has_macro_changes:
+            if sync_result.has_macro_changes or force_rebuild:
                 _notify(on_progress, "dbt_run", "running")
                 run_result = _run_remote_dbt(ssh, "run")
                 if run_result.success:
-                    models_rebuilt = ["(full rebuild — macros changed)"]
+                    models_rebuilt = [
+                        "(full rebuild — macros changed)"
+                        if sync_result.has_macro_changes
+                        else "(full rebuild — an earlier push did not finish)"
+                    ]
                 else:
                     raise CloudProvisioningError(
                         f"dbt run failed: {run_result.stderr.strip() or run_result.stdout.strip()}"
@@ -625,22 +724,47 @@ def push_deploy(
                     )
                 _notify(on_progress, "dbt_run", "done")
 
+            if deps_failed:
+                warnings.append(
+                    "The build is still marked pending (dbt deps failed): the next push "
+                    "repeats dbt deps and a full dbt run."
+                )
+            elif not clear_build_pending(ssh):
+                warnings.append(
+                    "Could not clear the pending-build marker; the next push runs a full build."
+                )
             deploy_succeeded = True
 
         except Exception as exc:
             deploy_error = str(exc)
             raise
+        except BaseException:
+            deploy_error = "Deploy interrupted"
+            raise
 
         finally:
-            # Always restart all services and release lock
-            if services_stopped:
-                _notify(on_progress, "start_services", "running")
-                docker_files_changed = bool(set(sync_result.synced_files) & _DOCKER_FILES)
-                _start_all_services(ssh, rebuild_docker=docker_files_changed)
-                _notify(on_progress, "start_services", "done")
-
-            if lock is not None:
-                _release_lock(ssh)
+            # Always restart all services and release lock; a failing progress
+            # callback or restart must not leave the lock behind.
+            try:
+                if services_stopped:
+                    try:
+                        _notify(on_progress, "start_services", "running")
+                    finally:
+                        docker_files_changed = bool(set(sync_result.synced_files) & _DOCKER_FILES)
+                        _start_all_services(
+                            ssh,
+                            rebuild_docker=docker_files_changed,
+                            render=_render_needed(sync_result.synced_files),
+                            warnings=warnings,
+                        )
+                    _notify(on_progress, "start_services", "done")
+            finally:
+                if lock is not None:
+                    _release_lock(ssh)
+                elif attempted_lock_json:
+                    # Interrupted around the acquire: remove the file if it is ours.
+                    with contextlib.suppress(Exception):
+                        _release_lock_if_ours(ssh, attempted_lock_json[0])
 
     finally:
         # Write deployment journal (never-fail)

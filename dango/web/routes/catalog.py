@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
@@ -165,14 +165,16 @@ async def get_table_columns(
 async def refresh_table_profile(
     source: str,
     table: str,
-    user: User = Depends(require_permission("governance.view")),  # noqa: ARG001
+    request: Request,
+    user: User = Depends(require_permission("dbt.run")),
 ) -> dict[str, Any]:
     """Compute fresh profiling stats for a table and return them.
 
     Args:
         source: Source name (URL path parameter).
         table: Table name (URL path parameter).
-        user: Authenticated user with ``governance.view`` permission.
+        request: Incoming request (client IP for the audit event).
+        user: Authenticated user with ``dbt.run`` permission.
 
     Returns:
         Column schema with freshly computed profiling statistics.
@@ -194,6 +196,15 @@ async def refresh_table_profile(
             status_code=500,
             detail=f"Profiling failed for {source}.{table}: {type(exc).__name__}",
         ) from exc
+
+    log_auth_event(
+        AuditEvent.CATALOG_PROFILE_TRIGGERED,
+        user_id=user.id,
+        email=user.email,
+        ip=request.client.host if request.client else None,
+        details={"source": source, "table": table},
+        log_dir=project_root / ".dango" / "logs",
+    )
 
     columns, row_count, profiled_at = await asyncio.gather(
         asyncio.to_thread(_get_column_schema, db_path, source, table),

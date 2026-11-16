@@ -40,6 +40,11 @@
             } %}
             <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {{ badge_class.get(meta.status, 'bg-gray-100 text-gray-800') }}">{{ meta.status }}</span>
             {% endif %}
+            {% if meta.unisolated %}
+            <span class="text-gray-300">|</span>
+            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800" title="Unisolated: runs as the Dango service user, declared in scripts.yml">Unisolated</span>
+            <span class="text-xs text-yellow-800">Unisolated: runs as the Dango service user, declared in scripts.yml</span>
+            {% endif %}
             {% if meta.exit_code is not none %}
             <span class="text-gray-300">|</span>
             <span>Exit code: {{ meta.exit_code }}</span>

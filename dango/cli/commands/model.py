@@ -63,7 +63,7 @@ def model_add(ctx: click.Context) -> None:
         raise click.Abort() from e
 
 
-_VALID_MODEL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+_VALID_MODEL_NAME_RE = re.compile(r"[a-z][a-z0-9_]*")
 
 
 @model.command("remove")
@@ -92,7 +92,7 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
     console.print(f"🍡 [bold]Removing Model: {model_name}[/bold]\n")
 
     # Validate model_name to prevent injection in SQL/filesystem
-    if not _VALID_MODEL_NAME_RE.match(model_name):
+    if not _VALID_MODEL_NAME_RE.fullmatch(model_name):
         console.print(
             "[red]Error:[/red] Invalid model name. "
             "Must be lowercase, start with a letter, and contain only letters, digits, underscores."

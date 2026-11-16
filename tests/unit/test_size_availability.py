@@ -118,7 +118,7 @@ class TestListSizes:
         sizes = client.list_sizes()
         assert [s["slug"] for s in sizes] == ["s-2vcpu-4gb", "s-4vcpu-8gb"]
         assert calls == [("GET", "/sizes"), ("GET", "/sizes?page=2")]
-        assert params_seen == [{"per_page": 200}, {}]
+        assert params_seen == [{"per_page": 200}, None]
 
 
 @pytest.mark.unit

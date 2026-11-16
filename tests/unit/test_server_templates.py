@@ -20,13 +20,13 @@ class TestBuildSystemdUnit:
     def test_workers_4_in_exec_start(self):
         """build_systemd_unit(workers=4) adds --workers 4 to ExecStart."""
         result = build_systemd_unit(workers=4)
-        assert "ExecStart=/srv/dango/venv/bin/dango serve --workers 4" in result
+        assert "ExecStart=/srv/dango/venv/bin/dango serve --host 127.0.0.1 --workers 4" in result
 
     def test_workers_1_omits_flag(self):
         """build_systemd_unit(workers=1) omits --workers flag."""
         result = build_systemd_unit(workers=1)
         assert "--workers" not in result
-        assert "ExecStart=/srv/dango/venv/bin/dango serve\n" in result
+        assert "ExecStart=/srv/dango/venv/bin/dango serve --host 127.0.0.1\n" in result
 
     def test_workers_none_omits_flag(self):
         """build_systemd_unit(workers=None) omits --workers flag."""

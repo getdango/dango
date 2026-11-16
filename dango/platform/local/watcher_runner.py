@@ -66,7 +66,7 @@ def run_dbt_command(project_root: Path, changed_files: list[Any] | None = None) 
         project_root: Project root path
         changed_files: Optional list of changed file paths for selective runs
     """
-    from dango.transformation import _dbt_telemetry_env
+    from dango.transformation import _dbt_telemetry_env, _get_dbt_executable
     from dango.utils import DbtLock, DbtLockError
 
     print(f"[FileWatcher] Triggering dbt at {datetime.now().isoformat()}")
@@ -89,7 +89,7 @@ def run_dbt_command(project_root: Path, changed_files: list[Any] | None = None) 
         return False
 
     # Build dbt command with optional selection
-    cmd = ["dbt", "run"]
+    cmd = [_get_dbt_executable(), "run"]
 
     if changed_files:
         # Extract model names from file paths and build selection criteria

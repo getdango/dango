@@ -5,6 +5,8 @@ Dango Transformation Module
 Handles dbt integration and SQL model generation.
 """
 
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -43,22 +45,21 @@ def _get_dbt_executable() -> str:
     """
     Get the path to the dbt executable.
 
-    Tries to find dbt in the same venv as the current Python interpreter.
-    Falls back to 'dbt' if not found (system PATH).
+    Prefers the dbt installed beside the running Python interpreter (the
+    project's own environment), then a dbt found on PATH, then bare 'dbt'.
 
     Returns:
         Path to dbt executable
     """
-    # Get the directory where the current Python executable is located
-    python_bin_dir = Path(sys.executable).parent
-
-    # Check if dbt exists in the same bin directory
-    dbt_path = python_bin_dir / "dbt"
-
-    if dbt_path.exists():
+    name = "dbt.exe" if os.name == "nt" else "dbt"
+    dbt_path = Path(sys.executable).parent / name
+    if dbt_path.is_file():
         return str(dbt_path)
 
-    # Fall back to system dbt (likely to fail, but preserves backward compatibility)
+    found = shutil.which("dbt")
+    if found:
+        return found
+
     return "dbt"
 
 

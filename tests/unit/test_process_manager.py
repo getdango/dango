@@ -128,8 +128,8 @@ class TestRemovePidFile:
         assert not pid_file.exists()
 
     def test_no_file_no_error(self, tmp_path):
-        # Should not raise
-        remove_pid_file(tmp_path)
+        # does-not-raise: nothing to remove
+        assert remove_pid_file(tmp_path) is None
 
     def test_oserror_on_unlink_silently_caught(self, tmp_path):
         dango_dir = tmp_path / ".dango"
@@ -137,9 +137,12 @@ class TestRemovePidFile:
         pid_file = dango_dir / "web.pid"
         pid_file.write_text("1234")
 
-        with patch.object(type(pid_file), "unlink", side_effect=OSError("perm denied")):
-            # Should not raise
+        with patch.object(
+            type(pid_file), "unlink", side_effect=OSError("perm denied")
+        ) as mock_unlink:
+            # does-not-raise: the unlink error is swallowed
             remove_pid_file(tmp_path)
+        mock_unlink.assert_called_once()
 
 
 @pytest.mark.unit

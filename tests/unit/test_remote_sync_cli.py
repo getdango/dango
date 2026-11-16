@@ -71,8 +71,8 @@ class TestRemoteSyncCommand:
         cmd_arg = ssh.exec_command.call_args[0][0]
         assert cmd_arg.startswith("sh -c ")
         script = shlex.split(cmd_arg)[2]
-        assert script.startswith("cd /srv/dango/project || {")
-        assert "\nnohup sudo -u dango -H env DANGO_CLOUD_MODE=true" in script
+        assert script.startswith("cd / || {")
+        assert "\nnohup runuser -u dango -- env DANGO_CLOUD_MODE=true" in script
         assert "nohup cd" not in script
         assert "> /dev/null 2>&1 &\n" in script
         assert ssh.exec_command.call_args[1] == {"timeout": 30, "check": False}

@@ -36,8 +36,8 @@ _PROJECT_ROOT = "/srv/dango/project"
 def _connect_ssh_or_fail(ctx: click.Context) -> tuple[Any, Any]:
     """Load cloud config, connect SSH as root, return (cloud_cfg, ssh).
 
-    Uses root because auth commands need read/write access to the auth
-    database at ``.dango/auth.db``.
+    The connection is root, but the auth commands themselves run as the
+    service user (see :func:`_run_remote_auth_cmd`).
 
     Raises:
         SystemExit: If no deployment or SSH connection fails.
@@ -76,9 +76,9 @@ def _run_remote_auth_cmd(
     Returns:
         True on success, False on failure (error already printed).
     """
-    cmd = f"cd {_PROJECT_ROOT} && {_DANGO_CLI} auth {args}"
-    if pipe_yes:
-        cmd = f"yes | {cmd}"
+    # Run as the service user; the project directory is entered by that user, not by root.
+    inner = f"cd {_PROJECT_ROOT} && exec env DANGO_CLOUD_MODE=true {_DANGO_CLI} auth {args}"
+    cmd = f"cd / && {'yes | ' if pipe_yes else ''}runuser -u dango -- sh -c {shlex.quote(inner)}"
 
     result = ssh.exec_command(cmd, timeout=timeout, check=False)
     if result.success:

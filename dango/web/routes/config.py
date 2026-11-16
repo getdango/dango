@@ -6,8 +6,10 @@ Configuration endpoints for frontend integration.
 import logging
 
 import yaml
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from dango.auth.models import User
+from dango.auth.permissions import require_permission
 from dango.web.helpers import get_project_root
 
 logger = logging.getLogger(__name__)
@@ -16,7 +18,9 @@ router = APIRouter(tags=["config"])
 
 
 @router.get("/api/config")
-async def get_config() -> dict[str, object]:
+async def get_config(
+    user: User = Depends(require_permission("dashboard.view")),
+) -> dict[str, object]:
     """Get Dango configuration (ports, URLs, etc.).
 
     Returns configuration needed by the frontend to build dynamic URLs
@@ -55,7 +59,9 @@ async def get_config() -> dict[str, object]:
 
 
 @router.get("/api/metabase-config")
-async def get_metabase_config() -> dict[str, object]:
+async def get_metabase_config(
+    user: User = Depends(require_permission("dashboard.view")),
+) -> dict[str, object]:
     """Get Metabase configuration including database ID.
 
     Returns:

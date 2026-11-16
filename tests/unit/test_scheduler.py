@@ -358,14 +358,15 @@ class TestSchedulerServiceHistoryIntegration:
             patch(
                 "dango.platform.scheduling.history.record_completion",
                 side_effect=RuntimeError("db locked"),
-            ),
+            ) as mock_record,
             patch(
                 "dango.platform.scheduling.history.get_scheduler_db_path",
                 return_value=tmp_path / ".dango" / "scheduler.db",
             ),
         ):
-            # Should not raise
+            # does-not-raise: the history error is swallowed
             svc._on_job_executed(event)
+        mock_record.assert_called_once()
 
     def test_setup_history_cleanup_registers_job(self, tmp_path):
         """_setup_history_cleanup should register a daily cleanup job."""

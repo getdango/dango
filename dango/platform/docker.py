@@ -14,6 +14,7 @@ from rich.table import Table
 
 from dango.config.models import DangoConfig
 from dango.exceptions import DockerIdentityCollisionError, format_structured_error
+from dango.platform import compose_exec
 
 console = Console()
 
@@ -282,6 +283,15 @@ class DockerManager:
         project-scoped, so checking the former generic ``dango-metabase``
         name would classify every existing project as a first run.
         """
+        if compose_exec.uses_helper():
+            try:
+                result = compose_exec.run_compose(
+                    self.project_root, "image-exists", timeout=5, text=True
+                )
+            except (subprocess.TimeoutExpired, compose_exec.ComposeBusy, OSError):
+                return False
+            # ComposeInterrupted propagates; start_services() reports it.
+            return result.returncode == 0 and bool(result.stdout.strip())
         image_name = f"{self.compose_project_name}-metabase"
         try:
             result = subprocess.run(
@@ -359,10 +369,12 @@ class DockerManager:
                 for Docker connectivity issues — see
                 ``_assert_no_identity_collision()``.
         """
+        helper = compose_exec.uses_helper()
         self._resolve_or_migrate_project_id()
-        self._assert_no_identity_collision()
+        if not helper:
+            self._assert_no_identity_collision()
 
-        if not self.compose_file.exists():
+        if not helper and not self.compose_file.exists():
             msg = format_structured_error(
                 what_failed="docker-compose.yml not found",
                 causes=[
@@ -374,7 +386,7 @@ class DockerManager:
             console.print(f"[red]Error:[/red]\n{msg}")
             return False
 
-        if not self.is_docker_available():
+        if not helper and not self.is_docker_available():
             msg = format_structured_error(
                 what_failed="Docker is not available",
                 causes=[
@@ -387,7 +399,7 @@ class DockerManager:
             console.print(f"[red]Error:[/red]\n{msg}")
             return False
 
-        if not self.is_compose_available():
+        if not helper and not self.is_compose_available():
             msg = format_structured_error(
                 what_failed="Docker Compose is not available",
                 causes=[
@@ -402,9 +414,13 @@ class DockerManager:
         console.print("Starting Dango services...")
         console.print()
 
-        cmd = self.get_compose_command() + ["-f", str(self.compose_file), "up", "-d"]
+        cmd_prefix = None if helper else self.get_compose_command()
 
-        first_run = not self._metabase_image_exists()
+        try:
+            first_run = not self._metabase_image_exists()
+        except compose_exec.ComposeInterrupted as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return False
         if first_run:
             console.print(
                 "[cyan]Building Metabase image (first run, may take 5-10 minutes)...[/cyan]"
@@ -416,14 +432,15 @@ class DockerManager:
             # docker-compose.yml, Compose asks "Recreate (data will be lost)? (y/N)". Inheriting the
             # terminal makes that prompt block until the timeout; a closed stdin makes Compose
             # answer "No" and keep the existing volume. Never add --yes here.
-            result = subprocess.run(
-                cmd,
+            result = compose_exec.run_compose(
+                self.project_root,
+                "up",
+                timeout=timeout,
+                compose_cmd=cmd_prefix,
                 cwd=self.project_root,
                 stdin=subprocess.DEVNULL,
-                capture_output=True,
+                env=None if helper else self._compose_env(),
                 text=True,
-                timeout=timeout,
-                env=self._compose_env(),
             )
 
             if result.returncode == 0:
@@ -507,27 +524,33 @@ class DockerManager:
                 for Docker connectivity issues — see
                 ``_assert_no_identity_collision()``.
         """
+        helper = compose_exec.uses_helper()
         self._resolve_or_migrate_project_id()
-        self._assert_no_identity_collision()
+        if not helper:
+            self._assert_no_identity_collision()
 
-        if not self.compose_file.exists():
+        if not helper and not self.compose_file.exists():
             console.print("[yellow]Warning:[/yellow] docker-compose.yml not found")
             return True  # Nothing to stop
 
         console.print("Stopping Dango services...")
 
-        cmd = self.get_compose_command() + ["-f", str(self.compose_file), "down"]
+        cmd_prefix = None if helper else self.get_compose_command()
 
         try:
-            result = subprocess.run(
-                cmd,
-                cwd=self.project_root,
-                capture_output=True,
-                text=True,
+            result = compose_exec.run_compose(
+                self.project_root,
+                "down",
                 timeout=60,
-                env=self._compose_env(),
+                compose_cmd=cmd_prefix,
+                cwd=self.project_root,
+                env=None if helper else self._compose_env(),
+                text=True,
             )
 
+            if result.returncode == 0 and helper:
+                console.print("[green]✓[/green] Services stopped")
+                return True
             if result.returncode == 0:
                 # Honest reporting: `docker compose down` exiting 0 is not
                 # proof nothing is left running (BUGS-FOUND.md 2026-09-09 —
@@ -590,6 +613,8 @@ class DockerManager:
         Returns:
             True if successful, False otherwise
         """
+        if compose_exec.uses_helper():
+            return self._stop_project_via_helper(all_projects)
         if all_projects:
             console.print("Stopping all Dango containers (from any project)...")
         else:
@@ -654,6 +679,25 @@ class DockerManager:
             console.print(f"[yellow]⚠[/yellow]  Error stopping containers: {e}")
             return False
 
+    def _stop_project_via_helper(self, all_projects: bool) -> bool:
+        """Stop this server's pinned project; other projects are out of reach here."""
+        if all_projects:
+            console.print(
+                "[yellow]⚠[/yellow]  Stopping other projects is not available on a server"
+            )
+            return False
+        try:
+            result = compose_exec.run_compose(self.project_root, "stop", timeout=60, text=True)
+        except (
+            subprocess.TimeoutExpired,
+            compose_exec.ComposeBusy,
+            compose_exec.ComposeInterrupted,
+            OSError,
+        ) as e:
+            console.print(f"[yellow]⚠[/yellow]  Error stopping containers: {e}")
+            return False
+        return result.returncode == 0
+
     def get_service_status(self) -> dict[str, ServiceStatus]:
         """
         Get status of all services.
@@ -661,19 +705,21 @@ class DockerManager:
         Returns:
             Dict mapping service names to their status
         """
-        if not self.compose_file.exists():
+        helper = compose_exec.uses_helper()
+        if not helper and not self.compose_file.exists():
             return {}
 
-        cmd = self.get_compose_command() + ["-f", str(self.compose_file), "ps", "--format", "json"]
+        cmd_prefix = None if helper else self.get_compose_command()
 
         try:
-            result = subprocess.run(
-                cmd,
-                cwd=self.project_root,
-                capture_output=True,
-                text=True,
+            result = compose_exec.run_compose(
+                self.project_root,
+                "ps",
                 timeout=10,
-                env=self._compose_env(),
+                compose_cmd=cmd_prefix,
+                cwd=self.project_root,
+                env=None if helper else self._compose_env(),
+                text=True,
             )
 
             if result.returncode != 0:

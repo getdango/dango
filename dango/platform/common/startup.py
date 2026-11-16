@@ -84,62 +84,22 @@ def check_duckdb_version_alignment() -> None:
 
 
 def ensure_duckdb_driver(project_root: Path) -> None:
-    """Ensure Metabase DuckDB driver is downloaded and version-matched.
+    """Ensure the pinned, digest-verified Metabase DuckDB driver is installed.
 
-    Downloads the driver if not present or if the installed DuckDB version
-    has changed since the last download.  Retries 3 times on network failure.
-
-    Args:
-        project_root: Project root directory
+    A cached jar is reused only if it matches the pinned digest (a missing or stale
+    version marker is repaired offline). Otherwise a candidate is downloaded and
+    installed only after verification; a failed fetch leaves any existing jar untouched.
 
     Raises:
-        RuntimeError: If download fails after all retries
+        DriverIntegrityError: Downloaded bytes did not match the pinned digest.
+        DriverDownloadError: Network failure after all retries.
     """
-    import time
-    import urllib.request
-
-    from dango.utils.driver import (
-        METABASE_DUCKDB_DRIVER_VERSION,
-        driver_needs_update,
-        get_duckdb_driver_url,
-        write_driver_version,
-    )
+    from dango.utils.driver import download_verified_driver, reuse_verified_driver
 
     plugins_dir = project_root / "metabase-plugins"
-    driver_path = plugins_dir / "duckdb.metabase-driver.jar"
-
-    if driver_path.exists() and not driver_needs_update(plugins_dir):
+    if reuse_verified_driver(plugins_dir):
         return
-
-    # Delete stale driver if version mismatch
-    if driver_path.exists():
-        driver_path.unlink()
-
-    driver_url = get_duckdb_driver_url()
-    plugins_dir.mkdir(exist_ok=True)
-
-    for attempt in range(3):
-        try:
-            if attempt > 0:
-                time.sleep(2)
-            urllib.request.urlretrieve(driver_url, driver_path)
-            write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
-            return
-        except Exception:
-            if attempt == 2:
-                # Clean up partial download on final failure
-                try:
-                    if driver_path.exists():
-                        driver_path.unlink()
-                except Exception:  # noqa: BLE001
-                    pass
-
-    raise RuntimeError(
-        f"Failed to download DuckDB driver after 3 attempts. "
-        f"URL: {driver_url} — "
-        f"Check your internet connection and try again, or download manually from: "
-        f"https://github.com/motherduckdb/metabase_duckdb_driver/releases"
-    )
+    download_verified_driver(plugins_dir)
 
 
 def start_docker_services(project_root: Path) -> None:
@@ -162,15 +122,17 @@ def start_docker_services(project_root: Path) -> None:
             start of the ``stop_services()``/``start_services()`` calls
             below). Never raised for Docker connectivity issues alone.
     """
-    from dango.platform import DockerManager
+    from dango.platform import DockerManager, compose_exec
 
     manager = DockerManager(project_root)
+    helper = compose_exec.uses_helper()
 
     # Stop any existing services to free ports and clean up zombie containers
     manager.stop_services()
 
-    # Pre-flight: Docker daemon must be running
-    if not manager.is_docker_daemon_running():
+    # Pre-flight: Docker daemon must be running (on a server the account cannot ask Docker;
+    # the helper reports its own failures)
+    if not helper and not manager.is_docker_daemon_running():
         raise RuntimeError("Docker daemon is not running. Start Docker Desktop and try again.")
 
     # Pre-flight: Required Docker ports must be free.
@@ -233,11 +195,14 @@ def start_docker_services(project_root: Path) -> None:
     # otherwise. See BUGS-FOUND.md for the incident this fixes.
     try:
         from dango.config.helpers import load_config
-        from dango.platform.docker import render_docker_compose
 
-        render_docker_compose(project_root, load_config(project_root))
+        compose_exec.render(project_root, load_config(project_root))
     except Exception:
-        pass  # Best-effort -- if config can't load, start_services() below will fail anyway
+        if helper:
+            from dango.logging import get_logger
+
+            get_logger(__name__).warning("compose_render_failed", exc_info=True)
+        # Best-effort -- if config can't load, start_services() below will fail anyway
 
     # Start Docker services (Metabase, dbt-docs)
     docker_success = manager.start_services()
@@ -405,12 +370,14 @@ def _link_metabase_admin(project_root: Path, admin_email: str) -> None:
 def metabase_startup_work_pending(project_root: Path) -> bool:
     """True when startup must authenticate to Metabase.
 
-    That is the case while a legacy admin-password migration is pending or when
-    dashboard exports exist to import. Read-only; makes no HTTP request.
+    That is the case while a legacy admin-password migration is pending, when the one-time
+    connection restriction has not been applied yet (Metabase set up, fewer than 3 failed
+    attempts), or when dashboard exports exist to import. Read-only; makes no HTTP request.
     """
     from dango.platform.common.metabase_credential_migration import migration_pending
+    from dango.visualization.metabase_connection_lock import catchup_pending
 
-    if migration_pending(project_root):
+    if migration_pending(project_root) or catchup_pending(project_root):
         return True
     legacy_dir = project_root / "dashboards"
     metabase_dir = project_root / "metabase"
@@ -429,12 +396,39 @@ def wait_for_metabase_if_needed(project_root: Path, timeout: int = 120) -> bool 
     """
     if not metabase_startup_work_pending(project_root):
         return None
-    from dango.security.metabase_config import load_metabase_metadata
     from dango.visualization.metabase import wait_for_metabase_ready
 
+    return wait_for_metabase_ready(_metabase_url(project_root), timeout=timeout)
+
+
+def _metabase_url(project_root: Path) -> str:
+    """Return the project's Metabase URL from its metadata (fallback when none is recorded)."""
+    from dango.security.metabase_config import load_metabase_metadata
+
     metadata = load_metabase_metadata(project_root) or {}
-    url = str(metadata.get("metabase_url") or "http://localhost:3000").rstrip("/")
-    return wait_for_metabase_ready(url, timeout=timeout)
+    return str(metadata.get("metabase_url") or "http://localhost:3000").rstrip("/")
+
+
+def apply_metabase_duckdb_lock_if_needed(project_root: Path) -> None:
+    """Restrict an existing Metabase DuckDB connection to the warehouse file, once.
+
+    Runs after Metabase setup and the credential migration. Never raises and never retries:
+    on failure it prints one warning and the next start tries again (at most 3 starts wait for
+    Metabase because of it). A marker under ``.dango/state`` makes later starts a no-op.
+    """
+    import sys
+
+    from dango.visualization.metabase_connection_lock import apply_lock_catchup
+
+    try:
+        if apply_lock_catchup(project_root, _metabase_url(project_root)) is False:
+            print(
+                "WARNING: Could not restrict Metabase's DuckDB connection to the warehouse "
+                "file; it will be tried again on the next start.",
+                file=sys.stderr,
+            )
+    except Exception:
+        pass
 
 
 def import_dashboards(project_root: Path) -> dict[str, Any] | None:

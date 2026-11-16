@@ -64,6 +64,11 @@ def _write_caddyfile(ssh: SSHManager, content: str) -> bool:
     return True
 
 
+def ensure_caddyfile(ssh: SSHManager, content: str) -> bool:
+    """Write *content* as the Caddyfile and reload Caddy if it changed."""
+    return _write_caddyfile(ssh, content)
+
+
 def set_domain(
     ssh: SSHManager,
     project_root: Path,

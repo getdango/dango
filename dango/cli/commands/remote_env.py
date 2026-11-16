@@ -19,6 +19,7 @@ import click
 
 from dango.cli import console
 from dango.logging import get_logger
+from dango.platform.cloud.project_files import read_project_file, write_project_file
 from dango.utils.env_file import parse_env_file, serialize_env_file
 
 logger = get_logger(__name__)
@@ -52,19 +53,19 @@ def env(ctx: click.Context) -> None:
 
 
 def _read_remote_env(ssh: Any) -> dict[str, str]:
-    """Read and parse the remote .env file. Returns empty dict if missing."""
+    """Read (as the service user) and parse the remote .env; empty dict if absent."""
     try:
-        content = ssh.read_remote_file(_REMOTE_ENV_PATH)
-        return parse_env_file(content)
+        return parse_env_file(read_project_file(ssh, _REMOTE_ENV_PATH))
     except Exception:
+        # Do not treat an unreadable file as empty: the caller would overwrite it.
         logger.debug("remote_env_read_failed", path=_REMOTE_ENV_PATH, exc_info=True)
-        return {}
+        raise
 
 
 def _write_remote_env(ssh: Any, env_vars: dict[str, str]) -> None:
-    """Write env vars to the remote .env file with mode 0o600."""
+    """Write env vars to the remote .env as the service user, mode 0o600."""
     content = serialize_env_file(env_vars)
-    ssh.write_remote_file(_REMOTE_ENV_PATH, content, mode=0o600)
+    write_project_file(ssh, _REMOTE_ENV_PATH, content, mode=0o600)
 
 
 # ---------------------------------------------------------------------------

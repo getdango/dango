@@ -70,7 +70,9 @@ class TestClearLocalPipelineCache:
         _patch_home(monkeypatch, fake_home)
 
         runner = self._make_runner()
-        runner._clear_local_pipeline_cache("never_synced_pipeline")  # no raise
+        # does-not-raise: nothing to clear
+        assert runner._clear_local_pipeline_cache("never_synced_pipeline") is None
+        assert not fake_home.exists() or list(fake_home.rglob("never_synced_pipeline")) == []
 
     @patch("dango.ingestion.dlt_runner.console")
     def test_swallows_rmtree_exception(self, mock_console, tmp_path, monkeypatch):

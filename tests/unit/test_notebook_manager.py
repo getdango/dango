@@ -50,7 +50,10 @@ class TestStartMarimo:
         assert pid == 12345
         pid_file = tmp_path / ".dango" / "marimo.pid"
         assert pid_file.exists()
-        assert pid_file.read_text() == "12345"
+        from dango.utils.process import read_pid_record
+
+        record = read_pid_record(pid_file)
+        assert record is not None and record.pid == 12345
 
     @patch("dango.notebooks.manager.is_process_running", return_value=True)
     def test_start_raises_if_already_running(self, mock_running, tmp_path):
@@ -108,17 +111,25 @@ class TestStartMarimo:
 @pytest.mark.unit
 class TestStopMarimo:
     @patch("dango.notebooks.manager.is_process_running", return_value=True)
-    @patch("dango.notebooks.manager.kill_process", return_value=True)
+    @patch("dango.notebooks.marimo_process.kill_process", return_value=True)
     def test_stop_returns_true(self, mock_kill, mock_running, tmp_path):
+        import psutil
+
         pid_file = tmp_path / ".dango" / "marimo.pid"
         pid_file.parent.mkdir(parents=True, exist_ok=True)
         pid_file.write_text("12345")
 
         from dango.notebooks.manager import stop_marimo
 
-        result = stop_marimo(tmp_path)
+        # Never signal a real process: fake the group calls, the process is gone.
+        with (
+            patch("dango.notebooks.marimo_process.os.getpgid", side_effect=lambda pid: pid),
+            patch("dango.notebooks.marimo_process.os.killpg"),
+            patch("psutil.Process", side_effect=psutil.NoSuchProcess(12345)),
+        ):
+            result = stop_marimo(tmp_path)
         assert result is True
-        mock_kill.assert_called_once_with(12345, timeout=10)
+        assert not pid_file.exists()
 
     def test_stop_returns_false_no_pid_file(self, tmp_path):
         from dango.notebooks.manager import stop_marimo
@@ -127,7 +138,7 @@ class TestStopMarimo:
         assert result is False
 
     @patch("dango.notebooks.manager.is_process_running", return_value=True)
-    @patch("dango.notebooks.manager.kill_process", return_value=False)
+    @patch("dango.notebooks.marimo_process.kill_process", return_value=False)
     def test_stop_returns_false_if_kill_fails(self, mock_kill, mock_running, tmp_path):
         pid_file = tmp_path / ".dango" / "marimo.pid"
         pid_file.parent.mkdir(parents=True, exist_ok=True)
@@ -135,8 +146,18 @@ class TestStopMarimo:
 
         from dango.notebooks.manager import stop_marimo
 
-        result = stop_marimo(tmp_path)
+        survivor = MagicMock()
+        survivor.status.return_value = "running"
+        with (
+            patch("dango.notebooks.marimo_process.os.getpgid", side_effect=lambda pid: pid),
+            patch("dango.notebooks.marimo_process.os.killpg"),
+            patch("psutil.Process", return_value=survivor),
+            patch("dango.notebooks.marimo_process._STOP_TERM_TIMEOUT_SECONDS", 0.3),
+            patch("dango.notebooks.marimo_process._STOP_KILL_TIMEOUT_SECONDS", 0.3),
+        ):
+            result = stop_marimo(tmp_path)
         assert result is False
+        assert pid_file.read_text() == "12345", "pid file must survive a failed stop"
 
     @patch("dango.notebooks.manager.is_process_running", return_value=False)
     def test_stop_cleans_stale_pid(self, mock_running, tmp_path):
@@ -327,6 +348,7 @@ class TestGetIdleTimeout:
 class TestStartMarimoCloudBaseUrl:
     """Tests for --base-url flag when running in cloud mode."""
 
+    @patch("dango.platform.run_as.isolation_state", return_value="disabled")
     @patch("dango.notebooks.manager._get_idle_timeout", return_value=3600)
     @patch("dango.notebooks.manager._is_marimo_responding", return_value=True)
     @patch("dango.notebooks.manager.is_process_running", return_value=False)
@@ -339,6 +361,7 @@ class TestStartMarimoCloudBaseUrl:
         mock_running: MagicMock,
         mock_responding: MagicMock,
         mock_timeout: MagicMock,
+        mock_state: MagicMock,
         tmp_path: Path,
     ) -> None:
         mock_proc = MagicMock()
@@ -504,8 +527,9 @@ class TestBroadcastIdleWarning:
             "dango.web.routes.websocket.ws_manager",
             mock_ws,
         ):
-            # Should not raise
+            # does-not-raise: the broadcast failure is swallowed
             asyncio.run(_broadcast_idle_warning(300))
+        mock_ws.broadcast.assert_awaited_once()
 
 
 @pytest.mark.unit

@@ -400,7 +400,9 @@ class TestConnection:
         manager, _ = _make_connected_manager(pm, tmp_path)
 
         manager.disconnect()
-        manager.disconnect()  # should not raise
+        # does-not-raise: second disconnect is a no-op
+        assert manager.disconnect() is None
+        assert manager.is_connected is False
 
     def test_disconnect_clears_client(self, tmp_path: Path):
         """disconnect() sets _client to None."""

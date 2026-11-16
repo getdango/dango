@@ -15,6 +15,7 @@ from dango.transformation.model_common import (
     list_models,
     stems,
 )
+from dango.transformation.model_sql_guard import check_model_sql
 
 _JINJA_COMMENT_RE = re.compile(r"\{#.*?#\}", re.DOTALL)
 _JINJA_BLOCK_RE = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
@@ -119,6 +120,9 @@ def validate_model_sql(project_root: Path, model_name: str, layer: str, sql: str
             errors.append(f"ref cycle: {' -> '.join(cycle)}")
     if errors:
         raise ModelServiceError(errors)
+    guard_errors = check_model_sql(sql)
+    if guard_errors:
+        raise ModelServiceError(guard_errors)
 
     if layer != "staging":
         outside_jinja = _JINJA_BLOCK_RE.sub("", _JINJA_COMMENT_RE.sub("", sql))

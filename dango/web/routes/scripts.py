@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 import dango
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
+from dango.utils.redact import load_secret_values, redact_nested, redact_text
 from dango.web.helpers import get_project_root
 from dango.web.routes.scripts_api import api_router
 from dango.web.routes.scripts_helpers import (
@@ -106,6 +107,9 @@ async def script_log_page(
         except (json.JSONDecodeError, OSError):  # noqa: BLE001
             pass
 
+    # Same redaction as /api/logs: known secret values plus secret-looking patterns, applied to
+    # everything the page shows, for every role.
+    secrets = load_secret_values(project_root)
     return _render_template(
         request,
         "script_log.html",
@@ -115,8 +119,8 @@ async def script_log_page(
             "subtitle": "Script Log",
             "script_name": name,
             "run_id": run_id,
-            "stdout": stdout_content,
-            "stderr": stderr_content,
-            "meta": meta,
+            "stdout": redact_text(stdout_content, secrets),
+            "stderr": redact_text(stderr_content, secrets),
+            "meta": redact_nested(meta, secrets),
         },
     )

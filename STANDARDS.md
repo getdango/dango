@@ -486,7 +486,7 @@ Type hints are enforced by mypy with `disallow_untyped_defs = true` — see `pyp
 
 **Rules:**
 - All function parameters and return types must be annotated
-- Use modern syntax (Python 3.10+): `str | None` not `Optional[str]`, `list[str]` not `List[str]`
+- Use modern syntax (Python 3.11+): `str | None` not `Optional[str]`, `list[str]` not `List[str]`
 - Pydantic models get typed fields with `Field()` descriptions for important fields
 
 **Examples from codebase:**
@@ -737,12 +737,12 @@ Check `pyproject.toml` dependencies before writing utility code. PyYAML, httpx, 
 
 ## 13. Compatibility Notes
 
-Dango supports Python >=3.10,<3.14. These patterns address cross-version compatibility:
+Dango supports Python >=3.11,<3.14. These patterns address cross-version compatibility:
 
-**`datetime.fromisoformat()` timezone parsing:** Python 3.10 cannot parse timezone suffixes (`+00:00`, `Z`) — this was fixed in 3.11. Strip the suffix before parsing:
+**Legacy `datetime.fromisoformat()` timezone parsing (Python 3.10):** Python 3.10 cannot parse timezone suffixes (`+00:00`, `Z`) — this was fixed in 3.11. The existing compatibility code strips the suffix before parsing:
 
 ```python
-# Works on Python 3.10+
+# Legacy compatibility: works on Python 3.10+
 ts = timestamp_str.replace("+00:00", "").replace("Z", "")
 dt = datetime.fromisoformat(ts)
 ```

@@ -65,17 +65,13 @@ class TestScheduledBackupComposeIdentity:
             _stop_services()
             _start_services()
 
-        commands = [call.args[0] for call in mock_run.call_args_list]
-        assert any(
-            "COMPOSE_PROJECT_NAME=dango-59f02899 docker compose" in command
-            and "stop metabase" in command
-            for command in commands
-        )
-        assert any(
-            "COMPOSE_PROJECT_NAME=dango-59f02899 docker compose" in command
-            and "start metabase" in command
-            for command in commands
-        )
+        compose = [c for c in mock_run.call_args_list if c.args[0][:2] == ["docker", "compose"]]
+        for action in ("stop", "start"):
+            assert any(
+                c.args[0][-2:] == [action, "metabase"]
+                and c.kwargs["env"]["COMPOSE_PROJECT_NAME"] == "dango-59f02899"
+                for c in compose
+            )
 
     def test_volume_lookup_uses_project_scoped_volume_name(self):
         """Scheduled backups find the Compose-generated Metabase H2 volume."""
@@ -92,9 +88,12 @@ class TestScheduledBackupComposeIdentity:
         ):
             assert _get_metabase_volume_path() == "/volume"
 
-        assert mock_run.call_args.args[0].startswith(
-            "docker volume inspect dango-59f02899_metabase-data "
-        )
+        assert mock_run.call_args.args[0][:4] == [
+            "docker",
+            "volume",
+            "inspect",
+            "dango-59f02899_metabase-data",
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -324,8 +323,12 @@ class TestEnableDisable:
 
         mock_run.return_value = MagicMock(returncode=0)
         assert enable_scheduled_backup() is True
-        cmd = mock_run.call_args[0][0]
-        assert "enable --now dango-backup.timer" in cmd
+        assert mock_run.call_args[0][0] == [
+            "systemctl",
+            "enable",
+            "--now",
+            "dango-backup.timer",
+        ]
 
     @patch("dango.platform.cloud.scheduled_backup.subprocess.run")
     def test_disable_returns_true_on_success(self, mock_run):
@@ -456,7 +459,7 @@ class TestRunLocal:
         from dango.platform.cloud.scheduled_backup import _run_local
 
         mock_run.return_value = MagicMock(returncode=0, stdout="output\n", stderr="")
-        result = _run_local("echo test", step="test")
+        result = _run_local(["echo", "test"], step="test")
         assert result == "output\n"
 
     @patch("dango.platform.cloud.scheduled_backup.subprocess.run")
@@ -466,7 +469,7 @@ class TestRunLocal:
 
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error msg")
         with pytest.raises(CloudProvisioningError, match="test_step"):
-            _run_local("bad command", step="test_step")
+            _run_local(["false"], step="test_step")
 
 
 # ---------------------------------------------------------------------------

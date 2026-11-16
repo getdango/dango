@@ -195,7 +195,7 @@ class TestCreateNotebook:
 
     @patch(f"{_P}._audit")
     @patch(f"{_P}.get_project_root")
-    @patch(f"{_P}.shutil.copy2")
+    @patch(f"{_P}.copy_regular_file")
     def test_create_success(
         self, _mc: MagicMock, mock_root: MagicMock, mock_audit: MagicMock, tmp_path: Path
     ) -> None:

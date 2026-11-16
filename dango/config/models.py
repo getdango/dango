@@ -635,6 +635,11 @@ class ApiConfig(BaseModel):
 
     query_max_rows: int = Field(default=10_000, description="Maximum rows returned by /api/query")
     query_timeout_seconds: int = Field(default=30, description="Query timeout in seconds")
+    query_memory_limit: str = Field(
+        default="1GB",
+        pattern=r"^[0-9]+(\.[0-9]+)?\s?(KB|MB|GB|TB|KiB|MiB|GiB|TiB)$",
+        description="DuckDB memory_limit for /api/query and MCP query connections",
+    )
     mcp_mask_pii: bool = Field(
         default=True,
         description="Mask PII-flagged columns in MCP query results (sent to the LLM provider)",

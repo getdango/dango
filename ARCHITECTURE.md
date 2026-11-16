@@ -367,6 +367,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | `cloud/domain.py` | DNS check, domain set/remove |
 | `cloud/backup.py` | Backup, rollback, and service lifecycle |
 | `cloud/file_sync.py` | Project file sync (SFTP + rsync) |
+| `cloud/rsync_transport.py` | rsync over ssh, verifying the pinned host key |
 | `cloud/deployer.py` | Push deploy workflow and deploy lock |
 | `cloud/deploy_journal.py` | Append-only JSONL deployment history |
 | `cloud/scheduled_backup.py` | Server-side scheduled backup |

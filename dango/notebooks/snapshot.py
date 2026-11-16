@@ -7,12 +7,51 @@ from __future__ import annotations
 
 import logging
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+
+from dango.notebooks.safe_files import copy_regular_file
+from dango.platform import run_as
 
 logger = logging.getLogger(__name__)
 
+#: Where snapshots live when notebooks run as the restricted user (created by server setup).
+ISOLATED_SNAPSHOT_DIR = Path("/srv/dango/runner/snapshots")
+_ISOLATED_MODE = 0o640
+
 _TIMESTAMP_FMT = "%Y%m%d_%H%M%S"
+_NAME_ATTEMPTS = 100
+
+
+def _snapshots_dir(project_root: Path) -> Path:
+    """Snapshot directory: the runner-readable one when isolated, else under ``.dango``."""
+    if run_as.uses_isolation():
+        return ISOLATED_SNAPSHOT_DIR
+    return project_root / ".dango" / "snapshots"
+
+
+def _create_isolated_snapshot(warehouse: Path, username: str, now: datetime) -> Path:
+    """Copy *warehouse* into the runner snapshot directory with mode 0640.
+
+    The group (``dango-nb``) comes from the directory.  The source is opened
+    without following a symlink (``data`` itself may be a link) and the mode is set with ``fchmod``.
+    A name already taken (another snapshot in the same second) moves the
+    timestamp on by a second until it is free, so the name stays parseable.
+    """
+    directory = ISOLATED_SNAPSHOT_DIR
+    if not directory.is_dir():
+        raise RuntimeError(
+            f"Notebook snapshot directory {directory} is missing; run the server setup again"
+        )
+    for attempt in range(_NAME_ATTEMPTS):
+        stamp = (now + timedelta(seconds=attempt)).strftime(_TIMESTAMP_FMT)
+        target = directory / f"warehouse_{username}_{stamp}.duckdb"
+        try:
+            copy_regular_file(warehouse, target, mode=_ISOLATED_MODE)
+        except FileExistsError:
+            continue
+        return target
+    raise RuntimeError(f"Could not find a free snapshot name in {directory}")
 
 
 def create_snapshot(project_root: Path, username: str = "default") -> Path:
@@ -30,25 +69,29 @@ def create_snapshot(project_root: Path, username: str = "default") -> Path:
         Path to the new snapshot file.
 
     Raises:
+        IsolationRequiredError: On a cloud server whose isolation is missing (D2).
         FileNotFoundError: If ``data/warehouse.duckdb`` does not exist.
     """
+    run_as.require_isolation_ready()
     warehouse = project_root / "data" / "warehouse.duckdb"
     if not warehouse.exists():
         raise FileNotFoundError(
             f"Warehouse database not found at {warehouse}. Run a sync first to create it."
         )
 
-    snapshots_dir = project_root / ".dango" / "snapshots"
-    snapshots_dir.mkdir(parents=True, exist_ok=True)
+    now = datetime.now()
+    snapshot_name = f"warehouse_{username}_{now.strftime(_TIMESTAMP_FMT)}.duckdb"
 
-    cleanup_snapshots(project_root, username, keep=3)
-
-    timestamp = datetime.now().strftime(_TIMESTAMP_FMT)
-    snapshot_name = f"warehouse_{username}_{timestamp}.duckdb"
-    snapshot_path = snapshots_dir / snapshot_name
-
-    shutil.copy2(str(warehouse), str(snapshot_path))
-    logger.info("Created snapshot %s (%d bytes)", snapshot_name, snapshot_path.stat().st_size)
+    if run_as.uses_isolation():
+        cleanup_snapshots(project_root, username, keep=3)
+        snapshot_path = _create_isolated_snapshot(warehouse, username, now)
+    else:
+        snapshots_dir = project_root / ".dango" / "snapshots"
+        snapshots_dir.mkdir(parents=True, exist_ok=True)
+        cleanup_snapshots(project_root, username, keep=3)
+        snapshot_path = snapshots_dir / snapshot_name
+        shutil.copy2(str(warehouse), str(snapshot_path))
+    logger.info("Created snapshot %s (%d bytes)", snapshot_path.name, snapshot_path.stat().st_size)
 
     return snapshot_path
 
@@ -66,7 +109,7 @@ def list_snapshots(
         List of dicts with keys: ``name``, ``path``, ``username``,
         ``created_at``, ``size_bytes``.  Sorted newest first.
     """
-    snapshots_dir = project_root / ".dango" / "snapshots"
+    snapshots_dir = _snapshots_dir(project_root)
     if not snapshots_dir.exists():
         return []
 

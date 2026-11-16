@@ -17,6 +17,8 @@ Registered as a subgroup of ``remote`` in ``remote.py`` via
 
 from __future__ import annotations
 
+import contextlib
+import json
 import shlex
 import uuid
 from pathlib import Path
@@ -25,8 +27,21 @@ from typing import Any
 import click
 
 from dango.cli import console
+from dango.cli.commands import backup_notices, remote_report
 from dango.cli.utils import safe_confirm
 from dango.exceptions import format_structured_error
+from dango.platform.cloud.backup_destination import (
+    OFFSITE_PREFIX,
+    RESTORE_SECRETS_PREFIX,
+    archive_secrets_info,
+    clean_names,
+)
+from dango.platform.cloud.backup_restore_checks import (
+    RESTORE_ERROR_PREFIX,
+    RESTORE_WARNING_PREFIX,
+    spaces_restore_script,
+)
+from dango.platform.cloud.runtime_ownership import ROOT_PYTHON
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -88,7 +103,7 @@ def _load_spaces_client_or_fail(ctx: click.Context) -> tuple[Any, Any]:
             secret_key_env=cloud_cfg.spaces.secret_key_env,
         )
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to create Spaces client: {exc}")
+        remote_report.failure("Failed to create Spaces client", exc)
         raise SystemExit(1) from exc
 
     return cloud_cfg, client
@@ -124,14 +139,18 @@ def backup_group(ctx: click.Context) -> None:
     try:
         with Status("[bold blue]Running on-demand backup on server...", console=console):
             result = ssh.exec_command(
-                "/srv/dango/venv/bin/python -m dango.platform.cloud.scheduled_backup",
+                f"{ROOT_PYTHON} -m dango.platform.cloud.scheduled_backup",
                 timeout=900,
             )
 
         if result.success:
             console.print("[green]Backup completed successfully.[/green]")
-            if result.stdout.strip():
-                console.print(result.stdout.strip())
+            shown = [
+                ln for ln in result.stdout.strip().splitlines() if not ln.startswith(OFFSITE_PREFIX)
+            ]
+            if shown:
+                remote_report.line("\n".join(shown), "")
+            backup_notices.print_offsite_from_stdout(result.stdout)
         else:
             msg = format_structured_error(
                 what_failed="Remote backup failed",
@@ -144,12 +163,13 @@ def backup_group(ctx: click.Context) -> None:
             )
             console.print(f"[red]Error:[/red]\n{msg}")
             if result.stderr.strip():
-                console.print(f"\nServer output:\n{result.stderr.strip()}")
+                console.print("\nServer output:")
+                remote_report.line(result.stderr.strip(), "")
             raise SystemExit(1)
     except SystemExit:
         raise
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -214,11 +234,11 @@ def backup_list(ctx: click.Context) -> None:
 
         for b in local_backups:
             size_mb = b["size_bytes"] / (1024 * 1024) if b["size_bytes"] else 0
-            table.add_row("server", b["name"], f"{size_mb:.1f} MB")
+            table.add_row("server", remote_report.literal(b["name"]), f"{size_mb:.1f} MB")
 
         for b in spaces_backups:
             size_mb = b["size_bytes"] / (1024 * 1024) if b["size_bytes"] else 0
-            table.add_row("spaces", b["name"], f"{size_mb:.1f} MB")
+            table.add_row("spaces", remote_report.literal(b["name"]), f"{size_mb:.1f} MB")
 
         console.print(table)
     finally:
@@ -243,28 +263,27 @@ def backup_enable(ctx: click.Context) -> None:
       dango remote backup enable
     """
     from dango.platform.cloud._server_templates import (
-        SYSTEMD_BACKUP_SERVICE,
+        SERVER_DANGO_VERSION_COMMAND,
         SYSTEMD_BACKUP_TIMER,
+        backup_service_unit,
     )
 
     cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
 
     try:
-        # Verify Spaces credentials exist on server
-        env_check = ssh.exec_command(
-            "grep -q SPACES_ACCESS_KEY /srv/dango/project/.env 2>/dev/null"
-        )
-        if not env_check.success:
-            console.print(
-                "[red]Error:[/red] SPACES_ACCESS_KEY not found in server .env file. "
-                "Add Spaces credentials before enabling scheduled backups."
-            )
-            raise SystemExit(1)
+        destination = backup_notices.prepare_destination(ssh, cloud_cfg)
+
+        # The unit depends on the server's Dango version (how it reads the Spaces keys)
+        version_result = ssh.exec_command(SERVER_DANGO_VERSION_COMMAND, timeout=30)
+        version = version_result.stdout.strip() if version_result.success else None
+        unit, unit_warning = backup_service_unit(version)
+        if unit_warning:
+            console.print(f"[yellow]Warning:[/yellow] {unit_warning}")
 
         # Write systemd unit files
         ssh.write_remote_file(
             "/etc/systemd/system/dango-backup.service",
-            SYSTEMD_BACKUP_SERVICE,
+            unit,
             mode=0o644,
         )
         ssh.write_remote_file(
@@ -288,6 +307,9 @@ def backup_enable(ctx: click.Context) -> None:
         console.print("[green]Scheduled backups enabled.[/green] Daily at 02:00 UTC.")
         console.print("  Timer: dango-backup.timer")
         console.print("  Service: dango-backup.service")
+        backup_notices.print_offsite_from_stdout(
+            backup_notices.offsite_verdict(destination, destination is not None, version, True)
+        )
     finally:
         ssh.disconnect()
 
@@ -377,6 +399,7 @@ def backup_download(
         console.print(
             f"[green]Downloaded.[/green] Saved to [bold]{output_path}[/bold] ({size_mb:.1f} MB)"
         )
+        backup_notices.print_reenter(*archive_secrets_info(data))
     except Exception as exc:
         msg = format_structured_error(
             what_failed=f"Download failed for {name}",
@@ -393,8 +416,6 @@ def backup_download(
 
 def _backup_download_from_server(ctx: click.Context, output: str | None) -> None:
     """Create a backup on the server and download it via SFTP."""
-    import json
-
     from rich.status import Status
 
     cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
@@ -402,11 +423,13 @@ def _backup_download_from_server(ctx: click.Context, output: str | None) -> None
     try:
         with Status("[bold blue]Creating backup on server...", console=console):
             create_result = ssh.exec_command(
-                f'{VENV_PYTHON} -c "'
+                f'{ROOT_PYTHON} -c "'
                 "from dango.platform.cloud.scheduled_backup import _create_local_archive; "
                 "import json; "
                 "path, manifest, warnings = _create_local_archive('on-demand'); "
-                "print('__BACKUP_RESULT__' + json.dumps({'path': str(path), 'warnings': warnings}))\"",
+                "print('__BACKUP_RESULT__' + json.dumps({'path': str(path), 'warnings': warnings, "
+                "'secret_names': manifest.get('secret_names'), "
+                "'secrets_included': manifest.get('secrets_included', False)}))\"",
                 timeout=600,
             )
 
@@ -459,11 +482,14 @@ def _backup_download_from_server(ctx: click.Context, output: str | None) -> None
 
         # Show warnings
         for w in info.get("warnings", []):
-            console.print(f"  [yellow]Warning:[/yellow] {w}")
+            remote_report.warning(w)
+        backup_notices.print_reenter(
+            clean_names(info.get("secret_names")), bool(info.get("secrets_included"))
+        )
     except SystemExit:
         raise
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -472,6 +498,30 @@ def _backup_download_from_server(ctx: click.Context, output: str | None) -> None
 # ---------------------------------------------------------------------------
 # Post-restore credential guidance
 # ---------------------------------------------------------------------------
+
+
+def _server_lines(stdout: str, prefix: str) -> list[str]:
+    """Lines a server-side restore printed with *prefix*, without it and without control characters."""
+    return [
+        "".join(c for c in line.removeprefix(prefix) if c.isprintable())
+        for line in stdout.splitlines()
+        if line.startswith(prefix)
+    ]
+
+
+def _server_warnings(stdout: str) -> list[str]:
+    """Warnings a server-side restore printed (marked lines only)."""
+    return _server_lines(stdout, RESTORE_WARNING_PREFIX)
+
+
+def _restore_secret_names(stdout: str) -> tuple[list[str] | None, bool]:
+    """``(names, found)`` from the marked line a server-side restore printed."""
+    for text in _server_lines(stdout, RESTORE_SECRETS_PREFIX):
+        try:
+            return clean_names(json.loads(text)), True
+        except ValueError:
+            break
+    return None, False
 
 
 def _print_post_restore_credential_guidance() -> None:
@@ -525,14 +575,6 @@ def backup_restore(ctx: click.Context, source: str, yes: bool, from_local: bool)
         _backup_restore_from_local(ctx, source, yes)
         return
 
-    if not yes:
-        if not safe_confirm(
-            f"This will restore the server from Spaces backup '{source}'. "
-            "Current data will be overwritten. Continue?"
-        ):
-            console.print("[yellow]Restore cancelled.[/yellow]")
-            return
-
     # Validate source to prevent shell injection (passed to remote Python command)
     if not all(c.isalnum() or c in "-_." for c in source):
         console.print(
@@ -544,21 +586,35 @@ def backup_restore(ctx: click.Context, source: str, yes: bool, from_local: bool)
     cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
 
     try:
+        backup_notices.print_secrets_reminder(cloud_cfg, ssh=ssh)
+        if not yes:
+            if not safe_confirm(
+                f"This will restore the server from Spaces backup '{source}'. "
+                "Current data will be overwritten. Continue?"
+            ):
+                console.print("[yellow]Restore cancelled.[/yellow]")
+                return
+
         key = f"backups/{source}"
 
         with Status("[bold blue]Restoring from Spaces backup...", console=console):
             # Run restore on the server
             result = ssh.exec_command(
-                f'{VENV_PYTHON} -c "'
-                "from dango.platform.cloud.scheduled_backup import restore_from_spaces; "
-                "from dango.platform.cloud.scheduled_backup import _load_spaces_config; "
-                f"restore_from_spaces(_load_spaces_config(), '{key}')\"",
-                timeout=900,
+                f"{ROOT_PYTHON} -c {shlex.quote(spaces_restore_script(key))}", timeout=900
             )
 
         if result.success:
             console.print(f"[green]Restore complete.[/green] Restored from: {source}")
+            for text in _server_warnings(result.stdout):
+                remote_report.warning(text)
+            names, found = _restore_secret_names(result.stdout)
+            if found:
+                backup_notices.print_reenter(names)
             _print_post_restore_credential_guidance()
+        elif refusal := _server_lines(result.stdout, RESTORE_ERROR_PREFIX):
+            # the server named the cause on one line: show it, not a traceback
+            remote_report.failure(f"Restore from backup '{source}' failed", refusal[0])
+            raise SystemExit(1)
         else:
             msg = format_structured_error(
                 what_failed=f"Restore failed from backup '{source}'",
@@ -571,12 +627,13 @@ def backup_restore(ctx: click.Context, source: str, yes: bool, from_local: bool)
             )
             console.print(f"[red]Error:[/red]\n{msg}")
             if result.stderr.strip():
-                console.print(f"\nServer output:\n{result.stderr.strip()}")
+                console.print("\nServer output:")
+                remote_report.line(result.stderr.strip(), "")
             raise SystemExit(1)
     except SystemExit:
         raise
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -595,49 +652,59 @@ def _backup_restore_from_local(ctx: click.Context, source: str, yes: bool) -> No
         console.print("[red]Error:[/red] Backup file must be a .tar.gz archive.")
         raise SystemExit(1)
 
-    if not yes:
-        if not safe_confirm(
-            f"This will upload '{local_path.name}' and restore the server from it. "
-            "Current data will be overwritten. Continue?"
-        ):
-            console.print("[yellow]Restore cancelled.[/yellow]")
-            return
-
     cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
-    remote_tmp = f"/tmp/dango-restore-{uuid.uuid4().hex}.tar.gz"
+    upload_dir = ""
 
     try:
+        backup_notices.print_secrets_reminder(cloud_cfg, ssh=ssh)
+        if not yes:
+            if not safe_confirm(
+                f"This will upload '{local_path.name}' and restore the server from it. "
+                "Current data will be overwritten. Continue?"
+            ):
+                console.print("[yellow]Restore cancelled.[/yellow]")
+                return
+
+        from dango.platform.cloud.backup import make_private_dir, restore_from_archive
+
+        # Root-only directory: the archive holds auth.db (and secrets), so no running
+        # restricted user may read it while it waits for the restore.
+        upload_dir = make_private_dir(ssh, "dango-restore-upload")
+        remote_tmp = f"{upload_dir}/{uuid.uuid4().hex}.tar.gz"
         with Status(f"[bold blue]Uploading {local_path.name}...", console=console):
             ssh.upload_file(local_path, remote_tmp)
+        locked = ssh.exec_command(f"chmod 0600 {shlex.quote(remote_tmp)}")
+        if not locked.success:
+            raise RuntimeError(f"Could not restrict the uploaded archive: {locked.stderr.strip()}")
 
         console.print(f"[green]Uploaded.[/green] Restoring from {local_path.name}...")
-
-        from dango.platform.cloud.backup import restore_from_archive
 
         with Status("[bold blue]Restoring from backup...", console=console):
             result = restore_from_archive(ssh, remote_tmp)
 
         if result.health_check_passed:
             console.print(f"[green]Restore complete.[/green] Restored from: {local_path.name}")
-            _print_post_restore_credential_guidance()
         else:
             console.print(
                 f"[yellow]Restore finished[/yellow] from {local_path.name}, "
                 "but health check did not pass. Check 'dango remote status'."
             )
-            for w in result.warnings:
-                console.print(f"  [yellow]Warning:[/yellow] {w}")
+        for w in result.warnings:
+            remote_report.warning(w)
+        if result.health_check_passed:
+            backup_notices.print_reenter(*archive_secrets_info(local_path))
+            _print_post_restore_credential_guidance()
     except SystemExit:
         raise
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        remote_report.error(exc)
         raise SystemExit(1) from exc
     finally:
-        # Clean up remote temp file (best-effort — SSH may already be dead)
-        try:
-            ssh.exec_command(f"rm -f {shlex.quote(remote_tmp)}")
-        except Exception:  # noqa: BLE001
-            pass
+        # Remove the whole upload directory (best-effort: SSH may already be dead; a
+        # directory a dead client leaves behind is swept by the next backup or restore)
+        if upload_dir:
+            with contextlib.suppress(Exception):
+                ssh.exec_command(f"rm -rf {shlex.quote(upload_dir)}")
         ssh.disconnect()
 
 
@@ -683,7 +750,7 @@ def _verify_metabase_archive(ctx: click.Context, source: str) -> None:
         with Status(f"[bold blue]Checking {source} for Metabase data...", console=console):
             data = client.download(key)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Could not download from Spaces: {exc}")
+        remote_report.failure("Could not download from Spaces", exc)
         raise click.Abort() from exc
 
     # Inspect tar members in memory — getmembers() only reads the index,
@@ -734,7 +801,7 @@ def _verify_metabase_live(ctx: click.Context) -> None:
                 "Check 'dango remote status' for more details."
             )
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Could not reach server: {exc}")
+        remote_report.failure("Could not reach server", exc)
         raise click.Abort() from exc
     finally:
         ssh.disconnect()
@@ -789,7 +856,3 @@ def backup_config(ctx: click.Context) -> None:
         console.print(f"    Daily:   {sr.daily}")
         console.print(f"    Weekly:  {sr.weekly}")
         console.print(f"    Monthly: {sr.monthly}")
-
-
-#: Path to venv Python on the remote server.
-VENV_PYTHON = "/srv/dango/venv/bin/python"
