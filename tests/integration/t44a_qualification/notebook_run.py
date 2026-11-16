@@ -155,17 +155,90 @@ def finish(process, report, case, timeout=120):
 
 
 def stop_child(process):
-    """Cancel only the owned notebook process group, including its kernel, on every failure."""
+    """Cancel the verified kernel session and CLI group, preserving PID-reuse refusals."""
     if process is not None:
         try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+            kernel = getattr(process, "owned_kernel", None)
+            if kernel is not None:
+                for sig in [signal.SIGTERM, signal.SIGKILL]:
+                    if not kernel_group_running(kernel):
+                        break
+                    try:
+                        os.killpg(kernel["pgid"], sig)
+                    except ProcessLookupError:
+                        pass
+                    deadline = time.monotonic() + 10
+                    while kernel_group_running(kernel) and time.monotonic() < deadline:
+                        time.sleep(0.05)
+                assert not kernel_group_running(kernel), "Verified kernel group did not terminate"
+        finally:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=10)
+        return {
+            "cli_exit": process.returncode,
+            "kernel_group": "verified_nonrunning"
+            if kernel is not None
+            else "unverified_not_signalled_container_cleanup_required",
+        }
+
+
+def kernel_group_running(kernel):
+    """Recheck birth/owner/session before signals; await every non-zombie group member."""
+    if Path(f"/proc/{kernel['pid']}").exists():
+        current = kernel_facts(kernel["pid"])
+        assert all(current[k] == kernel[k] for k in ["pid", "start", "uid", "pgid", "session"]), (
+            "Kernel identity changed before cancellation"
+        )
+    running = []
+    for path in Path("/proc").glob("[0-9]*"):
         try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=10)
+            member = kernel_facts(int(path.name))
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        if member["pgid"] == kernel["pgid"]:
+            assert member["uid"] == kernel["uid"] and member["session"] == kernel["session"], (
+                "Unverified kernel group member"
+            )
+            if member["state"] not in {"Z", "X"}:
+                running.append(member["pid"])
+    return running
+
+
+def kernel_facts(pid):
+    """Read Linux process identity without argv/env or secret-bearing process inspection."""
+    assert type(pid) is int and pid >= 1
+    path = Path(f"/proc/{pid}")
+    fields = (path / "stat").read_text().rsplit(") ", 1)[1].split()
+    return {
+        "pid": pid,
+        "uid": path.stat().st_uid,
+        "state": fields[0],
+        "ppid": int(fields[1]),
+        "pgid": int(fields[2]),
+        "session": int(fields[3]),
+        "start": fields[19],
+    }
+
+
+def verify_kernel(marker, cli_pid, facts, audit):
+    """Bind the normal marimo setsid child by parent/start/UID and its own session/group."""
+    pid = marker["kernel_pid"]
+    assert type(pid) is int and pid > 1 and pid != cli_pid
+    assert facts["pid"] == pid and facts["start"] == marker["kernel_start"]
+    assert facts["uid"] == os.getuid() and facts["state"] in {"R", "S", "D"}
+    assert facts["ppid"] == marker["kernel_ppid"] == cli_pid, "Kernel parent identity differs"
+    assert facts["pgid"] == marker["kernel_pgid"] == pid, "Kernel group is not its own PID"
+    assert facts["session"] == marker["kernel_session"] == pid, "Kernel session is not its own PID"
+    assert any(
+        r["event"] == "python_start" and r["pid"] == pid and r["ppid"] == cli_pid for r in audit
+    ), "Missing exact spawned-kernel audit"
 
 
 def output_check():
@@ -259,7 +332,18 @@ def execute():
             time.sleep(0.1)
         started = json.loads(Path("/work/notebook-positive.json").read_text())
         assert started["analytical_query_started"] and started["status"] == "BOUND"
-        assert os.getpgid(started["kernel_pid"]) == process.pid, "Kernel escaped owned child group"
+        audit = [
+            json.loads(line)
+            for line in Path("/work/notebook-processes.jsonl").read_text().splitlines()
+        ]
+        facts = kernel_facts(started["kernel_pid"])
+        report["admission_candidate"] = {"kernel": facts, "cli_pid": process.pid, "copy": found}
+        try:
+            verify_kernel(started, process.pid, facts, audit)
+        except Exception:
+            report["kernel_adoption"] = "REFUSED_NOT_SIGNALLED_REQUIRE_OWNED_CONTAINER_CLEANUP"
+            raise
+        process.owned_kernel = facts
         report["events"].append(
             {
                 "event": "executed_copy_wait_before_commit",
@@ -326,7 +410,7 @@ def execute():
     finally:
         cleanup_errors = []
         try:
-            stop_child(process)
+            report["child_cleanup"] = stop_child(process)
         except Exception as error:
             cleanup_errors.append("child_cancel: " + str(error))
         if process is not None and not getattr(process, "receipted", False):

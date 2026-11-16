@@ -315,6 +315,9 @@ def notebook_open():
         marker.update(
             status="BOUND",
             kernel_pid=os.getpid(),
+            kernel_ppid=os.getppid(),
+            kernel_pgid=os.getpgrp(),
+            kernel_session=os.getsid(0),
             connection_identity=id(con),
             kernel_start=Path("/proc/self/stat").read_text().split()[21],
             execution_uuid=binding["execution_uuid"],
