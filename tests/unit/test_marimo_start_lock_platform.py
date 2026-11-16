@@ -26,7 +26,7 @@ def _lock_file(root: Path) -> Path:
 
 def _fake_msvcrt(monkeypatch: pytest.MonkeyPatch, locking: Callable[[int, int, int], None]) -> None:
     fake = types.ModuleType("msvcrt")
-    fake.__dict__.update(LK_NBLCK=2, locking=locking)
+    fake.__dict__.update(LK_NBLCK=2, LK_UNLCK=0, locking=locking)
     monkeypatch.setitem(sys.modules, "msvcrt", fake)
     monkeypatch.setattr(sys, "platform", "win32")
 
@@ -102,14 +102,36 @@ def test_start_lock_posix_other_oserror_propagates(
     assert len(opened) == 1 and _fd_is_closed(opened[0])
 
 
+_NBLCK, _UNLCK = 2, 0
+
+
+def _recording_locking(
+    calls: list[tuple[int, int, int, bool]], fail_nblck: int = 0, fail_unlck: bool = False
+) -> Callable[[int, int, int], None]:
+    """Fake msvcrt.locking: records (fd, mode, nbytes, fd_already_closed); contention for the first N NBLCK calls."""
+    state = {"nblck": 0}
+
+    def _locking(fd: int, mode: int, nbytes: int) -> None:
+        calls.append((fd, mode, nbytes, _fd_is_closed(fd)))
+        if mode == _NBLCK:
+            state["nblck"] += 1
+            if state["nblck"] <= fail_nblck:
+                raise OSError(errno.EACCES, "locked")
+        elif fail_unlck:
+            raise OSError(errno.EACCES, "not locked")
+
+    return _locking
+
+
 @pytest.mark.unit
 def test_start_lock_windows_acquires(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[int, int, int]] = []
-    _fake_msvcrt(monkeypatch, lambda fd, mode, nbytes: calls.append((fd, mode, nbytes)))
+    calls: list[tuple[int, int, int, bool]] = []
+    _fake_msvcrt(monkeypatch, _recording_locking(calls))
     opened = _track_lock_fd(monkeypatch)
     with start_lock(tmp_path, timeout=0.3):
-        assert len(calls) == 1
-    assert calls == [(opened[0], 2, 1)]
+        assert calls == [(opened[0], _NBLCK, 1, False)]  # locked once, not yet unlocked
+    # Unlocked exactly once, before the fd is closed.
+    assert calls == [(opened[0], _NBLCK, 1, False), (opened[0], _UNLCK, 1, False)]
     assert _fd_is_closed(opened[0])
 
 
@@ -117,30 +139,51 @@ def test_start_lock_windows_acquires(tmp_path: Path, monkeypatch: pytest.MonkeyP
 def test_start_lock_windows_retries_then_acquires(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    attempts: list[int] = []
-
-    def _locking(fd: int, mode: int, nbytes: int) -> None:
-        attempts.append(fd)
-        if len(attempts) <= 2:
-            raise OSError(errno.EACCES, "locked")
-
+    calls: list[tuple[int, int, int, bool]] = []
     sleeps: list[float] = []
-    _fake_msvcrt(monkeypatch, _locking)
+    _fake_msvcrt(monkeypatch, _recording_locking(calls, fail_nblck=2))
     monkeypatch.setattr(time, "sleep", sleeps.append)
     with start_lock(tmp_path, timeout=30.0):
         pass
-    assert len(attempts) == 3
+    assert [mode for _fd, mode, _n, _closed in calls] == [_NBLCK, _NBLCK, _NBLCK, _UNLCK]
     assert sleeps == [0.1, 0.1]
 
 
 @pytest.mark.unit
 def test_start_lock_windows_times_out(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def _locking(fd: int, mode: int, nbytes: int) -> None:
-        raise OSError(errno.EACCES, "locked")
-
-    _fake_msvcrt(monkeypatch, _locking)
+    calls: list[tuple[int, int, int, bool]] = []
+    _fake_msvcrt(monkeypatch, _recording_locking(calls, fail_nblck=10**9))
     opened = _track_lock_fd(monkeypatch)
     with pytest.raises(RuntimeError, match=_TIMEOUT_MESSAGE):
         with start_lock(tmp_path, timeout=0.3):
             pytest.fail("must not acquire")
     assert len(opened) == 1 and _fd_is_closed(opened[0])
+    # The lock was never acquired, so it is never unlocked.
+    assert calls and all(mode == _NBLCK for _fd, mode, _n, _closed in calls)
+
+
+@pytest.mark.unit
+def test_start_lock_windows_unlocks_when_body_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[int, int, int, bool]] = []
+    _fake_msvcrt(monkeypatch, _recording_locking(calls))
+    opened = _track_lock_fd(monkeypatch)
+    with pytest.raises(ValueError, match="boom"):
+        with start_lock(tmp_path, timeout=0.3):
+            raise ValueError("boom")
+    assert [mode for _fd, mode, _n, _closed in calls] == [_NBLCK, _UNLCK]
+    assert _fd_is_closed(opened[0])
+
+
+@pytest.mark.unit
+def test_start_lock_windows_unlock_error_is_ignored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[int, int, int, bool]] = []
+    _fake_msvcrt(monkeypatch, _recording_locking(calls, fail_unlck=True))
+    opened = _track_lock_fd(monkeypatch)
+    with start_lock(tmp_path, timeout=0.3):
+        pass
+    assert [mode for _fd, mode, _n, _closed in calls] == [_NBLCK, _UNLCK]
+    assert _fd_is_closed(opened[0])
