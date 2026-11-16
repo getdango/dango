@@ -443,5 +443,32 @@
       "prior_actual_based_runtime_projection_including_extra_dlt_and_64MiB": 17374574974
     },
     "failure": "Unknown metadata attachment/view/decoder/SQL format/order/profile/identity errors remain fail-closed and preserve receipts; no fallback or product patch. New native results UNRUN until reviewed Ubuntu execution."
+  },
+  "notebook_only": {
+    "status": "NATIVE_UNRUN_PENDING_REVIEW",
+    "marimo": "0.25.2 core only; exact25wheel closure",
+    "mode": "--notebook; source-pinned producer then notebook; no full-app stages",
+    "profiles": "Unchanged frozen PG1CPU768MiB + producer3CPU3072MiB; notebook/controller share producer cgroup",
+    "projected_owned_images_remaining_headroom_bytes": 11431241951,
+    "added_archive_three_copy_bound": 703617874,
+    "added_fixture_report_cache_spill_bound": 805306368,
+    "fullapp_plus_packages_before_reports_bytes": 30032825590,
+    "fullapp_overage_before_reports_bytes": 32825590,
+    "scope": "Fresh exact capture/actor identities; no historical full-app physical catalog/session, simultaneous-fit, tenant-security or integrated publication claim",
+    "unrun": [
+      "marimo kernel and offline native import",
+      "PG transaction lock retention/executed COPY witness",
+      "stale/misbound notebook negatives",
+      "held350/r0 then fresh360/r1 same kernel/connection",
+      "actual fit and cleanup"
+    ],
+    "spill_policy": {
+      "connections": "All added notebook analytical/prepare/writer/final-capture and PG owner/observer/metadata clients",
+      "directory": "Unique owned0700 child of /work/notebook-spill; included by fixture_fit",
+      "memory_limit": "128MB per connection;1thread",
+      "max_temp_directory_size": "0B for every connection; no simultaneous spill allocation",
+      "verification": "Effective current_setting directory/cap checked before qualification queries and retained; defaults/wrong settings refuse",
+      "fit": "Existing768MiB additional reservation/30GB/2GiBheadroom/df projection unchanged; zero spill is deliberately conservative"
+    }
   }
 }

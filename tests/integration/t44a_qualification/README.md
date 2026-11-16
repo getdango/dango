@@ -1,6 +1,59 @@
 # Dedicated T44A first diagnostic
 
-The current 12 November amendment runs **only** the source-pinned dlt producer
+## Current notebook-only slice — native execution pending
+
+The workflow now selects `T44A_MODE: notebook`. It runs the genuine source-pinned
+producer/capture prerequisite and an actual released marimo0.25.2 notebook, then
+stops. Full-app acquisition/build/runtime are skipped in this mode; the unchanged
+`--producer-capture`, `--held-reader` and ordinary diagnostic modes remain available.
+Prior independently reviewed BI/held-reader results retain their original run identities.
+
+`notebook-pins.json` and `requirements-notebook.txt` freeze all25 core wheels for
+Python3.14/Linux, including7 exact shared wheels and18 additive wheels. No extras,
+online sandbox, uv bootstrap or LSP/Copilot activation is used. Installed versions,
+64 native/WASM member hashes and42 notices are checked before notebook import.
+The wheel contains unused Copilot/LSP payload with incomplete embedded component
+provenance; root Apache2 is not asserted to cover it. This private headless test
+publishes no binaries. Fresh owned configuration disables completion/LSP; a Python
+audit observer records executable identities without argv/env, refuses excluded
+helpers and must actually observe the notebook kernel. It is not a general redaction
+or security guarantee.
+
+Authentic producer report/source hashes externally bind capture and selected-actor
+namespace OIDs, table UUIDs, snapshot lists, data roots and every Parquet hash.
+Wrong/stale expected binding and wrong-catalog notebook runs must refuse before
+analytical read. A separate working catalog is initialized from those selected350
+inputs. Original capture and selected inputs stay350 throughout; this working
+catalog is not the historical BI catalog or integrated Dango publication.
+
+Normal `marimo export html --no-sandbox --no-include-code --no-watch` executes three
+real `@app.cell` cells. One native statement reads real orders through the proven
+persisted-view `postgres_query` VOLATILE data dependency. The controller must observe
+the exact executed PG COPY/key/PID and its unique transaction-lock owner before
+committing350/7/350/r0→360/8/360/r1. Preparation, projected snapshot ID or waiting alone
+cannot pass. After unlock, the same kernel/connection must return350/r0/old snapshot,
+then a dependent fresh statement360/r1/new snapshot after prior autocommit completes.
+Actual Python controller locking, marimo export and snapshot behavior remain **UNRUN**.
+
+PG1CPU/768MiB plus producer3CPU/3072MiB remain the only concurrent task profiles.
+The notebook-only projection is11,431,241,951 bytes including separate2GiB headroom;
+all existing pre-growth owned/image/remaining/actual-df gates remain mandatory.
+The768MiB added reservation covers working data/cache/spill and original/export
+evidence. Full-app replay plus just the added packages would be30,032,825,590 bytes,
+32,825,590 over the30GB ceiling before reports: no simultaneous-fit claim follows.
+Complete original HTML/JSON/child output is known-secret checked before publication;
+only allowlisted bounded JSON and hashes are uploaded, never HTML or package bytes.
+Owned child cancellation and transaction rollback/unlock precede normal container
+capture/removal/credential cleanup on failures.
+Every added notebook analytical/writer/control/metadata connection uses a unique
+owned0700 directory under measured `/work/notebook-spill`, memory128MB/one thread,
+and an explicit zero-byte spill cap. Effective native settings must match before
+qualification queries and are retained in the result. This tiny fixture deliberately
+disables spill; the existing disk reservation remains conservative and unchanged.
+
+## Historical producer-only slice
+
+The 12 November amendment ran **only** the source-pinned dlt producer
 experiment below. The five previously reviewed native groups remain accepted;
 the older sections describe their recipes, not a request to repeat those runs.
 

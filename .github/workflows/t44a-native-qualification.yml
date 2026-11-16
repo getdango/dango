@@ -22,6 +22,8 @@ jobs:
       github.event.pull_request.head.ref == 'test/t44a-full-native-03'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      T44A_MODE: notebook
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -37,14 +39,17 @@ jobs:
           python-version: '3.12'
       - name: Fresh Python smoke and exact-source dlt DuckLake producer capture
         run: |
-          env -i PATH="$PATH" PROBE_HEAD="$GITHUB_SHA" python candidate/tests/integration/t44a_qualification/run.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline" --held-reader
+          env -i PATH="$PATH" PROBE_HEAD="$GITHUB_SHA" python candidate/tests/integration/t44a_qualification/run.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline" "--$T44A_MODE"
       - name: Measured full development acquisition, frozen source and lock
+        if: env.T44A_MODE == 'held-reader'
         run: |
           env -i PATH="$PATH" python candidate/tests/integration/t44a_qualification/app_acquire.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline"
       - name: Fresh populated installer smoke, offline install and complete normal app build
+        if: env.T44A_MODE == 'held-reader'
         run: |
           env -i PATH="$PATH" python candidate/tests/integration/t44a_qualification/app_build.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline"
       - name: Real full-app held350 and fresh360 native discriminator
+        if: env.T44A_MODE == 'held-reader'
         run: |
           env -i PATH="$PATH" python candidate/tests/integration/t44a_qualification/app_runtime.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline"
       - name: Publish only sanitized diagnostic evidence
@@ -85,5 +90,10 @@ jobs:
             ${{ runner.temp }}/t44a03/evidence/held-native.json
             ${{ runner.temp }}/t44a03/evidence/held-reader.json
             ${{ runner.temp }}/t44a03/evidence/garage-LICENSE.txt
+            ${{ runner.temp }}/t44a03/evidence/notebook-result.json
+            ${{ runner.temp }}/t44a03/evidence/notebook-binding.json
+            ${{ runner.temp }}/t44a03/evidence/notebook-positive.json
+            ${{ runner.temp }}/t44a03/evidence/notebook-stale.json
+            ${{ runner.temp }}/t44a03/evidence/notebook-catalog.json
           if-no-files-found: error
           retention-days: 7

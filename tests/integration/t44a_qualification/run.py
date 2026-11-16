@@ -16,6 +16,7 @@ import time
 import urllib.request
 from pathlib import Path
 
+import notebook_run
 from dbt_assets import EXTRA_PEAK, export_candidates
 from dbt_publication import EXTRA_PEAK as PUBLICATION_PEAK
 from dbt_publication import export_candidates as publication_exports
@@ -159,10 +160,17 @@ def main():
     """Run one standard isolated dbt diagnostic and capture before owned cleanup."""
     assert len(sys.argv) in {3, 4}
     producer_capture = len(sys.argv) == 4
-    assert not producer_capture or sys.argv[3] in {"--producer-capture", "--held-reader"}
+    assert not producer_capture or sys.argv[3] in {
+        "--producer-capture",
+        "--held-reader",
+        "--notebook",
+    }
     held_reader = producer_capture and sys.argv[3] == "--held-reader"
+    notebook = producer_capture and sys.argv[3] == "--notebook"
     expected_status = (
-        PREREQUISITE
+        notebook_run.STATUS
+        if notebook
+        else PREREQUISITE
         if held_reader
         else "PASS_SOURCE_PINNED_DLT_DUCKLAKE_CAPTURE"
         if producer_capture
@@ -193,7 +201,9 @@ def main():
     rig = runtime.Rig(root, {"adminPassword": admin})
     rig.producer_capture = producer_capture
     rig.artifact_pins = (
-        artifact_union(PINS, dlt_artifacts(PINS))
+        notebook_run.artifacts(dlt_artifacts(PINS))
+        if notebook
+        else artifact_union(PINS, dlt_artifacts(PINS))
         if held_reader
         else dlt_artifacts(PINS)
         if producer_capture
@@ -219,6 +229,7 @@ def main():
                 "pins.json",
             ]
             + DLT_FILES
+            + (notebook_run.FILES if notebook else [])
         },
     }
     existing = {}
@@ -249,6 +260,8 @@ def main():
                 rig.remaining += sum(
                     p["compressed"] + 3 * p["expanded_upper"] for p in PINS["artifacts"]
                 )
+            if notebook:
+                rig.remaining += notebook_run.remaining()
         disk_gate(rig, rig.remaining, "before-public-acquisition-and-image-pulls")
         for role, pin in PINS["images"].items():
             existing[role] = image_present(rig, pin["ref"])
@@ -257,17 +270,21 @@ def main():
             (root / name / "readiness").write_text("populated\n")
         (root / "fixture/data").mkdir()
         (root / "fixture/data/readiness").write_text("populated\n")
-        for name in [
-            "smoke.py",
-            "diagnostic.py",
-            "dbt_view.py",
-            "dbt_assets.py",
-            "dbt_publication.py",
-            "native_namespaces.py",
-            "pins.json",
-            "requirements.txt",
-            "held_reader.py",
-        ] + DLT_FILES:
+        for name in (
+            [
+                "smoke.py",
+                "diagnostic.py",
+                "dbt_view.py",
+                "dbt_assets.py",
+                "dbt_publication.py",
+                "native_namespaces.py",
+                "pins.json",
+                "requirements.txt",
+                "held_reader.py",
+            ]
+            + DLT_FILES
+            + (notebook_run.FILES if notebook else [])
+        ):
             shutil.copyfile(HERE / name, root / "scripts" / name)
             assert sha((root / "scripts" / name).read_bytes()) == sha((HERE / name).read_bytes())
         for name, value, uid, gid in [
@@ -293,6 +310,11 @@ def main():
                     + (
                         " && /work/venv/bin/python -m pip install --no-index --find-links=/tools/artifacts --require-hashes --no-compile -r /scripts/requirements.txt"
                         if held_reader
+                        else ""
+                    )
+                    + (
+                        " && /work/venv/bin/python -m pip install --no-index --find-links=/tools/artifacts --require-hashes --no-compile -r /scripts/requirements-notebook.txt && /work/venv/bin/python -m pip check"
+                        if notebook
                         else ""
                     )
                 )
@@ -344,6 +366,24 @@ def main():
                 result["held_prerequisite"] = prerequisite(
                     root / "work", root / "work/project/target"
                 )
+            if notebook:
+                from held_reader import install_gate
+
+                install_gate(rig)
+                disk_gate(rig, notebook_run.EXTRA_PEAK, "before-real-notebook-kernel")
+                for name in notebook_run.FILES:
+                    assert (
+                        sha((root / "scripts" / name).read_bytes())
+                        == result["qualification_inputs"][name]
+                    )
+                rig.run(
+                    "producer",
+                    ["-c", "/work/venv/bin/python /scripts/notebook_run.py"],
+                    timeout=600,
+                )
+                proof = json.loads((root / "work/notebook-result.json").read_text())
+                assert proof["status"] == notebook_run.STATUS
+                result["notebook"] = proof["status"]
         else:
             for file, field, expected in [
                 ("dbt-view.json", "dbt_view", "PASS_REAL_DBT_VIEW"),
@@ -369,6 +409,8 @@ def main():
     finally:
         try:
             export(rig)
+            if notebook:
+                notebook_run.export(rig, disk_gate)
         except Exception as error:
             result["status"], result["export_error"] = "FAIL", str(error)
         try:
