@@ -218,7 +218,7 @@ def test_step_timeout_is_reported_and_does_not_hang(tmp_path: Path) -> None:
         steps="init,add-source,sync,count",
     )
     assert result.returncode == 1
-    assert "FAIL sync: timed out after 2s" in result.stdout
+    assert "FAIL sync: dango sync --yes: timed out after 2s" in result.stdout
     assert "SKIP count: depends on sync" in result.stdout
 
 
@@ -311,7 +311,9 @@ def test_total_budget_caps_step_timeouts_and_stops_later_steps(tmp_path: Path) -
     )
     assert time.monotonic() - started < 25
     assert result.returncode == 1
-    assert re.search(r"FAIL sync: timed out after [0-5](\.\d+)?s", result.stdout), result.stdout
+    assert re.search(
+        r"FAIL sync: dango sync --yes: timed out after [0-5](\.\d+)?s", result.stdout
+    ), result.stdout
     failing = next(ln for ln in result.stdout.splitlines() if ln.startswith("FAIL web"))
     assert "budget" in failing
     assert "SKIP count: depends on sync" in result.stdout
@@ -376,3 +378,11 @@ def test_existing_empty_workdir_is_accepted(tmp_path: Path) -> None:
     result = _journey(tmp_path, steps="init")
     assert result.returncode == 0, result.stdout
     assert (tmp_path / "work" / ".dango" / "project.yml").is_file()
+
+
+def test_relative_paths_for_every_option_work(tmp_path: Path) -> None:
+    result = _journey(tmp_path, steps="init,add-source,sync,count", relative=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    for step in ("init", "add-source", "sync", "count"):
+        assert any(ln.startswith(f"PASS {step}") for ln in result.stdout.splitlines()), step
+    assert (tmp_path / "journey.log").is_file()

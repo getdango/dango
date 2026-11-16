@@ -68,6 +68,27 @@ def platform_port():
         return yaml.safe_load(fh)["platform"]["port"]
 
 
+def bump(key):
+    path = state / ("count-%s.txt" % key)
+    n = int(path.read_text()) + 1 if path.exists() else 1
+    path.write_text(str(n))
+    return n
+
+
+def injected(var, key, n):
+    name, _, nth = os.environ.get(var, "").partition(":")
+    return name == key and int(nth or 1) == n
+
+
+key = "source-list" if args[:2] == ["source", "list"] else cmd
+nth = bump(key)
+if key != "stop":  # stop does its work first, then fails
+    if injected("FAKE_HANG", key, nth):
+        time.sleep(60)
+    if injected("FAKE_FAIL", key, nth):
+        sys.stderr.write("Error: injected failure of %s\n" % key)
+        sys.exit(1)
+
 if cmd == "init":
     (root / ".dango").mkdir(exist_ok=True)
     (root / ".dango" / "project.yml").write_text(
@@ -187,12 +208,14 @@ elif cmd == "start":
     if "start-no-containers" not in modes:
         with open(state / "containers.txt", "a", encoding="utf-8") as fh:
             fh.write("abc123def456\t%s\n" % root)
-    server = subprocess.Popen(
-        [sys.executable, "-c", SERVER, str(platform_port())],
-        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        start_new_session=(os.name != "nt"),
-    )
-    record("platform-pids.txt", server.pid)
+    (state / "start-port.txt").write_text(str(platform_port()), encoding="utf-8")
+    if "start-no-listener" not in modes:
+        server = subprocess.Popen(
+            [sys.executable, "-c", SERVER, str(platform_port())],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=(os.name != "nt"),
+        )
+        record("platform-pids.txt", server.pid)
     if "start-creates-volume" in modes:
         with open(state / "volumes.txt", "a", encoding="utf-8") as fh:
             fh.write("run-volume\n")
@@ -213,6 +236,8 @@ elif cmd == "stop":
         keep = [ln for ln in (state / "containers.txt").read_text().splitlines() if not ln.endswith("\t%s" % root)] if (state / "containers.txt").exists() else []
         (state / "containers.txt").write_text("".join(ln + "\n" for ln in keep), encoding="utf-8")
     print("fake platform stopped")
+    if injected("FAKE_FAIL", "stop", nth):
+        sys.exit(1)
 else:
     print("unknown command", cmd, file=sys.stderr)
     sys.exit(2)
@@ -225,6 +250,16 @@ import os, pathlib, sys
 args = sys.argv[1:]
 modes = os.environ.get("FAKE_MODE", "").split(",")
 state = pathlib.Path(os.environ["FAKE_STATE_DIR"])
+key = "d-ps" if args[:1] == ["ps"] else "d-volume-ls" if args[:2] == ["volume", "ls"] else (
+    "d-rm" if args[:2] == ["rm", "-f"] else "d-volume-rm" if args[:3] == ["volume", "rm", "-f"] else "d-other"
+)
+count_file = state / ("count-%s.txt" % key)
+nth = int(count_file.read_text()) + 1 if count_file.exists() else 1
+count_file.write_text(str(nth))
+name, _, which = os.environ.get("FAKE_FAIL", "").partition(":")
+if name == key and int(which or 1) == nth:
+    print("injected failure of %s" % key, file=sys.stderr)
+    sys.exit(1)
 
 
 def project_filter():
@@ -268,6 +303,34 @@ else:
 """
 
 
+# A stand-in for the venv python: runs the real interpreter, but can fail or hang one of the
+# journey's helper snippets (set-ports, warehouse count, project info) on the nth call.
+FAKE_PYTHON = r"""
+import os, pathlib, sys, time
+
+state = pathlib.Path(os.environ["FAKE_STATE_DIR"])
+code = sys.argv[sys.argv.index("-c") + 1] if "-c" in sys.argv else ""
+key = (
+    "py-set-ports" if "yaml.safe_dump" in code
+    else "py-count" if "NO_TABLE" in code
+    else "py-project-info" if "get_compose_project_name" in code
+    else ""
+)
+if key:
+    path = state / ("count-%s.txt" % key)
+    nth = int(path.read_text()) + 1 if path.exists() else 1
+    path.write_text(str(nth))
+    for var in ("FAKE_HANG", "FAKE_FAIL"):
+        name, _, which = os.environ.get(var, "").partition(":")
+        if name == key and int(which or 1) == nth:
+            if var == "FAKE_HANG":
+                time.sleep(60)
+            print("injected failure of %s" % key, file=sys.stderr)
+            sys.exit(1)
+os.execv(os.environ["FAKE_REAL_PYTHON"], [os.environ["FAKE_REAL_PYTHON"]] + sys.argv[1:])
+"""
+
+
 def make_fake_exe(directory: Path, name: str, body: str) -> Path:
     """Create an executable `name` in `directory` that runs `body` with this interpreter."""
     directory.mkdir(parents=True, exist_ok=True)
@@ -292,13 +355,16 @@ def run_journey(
     log_name: str = "journey.log",
     docker: bool = False,
     steps: str | None = None,
+    relative: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run the journey script against a fake dango (and, with docker=True, a fake docker)."""
     exe = dango or make_fake_exe(tmp_path / "fakebin", "dango", FAKE_DANGO)
+    fake_python = make_fake_exe(tmp_path / "fakebin", "python", FAKE_PYTHON)
     drop = {"PYTHON_KEYRING_BACKEND", "PYTHONUTF8", "PYTHONIOENCODING"}
     full_env = {k: v for k, v in os.environ.items() if k not in drop}
     full_env["FAKE_MODE"] = mode
     full_env["FAKE_PROJECT"] = FAKE_PROJECT
+    full_env["FAKE_REAL_PYTHON"] = sys.executable
     (tmp_path / "fakestate").mkdir(exist_ok=True)
     full_env["FAKE_STATE_DIR"] = str(tmp_path / "fakestate")
     if docker:
@@ -306,17 +372,21 @@ def run_journey(
         make_fake_exe(bin_dir, "docker", FAKE_DOCKER)
         full_env["PATH"] = str(bin_dir) + os.pathsep + full_env.get("PATH", "")
     full_env.update(env or {})
+
+    def shown(path: Path) -> str:
+        return os.path.relpath(path, tmp_path) if relative else str(path)
+
     argv = [
         sys.executable,
         str(SCRIPT),
         "--dango",
-        str(exe),
+        shown(exe),
         "--python",
-        sys.executable,
+        shown(fake_python),
         "--workdir",
-        str(tmp_path / "work"),
+        shown(tmp_path / "work"),
         "--log",
-        str(tmp_path / log_name),
+        shown(tmp_path / log_name),
         "--stop-grace",
         "1",
         *(["--with-docker"] if docker else []),
@@ -331,6 +401,7 @@ def run_journey(
         errors="replace",
         timeout=120,
         env=full_env,
+        cwd=tmp_path if relative else None,
     )
 
 

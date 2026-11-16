@@ -132,3 +132,52 @@ def test_volumes_created_by_this_run_are_removed(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout
     assert (state / "volumes.txt").read_text(encoding="utf-8").strip() == ""
     assert "volume run-volume" in (state / "docker-rm.txt").read_text(encoding="utf-8")
+
+
+def test_platform_is_started_on_the_ports_written_to_project_yml(tmp_path: Path) -> None:
+    import yaml
+
+    result = run_journey(tmp_path, docker=True, steps="init,docker")
+    assert result.returncode == 0, result.stdout
+    project = yaml.safe_load((tmp_path / "work" / ".dango" / "project.yml").read_text("utf-8"))
+    ports = [
+        project["platform"][k] for k in ("port", "metabase_port", "dbt_docs_port", "marimo_port")
+    ]
+    assert not set(ports) & {8800, 3000, 8081, 7805}
+    started_on = int((tmp_path / "fakestate" / "start-port.txt").read_text(encoding="utf-8"))
+    assert started_on == project["platform"]["port"]
+
+
+def test_a_foreign_container_with_the_same_project_label_does_not_count_as_ours(
+    tmp_path: Path,
+) -> None:
+    state = tmp_path / "fakestate"
+    state.mkdir()
+    (state / "containers.txt").write_text("foreign000001\t/some/other/project\n", encoding="utf-8")
+    result = run_journey(tmp_path, "start-no-containers", docker=True, steps="init,docker")
+    assert result.returncode == 1
+    failing = _docker_line(result.stdout)
+    assert failing.startswith("FAIL docker") and "from this workdir" in failing
+
+
+def test_platform_port_that_never_answers_after_start_fails_the_step(tmp_path: Path) -> None:
+    result = run_journey(
+        tmp_path, "start-no-listener", docker=True, steps="init,docker", extra=("--up-timeout", "2")
+    )
+    assert result.returncode == 1
+    failing = _docker_line(result.stdout)
+    assert failing.startswith("FAIL docker") and "did not answer after start" in failing
+
+
+def test_a_volume_that_existed_before_a_successful_start_survives_and_the_step_passes(
+    tmp_path: Path,
+) -> None:
+    state = tmp_path / "fakestate"
+    state.mkdir()
+    (state / "volumes.txt").write_text("preexisting_volume\n", encoding="utf-8")
+    result = run_journey(tmp_path, "start-creates-volume", docker=True, steps="init,docker")
+    assert result.returncode == 0, result.stdout
+    assert _docker_line(result.stdout).startswith("PASS docker")
+    assert (state / "volumes.txt").read_text(encoding="utf-8").split() == ["preexisting_volume"]
+    removed = (state / "docker-rm.txt").read_text(encoding="utf-8")
+    assert "volume run-volume" in removed and "preexisting_volume" not in removed
