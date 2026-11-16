@@ -4,7 +4,7 @@
   "limits": {
     "cpus": 4,
     "memory_MiB": 4608,
-    "task_bytes": 30000000000,
+    "task_bytes": 40000000000,
     "headroom_bytes": 2147483648
   },
   "lightdash": {
@@ -470,5 +470,14 @@
       "verification": "Effective current_setting directory/cap checked before qualification queries and retained; defaults/wrong settings refuse",
       "fit": "Existing768MiB additional reservation/30GB/2GiBheadroom/df projection unchanged; zero spill is deliberately conservative"
     }
+  },
+  "resource_authority_20261116": "DANGO110-T44A-ADAPTED-CONTINUATION-20261116-12: dedicated Ubuntu CI only,40e9 inclusive with >=2GiB measured headroom/actualdf before and during growth;4CPU/4.5GiB unchanged. Historical30GB projections retained below.",
+  "semantic_matrix": {
+    "status": "NATIVE_UNRUN_LOCAL_CANDIDATE",
+    "fixture": "Eight fixed aware events; genuine dbt normal run + actual duplicate/orphan dbt tests; selected source/capture/actor catalogs invariant",
+    "calendars": "Named UTC/Singapore/New York business-calendar DATE/hour/offset in dbt SQL, independent Python zoneinfo; no experimental session-TZ support claim",
+    "mode": "semantic: existing full app build/runtime; ordinary member project editor; no held/notebook case rerun",
+    "additional_peak_bytes": 872415232,
+    "fit": "288MiB original3x3x32MiB stage artifacts +96MiB current targets +288MiB exports +40MiB original/export reports +32MiB project/source/logs +64MiB data/PG metadata +24MiB residual =832MiB. Actual allocated project+stage copies<=416MiB; extra exports<=308MiB. Whole actualowned/frozenimages/remaining/headroom anddf gates before fetch/install/runtime/export; actualnativefitUNRUN."
   }
 }

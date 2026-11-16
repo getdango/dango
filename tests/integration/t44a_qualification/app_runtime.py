@@ -12,6 +12,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import semantic_fixture as semantics
 from app_build import build_outputs, verify_build_update
 from canvas_prebuild import load_inventory, verify_archive
 from held_reader import EXTRA_PEAK, export_reports, install_gate, pg_snapshot, run_actor
@@ -150,7 +151,9 @@ def runtime_rig(base):
 
 def main():
     """Fresh synthetic fixture, real S3, normal migrations/app/CLI and ordinary actors."""
-    root, baseline = [Path(p).resolve() for p in sys.argv[1:]]
+    semantic = sys.argv[-1] == "--semantic"
+    root, baseline = [Path(p).resolve() for p in sys.argv[1:3]]
+    assert (semantics.reserve(root) > 0) == semantic, "Wrong semantic prerequisite/mode"
     build = json.loads((root / "evidence/app-build.json").read_text())
     assert build["status"] == "PASS_COMPLETE_NORMAL_BUILD"
     assert build_outputs(root / "work/app/project") == build["outputs"]
@@ -184,6 +187,9 @@ def main():
             "runtime_cleanup.py",
             "held_reader.py",
             "held_actor.cjs",
+            "semantic_actor.cjs",
+            "semantic_fixture.py",
+            "semantic_oracles.py",
             "producer_capture.py",
         ]
     }
@@ -232,6 +238,7 @@ def main():
         )
         # Download + local archive copy, installed files + one full extraction/temp copy.
         remaining += 2 * canvas["compressed"] + 2 * canvas["allocated_upper"]
+        remaining += semantics.reserve(root)
         remaining += EXTRA_PEAK  # New branch/gate and both bounded evidence copies.
         result["remaining_runtime_upper"] = remaining
         disk_gate(rig, remaining, "before-fresh-runtime-artifacts-images-and-fixture")
@@ -293,6 +300,9 @@ def main():
             "canvas-prebuild.json",
             "held_reader.py",
             "held_actor.cjs",
+            "semantic_actor.cjs",
+            "semantic_fixture.py",
+            "semantic_oracles.py",
         ]:
             install(HERE / name, root / "scripts" / name)
         for artifact, url in [
@@ -380,16 +390,7 @@ def main():
         rig.run("producer", ["-c", "/work/venv/bin/python /scripts/smoke.py postgres"], smoke=True)
         rig.smokes["producer"] = rig.signature("producer")
         disk_gate(rig, remaining, "before-real-dbt-fresh-runtime-fixture")
-        rig.run(
-            "producer",
-            [
-                "-c",
-                "/work/venv/bin/python /scripts/diagnostic.py --held-reader-fixture"
-                " && /work/venv/bin/python /scripts/producer_capture.py"
-                " && /work/venv/bin/python /scripts/held_reader.py prepare",
-            ],
-            timeout=900,
-        )
+        rig.run("producer", ["-c", semantics.fixture_command(semantic)], timeout=900)
         result["fixture"] = "PASS_REAL_DBT_WITH_COLUMN_METRIC_YAML"
         manifest = json.loads((root / "work/project/target/manifest.json").read_text())
         model = manifest["nodes"]["model.t44a_probe.orders"]
@@ -419,7 +420,7 @@ def main():
                 "export NODE_OPTIONS=--max-old-space-size=" + str(PROFILES[component][2]) + "; "
             )
             command += (
-                "node /scripts/app_actor.cjs"
+                "node /scripts/app_actor.cjs" + (" --semantic" if semantic else "")
                 if component == "actor"
                 else "node /scripts/app_service.cjs " + component
             )
@@ -428,20 +429,26 @@ def main():
         rig.start_owned(names["garage"])
         rig.start_owned(names["app"])
         result["full_app"] = "STARTED_NOT_YET_ACCEPTED"
-        run_actor(rig, names["actor"], names["app"], install, result)
+        (semantics.run_actor if semantic else run_actor)(
+            rig, names["actor"], names["app"], install, result
+        )
         actor = json.loads((root / "work/app-slice.json").read_text())
-        assert actor["status"] == "PASS_FIRST_RUNNING_APP_SLICE"
+        assert actor["status"] == (
+            "PASS_SEMANTIC_MATRIX_FULL_APP" if semantic else "PASS_FIRST_RUNNING_APP_SLICE"
+        )
         result["canvas_prebuild"]["installation"] = (
             "PASS_OFFLINE_INSTALL_HASHES_LOAD_PNG_REQUIRED_BEFORE_ACCEPTED_APP"
         )
         disk_gate(rig, 0, "after-first-real-running-app-slice")
-        result["status"] = "PASS_FIRST_RUNNING_APP_SLICE"
+        result["status"] = actor["status"]
         result["full_app"] = "PASS_BUILD_MIGRATE_FRONTEND_CLI_ACTORS"
     except Exception as error:
         result["error"] = str(error)
     finally:
         try:
             export_reports(rig, generated, disk_gate)
+            if semantic:
+                semantics.export(rig, generated, disk_gate)
             candidate = root / "work/app-slice.json"
             if candidate.exists():
                 data = candidate.read_bytes()
@@ -481,7 +488,9 @@ def main():
         text = json.dumps(result, indent=2)
         assert not any(v in text for v in generated.values())
         (root / "evidence/app-runtime.json").write_text(text + "\n")
-    assert result["status"] == "PASS_FIRST_RUNNING_APP_SLICE", result.get("error")
+    assert result["status"] == (
+        "PASS_SEMANTIC_MATRIX_FULL_APP" if semantic else "PASS_FIRST_RUNNING_APP_SLICE"
+    ), result.get("error")
 
 
 if __name__ == "__main__":

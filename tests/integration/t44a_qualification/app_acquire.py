@@ -22,6 +22,7 @@ from pathlib import Path
 
 from held_reader import require_acquisition_prerequisite
 from run import PINS, disk_gate, sha
+from semantic_fixture import reserve as semantic_reserve
 
 HERE = Path(__file__).resolve().parent
 HOOK = "a3542d5889601238cbf1b0d246bf674301bfa0cd96b6d9f040d1c97afa7f20c8"
@@ -228,7 +229,7 @@ def main():
         assert len(evidence) <= 32 * 1024**2
         disk_gate(rig, len(evidence) * 2, "before-small-inventory-evidence")
         (root / "evidence/app-package-inventory.json").write_bytes(evidence + b"\n")
-        remaining = fetch_peak(rows, lock)
+        remaining = fetch_peak(rows, lock) + semantic_reserve(root)
         remaining += sum(math.ceil(len(b) / 4096) * 4096 + 4096 for b in notices.values())
         remaining += len(evidence) * 2
         result["before_fetch_remaining_upper"] = remaining

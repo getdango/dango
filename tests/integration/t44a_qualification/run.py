@@ -63,7 +63,9 @@ def disk_gate(rig, remaining, reason):
     }
     rig.receipts.append(row)
     rig.save()
-    assert owned + images + remaining + headroom <= PINS["limits"]["task_bytes"], "30GB task bound"
+    assert owned + images + remaining + headroom <= PINS["limits"]["task_bytes"], (
+        "Approved remote task disk bound"
+    )
     assert images + remaining + headroom <= free, "Actual runner df bound"
 
 
@@ -164,8 +166,9 @@ def main():
         "--producer-capture",
         "--held-reader",
         "--notebook",
+        "--semantic",
     }
-    held_reader = producer_capture and sys.argv[3] == "--held-reader"
+    held_reader = producer_capture and sys.argv[3] in {"--held-reader", "--semantic"}
     notebook = producer_capture and sys.argv[3] == "--notebook"
     expected_status = (
         notebook_run.STATUS
@@ -215,6 +218,7 @@ def main():
         "native": "UNRUN",
         "full_app": "UNRUN",
         "head": os.environ["PROBE_HEAD"],
+        "qualification_mode": sys.argv[3].removeprefix("--") if producer_capture else "diagnostic",
         "started_utc": time.strftime("%FT%TZ", time.gmtime()),
         "qualification_inputs": {
             name: sha((HERE / name).read_bytes())
@@ -262,6 +266,10 @@ def main():
                 )
             if notebook:
                 rig.remaining += notebook_run.remaining()
+        if producer_capture and sys.argv[3] == "--semantic":
+            from semantic_fixture import EXTRA_PEAK as SEMANTIC_PEAK
+
+            rig.remaining += SEMANTIC_PEAK
         disk_gate(rig, rig.remaining, "before-public-acquisition-and-image-pulls")
         for role, pin in PINS["images"].items():
             existing[role] = image_present(rig, pin["ref"])

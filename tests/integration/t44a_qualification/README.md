@@ -428,3 +428,38 @@ fresh same-actor query360/r1 with unchanged app ID/PID/start/restart identity.
 Three reports are bounded to2MiB each, both copies accounted, with64MiB extra peak
 and fresh30GB/2GiB-headroom/df checks. Native runtime memory/fit and all held/fresh
 oracles remain pending review and execution; no fixture fallback implies a pass.
+
+## N1 semantic candidate — native execution pending
+
+The semantic-only workflow reuses the exact complete adapted Lightdash build, fresh authenticated
+source/capture/actor fixture and existing full-app profiles. It does not rerun the held-reader,
+notebook or remaining matrix qualifications. Genuine dbt `run` creates five fixed synthetic
+models, then genuine `test` must fail exactly the duplicate-parent and orphan-parent checks.
+A final genuine dbt test must pass valid customer uniqueness/references and preaggregated-line
+uniqueness; untouched negative-stage artifacts stay retained. These are detected fixture defects, not a claim that Lightdash automatically enforces join keys
+or that a Dango publication protocol ran. Valid relationships are independently checked natively.
+The negative tables are never declared as semantic joins.
+
+Fifteen ordinary project-editor jobs compare compiled SQL/UUID/full results against Python-only
+row arithmetic, sets and IANA `zoneinfo` oracles: sum450/count8/non-null7/min0/max200/average450/7,
+requested-grain customer distinct4, ratio450/17 (not average of row ratios), zero denominator NULL,
+all-null sum/ratio NULL, categorical/numeric/boolean/null/half-open DATE filters, UTC/Singapore/
+New York calendar labels, the spring gap and both fall-fold offsets, many-to-one customer joins,
+and an explicitly dbt-preaggregated one-to-one line-value join6 without changing sum450.
+Known orders350 and original selected capture/actor inputs stay unchanged; whole PG catalog and
+all Parquet hashes must match before/after the read-only app queries. No SQL/result rewriting,
+source patch, session-timezone preview flag, arbitrary fanout or tenant-security claim is used.
+Named business-calendar DATE/hour/offset columns are computed by normal dbt SQL from aware
+instants and compared with independent calendar values. Dynamic report/session timezone support
+is not proved by this mode. Raw native numeric strings are decoded strictly; NULL never becomes0.
+
+The 16 November adapted-continuation grant permits a **remote dedicated Ubuntu CI** ceiling of
+40,000,000,000 inclusive bytes only with actual runner capacity and >=2GiB headroom. CPU4/RAM4.5GiB
+and synthetic-secret/owned cleanup gates are unchanged. Semantic originals, export copies,
+current targets, reports and fixture growth reserve832MiB before acquisition/install/runtime.
+Prior full-app measured conservative29,329,207,716 plus832MiB gives30,201,622,948 bytes; this is a
+projection, not current measured usage. Every actual phase and export still measures owned bytes,
+all frozen image bounds, remaining peak and free disk before accepting. Historical30GB figures
+and separate notebook overage remain historical; no simultaneous all-app fit is claimed.
+Released dlt1.32.0 still excludes DuckDB2; only exact upstream PR4600 commit
+`d220927d13a79740ac799419d08ed9847f7b5069` is a development qualification candidate, not shipping.

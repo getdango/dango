@@ -13,6 +13,7 @@ from pathlib import Path
 
 from app_acquire import ACQUIRE, HOOK, YAML_SHA, critical
 from run import PINS, disk_gate, image_present, sha
+from semantic_fixture import reserve as semantic_reserve
 
 HERE = Path(__file__).resolve().parent
 GIB = 1024**3
@@ -238,6 +239,7 @@ def main():
         }
         result["source_before"] = source_before
         remaining = build_remaining(inventory, lock, acquire.bytes_used(app / "pnpm-cache"))
+        remaining += semantic_reserve(root)
         result["remaining_upper"] = remaining
         result["output_temp_allowance"] = BUILD_OUTPUT_TEMP
         disk_gate(rig, remaining, "before-offline-full-install-license-and-staging")

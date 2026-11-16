@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const {spawnSync} = require('node:child_process');
 const {secret} = require('./app_runtime_smoke.cjs');
 const {runHeldReader} = require('./held_actor.cjs');
+const {runSemantics} = require('./semantic_actor.cjs');
 const URL_BASE = 'http://127.0.0.1:8080';
 const s = secret();
 const privateValues = Object.values(s);
@@ -123,6 +124,11 @@ async function main() {
   const identity = await api(editor, 'GET', '/api/v1/user');
   assert.equal(identity.role, 'member'); assert.notEqual(identity.userUuid, ownerIdentity.userUuid);
   evidence.ordinaryActor = {userUuid: identity.userUuid, orgRole: identity.role, assignedProjectRole: 'editor'};
+  if (process.argv.includes('--semantic')) {
+    evidence.semantic = await runSemantics({api, editor, projectUuid, identity, safe});
+    evidence.status = 'PASS_SEMANTIC_MATRIX_FULL_APP';
+    return;
+  }
   const metricQuery = {exploreName: 'orders', dimensions: [], metrics: ['orders_total_amount'], filters: {},
     limit: 100, sorts: [], tableCalculations: [], additionalMetrics: []};
   async function query(filters, expected) {

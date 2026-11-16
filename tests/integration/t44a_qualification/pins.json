@@ -273,7 +273,7 @@
     }
   },
   "limits": {
-    "task_bytes": 30000000000,
+    "task_bytes": 40000000000,
     "headroom_bytes": 2147483648,
     "max_cpus": 4,
     "max_ram": 4831838208
