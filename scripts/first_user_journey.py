@@ -8,6 +8,7 @@ on a real machine (scripts/first_user_journey.ps1). Standard library only.
 
 import argparse
 import os
+import shutil
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -215,10 +216,10 @@ def step_second_sync(j: Journey) -> Step:
 
 
 def _absolute_if_path(value: str) -> str:
-    """Absolute form of a path-like value; a bare command name is left for PATH lookup."""
+    """Absolute form of a path-like value; a bare command name is resolved on PATH."""
     if os.sep in value or "/" in value:
         return os.path.abspath(value)
-    return value
+    return shutil.which(value) or value
 
 
 def main() -> int:

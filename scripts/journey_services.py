@@ -288,7 +288,9 @@ def _remove_leftovers(j: Journey, project: str, volumes_before: list[str]) -> st
 def _remove(argv: list[str], errors: list[str]) -> None:
     """Run one docker removal; record a failure (non-zero exit, timeout, no docker)."""
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+        proc = subprocess.run(
+            argv, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         errors.append(f"{' '.join(argv[:3])} could not run: {exc}")
         return
