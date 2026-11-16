@@ -386,3 +386,9 @@ def test_relative_paths_for_every_option_work(tmp_path: Path) -> None:
     for step in ("init", "add-source", "sync", "count"):
         assert any(ln.startswith(f"PASS {step}") for ln in result.stdout.splitlines()), step
     assert (tmp_path / "journey.log").is_file()
+
+
+def test_bare_dango_name_is_resolved_on_path_and_its_venv_python_is_used(tmp_path: Path) -> None:
+    result = _journey(tmp_path, steps="init,add-source,sync,count", bare_dango=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert any(ln.startswith("PASS count") for ln in result.stdout.splitlines())

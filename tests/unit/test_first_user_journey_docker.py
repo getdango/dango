@@ -43,6 +43,8 @@ SCENARIOS: dict[str, dict[str, object]] = {
     "volume-created": {"mode": "start-creates-volume"},
     "volume-preexisting": {"mode": "start-creates-volume", "seed": {"volumes.txt": "pre\n"}},
     "no-listener": {"mode": "start-no-listener", "extra": ("--up-timeout", "2")},
+    "init-fails": {"mode": "fail-init"},
+    "bad-bytes": {"mode": "leftover,start-creates-volume,docker-bad-bytes"},
 }
 
 
@@ -174,3 +176,19 @@ def test_platform_port_that_never_answers_after_start_fails_the_step(
 ) -> None:
     line = _docker_line(runs, "no-listener")
     assert line.startswith("FAIL docker") and "did not answer after start" in line
+
+
+def test_docker_is_skipped_not_failed_when_init_failed(runs: dict[str, Outcome]) -> None:
+    result = runs["init-fails"][0]
+    assert result.returncode == 1
+    assert "SKIP docker: depends on init" in result.stdout
+    assert "FAIL docker" not in result.stdout
+
+
+def test_undecodable_docker_output_does_not_abort_the_cleanup(runs: dict[str, Outcome]) -> None:
+    result, work = runs["bad-bytes"]
+    assert "UnicodeDecodeError" not in result.stdout + result.stderr
+    state = work / "fakestate"
+    assert "abc123def456" in _read(state / "docker-rm.txt")
+    # The container removal printed bytes that are not UTF-8; the volume removal still ran.
+    assert _read(state / "volumes.txt").strip() == ""

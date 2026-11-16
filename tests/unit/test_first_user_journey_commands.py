@@ -50,6 +50,8 @@ JOURNEY_ROWS: list[tuple[str, str, int, str, str, str, tuple[str, ...]]] = [
         ("reading the warehouse",),
     ),
     ("dbt", "run", 1, "init,add-source,sync,dbt", "", "dbt", ("dango run: exit code 1",)),
+    ("web-1", "web", 1, "init,web", "", "web", ("first start", "process exited with code 1")),
+    ("web-2", "web", 2, "init,web", "", "web", ("restart", "process exited with code 1")),
     ("sync-2", "sync", 2, CORE, "", "second-sync", ("dango sync --yes: exit code 1",)),
     ("count-2", "py-count", 2, CORE, "", "second-sync", ("reading the warehouse",)),
 ]
