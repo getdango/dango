@@ -39,7 +39,16 @@ THIRD_PARTY_ARTEFACTS: tuple[tuple[str, str, str], ...] = (
         "mcp/server/stdio.py",
         "mcp imports fcntl under `if sys.platform != 'win32'`, which the simulation cannot flip",
     ),
+    (
+        "dango.",
+        "psutil/_pslinux.py",
+        "psutil's Linux backend imports resource (line 15); Windows uses psutil/_pswindows.py",
+    ),
 )
+
+# Frames that only appear on one OS (the Linux psutil backend does not load on macOS), so the stale-entry check
+# below cannot require them to match on every runner.
+PLATFORM_SPECIFIC_FRAMES = ("psutil/_pslinux.py",)
 
 # Python source run in the child: block the modules, install the guarded-importer wrapper, then import.
 _PRELUDE = """
@@ -151,6 +160,8 @@ def test_every_local_module_imports_without_unix_only_modules(tmp_path: Path) ->
     )
     # Every excusal must be real: an artefact entry that no longer matches anything is stale.
     for prefix, suffix, _reason in THIRD_PARTY_ARTEFACTS:
+        if suffix in PLATFORM_SPECIFIC_FRAMES:
+            continue
         assert any(
             n.startswith(prefix) and w.rsplit(":", 1)[0].endswith(suffix)
             for n, _t, _m, w in result["excused"]
