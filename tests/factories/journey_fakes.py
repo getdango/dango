@@ -72,7 +72,7 @@ if cmd == "init":
     (root / ".dango" / "auth.yml").write_text("enabled: true\n", encoding="utf-8")
     keys = [
         "DO_NOT_TRACK", "PYTHONUNBUFFERED", "DANGO_ADMIN_PASSWORD", "PYTHON_KEYRING_BACKEND",
-        "PYTHONUTF8", "NO_COLOR", "TERM",
+        "PYTHONUTF8", "PYTHONIOENCODING", "NO_COLOR", "TERM",
     ]
     lines = ["%s=%s" % (k, os.environ.get(k, "<unset>")) for k in keys]
     (root / "env-seen.txt").write_text("\n".join(lines), encoding="utf-8")
@@ -109,9 +109,11 @@ elif cmd == "sync":
             "create or replace table raw_people.people (id varchar, name varchar, city varchar)"
         )
         for row in rows:
+            name = row["name"]
+            if "mangled-name" in modes:
+                name = name.encode("utf-8").decode("latin-1")  # Zo\u00eb -> mojibake
             con.execute(
-                "insert into raw_people.people values (?, ?, ?)",
-                [row["id"], row["name"], row["city"]],
+                "insert into raw_people.people values (?, ?, ?)", [row["id"], name, row["city"]]
             )
     con.close()
     print("synced", ",".join(r["name"] for r in rows))
@@ -121,6 +123,7 @@ elif cmd == "run":
 elif cmd == "web":
     port = int(args[args.index("--port") + 1])
     record("web-pids.txt", os.getpid())
+    print("fake web starting", flush=True)
     if "web-exit-early" in modes:
         print("web: cannot bind, giving up", file=sys.stderr)
         sys.exit(3)
@@ -255,10 +258,12 @@ def run_journey(
     dango: Path | None = None,
     log_name: str = "journey.log",
     docker: bool = False,
+    steps: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the journey script against a fake dango (and, with docker=True, a fake docker)."""
     exe = dango or make_fake_exe(tmp_path / "fakebin", "dango", FAKE_DANGO)
-    full_env = {k: v for k, v in os.environ.items() if k != "PYTHON_KEYRING_BACKEND"}
+    drop = {"PYTHON_KEYRING_BACKEND", "PYTHONUTF8", "PYTHONIOENCODING"}
+    full_env = {k: v for k, v in os.environ.items() if k not in drop}
     full_env["FAKE_MODE"] = mode
     full_env["FAKE_PROJECT"] = FAKE_PROJECT
     full_env["FAKE_STATE_DIR"] = str(tmp_path / "work")
@@ -281,6 +286,7 @@ def run_journey(
         "--stop-grace",
         "1",
         *(["--with-docker"] if docker else []),
+        *(["--steps", steps] if steps else []),
         *extra,
     ]
     return subprocess.run(
