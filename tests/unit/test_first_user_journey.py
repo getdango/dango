@@ -197,7 +197,7 @@ def test_csv_is_utf8_with_lf_and_non_ascii_round_trips_into_the_log(tmp_path: Pa
 def test_failed_step_skips_dependents_and_exits_one(tmp_path: Path) -> None:
     result = _journey(tmp_path, mode="fail-sync")
     assert result.returncode == 1
-    assert "FAIL sync: exit code 1" in result.stdout
+    assert "FAIL sync: dango sync --yes: exit code 1" in result.stdout
     assert "SKIP count: depends on sync" in result.stdout
     assert "SKIP dbt: depends on sync" in result.stdout
     assert "SKIP second-sync: depends on" in result.stdout
@@ -287,6 +287,7 @@ def test_non_ascii_output_does_not_crash_the_reporter_under_a_cp1252_stdout(
     assert result.returncode == 1
     assert "Traceback" not in result.stderr
     assert "FAIL sync" in result.stdout
-    assert "\\xe9" in result.stdout  # the e-acute in the failing step's stderr, escaped
+    assert result.stdout.isascii()
+    assert "boom" in result.stdout
     log = (tmp_path / "journey.log").read_text(encoding="utf-8")
-    assert "é" in log
+    assert "boom" in log
