@@ -40,7 +40,9 @@ jobs:
   smoke:
     name: Smoke (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25 # the journey step has its own 15 minute total budget (--budget)
+    # Worst case: steps before the journey (up to ~10 min on macos-15-intel) + journey budget
+    # (12 min) + cleanup after the budget (~5 min) = ~27 min.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -138,6 +140,8 @@ jobs:
             tests/unit/test_scripts_config_env.py \
             tests/unit/test_schedules_config.py
 
+      # The journey keeps file encodings at the platform default on purpose so encoding defects
+      # surface; the dango children's console output is UTF-8 (PYTHONIOENCODING), as in a terminal.
       - name: First-user journey (init, source, sync, count, dbt, web, restart, second sync)
         id: journey
         if: ${{ !cancelled() }}
@@ -147,7 +151,7 @@ jobs:
           set +e
           python scripts/first_user_journey.py --dango "$FRESH_DANGO" \
             --workdir "$RUNNER_TEMP/journey" --log "$RUNNER_TEMP/journey.log" \
-            --isolate-keyring $JOURNEY_DOCKER | tee "$RUNNER_TEMP/journey.out"
+            --isolate-keyring --budget 720 $JOURNEY_DOCKER | tee "$RUNNER_TEMP/journey.out"
           rc=${PIPESTATUS[0]}
           {
             echo "### First-user journey (${{ matrix.os }})"

@@ -1,16 +1,24 @@
 # scripts/first_user_journey.ps1
 # One-command first-user check for a real Windows machine (PowerShell 5.1+, no admin rights).
 # Creates a throwaway venv and project under $env:TEMP, installs Dango, runs the journey and
-# writes everything (setup, pip, journey) to a timestamped log on the Desktop. Paste that log
-# back. Nothing outside the temp dirs and that log file is changed.
+# writes two timestamped logs to the Desktop: a setup log (setup, pip, journey summary) and the
+# journey's own log. Paste both back. Without -WithDocker nothing outside the temp dirs and those
+# two logs is changed. -WithDocker starts the real Dango platform: Dango may store credentials in
+# your user keychain and in ~/.dango, and the Metabase image it builds is left behind. Use it only
+# on a machine where that is acceptable.
+# The journey keeps file encodings at the platform default on purpose so encoding defects
+# surface; its console output is UTF-8 as in a real terminal (-LegacyStdio turns that off,
+# -Utf8Mode runs Python in UTF-8 mode, which hides file-encoding defects).
 # Keep first_user_journey.py, journey_support.py and journey_services.py in the same folder.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\first_user_journey.ps1 `
-#       [-Spec "getdango==1.0.15"] [-WheelPath C:\path\getdango.whl] [-WithDocker] [-LegacyEncoding]
-param([string]$Spec = "getdango", [string]$WheelPath = "", [switch]$WithDocker, [switch]$LegacyEncoding)
+#       [-Spec "getdango==1.0.15"] [-WheelPath C:\path\getdango.whl] [-WithDocker] [-Utf8Mode] [-LegacyStdio]
+param([string]$Spec = "getdango", [string]$WheelPath = "", [switch]$WithDocker, [switch]$Utf8Mode, [switch]$LegacyStdio)
 $ErrorActionPreference = "Continue"
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $root = Join-Path $env:TEMP "dango-journey-$stamp"
-$log = Join-Path ([Environment]::GetFolderPath("Desktop")) "dango-journey-$stamp.log"
+$desktop = [Environment]::GetFolderPath("Desktop")
+$log = Join-Path $desktop "dango-journey-$stamp-setup.log"
+$journeyLog = Join-Path $desktop "dango-journey-$stamp.log"
 $journeyPy = Join-Path $PSScriptRoot "first_user_journey.py"
 $min = 11; $max = 13   # default Python 3.11-3.13; replaced by requires-python of a pyproject.toml checkout
 $pyproject = Join-Path $PSScriptRoot "..\pyproject.toml"
@@ -35,7 +43,7 @@ function PythonVersion([string]$Exe, [string[]]$Pre) {
 $code = 1
 try {
     New-Item -ItemType Directory -Path $root, "$root\work" | Out-Null
-    Log "Dango first-user journey, log: $log"
+    Log "Dango first-user journey, setup log: $log"
     $candidates = @()
     for ($m = $max; $m -ge $min; $m--) { $candidates += , @("py", @("-3.$m")) }
     $candidates += , @("python", @())
@@ -49,12 +57,12 @@ try {
     $vpy = "$root\venv\Scripts\python.exe"
     $target = if ($WheelPath) { $WheelPath } else { $Spec }
     if ((RunLogged $vpy @("-m", "pip", "install", $target)) -ne 0) { throw "pip could not install $target." }
-    $extra = @(); if ($WithDocker) { $extra += "--with-docker" }; if ($LegacyEncoding) { $extra += "--legacy-encoding" }
-    $code = RunLogged $vpy (@($journeyPy, "--dango", "$root\venv\Scripts\dango.exe", "--workdir", "$root\work", "--log", $log) + $extra)
+    $extra = @(); if ($WithDocker) { $extra += "--with-docker" }; if ($Utf8Mode) { $extra += "--utf8-mode" }; if ($LegacyStdio) { $extra += "--legacy-stdio" }
+    $code = RunLogged $vpy (@($journeyPy, "--dango", "$root\venv\Scripts\dango.exe", "--workdir", "$root\work", "--log", $journeyLog) + $extra)
     Log "Journey exit code: $code"
 } catch {
     Log "Journey setup failed: $_"
 }
-Log "Log file (paste this back): $log"
+Log "Paste both logs back: $log and $journeyLog"
 Log "Temp files (safe to delete): $root"
 exit $code

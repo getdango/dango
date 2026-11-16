@@ -75,7 +75,7 @@ def _run_web_once(j: Journey, port: int, label: str, grace: float) -> str | None
             if time.monotonic() > deadline:
                 reason = f"{label}: no HTTP answer on port {port} within {wait:g}s"
                 break
-            time.sleep(0.5)
+            time.sleep(0.2)
     except OSError as exc:
         reason = f"{label}: could not start {j.dango}: {exc}"
     finally:
@@ -83,7 +83,7 @@ def _run_web_once(j: Journey, port: int, label: str, grace: float) -> str | None
             _stop(proc, grace)
         if out is not None:
             out.close()
-    j.note(f"[web {label} output]\n{_tail(out_path, 200)}")
+        j.note(f"[web {label} output]\n{_tail(out_path, 200)}")
     if reason is not None:
         return reason + "\n" + _tail(out_path)
     deadline = time.monotonic() + j.port_free_timeout
@@ -113,7 +113,7 @@ def _docker_query(argv: list[str]) -> list[str]:
     """Run a docker CLI query; return its output words, or raise DockerQueryError."""
     try:
         proc = subprocess.run(
-            argv, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60
+            argv, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise DockerQueryError(f"{' '.join(argv[:3])} could not run: {exc}") from exc
@@ -179,7 +179,7 @@ def docker_step(j: Journey) -> Step:
         else:
             deadline = time.monotonic() + min(WEB_UP_TIMEOUT_SECONDS, j.remaining())
             while not _http_up(platform_port) and time.monotonic() < deadline:
-                time.sleep(1)
+                time.sleep(0.5)
             if not _http_up(platform_port):
                 result = failure(
                     "docker",
@@ -234,9 +234,9 @@ def _remove_leftovers(j: Journey, project: str) -> str | None:
     """
     try:
         for cid in _compose_containers(project):
-            subprocess.run(["docker", "rm", "-f", cid], capture_output=True, timeout=60)
+            subprocess.run(["docker", "rm", "-f", cid], capture_output=True, timeout=30)
         for vol in _compose_volumes(project):
-            subprocess.run(["docker", "volume", "rm", "-f", vol], capture_output=True, timeout=60)
+            subprocess.run(["docker", "volume", "rm", "-f", vol], capture_output=True, timeout=30)
     except (DockerQueryError, OSError, subprocess.TimeoutExpired) as exc:
         j.note(f"[docker cleanup incomplete: {exc}]")
         return safe(f"docker cleanup incomplete: {exc}")

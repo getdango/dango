@@ -14,6 +14,7 @@ from pathlib import Path
 FAIL_TAIL_LINES = 15
 DEFAULT_BUDGET_SECONDS = 900
 BUDGET_EXHAUSTED = "journey time budget exhausted"
+CLEANUP_TIMEOUT_SECONDS = 120  # cap for commands that run after the budget is spent
 THROWAWAY_ADMIN_PASSWORD = "Smoke-Test-9xQ!pL3z"  # disposable journey project; not a secret
 
 
@@ -82,7 +83,8 @@ class Journey:
     step_timeout: float
     isolate_keyring: bool
     budget: float = DEFAULT_BUDGET_SECONDS
-    legacy_encoding: bool = False
+    utf8_mode: bool = False
+    legacy_stdio: bool = False
     port_free_timeout: float = 10
     results: dict[str, Step] = field(default_factory=dict)
     started: float = field(default_factory=time.monotonic)
@@ -99,10 +101,14 @@ class Journey:
         env["PYTHONUNBUFFERED"] = "1"
         env["NO_COLOR"] = "1"  # plain text in the pasted log
         env["TERM"] = "dumb"
-        if self.legacy_encoding:
-            env.pop("PYTHONUTF8", None)
+        # Stdio is UTF-8 as on a real console; file encodings stay at the platform default on
+        # purpose, so file-encoding defects surface. --utf8-mode and --legacy-stdio change that.
+        if self.legacy_stdio:
+            env.pop("PYTHONIOENCODING", None)
         else:
-            env["PYTHONUTF8"] = "1"  # UTF-8 mode, so output encoding does not hide later steps
+            env["PYTHONIOENCODING"] = "utf-8"
+        if self.utf8_mode:
+            env["PYTHONUTF8"] = "1"
         if self.isolate_keyring:
             env["PYTHON_KEYRING_BACKEND"] = "keyring.backends.fail.Keyring"
         return env
@@ -121,7 +127,9 @@ class Journey:
         (ignore_budget=True) that must still run once the budget is spent.
         """
         limit = timeout if timeout is not None else self.step_timeout
-        if not ignore_budget:
+        if ignore_budget:
+            limit = min(limit, CLEANUP_TIMEOUT_SECONDS)
+        else:
             limit = min(limit, self.remaining())
             if limit <= 0:
                 self.note(f"$ {' '.join(argv)}\n[not run: {BUDGET_EXHAUSTED}]")

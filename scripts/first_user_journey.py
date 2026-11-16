@@ -7,6 +7,7 @@ on a real machine (scripts/first_user_journey.ps1). Standard library only.
 """
 
 import argparse
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -70,7 +71,11 @@ if not rows:
 rows.sort(key=lambda r: (not r[0].startswith("raw"), r[0], r[1]))
 schema, table = rows[0]
 count = con.execute('select count(*) from "%s"."%s"' % (schema, table)).fetchone()[0]
+named = con.execute(
+    'select count(*) from "%s"."%s" where name = ?' % (schema, table), ["Zo\\u00eb"]
+).fetchone()[0]
 print("COUNT %s.%s %d" % (schema, table, count))
+print("NAMED %d" % named)
 """
 
 
@@ -135,8 +140,11 @@ def step_sync(j: Journey) -> Step:
     return bad or Step("sync", "PASS")
 
 
-def _count(j: Journey, name: str) -> tuple[int | None, Step | None, str]:
-    """Row count of the loaded people table: (count, failure step, 'schema.table')."""
+def _count(j: Journey, name: str) -> tuple[int | None, int, Step | None, str]:
+    """Row count of the loaded people table and how many rows hold the non-ASCII name.
+
+    Returns (count, rows named Zo\u00eb, failure step, 'schema.table').
+    """
     warehouse = j.workdir / "data" / "warehouse.duckdb"
     proc = j.run([j.python, "-c", _COUNT_ROWS, str(warehouse)])
     bad = _fail_from(name, proc, "reading the warehouse")
@@ -146,22 +154,29 @@ def _count(j: Journey, name: str) -> tuple[int | None, Step | None, str]:
             if "NO_TABLE" in proc.output
             else bad.detail
         )
-        return None, failure(name, reason, proc.output), ""
+        return None, 0, failure(name, reason, proc.output), ""
     line = next((ln for ln in proc.output.splitlines() if ln.startswith("COUNT ")), "")
     parts = line.split()
-    if len(parts) != 3:
-        return None, failure(name, "unexpected count output", proc.output), ""
-    return int(parts[2]), None, parts[1]
+    named = next((ln.split() for ln in proc.output.splitlines() if ln.startswith("NAMED ")), [])
+    if len(parts) != 3 or len(named) != 2:
+        return None, 0, failure(name, "unexpected count output", proc.output), ""
+    return int(parts[2]), int(named[1]), None, parts[1]
 
 
 def step_count(j: Journey) -> Step:
     """Check the loaded people table has the expected number of rows."""
-    count, bad, table = _count(j, "count")
+    count, named, bad, table = _count(j, "count")
     if bad:
         return bad
     if count != EXPECTED_ROWS:
         return failure("count", f"{table} has {count} rows, expected {EXPECTED_ROWS}")
-    return Step("count", "PASS", f"{table} has {count} rows")
+    if named != 1:
+        return failure(
+            "count",
+            f"{table}: the non-ASCII value 'Zo\u00eb' is in {named} rows, expected 1 "
+            "(mis-decoded on load?)",
+        )
+    return Step("count", "PASS", f"{table} has {count} rows, non-ASCII value intact")
 
 
 def step_dbt(j: Journey) -> Step:
@@ -180,12 +195,13 @@ def step_dbt(j: Journey) -> Step:
 def step_second_sync(j: Journey) -> Step:
     """Sync again; the row count must not change (csv is replace mode)."""
     first = j.results["count"].detail
-    before = int(first.split()[-2]) if first else EXPECTED_ROWS
+    found = re.search(r"has (\d+) rows", first)
+    before = int(found.group(1)) if found else EXPECTED_ROWS
     proc = j.dango_run("sync", "--yes")
     bad = _fail_from("second-sync", proc, "dango sync --yes")
     if bad:
         return bad
-    count, bad, table = _count(j, "second-sync")
+    count, _, bad, table = _count(j, "second-sync")
     if bad:
         return bad
     if count != before:
@@ -217,10 +233,16 @@ def main() -> int:
         help="total seconds for all steps; step timeouts shrink to what is left",
     )
     parser.add_argument(
-        "--legacy-encoding",
+        "--utf8-mode",
         action="store_true",
-        help="do not force UTF-8 mode (PYTHONUTF8=1) in the dango child processes",
+        help="run the dango child processes in Python UTF-8 mode (PYTHONUTF8=1)",
     )
+    parser.add_argument(
+        "--legacy-stdio",
+        action="store_true",
+        help="do not set PYTHONIOENCODING=utf-8 for the dango child processes",
+    )
+    parser.add_argument("--steps", help=argparse.SUPPRESS)  # comma separated subset (tests)
     parser.add_argument("--port-free-timeout", type=float, default=10, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
@@ -236,7 +258,8 @@ def main() -> int:
         args.step_timeout,
         args.isolate_keyring,
         budget=args.budget,
-        legacy_encoding=args.legacy_encoding,
+        utf8_mode=args.utf8_mode,
+        legacy_stdio=args.legacy_stdio,
         port_free_timeout=args.port_free_timeout,
     )
     args.log.parent.mkdir(parents=True, exist_ok=True)
@@ -253,9 +276,19 @@ def main() -> int:
     ]
     if args.with_docker:
         steps.append(("docker", docker_step))
+    selected = set(args.steps.split(",")) if args.steps else None
+    if selected is not None:
+        steps = [(n, f) for n, f in steps if n in selected]
     failed = False
     for name, fn in steps:
-        missing = next((d for d in DEPENDS.get(name, []) if j.results[d].status != "PASS"), None)
+        missing = next(
+            (
+                d
+                for d in DEPENDS.get(name, [])
+                if d not in j.results or j.results[d].status != "PASS"
+            ),
+            None,
+        )
         if missing:
             step = Step(name, "SKIP", f"depends on {missing}")
         else:
@@ -266,7 +299,7 @@ def main() -> int:
         j.results[name] = step
         failed = failed or step.status == "FAIL"
         report(step)
-    if not args.with_docker:
+    if not args.with_docker and (selected is None or "docker" in selected):
         report(Step("docker", "SKIP", "not requested"))
     print(safe(f"log: {args.log}"))
     return 1 if failed else 0
