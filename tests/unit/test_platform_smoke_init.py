@@ -213,3 +213,39 @@ def test_non_ascii_output_and_label_are_escaped_under_cp1252_stdout(tmp_path: Pa
     assert "FAIL caf\\xe9" in result.stdout
     assert "Error: caf\\xe9" in result.stdout
     assert "Traceback" not in result.stderr
+
+
+# Prints without flushing, then outlives a short timeout: only an unbuffered child keeps it.
+FAKE_UNFLUSHED = """
+import time
+print("unflushed marker line")
+time.sleep(4)
+"""
+
+
+def test_timeout_keeps_output_the_child_had_not_flushed(tmp_path: Path) -> None:
+    exe = _make_fake_dango(tmp_path, FAKE_UNFLUSHED)
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"}
+    result = _run(exe, tmp_path / "work", "slow", extra=("--timeout", "1"), env=env)
+    assert result.returncode == 1
+    assert "timed out" in result.stdout
+    assert "unflushed marker line" in result.stdout
+
+
+def test_missing_dango_path_is_a_clean_fail(tmp_path: Path) -> None:
+    result = _run(tmp_path / "nope" / "dango", tmp_path / "work", "missing")
+    assert result.returncode == 1
+    assert "FAIL missing" in result.stdout
+    assert "PASS" not in result.stdout
+    assert "Traceback" not in result.stderr
+
+
+def test_non_executable_dango_path_is_a_clean_fail(tmp_path: Path) -> None:
+    not_exe = tmp_path / "dango"
+    not_exe.write_text("not a program\n", encoding="utf-8")
+    not_exe.chmod(0o644)
+    result = _run(not_exe, tmp_path / "work", "noexec")
+    assert result.returncode == 1
+    assert "FAIL noexec" in result.stdout
+    assert "PASS" not in result.stdout
+    assert "Traceback" not in result.stderr
