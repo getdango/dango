@@ -2,10 +2,12 @@
 # One-command first-user check for a real Windows machine (PowerShell 5.1+, no admin rights).
 # Creates a throwaway venv and project under $env:TEMP, installs Dango, runs the journey and
 # writes two timestamped logs to the Desktop: a setup log (setup, pip, journey summary) and the
-# journey's own log. Paste both back. Without -WithDocker nothing outside the temp dirs and those
-# two logs is changed. -WithDocker starts the real Dango platform: Dango may store credentials in
-# your user keychain and in ~/.dango, and the Metabase image it builds is left behind. Use it only
-# on a machine where that is acceptable.
+# journey's own log. Paste both back. It always uses a fresh, empty project folder under TEMP.
+# What it touches: the temp venv and project folder, the two logs, pip's download cache and
+# DuckDB's extension cache (~/.duckdb/extensions) in your user profile. It never uses your
+# keychain unless -WithDocker is given. -WithDocker starts the real Dango platform: Dango may
+# also store credentials in your user keychain and in ~/.dango, and the Metabase image it
+# builds is left behind. Use it only on a machine where that is acceptable.
 # The journey keeps file encodings at the platform default on purpose so encoding defects
 # surface; its console output is UTF-8 as in a real terminal (-LegacyStdio turns that off,
 # -Utf8Mode runs Python in UTF-8 mode, which hides file-encoding defects).

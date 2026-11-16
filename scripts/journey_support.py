@@ -4,6 +4,7 @@ Shared helpers for scripts/first_user_journey.py: running a step's command with 
 results, and ASCII-safe reporting. Standard library only; safe on Windows, macOS and Linux.
 """
 
+import locale
 import os
 import socket
 import subprocess
@@ -86,6 +87,8 @@ class Journey:
     utf8_mode: bool = False
     legacy_stdio: bool = False
     port_free_timeout: float = 10
+    output_encoding_override: str | None = None
+    counted: tuple[str, int] | None = None  # (schema.table, rows) seen by the count step
     results: dict[str, Step] = field(default_factory=dict)
     started: float = field(default_factory=time.monotonic)
 
@@ -112,6 +115,18 @@ class Journey:
         if self.isolate_keyring:
             env["PYTHON_KEYRING_BACKEND"] = "keyring.backends.fail.Keyring"
         return env
+
+    def output_encoding(self) -> str:
+        """Encoding the dango children write their piped output in.
+
+        UTF-8 normally (PYTHONIOENCODING=utf-8, or Python UTF-8 mode). With --legacy-stdio and
+        no UTF-8 mode a child falls back to this platform's preferred (ANSI) encoding.
+        """
+        if self.output_encoding_override:
+            return self.output_encoding_override
+        if self.legacy_stdio and not self.utf8_mode:
+            return locale.getpreferredencoding(False)
+        return "utf-8"
 
     def note(self, line: str) -> None:
         """Append a free-text line to the log (UTF-8)."""
@@ -142,7 +157,7 @@ class Journey:
                 env=self.env(),
                 capture_output=True,
                 text=True,
-                encoding="utf-8",
+                encoding=self.output_encoding(),
                 errors="replace",
                 timeout=limit,
             )

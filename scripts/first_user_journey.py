@@ -7,7 +7,6 @@ on a real machine (scripts/first_user_journey.ps1). Standard library only.
 """
 
 import argparse
-import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -176,6 +175,7 @@ def step_count(j: Journey) -> Step:
             f"{table}: the non-ASCII value 'Zo\u00eb' is in {named} rows, expected 1 "
             "(mis-decoded on load?)",
         )
+    j.counted = (table, count)
     return Step("count", "PASS", f"{table} has {count} rows, non-ASCII value intact")
 
 
@@ -193,10 +193,8 @@ def step_dbt(j: Journey) -> Step:
 
 
 def step_second_sync(j: Journey) -> Step:
-    """Sync again; the row count must not change (csv is replace mode)."""
-    first = j.results["count"].detail
-    found = re.search(r"has (\d+) rows", first)
-    before = int(found.group(1)) if found else EXPECTED_ROWS
+    """Sync again; the same table must still have the same row count (csv is replace mode)."""
+    first_table, before = j.counted or ("", EXPECTED_ROWS)
     proc = j.dango_run("sync", "--yes")
     bad = _fail_from("second-sync", proc, "dango sync --yes")
     if bad:
@@ -204,6 +202,10 @@ def step_second_sync(j: Journey) -> Step:
     count, _, bad, table = _count(j, "second-sync")
     if bad:
         return bad
+    if first_table and table != first_table:
+        return failure(
+            "second-sync", f"counted {table} after the repeat sync, but {first_table} before"
+        )
     if count != before:
         return failure(
             "second-sync", f"row count changed from {before} to {count} on a repeat sync"
@@ -216,7 +218,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dango", required=True, help="path to the dango executable")
     parser.add_argument(
-        "--workdir", required=True, type=Path, help="empty directory for the project"
+        "--workdir", required=True, type=Path, help="new or empty directory for the project"
     )
     parser.add_argument("--log", required=True, type=Path, help="log file (appended, UTF-8)")
     parser.add_argument("--with-docker", action="store_true", help="also run the docker step")
@@ -243,8 +245,11 @@ def main() -> int:
         help="do not set PYTHONIOENCODING=utf-8 for the dango child processes",
     )
     parser.add_argument("--steps", help=argparse.SUPPRESS)  # comma separated subset (tests)
+    parser.add_argument("--output-encoding", help=argparse.SUPPRESS)  # override (tests)
     parser.add_argument("--port-free-timeout", type=float, default=10, help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.workdir.exists() and (not args.workdir.is_dir() or any(args.workdir.iterdir())):
+        parser.error(safe(f"--workdir {args.workdir} is not empty; use a new or empty directory"))
 
     dango = Path(args.dango)
     python = args.python or str(
@@ -261,6 +266,7 @@ def main() -> int:
         utf8_mode=args.utf8_mode,
         legacy_stdio=args.legacy_stdio,
         port_free_timeout=args.port_free_timeout,
+        output_encoding_override=args.output_encoding,
     )
     args.log.parent.mkdir(parents=True, exist_ok=True)
     j.note(f"# first-user journey: dango={dango} python={python} workdir={args.workdir}")

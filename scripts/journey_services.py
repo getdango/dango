@@ -5,12 +5,13 @@ and the opt-in Docker platform start/status/stop. Every process or container the
 is stopped in a finally block. Standard library only; safe on Windows, macOS and Linux.
 """
 
+import os
 import subprocess
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import IO
+from typing import IO, Any
 
 from journey_support import BUDGET_EXHAUSTED, Journey, Step, failure, free_ports, port_is_open, safe
 
@@ -29,9 +30,9 @@ def _http_up(port: int) -> bool:
     return True
 
 
-def _tail(path: Path, lines: int = 15) -> str:
+def _tail(path: Path, lines: int = 15, encoding: str = "utf-8") -> str:
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = path.read_text(encoding=encoding, errors="replace")
     except OSError:
         return ""
     return "\n".join(text.splitlines()[-lines:])
@@ -57,6 +58,7 @@ def _run_web_once(j: Journey, port: int, label: str, grace: float) -> str | None
     out: IO[bytes] | None = None
     proc: subprocess.Popen[bytes] | None = None
     reason: str | None = None
+    stop_failed: str | None = None
     try:
         out = open(out_path, "wb")
         argv = [j.dango, "web", "--host", "127.0.0.1", "--port", str(port)]
@@ -79,13 +81,19 @@ def _run_web_once(j: Journey, port: int, label: str, grace: float) -> str | None
     except OSError as exc:
         reason = f"{label}: could not start {j.dango}: {exc}"
     finally:
-        if proc is not None:
-            _stop(proc, grace)
-        if out is not None:
-            out.close()
-        j.note(f"[web {label} output]\n{_tail(out_path, 200)}")
+        try:
+            if proc is not None:
+                _stop(proc, grace)
+        except subprocess.TimeoutExpired:
+            stop_failed = f"{label}: process did not exit after kill"
+        finally:
+            # The log file is closed and its output written in every path.
+            if out is not None:
+                out.close()
+            j.note(f"[web {label} output]\n{_tail(out_path, 200, j.output_encoding())}")
+    reason = reason or stop_failed
     if reason is not None:
-        return reason + "\n" + _tail(out_path)
+        return reason + "\n" + _tail(out_path, 15, j.output_encoding())
     deadline = time.monotonic() + j.port_free_timeout
     while port_is_open(port):
         if time.monotonic() > deadline:
@@ -109,8 +117,8 @@ class DockerQueryError(Exception):
     """A docker CLI query failed, so its (empty) answer cannot be trusted."""
 
 
-def _docker_query(argv: list[str]) -> list[str]:
-    """Run a docker CLI query; return its output words, or raise DockerQueryError."""
+def _docker_query(argv: list[str], split: bool = True) -> Any:
+    """Run a docker CLI query; return its output words (or text), or raise DockerQueryError."""
     try:
         proc = subprocess.run(
             argv, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30
@@ -120,12 +128,26 @@ def _docker_query(argv: list[str]) -> list[str]:
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip().splitlines()[-1:] or [""]
         raise DockerQueryError(f"{' '.join(argv[:3])} exited {proc.returncode}: {detail[0]}")
-    return proc.stdout.split()
+    return proc.stdout.split() if split else proc.stdout
 
 
-def _compose_containers(project: str) -> list[str]:
+_WORKING_DIR_LABEL = "com.docker.compose.project.working_dir"
+
+
+def _compose_containers(project: str) -> list[tuple[str, str]]:
+    """(container id, compose working_dir label) of every container of the project."""
     label = f"label=com.docker.compose.project={project}"
-    return _docker_query(["docker", "ps", "-a", "-q", "--filter", label])
+    fmt = '{{.ID}}\t{{.Label "' + _WORKING_DIR_LABEL + '"}}'
+    out = _docker_query(["docker", "ps", "-a", "--filter", label, "--format", fmt], split=False)
+    entries = [line.split("\t", 1) for line in out.splitlines() if line.strip()]
+    return [(e[0], e[1] if len(e) > 1 else "") for e in entries]
+
+
+def _same_dir(a: str, b: str | Path) -> bool:
+    """True when two directory paths name the same place (symlinks and case normalised)."""
+    if not a:
+        return False
+    return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(str(b)))
 
 
 def _compose_volumes(project: str) -> list[str]:
@@ -171,7 +193,13 @@ def docker_step(j: Journey) -> Step:
     project, platform_port = info
     result: Step | None = None
     try:
+        volumes_before = _compose_volumes(project)
+    except DockerQueryError as exc:
+        return failure("docker", safe(str(exc)))
+    start_ok = False
+    try:
         start = j.dango_run("start", "--yes")
+        start_ok = start.returncode == 0
         if start.returncode != 0:
             result = failure(
                 "docker", start.error or f"start: exit code {start.returncode}", start.output
@@ -186,10 +214,11 @@ def docker_step(j: Journey) -> Step:
                     f"platform port {platform_port} did not answer after start",
                     start.output,
                 )
-            elif not _compose_containers(project):
+            elif not any(_same_dir(wd, j.workdir) for _, wd in _compose_containers(project)):
                 result = failure(
                     "docker",
-                    f"no containers of project {safe(project)} existed while the platform was up",
+                    f"no containers of project {safe(project)} from this workdir existed "
+                    "while the platform was up",
                 )
         if result is None:
             status = j.dango_run("status")
@@ -219,7 +248,7 @@ def docker_step(j: Journey) -> Step:
                 result = failure("docker", f"platform port {platform_port} still open after stop")
     except DockerQueryError as exc:
         result = failure("docker", safe(str(exc)))
-    cleanup_error = _remove_leftovers(j, project)
+    cleanup_error = _remove_leftovers(j, project, start_ok, volumes_before)
     if result is None and cleanup_error:
         result = failure("docker", cleanup_error)
     return result or Step(
@@ -227,16 +256,28 @@ def docker_step(j: Journey) -> Step:
     )
 
 
-def _remove_leftovers(j: Journey, project: str) -> str | None:
-    """Remove containers and volumes labelled with THIS run's Compose project.
+def _remove_leftovers(
+    j: Journey, project: str, start_ok: bool, volumes_before: list[str]
+) -> str | None:
+    """Remove what THIS run created in its Compose project (best effort).
 
-    Returns an error message when a docker query or removal failed, else None.
+    Containers are removed only when their compose working_dir label is this run's workdir.
+    Volumes carry no working_dir label, so they are removed only when `dango start` succeeded
+    or the project had no volumes before the run. Returns an error message if a docker query
+    or removal failed, else None.
     """
     try:
-        for cid in _compose_containers(project):
-            subprocess.run(["docker", "rm", "-f", cid], capture_output=True, timeout=30)
-        for vol in _compose_volumes(project):
-            subprocess.run(["docker", "volume", "rm", "-f", vol], capture_output=True, timeout=30)
+        for cid, working_dir in _compose_containers(project):
+            if _same_dir(working_dir, j.workdir):
+                subprocess.run(["docker", "rm", "-f", cid], capture_output=True, timeout=30)
+        volumes = _compose_volumes(project)
+        if start_ok or not volumes_before:
+            for vol in volumes:
+                subprocess.run(
+                    ["docker", "volume", "rm", "-f", vol], capture_output=True, timeout=30
+                )
+        elif volumes:
+            j.note("[kept volumes of the project: they existed before this run and start failed]")
     except (DockerQueryError, OSError, subprocess.TimeoutExpired) as exc:
         j.note(f"[docker cleanup incomplete: {exc}]")
         return safe(f"docker cleanup incomplete: {exc}")
