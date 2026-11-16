@@ -24,7 +24,7 @@ def _no_orphan_fake_processes(tmp_path: Path) -> Iterator[None]:
 
 
 def _calls(tmp_path: Path) -> list[str]:
-    path = tmp_path / "work" / "docker-calls.txt"
+    path = tmp_path / "fakestate" / "docker-calls.txt"
     return path.read_text(encoding="utf-8").split() if path.exists() else []
 
 
@@ -37,7 +37,7 @@ def test_docker_step_passes_and_leaves_nothing_behind(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout
     assert any(ln.startswith("PASS docker") for ln in result.stdout.splitlines())
     assert _calls(tmp_path) == ["start", "status", "stop"]
-    assert (tmp_path / "work" / "containers.txt").read_text(encoding="utf-8").strip() == ""
+    assert (tmp_path / "fakestate" / "containers.txt").read_text(encoding="utf-8").strip() == ""
 
 
 def test_containers_left_after_stop_fail_the_step_and_are_removed(tmp_path: Path) -> None:
@@ -45,7 +45,7 @@ def test_containers_left_after_stop_fail_the_step_and_are_removed(tmp_path: Path
     assert result.returncode == 1
     failing = _docker_line(result.stdout)
     assert failing.startswith("FAIL docker") and "remain" in failing
-    removed = (tmp_path / "work" / "docker-rm.txt").read_text(encoding="utf-8")
+    removed = (tmp_path / "fakestate" / "docker-rm.txt").read_text(encoding="utf-8")
     assert "abc123def456" in removed
 
 
@@ -90,3 +90,45 @@ def test_project_name_comes_from_the_compose_helper_not_a_guess(tmp_path: Path) 
     )
     assert result.returncode == 1
     assert _docker_line(result.stdout).startswith("FAIL docker")
+
+
+def test_platform_port_still_open_after_stop_fails_the_step(tmp_path: Path) -> None:
+    result = run_journey(tmp_path, "stop-leaves-listener", docker=True, steps="init,docker")
+    assert result.returncode == 1
+    failing = _docker_line(result.stdout)
+    assert failing.startswith("FAIL docker") and "still open after stop" in failing
+    assert reap_orphans(tmp_path)  # positive control: the listener really outlived the stop
+
+
+def test_containers_of_another_working_dir_are_neither_removed_nor_ignored(
+    tmp_path: Path,
+) -> None:
+    state = tmp_path / "fakestate"
+    state.mkdir()
+    (state / "containers.txt").write_text("foreign000001\t/some/other/project\n", encoding="utf-8")
+    result = run_journey(tmp_path, docker=True, steps="init,docker")
+    assert result.returncode == 1
+    failing = _docker_line(result.stdout)
+    assert failing.startswith("FAIL docker") and "remain" in failing
+    removed = state / "docker-rm.txt"
+    assert not removed.exists() or "foreign000001" not in removed.read_text(encoding="utf-8")
+    assert "foreign000001" in (state / "containers.txt").read_text(encoding="utf-8")
+
+
+def test_volumes_that_existed_before_a_failed_start_are_kept(tmp_path: Path) -> None:
+    state = tmp_path / "fakestate"
+    state.mkdir()
+    (state / "volumes.txt").write_text("earliervolume\n", encoding="utf-8")
+    result = run_journey(tmp_path, "fail-start", docker=True, steps="init,docker")
+    assert result.returncode == 1
+    assert "earliervolume" in (state / "volumes.txt").read_text(encoding="utf-8")
+
+
+def test_volumes_created_by_this_run_are_removed(tmp_path: Path) -> None:
+    state = tmp_path / "fakestate"
+    state.mkdir()
+    # No volumes before start; the fake dango start creates one for this run's project.
+    result = run_journey(tmp_path, "start-creates-volume", docker=True, steps="init,docker")
+    assert result.returncode == 0, result.stdout
+    assert (state / "volumes.txt").read_text(encoding="utf-8").strip() == ""
+    assert "volume run-volume" in (state / "docker-rm.txt").read_text(encoding="utf-8")

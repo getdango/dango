@@ -225,17 +225,24 @@ def test_step_timeout_is_reported_and_does_not_hang(tmp_path: Path) -> None:
 def test_non_ascii_output_does_not_crash_the_reporter_under_a_cp1252_stdout(
     tmp_path: Path,
 ) -> None:
+    # The fake child writes cp1252 bytes (as a legacy-stdio Windows child does); the journey
+    # decodes them with that code page, so the e-acute survives in the log and is escaped in
+    # the ASCII-only report.
     env = {"PYTHONIOENCODING": "cp1252"}
     result = _journey(
-        tmp_path, mode="fail-sync", env=env, extra=("--legacy-stdio",), steps="init,add-source,sync"
+        tmp_path,
+        mode="fail-sync,cp1252-stderr",
+        env=env,
+        extra=("--legacy-stdio", "--output-encoding", "cp1252"),
+        steps="init,add-source,sync",
     )
     assert result.returncode == 1
     assert "Traceback" not in result.stderr
     assert "FAIL sync" in result.stdout
     assert result.stdout.isascii()
-    assert "boom" in result.stdout
+    assert "\\xe9" in result.stdout
     log = (tmp_path / "journey.log").read_text(encoding="utf-8")
-    assert "boom" in log
+    assert "\u00e9" in log
 
 
 def test_count_step_fails_when_the_table_has_too_few_rows(tmp_path: Path) -> None:
@@ -308,3 +315,64 @@ def test_total_budget_caps_step_timeouts_and_stops_later_steps(tmp_path: Path) -
     failing = next(ln for ln in result.stdout.splitlines() if ln.startswith("FAIL web"))
     assert "budget" in failing
     assert "SKIP count: depends on sync" in result.stdout
+
+
+def test_init_fails_on_a_traceback_in_the_output(tmp_path: Path) -> None:
+    result = _journey(tmp_path, mode="init-traceback", steps="init")
+    assert result.returncode == 1
+    assert "FAIL init: traceback in output" in result.stdout
+
+
+def test_init_fails_when_it_completed_with_warnings(tmp_path: Path) -> None:
+    result = _journey(tmp_path, mode="init-warnings", steps="init")
+    assert result.returncode == 1
+    assert "FAIL init: init completed with warnings" in result.stdout
+
+
+def test_init_fails_when_a_project_file_was_not_created(tmp_path: Path) -> None:
+    result = _journey(tmp_path, mode="init-no-auth", steps="init")
+    assert result.returncode == 1
+    assert "FAIL init: .dango/auth.yml was not created" in result.stdout
+
+
+def test_add_source_fails_when_source_list_does_not_show_the_source(tmp_path: Path) -> None:
+    result = _journey(tmp_path, mode="source-no-people", steps="init,add-source")
+    assert result.returncode == 1
+    assert "FAIL add-source: source list does not show 'people'" in result.stdout
+
+
+def test_add_source_fails_when_validate_fails(tmp_path: Path) -> None:
+    result = _journey(tmp_path, mode="fail-validate", steps="init,add-source")
+    assert result.returncode == 1
+    assert "FAIL add-source: dango validate: exit code 1" in result.stdout
+
+
+def test_dbt_step_fails_when_dango_run_fails(tmp_path: Path) -> None:
+    result = _journey(tmp_path, mode="fail-dbt", steps="init,add-source,sync,dbt")
+    assert result.returncode == 1
+    assert "FAIL dbt: dango run: exit code 1" in result.stdout
+
+
+def test_second_sync_fails_when_it_counts_a_different_table(tmp_path: Path) -> None:
+    result = _journey(tmp_path, mode="other-table-second-sync", steps=CORE)
+    assert result.returncode == 1
+    failing = next(ln for ln in result.stdout.splitlines() if ln.startswith("FAIL second-sync"))
+    assert "raw_people.people" in failing and "raw_other.people_x" in failing
+
+
+def test_non_empty_workdir_is_refused_and_nothing_is_written(tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "keep.txt").write_text("user file", encoding="utf-8")
+    result = _journey(tmp_path)
+    assert result.returncode == 2
+    assert "not empty" in result.stderr
+    assert [p.name for p in work.iterdir()] == ["keep.txt"]
+    assert not (tmp_path / "journey.log").exists()
+
+
+def test_existing_empty_workdir_is_accepted(tmp_path: Path) -> None:
+    (tmp_path / "work").mkdir()
+    result = _journey(tmp_path, steps="init")
+    assert result.returncode == 0, result.stdout
+    assert (tmp_path / "work" / ".dango" / "project.yml").is_file()

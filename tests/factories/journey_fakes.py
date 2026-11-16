@@ -23,6 +23,7 @@ import csv, http.server, os, pathlib, signal, subprocess, sys, time
 args = sys.argv[1:]
 modes = os.environ.get("FAKE_MODE", "").split(",")
 root = pathlib.Path.cwd()
+state = pathlib.Path(os.environ["FAKE_STATE_DIR"])
 cmd = args[0] if args else ""
 
 SERVER = (
@@ -40,7 +41,13 @@ SERVER = (
 
 def fail(mode, message="boom"):
     if mode in modes:
-        sys.stderr.write("Error: %s é %s\n" % (message, mode))
+        text = "Error: %s \u00e9 %s\n" % (message, mode)
+        if "cp1252-stderr" in modes:
+            sys.stderr.flush()
+            sys.stderr.buffer.write(text.encode("cp1252"))
+            sys.stderr.buffer.flush()
+        else:
+            sys.stderr.write(text)
         sys.exit(1)
 
 
@@ -50,7 +57,7 @@ def record(name, pid):
 
 
 def call(name):
-    with open(root / "docker-calls.txt", "a", encoding="utf-8") as fh:
+    with open(state / "docker-calls.txt", "a", encoding="utf-8") as fh:
         fh.write(name + "\n")
 
 
@@ -69,7 +76,8 @@ if cmd == "init":
         "  marimo_port: 7805\n",
         encoding="utf-8",
     )
-    (root / ".dango" / "auth.yml").write_text("enabled: true\n", encoding="utf-8")
+    if "init-no-auth" not in modes:
+        (root / ".dango" / "auth.yml").write_text("enabled: true\n", encoding="utf-8")
     keys = [
         "DO_NOT_TRACK", "PYTHONUNBUFFERED", "DANGO_ADMIN_PASSWORD", "PYTHON_KEYRING_BACKEND",
         "PYTHONUTF8", "PYTHONIOENCODING", "NO_COLOR", "TERM",
@@ -77,13 +85,20 @@ if cmd == "init":
     lines = ["%s=%s" % (k, os.environ.get(k, "<unset>")) for k in keys]
     (root / "env-seen.txt").write_text("\n".join(lines), encoding="utf-8")
     fail("fail-init")
+    if "init-traceback" in modes:
+        print("Traceback (most recent call last):")
+    if "init-warnings" in modes:
+        print("Initialization Completed with Warnings")
     print("fake init ok")
 elif cmd == "validate":
-    ok = (root / ".dango" / "sources.yml").is_file()
-    print("validate ok" if ok else "validate: no sources.yml")
+    ok = (root / ".dango" / "sources.yml").is_file() and "fail-validate" not in modes
+    print("validate ok" if ok else "validate: failed")
     sys.exit(0 if ok else 1)
 elif cmd == "source":
-    print((root / ".dango" / "sources.yml").read_text(encoding="utf-8"))
+    if "source-no-people" in modes:
+        print("No sources configured yet")
+    else:
+        print((root / ".dango" / "sources.yml").read_text(encoding="utf-8"))
 elif cmd == "sync":
     fail("fail-sync")
     if "slow-sync" in modes:
@@ -100,7 +115,17 @@ elif cmd == "sync":
     import duckdb
 
     con = duckdb.connect(str(root / "data" / "warehouse.duckdb"))
-    if "no-table" in modes:
+    if "other-table-second-sync" in modes and calls >= 1:
+        con.execute("drop table raw_people.people")
+        con.execute("create schema if not exists raw_other")
+        con.execute("create table raw_other.people_x (id varchar, name varchar, city varchar)")
+        for row in rows:
+            con.execute(
+                "insert into raw_other.people_x values (?, ?, ?)",
+                [row["id"], row["name"], row["city"]],
+            )
+        rows = []
+    elif "no-table" in modes:
         con.execute("create table unrelated (x integer)")
         rows = []
     else:
@@ -160,13 +185,17 @@ elif cmd == "start":
     call("start")
     fail("fail-start")
     if "start-no-containers" not in modes:
-        (root / "containers.txt").write_text("abc123def456\n", encoding="utf-8")
+        with open(state / "containers.txt", "a", encoding="utf-8") as fh:
+            fh.write("abc123def456\t%s\n" % root)
     server = subprocess.Popen(
         [sys.executable, "-c", SERVER, str(platform_port())],
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         start_new_session=(os.name != "nt"),
     )
     record("platform-pids.txt", server.pid)
+    if "start-creates-volume" in modes:
+        with open(state / "volumes.txt", "a", encoding="utf-8") as fh:
+            fh.write("run-volume\n")
     print("fake platform started")
 elif cmd == "status":
     call("status")
@@ -175,13 +204,14 @@ elif cmd == "status":
 elif cmd == "stop":
     call("stop")
     pids = (root / "platform-pids.txt").read_text().split() if (root / "platform-pids.txt").exists() else []
-    for pid in pids:
+    for pid in ([] if "stop-leaves-listener" in modes else pids):
         try:
             os.kill(int(pid), signal.SIGTERM)
         except OSError:
             pass
     if "leftover" not in modes:
-        (root / "containers.txt").write_text("", encoding="utf-8")
+        keep = [ln for ln in (state / "containers.txt").read_text().splitlines() if not ln.endswith("\t%s" % root)] if (state / "containers.txt").exists() else []
+        (state / "containers.txt").write_text("".join(ln + "\n" for ln in keep), encoding="utf-8")
     print("fake platform stopped")
 else:
     print("unknown command", cmd, file=sys.stderr)
@@ -206,7 +236,7 @@ def project_filter():
 
 def lines(name):
     path = state / name
-    return path.read_text(encoding="utf-8").split() if path.exists() else []
+    return path.read_text(encoding="utf-8").splitlines() if path.exists() else []
 
 
 if args[:1] == ["ps"]:
@@ -214,7 +244,8 @@ if args[:1] == ["ps"]:
         print("Cannot connect to the Docker daemon", file=sys.stderr)
         sys.exit(1)
     if project_filter() == os.environ["FAKE_PROJECT"]:
-        print("\n".join(lines("containers.txt")))
+        for line in lines("containers.txt"):
+            print(line if "--format" in args else line.split("\t")[0])
 elif args[:2] == ["volume", "ls"]:
     if "volume-ls-fails" in modes:
         print("volume list failed", file=sys.stderr)
@@ -222,13 +253,15 @@ elif args[:2] == ["volume", "ls"]:
     if project_filter() == os.environ["FAKE_PROJECT"]:
         print("\n".join(lines("volumes.txt")))
 elif args[:2] == ["rm", "-f"]:
-    left = [c for c in lines("containers.txt") if c != args[2]]
-    (state / "containers.txt").write_text("\n".join(left), encoding="utf-8")
+    left = [c for c in lines("containers.txt") if c.split("\t")[0] != args[2]]
+    (state / "containers.txt").write_text("".join(c + "\n" for c in left), encoding="utf-8")
     with open(state / "docker-rm.txt", "a", encoding="utf-8") as fh:
         fh.write(args[2] + "\n")
 elif args[:3] == ["volume", "rm", "-f"]:
     left = [v for v in lines("volumes.txt") if v != args[3]]
-    (state / "volumes.txt").write_text("\n".join(left), encoding="utf-8")
+    (state / "volumes.txt").write_text("".join(v + "\n" for v in left), encoding="utf-8")
+    with open(state / "docker-rm.txt", "a", encoding="utf-8") as fh:
+        fh.write("volume " + args[3] + "\n")
 else:
     print("fake docker: unsupported", args, file=sys.stderr)
     sys.exit(2)
@@ -266,7 +299,8 @@ def run_journey(
     full_env = {k: v for k, v in os.environ.items() if k not in drop}
     full_env["FAKE_MODE"] = mode
     full_env["FAKE_PROJECT"] = FAKE_PROJECT
-    full_env["FAKE_STATE_DIR"] = str(tmp_path / "work")
+    (tmp_path / "fakestate").mkdir(exist_ok=True)
+    full_env["FAKE_STATE_DIR"] = str(tmp_path / "fakestate")
     if docker:
         bin_dir = tmp_path / "dockerbin"
         make_fake_exe(bin_dir, "docker", FAKE_DOCKER)
