@@ -305,3 +305,92 @@ class TestHelperAbortOutsideProject:
         assert result.exit_code == 1, result.output
         assert "Not in a Dango project" in result.output
         assert not _BLANK_ERROR.search(result.output), result.output
+
+
+class TestWizardCtrlC:
+    def test_abort_at_prompt_cancels_without_error(self) -> None:
+        from dango.cli.source_wizard import SourceWizard
+
+        wizard = SourceWizard(Path("/tmp/fake"))
+        meta = {"display_name": "X", "category": "x"}
+        with (
+            patch.object(SourceWizard, "_print_git_warnings"),
+            patch.object(SourceWizard, "_show_source_info"),
+            patch.object(SourceWizard, "_get_source_name", return_value="my_src"),
+            patch.object(SourceWizard, "_select_source_flat", return_value="csv"),
+            patch.object(SourceWizard, "_handle_oauth_setup", return_value="skipped"),
+            patch("click.confirm", side_effect=click.Abort()),
+            patch("dango.cli.source_wizard.get_source_metadata", return_value=meta),
+        ):
+            out = StringIO()
+            with patch("dango.cli.source_wizard.console", Console(file=out, force_terminal=False)):
+                assert wizard.run() is False
+        text = out.getvalue()
+        assert "Wizard cancelled" in text
+        assert "Error" not in text
+
+
+class TestMoreEscapedMessages:
+    def test_source_edit_invalid_yaml_with_markup(self, tmp_path: Path) -> None:
+        from dango.cli.commands.source import source_edit
+
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        (dango_dir / "sources.yml").write_text("sources: []\n", encoding="utf-8")
+        bad = "sources:\n  - directory: '[/data]' x: 1\n"
+        with (
+            patch.dict("os.environ", {"EDITOR": "true"}),
+            patch("click.edit", return_value=bad),
+        ):
+            result = _plain(
+                CliRunner().invoke(source_edit, [], obj={"project_root": str(tmp_path)})
+            )
+        assert result.exit_code == 0, result.output
+        assert "Invalid YAML" in result.output
+        assert "[/data]" in result.output
+        assert "Changes NOT saved" in result.output
+
+    def test_start_version_mismatch_with_markup(self, tmp_path: Path) -> None:
+        from dango.cli.commands.platform import start
+        from dango.exceptions import VersionMismatchError
+
+        config = MagicMock()
+        config.project.name = "p"
+        loader = MagicMock()
+        loader.return_value.load_config.return_value = config
+        with (
+            patch("dango.cli.utils.check_v01x_project"),
+            patch("dango.cli.utils.require_project_context", return_value=tmp_path),
+            patch("dango.config.ConfigLoader", loader),
+            patch("dango.cli.helpers.process_manager.read_pid_file", return_value=None),
+            patch(
+                "dango.platform.common.startup.check_duckdb_version_alignment",
+                side_effect=VersionMismatchError(_MARKUP_MSG),
+            ),
+        ):
+            result = _plain(CliRunner().invoke(start, [], obj={"project_root": str(tmp_path)}))
+        assert result.exit_code == 1
+        assert "DuckDB version mismatch" in result.output
+        assert "[/x] [red]boom" in result.output
+        assert "MarkupError" not in result.output
+
+
+class TestRemoteUpgradeExit:
+    def test_unknown_latest_version_prints_error_once(self) -> None:
+        from dango.cli.commands.remote_ops import remote_upgrade
+
+        ssh = MagicMock()
+        with (
+            patch(
+                "dango.cli.commands.remote._load_cloud_config_with_ssh_or_fail",
+                return_value=(MagicMock(), ssh),
+            ),
+            patch("dango.cli.commands.remote_ops.refuse_if_powered_off"),
+            patch("dango.platform.cloud.upgrade.check_versions", return_value=("1.0.14", None)),
+            patch("dango.platform.cloud.runtime_ownership.at_target_restart_plan"),
+        ):
+            result = _plain(CliRunner().invoke(remote_upgrade, [], obj={}))
+        assert result.exit_code == 1, result.output
+        assert "Could not determine latest version" in result.output
+        assert "Upgrade failed" not in result.output
+        ssh.disconnect.assert_called_once()
