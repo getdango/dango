@@ -118,7 +118,7 @@ def _read_dbt_test_results(project_root: Path) -> list[DbtTestResult]:
         return []
 
     try:
-        manifest = json.loads(manifest_path.read_text())
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except Exception:
         return []
 
@@ -127,7 +127,7 @@ def _read_dbt_test_results(project_root: Path) -> list[DbtTestResult]:
     result_time: dict[str, float] = {}
     if results_path.exists():
         try:
-            run_results = json.loads(results_path.read_text())
+            run_results = json.loads(results_path.read_text(encoding="utf-8"))
             for r in run_results.get("results", []):
                 uid = r.get("unique_id", "")
                 if uid:

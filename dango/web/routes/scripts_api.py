@@ -114,7 +114,7 @@ async def run_script(
         "started_at": started_at.isoformat(),
         "status": "running",
     }
-    (log_dir / "meta.json").write_text(json.dumps(meta))
+    (log_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8", newline="\n")
 
     # Launch subprocess
     try:
@@ -210,8 +210,12 @@ async def run_script(
             if len(stderr_str) > _MAX_STDERR_SIZE:
                 stderr_str = stderr_str[:_MAX_STDERR_SIZE] + "\n\n[TRUNCATED at 1MB]"
 
-            (log_dir / "stdout.txt").write_text(stdout_str, encoding="utf-8", errors="replace")
-            (log_dir / "stderr.txt").write_text(stderr_str, encoding="utf-8", errors="replace")
+            (log_dir / "stdout.txt").write_text(
+                stdout_str, encoding="utf-8", errors="replace", newline="\n"
+            )
+            (log_dir / "stderr.txt").write_text(
+                stderr_str, encoding="utf-8", errors="replace", newline="\n"
+            )
 
             meta_update: dict[str, Any] = {
                 "run_id": run_id,
@@ -224,7 +228,9 @@ async def run_script(
                 "error": error,
                 **isolation_note,
             }
-            (log_dir / "meta.json").write_text(json.dumps(meta_update))
+            (log_dir / "meta.json").write_text(
+                json.dumps(meta_update), encoding="utf-8", newline="\n"
+            )
 
             _append_history(project_root, name, meta_update)
             _running_processes.pop(name, None)

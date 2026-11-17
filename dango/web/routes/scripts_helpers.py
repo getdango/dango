@@ -214,7 +214,7 @@ def _append_history(project_root: Path, script_name: str, entry: dict[str, Any])
     """Append one JSON line to the script's history file."""
     history_file = _get_history_file(project_root, script_name)
     try:
-        with open(history_file, "a", encoding="utf-8") as fh:
+        with open(history_file, "a", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(entry) + "\n")
     except OSError:
         logger.warning("script_history_write_failed", path=str(history_file), exc_info=True)

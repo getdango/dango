@@ -475,7 +475,7 @@ def _apply_metabase_site_url_catchup(
     if not creds_file.exists():
         return
     try:
-        with open(creds_file) as f:
+        with open(creds_file, encoding="utf-8") as f:
             creds = yaml.safe_load(f) or {}
         if creds.get("site_url_set"):
             return
@@ -499,7 +499,7 @@ def _apply_metabase_site_url_catchup(
         )
         if applied:
             creds["site_url_set"] = True
-            with open(creds_file, "w") as f:
+            with open(creds_file, "w", encoding="utf-8", newline="\n") as f:
                 yaml.safe_dump(creds, f, default_flow_style=False)
     except Exception as e:  # noqa: BLE001
         logger.debug(f"metabase_site_url_catchup_failed: {e}")
@@ -565,6 +565,8 @@ def _wait_for_metabase_log_ready(
                     capture_output=True,
                     text=True,
                     timeout=5,
+                    encoding="utf-8",
+                    errors="replace",
                 )
             if "Metabase Initialization COMPLETE" in result.stdout:
                 return True
@@ -1641,7 +1643,7 @@ def sync_metabase_schema(
 
     try:
         # Load credentials
-        with open(credentials_file) as f:
+        with open(credentials_file, encoding="utf-8") as f:
             credentials = yaml.safe_load(f)
 
         metabase_url = metabase_url or credentials.get("metabase_url", "http://localhost:3000")
@@ -1897,7 +1899,7 @@ def set_metabase_telemetry(
         raise click.ClickException("Metabase not configured. Run dango start first.")
 
     try:
-        with open(credentials_file) as f:
+        with open(credentials_file, encoding="utf-8") as f:
             credentials = yaml.safe_load(f) or {}
 
         admin_credentials = load_metabase_admin_credentials(project_root)
@@ -1950,7 +1952,7 @@ def set_metabase_telemetry(
         try:
             state_file = project_root / ".dango" / "metabase_telemetry_state"
             state_file.parent.mkdir(parents=True, exist_ok=True)
-            state_file.write_text("true" if enabled else "false")
+            state_file.write_text("true" if enabled else "false", encoding="utf-8", newline="\n")
         except Exception:
             logger.warning(
                 "Metabase telemetry set to %s via API, but failed to write "
@@ -1980,7 +1982,7 @@ def get_metabase_telemetry_intent(project_root: Path) -> bool:
     """True only if telemetry consent recorded an explicit "yes" for Metabase."""
     state_file = project_root / ".dango" / "metabase_telemetry_state"
     try:
-        return state_file.read_text().strip() == "true"
+        return state_file.read_text(encoding="utf-8").strip() == "true"
     except OSError:
         return False
 
@@ -2005,7 +2007,7 @@ def get_metabase_telemetry_state(project_root: Path | None) -> bool:
     state_file = project_root / ".dango" / "metabase_telemetry_state"
     if not state_file.exists():
         return True
-    return state_file.read_text().strip() == "true"
+    return state_file.read_text(encoding="utf-8").strip() == "true"
 
 
 def refresh_metabase_connection(
@@ -2050,7 +2052,7 @@ def refresh_metabase_connection(
             metabase_url = "http://localhost:3000"
             try:
                 creds_file = project_root / ".dango" / "metabase.yml"
-                with open(creds_file) as f:
+                with open(creds_file, encoding="utf-8") as f:
                     _creds = yaml.safe_load(f) or {}
                 metabase_url = _creds.get("metabase_url", metabase_url)
             except (OSError, yaml.YAMLError):
@@ -2080,6 +2082,8 @@ def refresh_metabase_connection(
                 capture_output=True,
                 text=True,
                 timeout=5,
+                encoding="utf-8",
+                errors="replace",
             )
             running = container_name in check_result.stdout
 
@@ -2105,6 +2109,8 @@ def refresh_metabase_connection(
                     capture_output=True,
                     text=True,
                     timeout=30,
+                    encoding="utf-8",
+                    errors="replace",
                 )
         except (compose_exec.ComposeBusy, compose_exec.ComposeInterrupted) as exc:
             return (False, f"Docker restart failed: {exc}"[:200], None)

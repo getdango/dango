@@ -32,7 +32,9 @@ def _state_file(project_root: Path, name: str) -> Path:
 def failed_attempts(project_root: Path) -> int:
     """Return how many catch-up attempts have failed so far (0 when unrecorded or unreadable)."""
     try:
-        return max(0, int(_state_file(project_root, _ATTEMPTS_NAME).read_text().strip()))
+        return max(
+            0, int(_state_file(project_root, _ATTEMPTS_NAME).read_text(encoding="utf-8").strip())
+        )
     except (OSError, ValueError):
         return 0
 
@@ -77,11 +79,11 @@ def apply_lock_catchup(
         state_dir = marker.parent
         state_dir.mkdir(parents=True, exist_ok=True)
         if applied:
-            marker.write_text("applied\n", encoding="utf-8")
+            marker.write_text("applied\n", encoding="utf-8", newline="\n")
             return True
         if not recheck:
             _state_file(project_root, _ATTEMPTS_NAME).write_text(
-                f"{failed_attempts(project_root) + 1}\n", encoding="utf-8"
+                f"{failed_attempts(project_root) + 1}\n", encoding="utf-8", newline="\n"
             )
         return False
     except Exception:

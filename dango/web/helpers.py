@@ -701,6 +701,8 @@ def check_service_via_docker(service_name: str) -> str:
             capture_output=True,
             text=True,
             timeout=10,
+            encoding="utf-8",
+            errors="replace",
         )
 
         if result.returncode == 0 and result.stdout.strip():

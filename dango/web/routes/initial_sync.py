@@ -97,7 +97,7 @@ def _save_state() -> None:
     """Persist current state to disk."""
     path = _state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_sync_state.to_dict(), indent=2))
+    path.write_text(json.dumps(_sync_state.to_dict(), indent=2), encoding="utf-8", newline="\n")
 
 
 def _load_state() -> None:
@@ -108,7 +108,7 @@ def _load_state() -> None:
         return
 
     try:
-        data: dict[str, Any] = json.loads(path.read_text())
+        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
         _sync_state = InitialSyncState(
             phase=SyncPhase(data.get("phase", "idle")),
             total_sources=data.get("total_sources", 0),
@@ -159,7 +159,7 @@ def _validate_deploy_token(token: str) -> bool:
     if not token_path.exists():
         return False
 
-    stored = token_path.read_text().strip()
+    stored = token_path.read_text(encoding="utf-8").strip()
     if not hmac.compare_digest(token, stored):
         return False
 
