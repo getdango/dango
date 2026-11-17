@@ -1,0 +1,13 @@
+# Generated files and templates are written to users' projects and servers by Dango and read
+# by Linux tools (shell, Docker, nginx, dbt, YAML/TOML parsers): check them out with LF on
+# every platform, including Windows. A narrow set (not `* text=auto eol=lf`) keeps files that
+# are committed with CRLF today unchanged, so no renormalization is needed.
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.j2 text eol=lf
+*.sql text eol=lf
+Dockerfile* text eol=lf
+Makefile text eol=lf
+dango/templates/** text eol=lf
