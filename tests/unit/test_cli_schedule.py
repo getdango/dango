@@ -782,7 +782,7 @@ class TestScheduleAdd:
         result = runner.invoke(cli, ["schedule", "add"])
         plain = _strip_ansi(result.output)
         assert "No Python scripts found" in plain
-        assert result.exit_code == 0
+        assert result.exit_code == 1
 
         # No schedule was created
         data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
