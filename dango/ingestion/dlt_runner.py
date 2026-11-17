@@ -3896,10 +3896,11 @@ def run_sync(
                     console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")
             else:
                 transform_status = "failed"
-                transform_error_msg = dbt_output[:500]
+                # redact first, then cut: a secret straddling the cut must not survive
+                transform_error_msg = redacted_error_text(project_root, dbt_output)[:500]
                 if progress_callback is not None:
                     progress_callback("dbt_failed", "dbt run failed")
-                _logging.getLogger(__name__).error("dbt_transform_failed: %s", dbt_output[:500])
+                _logging.getLogger(__name__).error("dbt_transform_failed: %s", transform_error_msg)
                 console.print("[red bold]✗ dbt transform failed[/red bold]")
                 console.print(f"[red]{dbt_output}[/red]")
                 console.print("[yellow]⚠️  Staging/marts tables were not created[/yellow]")
@@ -3907,7 +3908,9 @@ def run_sync(
                 from dango.utils.sync_history import update_last_sync_entry
 
                 for src in success_sources:
-                    update_last_sync_entry(project_root, src, {"transform_error": dbt_output[:500]})
+                    update_last_sync_entry(
+                        project_root, src, {"transform_error": transform_error_msg}
+                    )
             console.print()
         else:
             console.print("[dim]⏭  Skipping dbt run (will be coalesced)[/dim]\n")

@@ -30,7 +30,7 @@ SECRET_KEY_RE = re.compile(
 # the trailing name part is bounded. The old ``(?<!..)[\w-]*keyword[\w-]*`` form was quadratic on
 # long runs of word characters: every ``_`` restarted a scan of the whole run.
 _SECRET_INLINE_RE = re.compile(
-    r"(?i)((?:password|passwd|secret|token|api[_-]?key|private[_-]?key|authorization)[\w-]{0,20})"
+    r"(?i)((?:password|passwd|secret|token|api[_-]?key|private[_-]?key|authorization)[\w-]{0,64})"
     r"([\"']?\s*[=:]\s*)((?:Bearer|Basic|Token)\s+\S+|\"[^\"]*\"|'[^']*'|[^\s,;&}]+)"
 )
 _URL_USERINFO_RE = re.compile(r"(://)[^/\s@]+@")
@@ -57,11 +57,13 @@ _cache: dict[Path, tuple[tuple[int, int], frozenset[str]]] = {}
 
 def redact_patterns(text: str) -> str:
     """Mask secret-looking patterns in free text without knowing the secret values."""
+    # A key block goes first: the inline key=value pattern would otherwise mask only the
+    # ``-----BEGIN`` marker after ``private_key:`` and leave the key body readable.
+    text = _PEM_RE.sub(REDACTED, text)
     text = _SECRET_INLINE_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}****", text)
     text = _AUTH_HEADER_RE.sub(r"\1****", text)
     text = _URL_USERINFO_RE.sub(rf"\1{REDACTED}@", text)
     text = _QUERY_PARAM_RE.sub(rf"\1{REDACTED}", text)
-    text = _PEM_RE.sub(REDACTED, text)
     text = _AIRTABLE_PAT_RE.sub(REDACTED, text)
     text = _WEBHOOK_RE.sub(rf"\1{REDACTED}", text)
     return _BEARER_RE.sub(r"\1\2****", text)
