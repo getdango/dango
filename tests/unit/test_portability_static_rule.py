@@ -6,6 +6,7 @@ Static (AST) rule: local dango code must not use Unix-only modules or os/signal 
 from __future__ import annotations
 
 import ast
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,10 @@ PACKAGE = REPO_ROOT / "dango"
 # Linux-server-only code (runs root-run on cloud hosts); exempt from the rule.
 SERVER_ONLY = ("dango/platform/cloud/", "dango/runtime/")
 
-UNIX_ONLY_MODULES = frozenset({"fcntl", "pwd", "grp", "resource", "termios"})
+# Each name is documented by CPython as Unix-only (absent on Windows): the ``posix`` module (Windows has
+# ``nt``), os.setpgrp/fork/forkpty/openpty/mkfifo/nice/wait/WNOHANG, signal.SIGQUIT/SIGUSR2/SIGCHLD/SIGPIPE/
+# setitimer/getitimer. ``os.waitpid`` and ``os.getppid`` exist on Windows and are deliberately not listed.
+UNIX_ONLY_MODULES = frozenset({"fcntl", "pwd", "grp", "resource", "termios", "posix"})
 UNIX_ONLY_ATTRS = {
     "os": frozenset(
         {
@@ -35,9 +39,31 @@ UNIX_ONLY_ATTRS = {
             "O_NOFOLLOW",
             "O_NONBLOCK",
             "O_DIRECTORY",
+            "setpgrp",
+            "fork",
+            "forkpty",
+            "openpty",
+            "mkfifo",
+            "nice",
+            "wait",
+            "WNOHANG",
         }
     ),
-    "signal": frozenset({"SIGHUP", "SIGALRM", "SIGKILL", "SIGUSR1", "alarm"}),
+    "signal": frozenset(
+        {
+            "SIGHUP",
+            "SIGALRM",
+            "SIGKILL",
+            "SIGUSR1",
+            "alarm",
+            "SIGQUIT",
+            "SIGUSR2",
+            "SIGCHLD",
+            "SIGPIPE",
+            "setitimer",
+            "getitimer",
+        }
+    ),
 }
 
 # Sites owned by WP-11b (process groups / signals / detach semantics). Shrink-only: an entry that no
@@ -136,84 +162,104 @@ def _catches(handlers: list[ast.ExceptHandler], names: set[str]) -> bool:
     return False
 
 
+@dataclass(frozen=True)
+class _Ctx:
+    """Guard state: ``safe`` = platform-guarded (imports and attributes), ``imports_ok`` = inside a
+    ``try`` whose handlers catch ImportError (imports only), ``present`` = names proven by ``hasattr``."""
+
+    safe: bool = False
+    imports_ok: bool = False
+    present: frozenset[tuple[str, str]] = frozenset()
+
+
 class _Checker:
     """Collect (line, name) of unguarded Unix-only imports and os/signal attributes.
 
     Accepted guard forms (anything else is a finding):
-      1. import inside ``try`` whose handlers catch ImportError/ModuleNotFoundError;
+      1. import inside ``try`` whose handlers catch ImportError/ModuleNotFoundError (imports ONLY: a
+         missing attribute raises AttributeError, which that handler does not catch);
       2. the branch of ``if sys.platform == "win32"`` / ``!= "win32"`` / ``.startswith("win")`` /
          ``os.name == "nt"|"posix"`` (and ``not`` of those) that is not taken on Windows, or the code after
          such an ``if`` whose Windows branch ends in return/raise/continue/break;
       3. the body of ``if hasattr(os, "x"):`` (``and`` allowed) or an ``x if hasattr(os, "x") else y``
          expression, for that attribute only.
     ``getattr(os, "x", default)`` is never flagged because the attribute is not an Attribute node; the
-    two-argument ``getattr(os, "x")`` (no default) is flagged.
+    two-argument ``getattr(os, "x")`` (no default) is flagged. ``import os as _os`` / ``import signal as s``
+    aliases are resolved; ``from os import fchmod [as f]`` is flagged at the import.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, aliases: dict[str, str]) -> None:
         self.found: list[tuple[int, str]] = []
+        self.aliases = aliases
 
-    def block(self, stmts: list[ast.stmt], safe: bool, present: frozenset[tuple[str, str]]) -> None:
+    def block(self, stmts: list[ast.stmt], ctx: _Ctx) -> None:
         for stmt in stmts:
-            self.stmt(stmt, safe, present)
-            if isinstance(stmt, ast.If) and _ends_in_exit(stmt.body):
-                if _platform_kind(stmt.test) == "win":
-                    safe = True
+            self.stmt(stmt, ctx)
+            if (
+                isinstance(stmt, ast.If)
+                and _ends_in_exit(stmt.body)
+                and _platform_kind(stmt.test) == "win"
+            ):
+                ctx = replace(ctx, safe=True)
 
-    def stmt(self, node: ast.stmt, safe: bool, present: frozenset[tuple[str, str]]) -> None:
+    def stmt(self, node: ast.stmt, ctx: _Ctx) -> None:
         if isinstance(node, ast.If):
             kind = _platform_kind(node.test)
-            self.expr(node.test, safe, present)
-            body_present = present | _hasattr_names(node.test)
-            self.block(node.body, safe or kind == "posix", body_present)
-            self.block(node.orelse, safe or kind == "win", present)
+            self.expr(node.test, ctx)
+            body_ctx = replace(
+                ctx,
+                safe=ctx.safe or kind == "posix",
+                present=ctx.present | _hasattr_names(node.test),
+            )
+            self.block(node.body, body_ctx)
+            self.block(node.orelse, replace(ctx, safe=ctx.safe or kind == "win"))
         elif isinstance(node, ast.Try):
             catches_import = _catches(node.handlers, {"ImportError", "ModuleNotFoundError"})
-            self.block(node.body, safe or catches_import, present)
+            self.block(node.body, replace(ctx, imports_ok=ctx.imports_ok or catches_import))
             for handler in node.handlers:
-                self.block(handler.body, safe, present)
-            self.block(node.orelse, safe, present)
-            self.block(node.finalbody, safe, present)
+                self.block(handler.body, ctx)
+            self.block(node.orelse, ctx)
+            self.block(node.finalbody, ctx)
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            self.imports(node, safe)
+            self.imports(node, ctx)
         else:
             for _field, value in ast.iter_fields(node):
                 if isinstance(value, list):
                     if value and isinstance(value[0], ast.stmt):
-                        self.block(value, safe, present)
+                        self.block(value, ctx)
                     else:
                         for item in value:
-                            self.walk(item, safe, present)
+                            self.walk(item, ctx)
                 else:
-                    self.walk(value, safe, present)
+                    self.walk(value, ctx)
 
-    def walk(self, node: object, safe: bool, present: frozenset[tuple[str, str]]) -> None:
+    def walk(self, node: object, ctx: _Ctx) -> None:
         if isinstance(node, ast.stmt):
-            self.stmt(node, safe, present)
+            self.stmt(node, ctx)
         elif isinstance(node, ast.expr):
-            self.expr(node, safe, present)
+            self.expr(node, ctx)
         elif isinstance(node, ast.AST):
             for child in ast.iter_child_nodes(node):
-                self.walk(child, safe, present)
+                self.walk(child, ctx)
 
-    def imports(self, node: ast.Import | ast.ImportFrom, safe: bool) -> None:
+    def imports(self, node: ast.Import | ast.ImportFrom, ctx: _Ctx) -> None:
         if isinstance(node, ast.Import):
             roots = [alias.name.split(".")[0] for alias in node.names]
         else:
             roots = [(node.module or "").split(".")[0]] if node.level == 0 else []
-            if node.module in UNIX_ONLY_ATTRS and not safe:
+            if node.module in UNIX_ONLY_ATTRS and not (ctx.safe or ctx.imports_ok):
                 for alias in node.names:
                     if alias.name in UNIX_ONLY_ATTRS[node.module]:
                         self.found.append((node.lineno, alias.name))
         for root in roots:
-            if root in UNIX_ONLY_MODULES and not safe:
+            if root in UNIX_ONLY_MODULES and not (ctx.safe or ctx.imports_ok):
                 self.found.append((node.lineno, f"import {root}"))
 
-    def expr(self, node: ast.expr, safe: bool, present: frozenset[tuple[str, str]]) -> None:
+    def expr(self, node: ast.expr, ctx: _Ctx) -> None:
         if isinstance(node, ast.IfExp):
-            self.expr(node.test, safe, present)
-            self.expr(node.body, safe, present | _hasattr_names(node.test))
-            self.expr(node.orelse, safe, present)
+            self.expr(node.test, ctx)
+            self.expr(node.body, replace(ctx, present=ctx.present | _hasattr_names(node.test)))
+            self.expr(node.orelse, ctx)
             return
         if (
             isinstance(node, ast.Call)
@@ -221,27 +267,34 @@ class _Checker:
             and node.func.id == "getattr"
             and len(node.args) == 2
             and isinstance(node.args[0], ast.Name)
-            and node.args[0].id in UNIX_ONLY_ATTRS
-            and _const(node.args[1]) in UNIX_ONLY_ATTRS[node.args[0].id]
+            and self.aliases.get(node.args[0].id) in UNIX_ONLY_ATTRS
+            and _const(node.args[1]) in UNIX_ONLY_ATTRS[self.aliases[node.args[0].id]]
         ):
             self.found.append((node.lineno, str(_const(node.args[1]))))
         if (
             isinstance(node, ast.Attribute)
             and isinstance(node.value, ast.Name)
-            and node.value.id in UNIX_ONLY_ATTRS
-            and node.attr in UNIX_ONLY_ATTRS[node.value.id]
-            and not safe
-            and (node.value.id, node.attr) not in present
+            and self.aliases.get(node.value.id) in UNIX_ONLY_ATTRS
+            and node.attr in UNIX_ONLY_ATTRS[self.aliases[node.value.id]]
+            and not ctx.safe
+            and (node.value.id, node.attr) not in ctx.present
         ):
             self.found.append((node.lineno, node.attr))
         for child in ast.iter_child_nodes(node):
-            self.walk(child, safe, present)
+            self.walk(child, ctx)
 
 
 def find_unguarded(source: str) -> list[tuple[int, str]]:
     """Return (line, name) for every unguarded Unix-only import or attribute in ``source``."""
-    checker = _Checker()
-    checker.block(ast.parse(source).body, False, frozenset())
+    tree = ast.parse(source)
+    aliases = {module: module for module in UNIX_ONLY_ATTRS}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname and alias.name in UNIX_ONLY_ATTRS:
+                    aliases[alias.asname] = alias.name
+    checker = _Checker(aliases)
+    checker.block(tree.body, _Ctx())
     return checker.found
 
 

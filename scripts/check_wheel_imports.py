@@ -19,15 +19,23 @@ import sys
 DEFAULT_OPTIONAL = {"dango": ["dango.ingestion.dlt_sources."]}
 DEFAULT_SERVER_ONLY = {"dango": ["dango.platform.cloud.", "dango.runtime."]}
 
-_UNIX_ONLY_NAMES = (
-    "fcntl|resource|pwd|grp|termios|fchmod|fchown|chown|killpg|getpgid|getpgrp|setsid"
-    "|geteuid|getuid|getgid|O_NOFOLLOW|O_NONBLOCK|O_DIRECTORY|SIGHUP|SIGALRM|SIGKILL|SIGUSR1"
+_UNIX_MODULES = "fcntl|resource|pwd|grp|termios"
+_UNIX_ATTRS = (
+    "fchmod|fchown|chown|killpg|getpgid|getpgrp|setsid|geteuid|getuid|getgid"
+    "|O_NOFOLLOW|O_NONBLOCK|O_DIRECTORY|SIGHUP|SIGALRM|SIGKILL|SIGUSR1"
 )
-_UNIX_ONLY_RE = re.compile(rf"'(?:{_UNIX_ONLY_NAMES})'")
+# A Unix-only MODULE that is missing, or a Unix-only attribute missing from the os / signal modules.
+# A quoted name elsewhere ("cannot import name 'getuid' from 'dango.x'") is a real defect, not this.
+_UNIX_ONLY_RE = re.compile(
+    rf"No module named '(?:{_UNIX_MODULES})'$"
+    rf"|module '(?:os|signal)' has no attribute '(?:{_UNIX_ATTRS})'$"
+    rf"|cannot import name '(?:{_UNIX_ATTRS})' from '(?:os|signal)'"
+)
 
 
-def _under(name: str, prefixes: list[str]) -> bool:
-    return any(name == p.rstrip(".") or name.startswith(p) for p in prefixes)
+def _under(name: str, prefixes: list[str], include_package: bool = False) -> bool:
+    """Prefix match; ``include_package`` also matches the package named by a trailing-dot prefix."""
+    return any(name.startswith(p) or (include_package and name == p.rstrip(".")) for p in prefixes)
 
 
 def _is_missing_dependency(exc: BaseException, package: str) -> bool:
@@ -40,7 +48,9 @@ def _is_missing_dependency(exc: BaseException, package: str) -> bool:
 
 
 def _names_unix_only(exc: BaseException) -> bool:
-    return isinstance(exc, (ImportError, AttributeError)) and bool(_UNIX_ONLY_RE.search(str(exc)))
+    if not isinstance(exc, (ImportError, AttributeError)):
+        return False
+    return bool(_UNIX_ONLY_RE.search(str(exc).strip().splitlines()[0] if str(exc).strip() else ""))
 
 
 def classify(
@@ -49,11 +59,20 @@ def classify(
     optional: list[str],
     server_only: list[str],
     package: str = "dango",
+    platform: str | None = None,
 ) -> str:
-    """Return "skip", "server_only" or "fail" for a module whose import raised ``exc``."""
+    """Return "skip", "server_only" or "fail" for a module whose import raised ``exc``.
+
+    "server_only" applies only off Linux: on Linux server-only modules must import cleanly.
+    """
+    current = sys.platform if platform is None else platform
     if _under(name, optional) and _is_missing_dependency(exc, package):
         return "skip"
-    if _under(name, server_only) and _names_unix_only(exc):
+    if (
+        not current.startswith("linux")
+        and _under(name, server_only, include_package=True)
+        and _names_unix_only(exc)
+    ):
         return "server_only"
     return "fail"
 
@@ -74,6 +93,11 @@ def main() -> int:
         default=None,
         help="module prefix of Linux-server-only code whose Unix-only import errors are expected",
     )
+    parser.add_argument(
+        "--platform",
+        default=sys.platform,
+        help="platform name used to classify server-only failures (default: this interpreter's)",
+    )
     args = parser.parse_args()
     optional = args.optional_prefix
     if optional is None:
@@ -93,7 +117,7 @@ def main() -> int:
         reason = (
             f"{type(exc).__name__}: {str(exc).strip().splitlines()[0] if str(exc).strip() else ''}"
         )
-        kind = classify(name, exc, optional, server_only, args.package)
+        kind = classify(name, exc, optional, server_only, args.package, args.platform)
         if kind == "skip":
             skipped[name] = reason
         elif kind == "server_only":
