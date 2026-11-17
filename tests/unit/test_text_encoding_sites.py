@@ -161,3 +161,58 @@ def test_scanner_covers_the_package() -> None:
 @pytest.mark.parametrize("path", _py_files(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix())
 def test_text_io_names_its_encoding(path: Path) -> None:
     assert missing_encoding(path) == []
+
+
+# Generated YAML/TOML/.env/.gitignore/script files must be written with LF on every platform.
+# On POSIX newline= is a no-op, so only a static check protects it. Map: file -> target names.
+_LF_WRITERS = {
+    "dango/cli/commands/dev.py": ["profiles_path"],
+    "dango/cli/commands/source.py": ["sources_file", "env_file"],
+    "dango/cli/commands/schedule.py": ["script_full"],
+    "dango/cli/commands/seed.py": ["dbt_project_path"],
+    "dango/cli/oauth.py": ["self.env_file"],
+    "dango/cli/schema_manager.py": ["schema_path"],
+    "dango/cli/source_wizard.py": ["template_path"],
+    "dango/config/credentials.py": ["gitignore_path", "secrets_file", "config_file"],
+    "dango/config/cloud_credentials.py": ["fd"],
+    "dango/ingestion/sources/setup_lifecycle.py": ["config_toml"],
+    "dango/ingestion/sources/setup_service.py": ["config_path", "secrets_path"],
+    "dango/oauth/storage.py": ["self.secrets_file"],
+    "dango/telemetry.py": ["_GLOBAL_CONFIG_FILE"],
+    "dango/transformation/model_docs.py": ["path"],
+    "dango/utils/post_sync.py": ["schema_file"],
+}
+
+
+def _lf_problems(rel: str, names: list[str]) -> tuple[int, list[str]]:
+    tree = ast.parse((REPO_ROOT / rel).read_text(encoding="utf-8"))
+    checked, problems = 0, []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Attribute) and func.attr == "write_text":
+            target = ast.unparse(func.value)
+        elif (isinstance(func, ast.Name) and func.id == "open") or (
+            isinstance(func, ast.Attribute) and func.attr == "fdopen"
+        ):
+            mode = _mode_of(node, 1)
+            if not (isinstance(mode, ast.Constant) and str(mode.value) in {"w", "a"}):
+                continue
+            target = ast.unparse(node.args[0]) if node.args else ""
+        else:
+            continue
+        if target not in names:
+            continue
+        checked += 1
+        newline = next((kw.value for kw in node.keywords if kw.arg == "newline"), None)
+        if not (isinstance(newline, ast.Constant) and newline.value == "\n"):
+            problems.append(f"{rel}:{node.lineno} write of {target} without newline='\\n'")
+    return checked, problems
+
+
+@pytest.mark.parametrize("rel", sorted(_LF_WRITERS))
+def test_generated_files_are_written_with_lf(rel: str) -> None:
+    checked, problems = _lf_problems(rel, _LF_WRITERS[rel])
+    assert checked > 0
+    assert problems == []
