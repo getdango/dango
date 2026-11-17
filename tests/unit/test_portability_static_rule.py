@@ -245,11 +245,15 @@ def find_unguarded(source: str) -> list[tuple[int, str]]:
     return checker.found
 
 
+def _is_server_only(rel: str) -> bool:
+    return rel.startswith(SERVER_ONLY)
+
+
 def _local_files() -> list[Path]:
     files = []
     for path in sorted(PACKAGE.rglob("*.py")):
         rel = path.relative_to(REPO_ROOT).as_posix()
-        if not rel.startswith(SERVER_ONLY):
+        if not _is_server_only(rel):
             files.append(path)
     return files
 
@@ -273,6 +277,14 @@ def test_known_unfixed_entries_are_still_real() -> None:
     assert not stale, f"KNOWN_UNFIXED entries that no longer match a site (delete them): {stale}"
 
 
+def test_server_only_matching_is_exact_on_directory_boundary() -> None:
+    assert _is_server_only("dango/platform/cloud/x.py")
+    assert _is_server_only("dango/runtime/isolated_run.py")
+    assert not _is_server_only("dango/platform/cloud_x.py")
+    assert not _is_server_only("dango/platform/cloudy/x.py")
+    assert not _is_server_only("dango/runtimex.py")
+
+
 def test_server_only_packages_exist() -> None:
     for prefix in SERVER_ONLY:
         assert (REPO_ROOT / prefix).is_dir(), prefix
@@ -292,6 +304,42 @@ def test_server_only_packages_exist() -> None:
         ("import signal\nsignal.alarm(3)\n", ["alarm"]),
         ("from os import killpg\n", ["killpg"]),
         ("import os\nx = getattr(os, 'killpg')\n", ["killpg"]),
+        # an ImportError handler does not catch the AttributeError a missing attribute raises
+        (
+            "import os\ntry:\n    import json\n    os.fchmod(1, 0o600)\nexcept ImportError:\n    pass\n",
+            ["fchmod"],
+        ),
+        (
+            "import signal\ntry:\n    signal.signal(signal.SIGHUP, h)\nexcept ImportError:\n    pass\n",
+            ["SIGHUP"],
+        ),
+        # aliases and from-imports
+        ("import os as _os\n_os.killpg(1, 9)\n", ["killpg"]),
+        ("import signal as _sig\n_sig.SIGKILL\n", ["SIGKILL"]),
+        ("from os import killpg as k\n", ["killpg"]),
+        ("from signal import SIGKILL\n", ["SIGKILL"]),
+        ("import posix\n", ["import posix"]),
+        # more Unix-only names
+        ("import os\nos.setpgrp()\n", ["setpgrp"]),
+        ("import os\nos.fork()\n", ["fork"]),
+        ("import os\nos.forkpty()\n", ["forkpty"]),
+        ("import os\nos.openpty()\n", ["openpty"]),
+        ("import os\nos.mkfifo('p')\n", ["mkfifo"]),
+        ("import os\nos.nice(1)\n", ["nice"]),
+        ("import os\nos.wait()\n", ["wait"]),
+        ("import os\nos.WNOHANG\n", ["WNOHANG"]),
+        ("import signal\nsignal.SIGQUIT\n", ["SIGQUIT"]),
+        ("import signal\nsignal.SIGUSR2\n", ["SIGUSR2"]),
+        ("import signal\nsignal.SIGCHLD\n", ["SIGCHLD"]),
+        ("import signal\nsignal.SIGPIPE\n", ["SIGPIPE"]),
+        ("import signal\nsignal.setitimer(0, 1)\n", ["setitimer"]),
+        ("import signal\nsignal.getitimer(0)\n", ["getitimer"]),
+        # an early exit only guards when it is taken on Windows and actually exits
+        (
+            "import sys, os\ndef f():\n    if sys.platform != 'win32':\n        return\n    os.killpg(1, 9)\n",
+            ["killpg"],
+        ),
+        ("import sys, os\nif sys.platform == 'win32':\n    log()\nos.killpg(1, 9)\n", ["killpg"]),
         ("import sys, os\nif True:\n    os.killpg(1, 9)\n", ["killpg"]),
         ("import sys, os\nif sys.platform == 'win32':\n    os.killpg(1, 9)\n", ["killpg"]),
         (
@@ -318,6 +366,9 @@ def test_checker_detects(source: str, names: list[str]) -> None:
         "import os\nif os.name == 'posix':\n    import pwd\n",
         "import os\nif os.name != 'nt':\n    os.geteuid()\nelse:\n    pass\n",
         "import os\nfd = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0)\n",
+        "import os as _os\nfd = getattr(_os, 'O_NOFOLLOW', 0)\n",
+        "import os as _os\nif hasattr(_os, 'fchmod'):\n    _os.fchmod(1, 0)\n",
+        "import os\nos.getcwd()\n",
         "import signal\nsigs = [signal.SIGINT, getattr(signal, 'SIGHUP', None)]\n",
         "import os\nif hasattr(os, 'fchmod'):\n    os.fchmod(1, 0o600)\n",
         "import os\nx = os.getuid() if hasattr(os, 'getuid') else 0\n",

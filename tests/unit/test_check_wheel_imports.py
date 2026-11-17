@@ -59,9 +59,11 @@ def _load_script() -> ModuleType:
     return module
 
 
-def _classify(name: str, exc: BaseException) -> str:
+def _classify(name: str, exc: BaseException, platform: str = "win32") -> str:
     script = _load_script()
-    return script.classify(name, exc, ["dango.ingestion.dlt_sources."], ["dango.runtime."])
+    return script.classify(
+        name, exc, ["dango.ingestion.dlt_sources."], ["dango.runtime."], platform=platform
+    )
 
 
 @pytest.mark.parametrize(
@@ -155,3 +157,62 @@ def test_dlt_sources_missing_project_module_still_fails() -> None:
         "No module named 'dango.ingestion.helpers'", name="dango.ingestion.helpers"
     )
     assert _classify("dango.ingestion.dlt_sources.airtable", exc) == "fail"
+
+
+def test_server_only_class_never_applies_on_linux() -> None:
+    exc = ModuleNotFoundError("No module named 'fcntl'", name="fcntl")
+    assert _classify("dango.runtime.isolated_run", exc, platform="linux") == "fail"
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        ImportError("cannot import name 'getuid' from 'dango.platform.cloud.helpers'"),
+        ImportError("cannot import name 'chown' from 'dango.runtime.fs'"),
+        AttributeError("'Settings' object has no attribute 'chown'"),
+        ImportError("cannot import name 'fchmod' from 'somepkg'"),
+    ],
+)
+def test_server_only_quoted_name_of_project_symbol_still_fails(exc: BaseException) -> None:
+    assert _classify("dango.runtime.isolated_run", exc) == "fail"
+
+
+def test_server_only_name_must_be_quoted_whole() -> None:
+    exc = ModuleNotFoundError("No module named 'resourcepool'", name="resourcepool")
+    assert _classify("dango.runtime.isolated_run", exc) == "fail"
+
+
+def test_server_only_prefix_is_not_a_plain_string_prefix() -> None:
+    exc = ModuleNotFoundError("No module named 'fcntl'", name="fcntl")
+    assert _classify("dango.runtimex", exc) == "fail"
+    assert _classify("dango.platform.cloudy.x", exc) == "fail"
+    assert _classify("dango.runtime", exc) == "server_only"  # the package itself is server-only
+
+
+def test_optional_prefix_does_not_match_the_package_itself() -> None:
+    exc = ModuleNotFoundError("No module named 'pyairtable'")
+    assert _classify("dango.ingestion.dlt_sources", exc) == "fail"
+
+
+def _fake_dango(tmp_path: Path) -> None:
+    root = tmp_path / "dango"
+    (root / "platform" / "cloud").mkdir(parents=True)
+    for pkg in (root, root / "platform", root / "platform" / "cloud"):
+        (pkg / "__init__.py").write_text("")
+    (root / "platform" / "cloud" / "svc.py").write_text(
+        "raise ImportError(\"No module named 'fcntl'\")\n"
+    )
+
+
+def test_main_applies_default_server_only_prefixes_for_dango(tmp_path: Path) -> None:
+    _fake_dango(tmp_path)
+    result = _run_with("dango", tmp_path, "--platform", "win32")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "dango.platform.cloud.svc" in result.stdout
+    assert "1 expected server-only" in result.stdout
+
+
+def test_main_treats_server_only_failure_as_failure_on_linux(tmp_path: Path) -> None:
+    _fake_dango(tmp_path)
+    result = _run_with("dango", tmp_path, "--platform", "linux")
+    assert result.returncode == 1, result.stdout + result.stderr
