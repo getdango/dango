@@ -87,6 +87,8 @@ def _list_dango_containers() -> list[dict[str, str]]:
             capture_output=True,
             text=True,
             timeout=10,
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode != 0:
             return []
@@ -117,6 +119,8 @@ def _list_dango_volumes() -> list[str]:
             capture_output=True,
             text=True,
             timeout=10,
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode != 0:
             return []
@@ -157,6 +161,8 @@ def _get_volume_labels(names: list[str]) -> dict[str, tuple[str | None, str | No
             capture_output=True,
             text=True,
             timeout=10,
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode != 0:
             return {}
@@ -194,6 +200,8 @@ def _list_dango_images() -> list[str]:
             capture_output=True,
             text=True,
             timeout=10,
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode != 0:
             return []
@@ -305,6 +313,8 @@ def _remove_group(group: ResourceGroup) -> None:
                 capture_output=True,
                 text=True,
                 timeout=30,
+                encoding="utf-8",
+                errors="replace",
             )
             if result.returncode == 0:
                 console.print(
@@ -322,7 +332,12 @@ def _remove_group(group: ResourceGroup) -> None:
     for vol in group.volumes:
         try:
             result = subprocess.run(
-                ["docker", "volume", "rm", vol], capture_output=True, text=True, timeout=30
+                ["docker", "volume", "rm", vol],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                encoding="utf-8",
+                errors="replace",
             )
             if result.returncode == 0:
                 console.print(f"[green]✓[/green] Removed volume {vol}")
@@ -336,7 +351,12 @@ def _remove_group(group: ResourceGroup) -> None:
     for img in group.images:
         try:
             result = subprocess.run(
-                ["docker", "rmi", img], capture_output=True, text=True, timeout=30
+                ["docker", "rmi", img],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                encoding="utf-8",
+                errors="replace",
             )
             if result.returncode == 0:
                 console.print(f"[green]✓[/green] Removed image {img}")

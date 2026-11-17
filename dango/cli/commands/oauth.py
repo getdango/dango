@@ -67,7 +67,7 @@ def _try_service_account_auth(source_type: str, project_root: Path) -> bool:
 
     # Read and parse JSON
     try:
-        key_data = json.loads(key_path.read_text())
+        key_data = json.loads(key_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
         console.print(f"\n[red]✗ Failed to read JSON key: {e}[/red]\n")
         raise click.Abort() from e

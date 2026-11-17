@@ -106,6 +106,8 @@ def _setup_claude_code(project_root: Path, dango_cmd: str) -> list[str]:
             capture_output=True,
             text=True,
             timeout=10,
+            encoding="utf-8",
+            errors="replace",
         )
         result = subprocess.run(
             [
@@ -125,6 +127,8 @@ def _setup_claude_code(project_root: Path, dango_cmd: str) -> list[str]:
             capture_output=True,
             text=True,
             timeout=10,
+            encoding="utf-8",
+            errors="replace",
         )
     except (subprocess.TimeoutExpired, FileNotFoundError):
         console.print(
@@ -255,7 +259,7 @@ def _print_status_from_file(client: str, path: Path) -> None:
         console.print(f"[yellow]⚠[/yellow]  {client}: not configured — run `dango mcp setup`")
         return
     try:
-        cfg = json.loads(path.read_text())
+        cfg = json.loads(path.read_text(encoding="utf-8"))
         servers = cfg.get("mcpServers", {})
         if "dango" in servers:
             console.print(f"[green]✓[/green] {client}: dango MCP configured")
@@ -294,6 +298,8 @@ def mcp_status(ctx: click.Context) -> None:
                 text=True,
                 cwd=str(project_root),
                 timeout=10,
+                encoding="utf-8",
+                errors="replace",
             )
             if result.returncode == 0 and "Local config" in result.stdout:
                 console.print("[green]✓[/green] Claude Code: dango MCP configured (local scope)")
@@ -340,6 +346,8 @@ def mcp_remove(ctx: click.Context) -> None:
                 text=True,
                 cwd=str(project_root),
                 timeout=10,
+                encoding="utf-8",
+                errors="replace",
             )
             if result.returncode == 0:
                 removed.append("Claude Code")
@@ -398,7 +406,7 @@ def _atomic_write_json(config_path: Path, data: dict, original_mode: int | None)
         dir=config_path.parent, prefix=f".{config_path.name}.", suffix=".tmp"
     )
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(json.dumps(data, indent=2))
         # tempfile.mkstemp() always creates its file at mode 0600 regardless
         # of the target's prior permissions. Without this, every write would
@@ -426,7 +434,7 @@ def _write_mcp_config(config_path: Path, entry: dict) -> None:
     original_mode: int | None = None
     if config_path.exists():
         try:
-            existing = json.loads(config_path.read_text())
+            existing = json.loads(config_path.read_text(encoding="utf-8"))
         except Exception:
             pass
         original_mode = stat.S_IMODE(config_path.stat().st_mode)
@@ -448,7 +456,7 @@ def _remove_mcp_config(config_path: Path) -> bool:
     if not config_path.exists():
         return False
     try:
-        existing = json.loads(config_path.read_text())
+        existing = json.loads(config_path.read_text(encoding="utf-8"))
     except Exception:
         return False
 

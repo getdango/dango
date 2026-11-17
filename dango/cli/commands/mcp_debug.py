@@ -90,7 +90,7 @@ def _lock_status(project_root: Path) -> dict[str, Any]:
     info_path = state_dir / "dbt.lock.json"
     info: dict[str, Any] | None = None
     try:
-        info = json.loads(info_path.read_text()) if info_path.exists() else None
+        info = json.loads(info_path.read_text(encoding="utf-8")) if info_path.exists() else None
     except (OSError, ValueError):
         info = None
     if sys.platform == "win32":
@@ -100,7 +100,7 @@ def _lock_status(project_root: Path) -> dict[str, Any]:
         import fcntl
 
         try:
-            with open(lock_path) as f:
+            with open(lock_path, encoding="utf-8") as f:
                 try:
                     fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:

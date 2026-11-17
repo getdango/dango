@@ -455,7 +455,7 @@ def _compute_ssh_fingerprint(public_key_path: Path) -> str | None:
     try:
         import base64
 
-        content = public_key_path.read_text().strip()
+        content = public_key_path.read_text(encoding="utf-8").strip()
         parts = content.split()
         if len(parts) < 2:
             return None

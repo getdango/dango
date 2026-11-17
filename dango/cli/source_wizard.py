@@ -1033,7 +1033,7 @@ def {module_name}_resource(api_key: str):
     #   yield from response.json()["items"]
     yield {{"id": 1, "name": "example"}}
 '''
-        template_path.write_text(template_content)
+        template_path.write_text(template_content, encoding="utf-8", newline="\n")
         console.print(
             f"[green]✅ Created template: {template_path.relative_to(self.project_root)}[/green]"
         )
@@ -1827,7 +1827,7 @@ def {module_name}_resource(api_key: str):
             # Check if env var already exists in .env
             env_exists = False
             if self.env_file.exists():
-                env_content = self.env_file.read_text()
+                env_content = self.env_file.read_text(encoding="utf-8")
                 for line in env_content.split("\n"):
                     line = line.strip()
                     if line and not line.startswith("#"):

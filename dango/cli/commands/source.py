@@ -148,7 +148,7 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
     # If a name is given, validate it exists
     if name:
         try:
-            data = yaml.safe_load(sources_file.read_text()) or {}
+            data = yaml.safe_load(sources_file.read_text(encoding="utf-8")) or {}
             source_names = [s.get("name") for s in data.get("sources", []) if s.get("name")]
             if name not in source_names:
                 console.print(f"[red]Error:[/red] Source '{name}' not found")
@@ -168,7 +168,7 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
         console.print("[dim]Tip: Set $EDITOR to open in your preferred editor[/dim]")
         return
 
-    original = sources_file.read_text()
+    original = sources_file.read_text(encoding="utf-8")
     edited = click.edit(original, extension=".yml")
 
     if edited is None:
@@ -201,7 +201,7 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
         console.print("[yellow]Changes NOT saved.[/yellow]")
         return
 
-    sources_file.write_text(edited)
+    sources_file.write_text(edited, encoding="utf-8", newline="\n")
     console.print("[green]sources.yml updated[/green]")
 
     if name:
@@ -524,10 +524,12 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
                     console.print(f"  [cyan]{k}[/cyan]")
                 console.print()
                 if Confirm.ask("Remove these environment variables?", default=False):
-                    env_vars = parse_env_file(env_file.read_text())
+                    env_vars = parse_env_file(env_file.read_text(encoding="utf-8"))
                     for k in matching:
                         env_vars.pop(k, None)
-                    env_file.write_text(serialize_env_file(env_vars))
+                    env_file.write_text(
+                        serialize_env_file(env_vars), encoding="utf-8", newline="\n"
+                    )
                     console.print(f"[green]✓[/green] Removed {len(matching)} env variable(s)")
                 else:
                     console.print("[dim]Environment variables left unchanged.[/dim]")

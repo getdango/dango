@@ -854,11 +854,16 @@ def _push_secrets(
     # Written as the dango user (never through a symlink in the project).
     if secrets_path.exists():
         write_project_file(
-            ssh, "/srv/dango/project/.dlt/secrets.toml", secrets_path.read_text(), mode=0o600
+            ssh,
+            "/srv/dango/project/.dlt/secrets.toml",
+            secrets_path.read_text(encoding="utf-8"),
+            mode=0o600,
         )
 
     if env_path.exists():
-        write_project_file(ssh, "/srv/dango/project/.env", env_path.read_text(), mode=0o600)
+        write_project_file(
+            ssh, "/srv/dango/project/.env", env_path.read_text(encoding="utf-8"), mode=0o600
+        )
 
 
 _ADMIN_SCRIPT_WAIT_SECONDS = 120
@@ -1227,7 +1232,7 @@ def _generate_cloud_profiles(
     project_name = "dango"
     if dbt_project_path.is_file():
         try:
-            dbt_cfg = yaml.safe_load(dbt_project_path.read_text()) or {}
+            dbt_cfg = yaml.safe_load(dbt_project_path.read_text(encoding="utf-8")) or {}
             project_name = dbt_cfg.get("name", "dango")
         except Exception:
             _logger.debug("dbt_project_yml_parse_failed", exc_info=True)

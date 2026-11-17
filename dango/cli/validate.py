@@ -492,6 +492,8 @@ class ProjectValidator:
                 timeout=60,
                 stdin=subprocess.DEVNULL,
                 env=_dbt_telemetry_env(),
+                encoding="utf-8",
+                errors="replace",
             )
 
             if result.returncode == 0:
@@ -783,7 +785,12 @@ class ProjectValidator:
         # Check dbt CLI
         try:
             result = subprocess.run(
-                [_get_dbt_executable(), "--version"], capture_output=True, text=True, timeout=5
+                [_get_dbt_executable(), "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                encoding="utf-8",
+                errors="replace",
             )
             if result.returncode == 0:
                 # Extract version from output
@@ -835,6 +842,8 @@ class ProjectValidator:
                 capture_output=True,
                 text=True,
                 timeout=10,
+                encoding="utf-8",
+                errors="replace",
             )
             if result.returncode != 0:
                 return  # git command failed — skip silently
@@ -892,7 +901,7 @@ class ProjectValidator:
             try:
                 import yaml
 
-                data = yaml.safe_load(schema_file.read_text()) or {}
+                data = yaml.safe_load(schema_file.read_text(encoding="utf-8")) or {}
             except Exception:
                 continue
 

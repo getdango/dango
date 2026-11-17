@@ -180,7 +180,7 @@ def get_lineage(model_name: str | None = None) -> dict[str, Any]:
         return {"error": "No dbt manifest found. Run dango run first."}
 
     try:
-        manifest = json.loads(manifest_path.read_text())
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         nodes = manifest.get("nodes", {})
         sources = manifest.get("sources", {})
 
@@ -237,7 +237,7 @@ def list_models() -> list[dict[str, Any]]:
         return [{"error": "No manifest found. Run dango run first."}]
 
     try:
-        manifest = json.loads(manifest_path.read_text())
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         return [
             {
                 "name": n["name"],
@@ -267,7 +267,7 @@ def get_model_sql(model_name: str) -> dict[str, Any]:
         return {"error": "No manifest found. Run dango run first."}
 
     try:
-        manifest = json.loads(manifest_path.read_text())
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         node = next(
             (n for n in manifest.get("nodes", {}).values() if n.get("name") == model_name),
             None,
@@ -276,7 +276,9 @@ def get_model_sql(model_name: str) -> dict[str, Any]:
             return {"error": f"Model '{model_name}' not found"}
 
         sql_path = project_root / "dbt" / node.get("original_file_path", "")
-        sql = sql_path.read_text() if sql_path.exists() else node.get("raw_code", "")
+        sql = (
+            sql_path.read_text(encoding="utf-8") if sql_path.exists() else node.get("raw_code", "")
+        )
         return {"name": model_name, "sql": sql, "path": str(sql_path)}
     except Exception as e:
         return {"error": str(e)}

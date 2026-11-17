@@ -169,6 +169,8 @@ def get_git_branch(project_root: Path | None = None) -> str | None:
             text=True,
             cwd=cwd,
             timeout=2,
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode == 0:
             return result.stdout.strip()

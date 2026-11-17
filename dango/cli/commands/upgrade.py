@@ -37,7 +37,7 @@ def get_latest_version_cached(project_root: Path) -> str | None:
     # Try cache first
     if cache_path.exists():
         try:
-            data = json.loads(cache_path.read_text())
+            data = json.loads(cache_path.read_text(encoding="utf-8"))
             checked_at = datetime.fromisoformat(data["checked_at"])
             age = (datetime.now(timezone.utc) - checked_at).total_seconds()
             cached_version: str | None = data.get("version")
@@ -59,7 +59,8 @@ def get_latest_version_cached(project_root: Path) -> str | None:
                     "version": latest,
                     "checked_at": datetime.now(timezone.utc).isoformat(),
                 }
-            )
+            ),
+            encoding="utf-8",
         )
     except OSError:
         pass  # Non-critical — can't write cache
@@ -263,6 +264,8 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
             capture_output=True,
             text=True,
             timeout=300,
+            encoding="utf-8",
+            errors="replace",
         )
     except subprocess.TimeoutExpired as exc:
         console.print("[red]Error:[/red] pip install timed out after 5 minutes.")

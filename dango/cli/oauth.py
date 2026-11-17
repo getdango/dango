@@ -40,7 +40,7 @@ class OAuthHelper:
         # Read existing .env if it exists
         env_lines = []
         if self.env_file.exists():
-            with open(self.env_file) as f:
+            with open(self.env_file, encoding="utf-8") as f:
                 env_lines = f.readlines()
 
         # Remove existing key if present
@@ -63,7 +63,7 @@ class OAuthHelper:
         new_lines.append(f"{key}={value}\n")
 
         # Write back to .env
-        with open(self.env_file, "w") as f:
+        with open(self.env_file, "w", encoding="utf-8", newline="\n") as f:
             f.writelines(new_lines)
 
         console.print(f"[green]✓[/green] Saved {key} to .env")
@@ -73,7 +73,7 @@ class OAuthHelper:
         if not self.env_file.exists():
             return None
 
-        with open(self.env_file) as f:
+        with open(self.env_file, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line.startswith(f"{key}="):
@@ -314,7 +314,7 @@ class GoogleOAuthHelper(OAuthHelper):
 
             # Read and validate JSON
             try:
-                with open(creds_path_obj) as f:
+                with open(creds_path_obj, encoding="utf-8") as f:
                     creds_data = json.load(f)
 
                 # Check if it's service account or OAuth client
@@ -420,7 +420,7 @@ def check_token_expiry(project_root: Path, source_type: str) -> str | None:
         return None
 
     # Read .env file
-    with open(env_file) as f:
+    with open(env_file, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             # Check for expiry comments

@@ -163,7 +163,7 @@ def start_fastapi_server(project_root: Path, host: str = "0.0.0.0", port: int = 
 
     try:
         # Open log file
-        log_handle = open(log_file, "w")  # noqa: SIM115
+        log_handle = open(log_file, "w", encoding="utf-8")  # noqa: SIM115
 
         # Pass project root via env var so the uvicorn worker can resolve it
         import os
@@ -269,7 +269,12 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
 
         # Find processes using this port
         result = subprocess.run(
-            ["lsof", "-ti", f":{port}"], capture_output=True, text=True, timeout=5
+            ["lsof", "-ti", f":{port}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            encoding="utf-8",
+            errors="replace",
         )
 
         if result.returncode == 0 and result.stdout.strip():
@@ -290,6 +295,8 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
                         capture_output=True,
                         text=True,
                         timeout=2,
+                        encoding="utf-8",
+                        errors="replace",
                     )
 
                     if cmd_result.returncode == 0:
