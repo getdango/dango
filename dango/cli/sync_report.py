@@ -11,7 +11,7 @@ from typing import Any
 from rich.markup import escape
 
 from dango.cli import console
-from dango.utils.redact import redact_project_text
+from dango.utils.error_text import rich_error_text
 
 
 def print_failed_sources(summary: dict[str, Any], project_root: Path) -> None:
@@ -24,5 +24,5 @@ def print_failed_sources(summary: dict[str, Any], project_root: Path) -> None:
     for item in failed:
         name = item.get("name", "unknown") if isinstance(item, dict) else str(item)
         reason = item.get("error") if isinstance(item, dict) else None
-        text = redact_project_text(project_root, str(reason or "Unknown error"))
-        console.print(f"  - {escape(str(name))}: {escape(text)}")
+        text = rich_error_text(project_root, reason or "Unknown error")
+        console.print(f"  - {escape(str(name))}: {text}")

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 import dango
+from dango.utils.redact import redact_project_text
 
 LogLevel = Literal["info", "success", "warning", "error"]
 LogCategory = Literal["core", "auxiliary"]
@@ -48,7 +49,7 @@ def log_activity(
         "timestamp": timestamp,
         "level": level,
         "source": source,
-        "message": message.strip(),  # Remove leading/trailing whitespace
+        "message": redact_project_text(project_root, message.strip()),  # secrets never rest here
         "category": category,
         "dango_version": dango.__version__,
     }

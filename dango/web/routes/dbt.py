@@ -16,6 +16,7 @@ from fastapi.responses import Response
 from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
+from dango.utils.redact import redact_project_text
 from dango.validation import validate_identifier
 from dango.web.helpers import get_dbt_manifest, get_dbt_models, get_project_root
 from dango.web.routes.websocket import ws_manager
@@ -243,7 +244,9 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                 )
         else:
             # Failed
-            error_msg = result.stderr or result.stdout or "Unknown error"
+            error_msg = redact_project_text(
+                project_root, result.stderr or result.stdout or "Unknown error"
+            )
             log_activity(
                 project_root,
                 "error",
@@ -278,14 +281,17 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
         )
     except Exception as e:
         log_activity(
-            project_root, "error", f"dbt:{model_name}", f"Model '{model_name}' failed: {e!s:.200}"
+            project_root,
+            "error",
+            f"dbt:{model_name}",
+            f"Model '{model_name}' failed: {redact_project_text(project_root, str(e))[:200]}",
         )
         logger.error(f"Error running dbt model {model_name}: {e}")
         await ws_manager.broadcast(
             {
                 "event": "dbt_run_failed",
                 "source": f"dbt:{model_name}",
-                "message": f"Model '{model_name}' failed: {str(e)}",
+                "message": f"Model '{model_name}' failed: {redact_project_text(project_root, str(e))}",
                 "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             },
             log=False,

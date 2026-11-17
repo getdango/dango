@@ -9,6 +9,7 @@ from typing import Any
 
 from dango.cli.commands.mcp_helpers import _get_project_root
 from dango.cli.commands.mcp_server import mcp
+from dango.utils.redact import load_secret_values, redact_nested, redact_project_text
 
 # All other dango.* imports are lazy (inside function bodies), and nothing here
 # may write to stdout: the server speaks JSON-RPC over stdio (see mcp_server.py).
@@ -91,7 +92,9 @@ def run_sync(
     try:
         config = load_config(project_root)
     except Exception as e:
-        return {"error": f"Could not load project configuration: {e}"}
+        return {
+            "error": redact_project_text(project_root, f"Could not load project configuration: {e}")
+        }
 
     if source_name:
         source = config.sources.get_source(source_name)
@@ -165,7 +168,11 @@ def run_sync(
                 "action": f"dango oauth {src.type.value}",
             }
         except Exception as e:
-            return {"status": "failed", "error": str(e), "source": src.name}
+            return {
+                "status": "failed",
+                "error": redact_project_text(project_root, str(e)),
+                "source": src.name,
+            }
 
     from dango.ingestion import run_sync as _run_sync
 
@@ -181,9 +188,12 @@ def run_sync(
             allow_empty_replace=allow_empty_replace,
         )
     except Exception as e:
-        return {"status": "failed", "error": str(e)}
+        return {"status": "failed", "error": redact_project_text(project_root, str(e))}
     if not isinstance(summary, dict):
         return {"status": "completed"}
+    # failed_sources / results carry the raw failure text of each source: redact every string
+    redacted: dict[str, Any] = redact_nested(summary, load_secret_values(project_root))
+    summary = redacted
 
     failed_count = summary.get("failed_count", 0)
     if failed_count == 0:
@@ -304,7 +314,7 @@ def run_transform(select: str | None = None, full_refresh: bool = False) -> dict
             )
         return response
     except Exception as e:
-        return {"status": "failed", "error": str(e)}
+        return {"status": "failed", "error": redact_project_text(project_root, str(e))}
     finally:
         if lock._acquired:
             lock.release()

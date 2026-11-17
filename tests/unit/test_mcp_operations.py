@@ -398,3 +398,82 @@ class TestRunDoctor:
         monkeypatch.setattr("dango.ingestion.credential_health.get_cached_credential_health", fake)
         assert mcp_operations.run_doctor() == expected
         assert calls == [True]  # MCP run_doctor always bypasses the cache
+
+
+_SECRET = "TomlSecretValue987"
+_ERR = f"401 for url: https://api.example.com/v1?api_key=QUERYSECRET123&p=2 key {_SECRET}"
+
+
+def _assert_redacted(result: Any) -> None:
+    import json
+
+    text = json.dumps(result)
+    assert "QUERYSECRET123" not in text and _SECRET not in text
+    assert "api.example.com" in text
+
+
+@pytest.mark.unit
+class TestRunSyncRedaction:
+    """Error text returned to the MCP client carries no secret values."""
+
+    @pytest.fixture(autouse=True)
+    def _secrets_file(self, project: Path) -> None:
+        (project / ".dlt").mkdir(exist_ok=True)
+        (project / ".dlt" / "secrets.toml").write_text(f'[s]\nk = "{_SECRET}"\n', encoding="utf-8")
+
+    def test_failed_summary_redacted_and_shape_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        summary = {
+            "success_count": 0,
+            "failed_count": 1,
+            "failed_sources": [{"name": "test_source", "error": _ERR, "error_type": None}],
+            "results": [{"status": "failed", "source": "test_source", "error": _ERR}],
+            "transform_error": _ERR,
+        }
+        monkeypatch.setattr("dango.ingestion.run_sync", lambda **kw: summary)
+        result = mcp_operations.run_sync("test_source")
+        _assert_redacted(result)
+        assert result["status"] == "failed"
+        assert set(result["failed_sources"][0]) == {"name", "error", "error_type"}
+        assert set(result["results"][0]) == {"status", "source", "error"}
+
+    def test_raised_exception_redacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def boom(**kwargs: Any) -> None:
+            raise RuntimeError(_ERR)
+
+        monkeypatch.setattr("dango.ingestion.run_sync", boom)
+        result = mcp_operations.run_sync("test_source")
+        _assert_redacted(result)
+        assert result["status"] == "failed"
+
+    def test_validation_exception_redacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def boom(*a: Any, **k: Any) -> None:
+            raise RuntimeError(_ERR)
+
+        monkeypatch.setattr("dango.oauth.validation.validate_before_sync", boom)
+        result = mcp_operations.run_sync("test_source")
+        _assert_redacted(result)
+        assert result["source"] == "test_source"
+
+
+@pytest.mark.unit
+class TestMcpErrorRedactionOtherReturns:
+    """Config-load and run_transform failures redact too."""
+
+    @pytest.fixture(autouse=True)
+    def _secrets_file(self, project: Path) -> None:
+        (project / ".dlt").mkdir(exist_ok=True)
+        (project / ".dlt" / "secrets.toml").write_text(f'[s]\nk = "{_SECRET}"\n', encoding="utf-8")
+
+    def test_config_load_error_redacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def boom(*a: Any, **k: Any) -> None:
+            raise RuntimeError(_ERR)
+
+        monkeypatch.setattr("dango.config.helpers.load_config", boom)
+        _assert_redacted(mcp_operations.run_sync("test_source"))
+
+    def test_run_transform_exception_redacted(self, project: Path, monkeypatch: pytest.MonkeyPatch):
+        def boom(*a: Any, **k: Any) -> None:
+            raise RuntimeError(_ERR)
+
+        monkeypatch.setattr("dango.transformation.run_dbt_models", boom)
+        _assert_redacted(mcp_operations.run_transform())

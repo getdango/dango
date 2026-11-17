@@ -18,6 +18,7 @@ from typing import Any
 from dango.logging import get_logger
 from dango.utils.dango_db import connect
 from dango.utils.dbt_escaping import needs_identifier_quoting, neutralize_jinja
+from dango.utils.redact import redact_project_text
 from dango.validation import validate_identifier
 
 logger = get_logger(__name__)
@@ -331,7 +332,9 @@ def _run_dbt_snapshots(project_root: Path) -> None:
         if success:
             logger.info("dbt_snapshots_complete")
         else:
-            logger.error("dbt_snapshots_failed", output=output[:500])
+            logger.error(
+                "dbt_snapshots_failed", output=redact_project_text(project_root, output)[:500]
+            )
     except Exception:
         logger.error("dbt_snapshots_error", exc_info=True)
 

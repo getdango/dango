@@ -444,10 +444,13 @@ def _handle_crash(
     Called when a sync subprocess terminates without writing a terminal status.
     """
     from dango.utils.activity_log import log_activity
+    from dango.utils.redact import redact_project_text
     from dango.utils.sync_history import load_sync_history, save_sync_history_entry
 
     log_tail = _read_log_tail(log_path) if log_path else ""
     detail = f"{error_msg}\n{log_tail}".strip() if log_tail else error_msg
+    # Redact before cutting to a length limit: a secret straddling the cut must not survive.
+    detail = redact_project_text(project_root, detail)
 
     for src in sources:
         try:

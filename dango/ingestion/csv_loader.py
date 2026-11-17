@@ -17,6 +17,7 @@ from rich.console import Console
 
 from dango.config.models import CSVSourceConfig
 from dango.exceptions import CSVSchemaMismatchError
+from dango.utils.error_text import rich_error_text
 from dango.validation import quote_identifier
 
 console = Console()
@@ -222,7 +223,7 @@ class CSVLoader:
                 # Schema validation failed - exit immediately without loading anything
                 conn.close()
                 console.print()
-                console.print(f"[red]{str(e)}[/red]")
+                console.print(f"[red]{rich_error_text(self.project_root, e)}[/red]")
                 console.print()
                 return {
                     "status": "error",
@@ -358,7 +359,7 @@ class CSVLoader:
             # Schema mismatch - fail immediately with clear error
             conn.close()
             console.print()
-            console.print(f"[red]{str(e)}[/red]")
+            console.print(f"[red]{rich_error_text(self.project_root, e)}[/red]")
             console.print()
             return {
                 "status": "error",
@@ -1142,13 +1143,17 @@ class CSVLoader:
             # Schema mismatch - re-raise to fail-fast (don't suppress)
             raise
         except Exception as e:
-            console.print(f"    ❌ Failed to load {filename}: {e}")
+            console.print(
+                f"    ❌ Failed to load {filename}: {rich_error_text(self.project_root, e)}"
+            )
             # Attempt cleanup of temp table
             try:
                 conn.execute(f"DROP TABLE IF EXISTS {temp_table}")
             except Exception as cleanup_error:
                 # Log cleanup failure (don't hide it)
-                console.print(f"    ⚠️  Failed to cleanup temp table {temp_table}: {cleanup_error}")
+                console.print(
+                    f"    ⚠️  Failed to cleanup temp table {temp_table}: {rich_error_text(self.project_root, cleanup_error)}"
+                )
             return False
 
     def _reload_updated_file(
@@ -1235,7 +1240,9 @@ class CSVLoader:
             # Schema mismatch - re-raise to fail-fast (don't suppress)
             raise
         except Exception as e:
-            console.print(f"    ❌ Failed to reload {filename}: {e}")
+            console.print(
+                f"    ❌ Failed to reload {filename}: {rich_error_text(self.project_root, e)}"
+            )
             return False
 
     def _delete_file_data(
@@ -1264,7 +1271,9 @@ class CSVLoader:
             return True
 
         except Exception as e:
-            console.print(f"    ❌ Failed to delete {filename}: {e}")
+            console.print(
+                f"    ❌ Failed to delete {filename}: {rich_error_text(self.project_root, e)}"
+            )
             return False
 
 

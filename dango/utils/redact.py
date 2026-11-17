@@ -26,16 +26,27 @@ MIN_SECRET_LENGTH = 6
 SECRET_KEY_RE = re.compile(
     r"(?i)(password|passwd|secret|token|api[_-]?key|authorization|credential|private[_-]?key)"
 )
+# Matching starts at the keyword (the text before it is kept as is, so it needs no capture) and
+# the trailing name part is bounded. The old ``(?<!..)[\w-]*keyword[\w-]*`` form was quadratic on
+# long runs of word characters: every ``_`` restarted a scan of the whole run.
 _SECRET_INLINE_RE = re.compile(
-    r"(?i)(?<![A-Za-z0-9])([\w-]*(?:password|passwd|secret|token|api[_-]?key|authorization)[\w-]*)"
-    r"([\"']?\s*[=:]\s*)((?:Bearer|Basic|Token)\s+\S+|\"[^\"]*\"|'[^']*'|[^\s,;&}]+)"
+    r"(?i)((?:password|passwd|secret|token|api[_-]?key|private[_-]?key|authorization)[\w-]{0,64})"
+    r"([\"']?\s*[=:]\s*)(?![\"']?-----BEGIN )((?:Bearer|Basic|Token)\s+\S+|\"[^\"]*\"|'[^']*'|[^\s,;&}]+)"
 )
 _URL_USERINFO_RE = re.compile(r"(://)[^/\s@]+@")
 _BEARER_RE = re.compile(r"(?i)\b(Bearer|Basic)(\s+)[A-Za-z0-9._~+/=-]{6,}")
 _AUTH_HEADER_RE = re.compile(r"(?i)(authorization\s*[:=]\s*[\"']?(?:[A-Za-z]+\s+)?)[^\s\"',;]+")
 _QUERY_PARAM_RE = re.compile(
-    r"(?i)([?&](?:token|key|secret|password|api_key|access_token|signature)=)[^&\s\"'#]+"
+    r"(?i)((?:[?&]|%3F|%26)(?:token|key|secret|password|api_key|access_token|signature|sig|auth|sas"
+    r"|x-amz-signature|x-amz-credential|x-amz-security-token|x-goog-signature|x-goog-credential)"
+    r"(?:=|%3D))(?:(?!%26)[^&\s\"'#])+"
 )
+# A PEM private key (also the JSON form with escaped newlines, or cut off before the END line).
+_PEM_RE = re.compile(
+    r"-----BEGIN [A-Z ]{0,20}PRIVATE KEY-----[A-Za-z0-9+/=\s\\]*"
+    r"(?:-----END [A-Z ]{0,20}PRIVATE KEY-----)?"
+)
+_AIRTABLE_PAT_RE = re.compile(r"\bpat[A-Za-z0-9]{14}\.[A-Fa-f0-9]{64}\b")
 _WEBHOOK_RE = re.compile(
     r"(?i)(https://hooks\.slack\.com/(?:services|workflows|triggers)/|"
     r"https://(?:discord(?:app)?\.com)/api/(?:v\d+/)?webhooks/)[^\s\"'<>]+"
@@ -46,10 +57,15 @@ _cache: dict[Path, tuple[tuple[int, int], frozenset[str]]] = {}
 
 def redact_patterns(text: str) -> str:
     """Mask secret-looking patterns in free text without knowing the secret values."""
+    # The inline pattern skips a value that starts a key block (lookahead), so the block is left
+    # whole for the PEM pass below. Running the PEM pass first would let a cut-off block (no END
+    # line) swallow a following ``api_key=`` line and hide its name from this pattern.
     text = _SECRET_INLINE_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}****", text)
+    text = _PEM_RE.sub(REDACTED, text)
     text = _AUTH_HEADER_RE.sub(r"\1****", text)
     text = _URL_USERINFO_RE.sub(rf"\1{REDACTED}@", text)
     text = _QUERY_PARAM_RE.sub(rf"\1{REDACTED}", text)
+    text = _AIRTABLE_PAT_RE.sub(REDACTED, text)
     text = _WEBHOOK_RE.sub(rf"\1{REDACTED}", text)
     return _BEARER_RE.sub(r"\1\2****", text)
 
