@@ -6,6 +6,7 @@ results, and ASCII-safe reporting. Standard library only; safe on Windows, macOS
 
 import locale
 import os
+import re
 import socket
 import subprocess
 import time
@@ -71,6 +72,7 @@ class Step:
     status: str  # PASS, FAIL or SKIP
     detail: str = ""
     tail: str = ""
+    flagged: str = ""  # rows of a check table that failed or warned, one per line
 
 
 @dataclass
@@ -178,15 +180,43 @@ class Journey:
         return self.run([self.dango, *args], ignore_budget=ignore_budget)
 
 
-def failure(name: str, reason: str, output: str = "") -> Step:
+_ROW = re.compile(
+    r"^\s+(?P<check>\S.*?)\s{2,}(?:\S\s)?(?P<status>FAIL|WARN)(?:\s+(?P<detail>.*))?$"
+)
+_CATEGORY = re.compile(r"^\S[^|+\u2500-\u257f]*$")
+
+
+def flagged_rows(output: str) -> list[tuple[str, str]]:
+    """Rows of a `dango validate` table whose status is FAIL or WARN: (status, 'Category: row').
+
+    The table prints a category heading line, then one row per check ("check  <mark> FAIL  text").
+    """
+    rows: list[tuple[str, str]] = []
+    category = ""
+    for line in output.splitlines():
+        match = _ROW.match(line)
+        if match:
+            text = f"{match['check']}: {match['detail'] or ''}".rstrip(": ")
+            rows.append((match["status"], f"{category}/{text}" if category else text))
+        elif _CATEGORY.match(line) and len(line.split()) <= 3:
+            category = line.strip()
+    return rows
+
+
+def failure(name: str, reason: str, output: str = "", flagged: str = "") -> Step:
     """Build a FAIL step with the last lines of `output` as its tail."""
-    return Step(name, "FAIL", reason, "\n".join(output.splitlines()[-FAIL_TAIL_LINES:]))
+    tail = "\n".join(output.splitlines()[-FAIL_TAIL_LINES:])
+    return Step(name, "FAIL", reason, tail, flagged)
 
 
 def report(step: Step) -> None:
     """Print one PASS/FAIL/SKIP line (plus a tail for failures), ASCII-safe."""
     suffix = f": {step.detail}" if step.detail else ""
     print(safe(f"{step.status} {step.name}{suffix}"), flush=True)
+    if step.status == "FAIL" and step.flagged:
+        print("--- flagged checks ---")
+        print(safe(step.flagged))
+        print("---", flush=True)
     if step.status == "FAIL" and step.tail:
         print("--- last output lines ---")
         print(safe(step.tail), flush=True)

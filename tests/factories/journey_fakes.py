@@ -53,6 +53,9 @@ def lines(name):
 
 
 if args[:1] == ["ps"]:
+    if "-a" not in args:  # the journey must list stopped containers too
+        print("fake docker: ps must be called with -a", file=sys.stderr)
+        sys.exit(2)
     if "ps-fails" in modes:
         print("Cannot connect to the Docker daemon", file=sys.stderr)
         sys.exit(1)

@@ -38,6 +38,11 @@ def _file_access_subject(error: str) -> str | None:
     return None
 
 
+# dbt imports dbt-core and the adapter on every start: ~1.5 s warm and ~3.5 s with a cold bytecode
+# cache on a fast Apple Silicon Mac, so a slow runner or a virus scan can pass 5 s.
+DBT_VERSION_TIMEOUT_SECONDS = 30
+
+
 class ValidationResult:
     """Result of a validation check"""
 
@@ -788,7 +793,7 @@ class ProjectValidator:
                 [_get_dbt_executable(), "--version"],
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=DBT_VERSION_TIMEOUT_SECONDS,
                 encoding="utf-8",
                 errors="replace",
             )
@@ -800,6 +805,16 @@ class ProjectValidator:
                 self.results.append(ValidationResult("CLI: dbt", "fail", "dbt command failed"))
         except FileNotFoundError:
             self.results.append(ValidationResult("CLI: dbt", "fail", "dbt not found in PATH"))
+        except subprocess.TimeoutExpired:
+            self.results.append(
+                ValidationResult(
+                    "CLI: dbt",
+                    "fail",
+                    f"dbt --version timed out after {DBT_VERSION_TIMEOUT_SECONDS} seconds. "
+                    "A first run or a busy disk can be slow; run 'dbt --version' yourself "
+                    "to see whether dbt hangs.",
+                )
+            )
         except Exception as e:
             self.results.append(
                 ValidationResult("CLI: dbt", "fail", f"Error checking dbt: {str(e)[:100]}")

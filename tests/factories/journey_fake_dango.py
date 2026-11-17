@@ -138,6 +138,9 @@ elif cmd == "validate":
     print("validate ok" if ok else "validate: failed")
     sys.exit(0 if ok else 1)
 elif cmd == "source":
+    if args != ["source", "list"]:
+        sys.stderr.write("fake dango: unknown source subcommand %r\n" % (args[1:],))
+        sys.exit(2)
     if "source-no-people" in modes:
         print("No sources configured yet")
     else:

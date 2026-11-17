@@ -46,6 +46,33 @@ def test_a_plain_validate_failure_still_reports_the_exit_code(tmp_path: Path) ->
     assert "FAIL add-source: dango validate: exit code 1" in result.stdout
 
 
+REAL_TABLE = """
+CLI
+ Check  Status  Details
+ dbt    \u2717 FAIL  dbt --version timed out after 30 seconds. A first run or a busy
+                disk can be slow; run it yourself
+
+Security
+ Check  Status  Details
+ .env   \u26a0 WARN  Sensitive file tracked by git: .env
+ data   \u2713 PASS
+Validation Summary
+ Failed: 1
+"""
+
+
+def test_flagged_rows_parse_the_real_rich_table_layout() -> None:
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    from journey_support import flagged_rows
+
+    rows = flagged_rows(REAL_TABLE)
+    assert [status for status, _ in rows] == ["FAIL", "WARN"]
+    assert rows[0][1].startswith("CLI/dbt: dbt --version timed out after 30 seconds")
+    assert rows[1][1] == "Security/.env: Sensitive file tracked by git: .env"
+
+
 def _fake_docker(tmp_path: Path) -> Path:
     return make_fake_exe(tmp_path / "bin", "docker", FAKE_DOCKER)
 

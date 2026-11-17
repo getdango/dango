@@ -62,7 +62,7 @@ FAKE_SLOW = """
 import sys, time
 print("fake init started", flush=True)
 print("fake init stderr line", file=sys.stderr, flush=True)
-time.sleep(4)
+time.sleep(8)
 """
 
 # Non-ASCII message on stderr, written as UTF-8 bytes, exit 1.
@@ -189,7 +189,7 @@ def test_fail_when_init_completed_with_warnings(tmp_path: Path) -> None:
 
 def test_timeout_reports_decoded_output_of_both_streams(tmp_path: Path) -> None:
     exe = _make_fake_dango(tmp_path, FAKE_SLOW)
-    result = _run(exe, tmp_path / "work", "slow", extra=("--timeout", "1"))
+    result = _run(exe, tmp_path / "work", "slow", extra=("--timeout", "3"))
     assert result.returncode == 1
     assert "FAIL slow" in result.stdout
     assert "timed out" in result.stdout
@@ -219,14 +219,14 @@ def test_non_ascii_output_and_label_are_escaped_under_cp1252_stdout(tmp_path: Pa
 FAKE_UNFLUSHED = """
 import time
 print("unflushed marker line")
-time.sleep(4)
+time.sleep(8)
 """
 
 
 def test_timeout_keeps_output_the_child_had_not_flushed(tmp_path: Path) -> None:
     exe = _make_fake_dango(tmp_path, FAKE_UNFLUSHED)
     env = {k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"}
-    result = _run(exe, tmp_path / "work", "slow", extra=("--timeout", "1"), env=env)
+    result = _run(exe, tmp_path / "work", "slow", extra=("--timeout", "3"), env=env)
     assert result.returncode == 1
     assert "timed out" in result.stdout
     assert "unflushed marker line" in result.stdout

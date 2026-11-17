@@ -20,6 +20,7 @@ from journey_support import (
     Proc,
     Step,
     failure,
+    flagged_rows,
     free_ports,
     report,
     safe,
@@ -130,6 +131,11 @@ def step_add_source(j: Journey) -> Step:
     valid = j.dango_run("validate")
     bad = _fail_from("add-source", valid, "dango validate")
     if bad:
+        rows = flagged_rows(valid.output)
+        failed = [text for status, text in rows if status == "FAIL"]
+        if failed:
+            bad.detail += " (failed checks: " + "; ".join(failed) + ")"
+        bad.flagged = "\n".join(f"{status} {text}" for status, text in rows)
         return bad
     return Step("add-source", "PASS", "csv source 'people' written, listed and validated")
 
