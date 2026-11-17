@@ -40,7 +40,7 @@ def _write_config(config: configparser.ConfigParser) -> None:
         os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
         0o600,
     )
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
         config.write(f)
 
 
@@ -92,7 +92,7 @@ def save_do_token(token: str, project_root: Path | None = None) -> None:
             config.add_section(_SECTION)
         config.set(_SECTION, _TOKEN_KEY, token)
         fd = os.open(str(cred_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             config.write(f)
     else:
         config = _read_config()
@@ -123,7 +123,7 @@ def clear_do_token(project_root: Path | None = None) -> bool:
         if not config.options(_SECTION):
             config.remove_section(_SECTION)
         fd = os.open(str(cred_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             config.write(f)
         return True
 
