@@ -83,3 +83,27 @@ def test_valid_utf8_non_ascii_file_still_merges(manager: CredentialManager) -> N
     manager.save_secrets({"sources": {"b": {"key": "new"}}})
 
     assert manager.load_secrets() == {"sources": {"a": {"key": "café"}, "b": {"key": "new"}}}
+
+
+def test_model_docs_load_names_the_encoding_cause(tmp_path: Path) -> None:
+    from dango.transformation.model_common import ModelServiceError
+    from dango.transformation.model_docs import _load_yaml
+
+    path = tmp_path / "schema.yml"
+    path.write_bytes(b"models:\n  - name: m\n    description: caf\xe9\n")
+
+    with pytest.raises(ModelServiceError) as info:
+        _load_yaml(path)
+
+    assert "UTF-8" in str(info.value)
+    assert "schema.yml" in str(info.value)
+
+
+def test_model_graph_skips_an_undecodable_model_file(tmp_path: Path) -> None:
+    from dango.transformation.model_sql import _find_cycle
+
+    models = tmp_path / "dbt" / "models" / "marts"
+    models.mkdir(parents=True)
+    (models / "orders.sql").write_bytes(b"-- caf\xe9\nselect 1\n")
+
+    assert _find_cycle(tmp_path, "new_model", ["orders"]) is None

@@ -458,12 +458,14 @@ class DltPipelineRunner:
             existing = set()
             if req_file.exists():
                 existing = {
-                    line.strip() for line in req_file.read_text().split("\n") if line.strip()
+                    line.strip()
+                    for line in req_file.read_text(encoding="utf-8").split("\n")
+                    if line.strip()
                 }
 
             new_deps = [d["pip"] for d in missing_deps if d["pip"] not in existing]
             if new_deps:
-                with open(req_file, "a") as f:
+                with open(req_file, "a", encoding="utf-8") as f:
                     for dep in new_deps:
                         f.write(f"{dep}\n")
                 console.print(
@@ -1645,7 +1647,7 @@ class DltPipelineRunner:
                 try:
                     import tomlkit
 
-                    doc = tomlkit.parse(config_toml_path.read_text())
+                    doc = tomlkit.parse(config_toml_path.read_text(encoding="utf-8"))
                     source_section = doc.get("sources", {}).get(source_type.value, {})
                     config_toml_keys = set(source_section.keys())
                 except Exception:  # noqa: BLE001
