@@ -370,7 +370,9 @@ class SourceWizard:
                             "\n[dim]Credential template already exists in .dlt/secrets.toml[/dim]"
                         )
                 except Exception as e:
-                    console.print(f"[yellow]Could not write secrets template: {e}[/yellow]")
+                    console.print(
+                        f"[yellow]Could not write secrets template: {escape(str(e))}[/yellow]"
+                    )
 
             # Step 10: Offer automatic analysis metrics
             try:
@@ -928,7 +930,7 @@ class SourceWizard:
                     )
             return True
         except Exception as e:
-            console.print(f"[red]  ✗ Connection failed: {e}[/red]")
+            console.print(f"[red]  ✗ Connection failed: {escape(str(e))}[/red]")
             return False
         finally:
             engine.dispose()
@@ -2220,7 +2222,7 @@ def {module_name}_resource(api_key: str):
                 credentials.refresh(Request())
             except Exception as refresh_error:
                 console.print("[red]Failed to refresh OAuth token[/red]")
-                console.print(f"[dim]Details: {refresh_error}[/dim]")
+                console.print(f"[dim]Details: {escape(str(refresh_error))}[/dim]")
                 console.print(f"[dim]Error type: {type(refresh_error).__name__}[/dim]")
                 # Re-raise so the outer try-except can handle it
                 raise
@@ -2330,12 +2332,12 @@ def {module_name}_resource(api_key: str):
                 or "refresh" in error_str
             ):
                 console.print("\n[red]✗ OAuth credential expired or invalid[/red]")
-                console.print(f"[dim]Error details: {e}[/dim]")
+                console.print(f"[dim]Error details: {escape(str(e))}[/dim]")
                 console.print("\n[cyan]How to fix:[/cyan]")
                 console.print("  Re-authenticate: [bold]dango oauth google_sheets[/bold]")
                 raise  # Re-raise to abort wizard
             else:
-                console.print(f"[yellow]Error fetching sheets: {e}[/yellow]")
+                console.print(f"[yellow]Error fetching sheets: {escape(str(e))}[/yellow]")
                 console.print(f"[dim]Error type: {type(e).__name__}[/dim]")
                 raise  # Re-raise to abort wizard
 

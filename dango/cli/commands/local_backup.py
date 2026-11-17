@@ -143,7 +143,9 @@ def _create_safety_backup(project_root: Path) -> Path | None:
     except (OSError, tarfile.TarError) as exc:
         if safety_path is not None:
             safety_path.unlink(missing_ok=True)
-        console.print(f"[yellow]Warning:[/yellow] Could not create safety backup: {exc}")
+        console.print(
+            f"[yellow]Warning:[/yellow] Could not create safety backup: {escape(str(exc))}"
+        )
         return None
 
 
@@ -343,7 +345,7 @@ def backup_restore(ctx: click.Context, file: str, yes: bool) -> None:
     try:
         unsafe = unsafe_tar_members(archive_path)
     except (OSError, tarfile.TarError) as exc:
-        console.print(f"[red]Error:[/red] Cannot read backup archive: {exc}")
+        console.print(f"[red]Error:[/red] Cannot read backup archive: {escape(str(exc))}")
         raise click.Abort() from exc
     if unsafe:
         console.print(
@@ -410,7 +412,7 @@ def _restore_locked(project_root: Path, archive_path: Path, yes: bool) -> None:
         keep = "" if safety_path else f".pre-restore-{time.strftime('%Y%m%d-%H%M%S')}"
         skipped = _extract_archive(archive_path, project_root, keep_wal_suffix=keep)
     except (OSError, tarfile.TarError) as exc:
-        console.print(f"[red]Error:[/red] Restore failed: {exc}")
+        console.print(f"[red]Error:[/red] Restore failed: {escape(str(exc))}")
         if safety_path and safety_path.exists():
             console.print(
                 f"[yellow]You can recover from the safety backup: "

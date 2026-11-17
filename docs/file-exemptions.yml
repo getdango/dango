@@ -80,19 +80,19 @@ exemptions:
 
   # --- Phase 3 cloud deployment (TASK-029 + TASK-107) ---
   - file: dango/cli/commands/deploy_wizard.py
-    lines: 1322
+    lines: 1323
     category: exempt
     reason: "TASK-029+075e: Interactive wizard steps 1-8 + BYOS wizard + non-interactive modes. Sequential prompt flow — splitting would scatter closely coupled wizard steps. R9-C added cloud_credentials integration. R12-N1 added _safe_confirm helper. R12-I2 added email confirm + token flow UX."
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy_provision.py
-    lines: 1295
+    lines: 1331
     category: exempt
     reason: "TASK-029+075e: DO provisioning + BYOS setup with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery. R8-F added _generate_cloud_profiles + DANGO_ADMIN_EMAIL persistence. R9-C added _confirm_secrets_push, install source detection, empty error handling. R12-N1 added non_interactive param, project_root resolve. Deploy reliability: extracted script builders, added exit code checks."
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy.py
-    lines: 979
+    lines: 1028
     category: exempt
     reason: "TASK-029+075e: Deploy group with DO + BYOS routing, destroy command for both providers. Splitting would scatter the provider selection and destroy dispatch logic. R12-N1 threaded non_interactive flag."
     review_by: "v1.1"
@@ -129,13 +129,13 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/remote.py
-    lines: 760
+    lines: 771
     category: exempt
     reason: "Remote server management: push + rollback + firewall subgroup + domain subgroup + registration of management and backup subgroups. P8-004 added git guard rails (--allow-dirty/--allow-branch) to push command. R12-K added auth subgroup registration."
     review_by: "v1.1"
 
   - file: dango/cli/commands/remote_mgmt.py
-    lines: 666
+    lines: 677
     category: exempt
     reason: "P8-004: Added deployment panel to remote status + remote history command. Marginally over limit."
     review_by: "v1.1"
@@ -184,7 +184,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/source_wizard.py
-    lines: 2425
+    lines: 2427
     category: exempt
     reason: "Interactive source configuration wizard. Sequential prompting logic doesn't benefit from splitting. P7-011 added metrics generation. P5c grew +529 lines (credential unification, resource selection, dedup collection). P8-001 added REST API wizard enhancements: headers, query params, endpoint testing, data_selector/primary_key suggestions (+267 lines). 1.0.8-OPS-3 added _print_git_warnings() (+~19 lines)."
     review_by: "v1.1"
@@ -202,7 +202,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/init.py
-    lines: 1705
+    lines: 1661
     category: exempt
     reason: "Project initialization wizard. Sequential setup flow — splitting adds indirection without benefit. P7-014 added COMPATIBILITY.md + SCALABILITY.md generation (+133 lines). P7-011 added metrics config generation. P8-003 added CI workflow generation. P8-round2 added ICU extension install, auth YAML write, password auto-gen. 1.0.8-C added first-run telemetry consent prompt (+89 lines total, incl. a closed-stdin safety fix and replacing the isatty() gate with a direct prompt helper that correctly honours piped answers)."
     review_by: "v1.1"

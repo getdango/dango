@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
@@ -124,7 +125,7 @@ def remote_status(ctx: click.Context) -> None:
         if state == "off":
             console.print(f"[red]Error:[/red] Server is powered off. Run: {POWER_ON_HINT}")
         else:
-            console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
+            console.print(f"[red]Error:[/red] Failed to connect to server: {escape(str(exc))}")
             if state is None and cloud_cfg.provider != "byos":
                 console.print(f"If the server is powered off: {POWER_ON_HINT}")
         raise SystemExit(1) from exc
@@ -133,7 +134,7 @@ def remote_status(ctx: click.Context) -> None:
         status = collect_server_status(ssh, cloud_cfg)
         backup_lines = backup_notices.backup_status_lines(ssh)
     except CloudSSHError as exc:
-        console.print(f"[red]Error:[/red] Could not read server status: {exc}")
+        console.print(f"[red]Error:[/red] Could not read server status: {escape(str(exc))}")
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -299,13 +300,13 @@ def remote_history(ctx: click.Context, limit: int) -> None:
     try:
         ssh.connect(cloud_cfg.droplet_ip)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
+        console.print(f"[red]Error:[/red] Failed to connect to server: {escape(str(exc))}")
         raise SystemExit(1) from exc
 
     try:
         entries = read_remote_journal(ssh, limit=limit, raise_on_error=True)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to read deployment journal: {exc}")
+        console.print(f"[red]Error:[/red] Failed to read deployment journal: {escape(str(exc))}")
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -377,14 +378,14 @@ def remote_logs(
     try:
         ssh.connect(cloud_cfg.droplet_ip)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
+        console.print(f"[red]Error:[/red] Failed to connect to server: {escape(str(exc))}")
         raise SystemExit(1) from exc
 
     try:
         cmd = build_log_command(ssh, service, tail_n, REMOTE_PROJECT_DIR, follow=follow)
     except Exception as exc:
         ssh.disconnect()
-        console.print(f"[red]Error:[/red] Failed to locate {service} container: {exc}")
+        console.print(f"[red]Error:[/red] Failed to locate {service} container: {escape(str(exc))}")
         raise SystemExit(1) from exc
     if cmd is None:
         ssh.disconnect()
@@ -404,7 +405,7 @@ def remote_logs(
             if result.stderr:
                 console.print(f"[dim]{result.stderr}[/dim]")
         except Exception as exc:
-            console.print(f"[red]Error:[/red] Failed to retrieve logs: {exc}")
+            console.print(f"[red]Error:[/red] Failed to retrieve logs: {escape(str(exc))}")
             raise SystemExit(1) from exc
         finally:
             ssh.disconnect()
@@ -470,7 +471,7 @@ def remote_ssh(ctx: click.Context) -> None:
         identity_arg = ssh_argv_path(key_path)
         known_hosts_arg = f'UserKnownHostsFile="{ssh_config_path(known_hosts)}"'
     except CloudSSHError as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
         raise click.Abort() from None
 
     if not key_path.exists():
@@ -486,7 +487,7 @@ def remote_ssh(ctx: click.Context) -> None:
     try:
         ensure_host_pinned(known_hosts, manager.legacy_known_hosts_paths, cloud_cfg.droplet_ip)
     except CloudSSHError as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
         raise click.Abort() from None
 
     args = [
@@ -640,7 +641,7 @@ def remote_query(ctx: click.Context, sql: str, timeout: int) -> None:
     try:
         ssh.connect(cloud_cfg.droplet_ip)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
+        console.print(f"[red]Error:[/red] Failed to connect to server: {escape(str(exc))}")
         raise SystemExit(1) from exc
 
     escaped_sql = shlex.quote(sql)
@@ -670,7 +671,7 @@ def remote_query(ctx: click.Context, sql: str, timeout: int) -> None:
     except Exception as exc:
         if isinstance(exc, SystemExit):
             raise
-        console.print(f"[red]Error:[/red] Query execution failed: {exc}")
+        console.print(f"[red]Error:[/red] Query execution failed: {escape(str(exc))}")
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()

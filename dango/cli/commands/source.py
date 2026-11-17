@@ -198,7 +198,7 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
     try:
         yaml.safe_load(edited)
     except yaml.YAMLError as e:
-        console.print(f"[red]Invalid YAML:[/red] {e}")
+        console.print(f"[red]Invalid YAML:[/red] {escape(str(e))}")
         console.print("[yellow]Changes NOT saved.[/yellow]")
         return
 

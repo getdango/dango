@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
@@ -61,7 +62,9 @@ def reconcile_size(client: Any, cloud_cfg: Any, project_root: Any, ssh: Any = No
         finally:
             own.disconnect()
     except Exception as exc:
-        console.print(f"[yellow]Could not check or update the recorded server size: {exc}[/yellow]")
+        console.print(
+            f"[yellow]Could not check or update the recorded server size: {escape(str(exc))}[/yellow]"
+        )
 
 
 def _adopt_live_size(ssh: Any, cloud_cfg: Any, project_root: Any, live_size: str) -> None:
@@ -76,7 +79,7 @@ def _adopt_live_size(ssh: Any, cloud_cfg: Any, project_root: Any, live_size: str
     try:
         regenerate_dbt_profiles(ssh, live_size, cloud_cfg.dbt_overrides)
     except Exception as exc:
-        console.print(f"[yellow]profiles.yml was not regenerated: {exc}[/yellow]")
+        console.print(f"[yellow]profiles.yml was not regenerated: {escape(str(exc))}[/yellow]")
     save_provisioning_metadata(
         project_root,
         droplet_id=cloud_cfg.droplet_id,
@@ -113,7 +116,9 @@ def remote_power_on(ctx: click.Context, yes: bool) -> None:
         client = _make_client()
         state = get_power_state(client, cloud_cfg.droplet_id)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Could not read the server's power state: {exc}")
+        console.print(
+            f"[red]Error:[/red] Could not read the server's power state: {escape(str(exc))}"
+        )
         raise click.Abort() from exc
 
     console.print(f"Server power state: [bold]{state}[/bold]")
@@ -140,7 +145,7 @@ def remote_power_on(ctx: click.Context, yes: bool) -> None:
         finally:
             ssh.disconnect()
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Power-on failed: {exc}")
+        console.print(f"[red]Error:[/red] Power-on failed: {escape(str(exc))}")
         raise click.Abort() from exc
 
     if healthy:

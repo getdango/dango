@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.logging import get_logger
@@ -106,7 +107,7 @@ def env_set(ctx: click.Context, key_value: str) -> None:
         _write_remote_env(ssh, env_vars)
         console.print(f"[green]{action}[/green] {key}=***")
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to set env var: {exc}")
+        console.print(f"[red]Error:[/red] Failed to set env var: {escape(str(exc))}")
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -140,7 +141,7 @@ def env_get(ctx: click.Context, key: str) -> None:
     except SystemExit:
         raise
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to read env var: {exc}")
+        console.print(f"[red]Error:[/red] Failed to read env var: {escape(str(exc))}")
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -173,7 +174,7 @@ def env_list(ctx: click.Context) -> None:
             console.print(f"{key}=***")
         console.print(f"\n[dim]{len(env_vars)} variable(s) total[/dim]")
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to list env vars: {exc}")
+        console.print(f"[red]Error:[/red] Failed to list env vars: {escape(str(exc))}")
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -207,7 +208,7 @@ def env_delete(ctx: click.Context, key: str) -> None:
     except SystemExit:
         raise
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to delete env var: {exc}")
+        console.print(f"[red]Error:[/red] Failed to delete env var: {escape(str(exc))}")
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()

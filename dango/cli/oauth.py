@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
@@ -181,7 +182,7 @@ class FacebookOAuthHelper(OAuthHelper):
             console.print("\n[yellow]Authentication cancelled[/yellow]")
             return False
         except Exception as e:
-            console.print(f"\n[red]✗ Error: {e}[/red]")
+            console.print(f"\n[red]✗ Error: {escape(str(e))}[/red]")
             return False
 
     def _exchange_token(self, short_token: str, app_id: str, app_secret: str) -> str | None:
@@ -226,7 +227,7 @@ class FacebookOAuthHelper(OAuthHelper):
             console.print("Install with: pip install requests")
             return None
         except Exception as e:
-            console.print(f"[red]✗ Token exchange error: {e}[/red]")
+            console.print(f"[red]✗ Token exchange error: {escape(str(e))}[/red]")
             return None
 
 
@@ -388,7 +389,7 @@ class GoogleOAuthHelper(OAuthHelper):
             console.print("\n[yellow]Authentication cancelled[/yellow]")
             return False
         except Exception as e:
-            console.print(f"\n[red]✗ Error: {e}[/red]")
+            console.print(f"\n[red]✗ Error: {escape(str(e))}[/red]")
             return False
 
 

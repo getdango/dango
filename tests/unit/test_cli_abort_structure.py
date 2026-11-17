@@ -70,10 +70,28 @@ def _bare_call_name(node: ast.AST) -> str | None:
     return None
 
 
-def _swallows(guard: ast.Try) -> bool:
+def _is_exit_call(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "exit"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "ctx"
+    )
+
+
+def _swallows(guard: ast.Try, exit_call: bool = False) -> bool:
+    """True when a broad handler would catch the exception before any handler that names it.
+
+    click.Abort and click.exceptions.Exit are different RuntimeError subclasses, so an
+    `except click.Abort` does not protect a `ctx.exit(...)` call; only `except ...Exit` does.
+    """
     for handler in guard.handlers:
         names = _handler_names(handler)
-        if any(n.endswith("Abort") for n in names):
+        if exit_call:
+            if any(n == "Exit" or n.endswith(".Exit") for n in names):  # not SystemExit
+                return False
+        elif any(n.endswith("Abort") for n in names):
             return False
         if any(n in _BROAD for n in names):
             return True
@@ -92,7 +110,7 @@ def find_swallowed_aborts(
         elif isinstance(node, ast.Lambda):
             guards = []
         is_hit = _is_abort_raise(node) or _is_source_call(node) or _bare_call_name(node) in helpers
-        if is_hit and any(_swallows(g) for g in guards):
+        if is_hit and any(_swallows(g, _is_exit_call(node)) for g in guards):
             found.append((getattr(node, "lineno", 0), func))
         if isinstance(node, ast.Try):
             for child in node.body:
@@ -184,6 +202,21 @@ class TestDetectorPositiveControls:
     def test_flags_ctx_exit(self) -> None:
         src = "try:\n    ctx.exit(1)\nexcept Exception:\n    pass\n"
         assert _scan(src) == [2]
+
+    def test_ctx_exit_not_protected_by_abort_handler(self) -> None:
+        src = "try:\n    ctx.exit(1)\nexcept click.Abort:\n    raise\nexcept Exception:\n    pass\n"
+        assert _scan(src) == [2]
+
+    def test_ctx_exit_not_protected_by_system_exit_handler(self) -> None:
+        src = "try:\n    ctx.exit(1)\nexcept SystemExit:\n    raise\nexcept Exception:\n    pass\n"
+        assert _scan(src) == [2]
+
+    def test_ctx_exit_clean_with_exit_handler(self) -> None:
+        src = (
+            "try:\n    ctx.exit(1)\nexcept click.exceptions.Exit:\n    raise\n"
+            "except Exception:\n    pass\n"
+        )
+        assert _scan(src) == []
 
     def test_other_object_confirm_is_not_a_source(self) -> None:
         src = "try:\n    dialog.confirm('x')\nexcept Exception:\n    pass\n"

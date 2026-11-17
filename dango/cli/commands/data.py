@@ -223,7 +223,7 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
                     orphaned_sources.add(source_name)
 
             except Exception as e:
-                console.print(f"[red]✗[/red] Failed to drop {schema}.{table}: {e}")
+                console.print(f"[red]✗[/red] Failed to drop {schema}.{table}: {escape(str(e))}")
                 from dango.exceptions import is_debug_mode
 
                 if is_debug_mode():
@@ -273,7 +273,7 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
                             metadata_cleaned += 1
                     except Exception as e:
                         console.print(
-                            f"[yellow]⚠[/yellow] Could not clean metadata for '{source_name}': {e}"
+                            f"[yellow]⚠[/yellow] Could not clean metadata for '{source_name}': {escape(str(e))}"
                         )
                         from dango.exceptions import is_debug_mode
 

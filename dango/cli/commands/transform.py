@@ -75,7 +75,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
             )
             lock.acquire()
         except DbtLockError as e:
-            console.print(f"[red]Error:[/red] {str(e)}")
+            console.print(f"[red]Error:[/red] {escape(str(e))}")
             raise click.Abort() from e
 
         console.print(f"[dim]Running: {' '.join(cmd)}[/dim]\n")

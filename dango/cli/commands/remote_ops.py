@@ -81,7 +81,7 @@ def remote_upgrade(
                 "\n[red]Error:[/red] Could not determine latest version from PyPI. "
                 "Specify a version with --version."
             )
-            ctx.exit(1)
+            raise SystemExit(1)
 
         # At target, only a venv rebuild restarts services: ask first (plain steps need no prompt).
         if at_target and not yes and (plan := at_target_restart_plan(ssh)):

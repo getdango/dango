@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 
@@ -216,7 +217,7 @@ def _step_web_exposure(
         try:
             cidrs = [validate_ip_or_cidr(part) for part in answer.split(",") if part.strip()]
         except CloudError as exc:
-            console.print(f"  [red]Error:[/red] {exc}")
+            console.print(f"  [red]Error:[/red] {escape(str(exc))}")
             continue
         if not cidrs:
             continue
@@ -1125,7 +1126,7 @@ def _validate_ssh_connectivity(
     try:
         ssh.connect(server_ip, username=ssh_user)
     except Exception as exc:
-        console.print(f"  [red]Error:[/red] SSH connection failed: {exc}")
+        console.print(f"  [red]Error:[/red] SSH connection failed: {escape(str(exc))}")
         console.print(
             "\n  Troubleshooting:"
             "\n  - Verify the server IP and SSH user are correct"

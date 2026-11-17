@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
+from rich.markup import escape
 from rich.table import Table
 
 from dango.cli import console
@@ -327,7 +328,9 @@ def _remove_group(group: ResourceGroup) -> None:
                     f"{group.project}: {result.stderr.strip()}"
                 )
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            console.print(f"[red]✗[/red] Failed to remove containers for {group.project}: {e}")
+            console.print(
+                f"[red]✗[/red] Failed to remove containers for {group.project}: {escape(str(e))}"
+            )
 
     for vol in group.volumes:
         try:
@@ -346,7 +349,7 @@ def _remove_group(group: ResourceGroup) -> None:
                     f"[yellow]![/yellow] Could not remove volume {vol}: {result.stderr.strip()}"
                 )
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            console.print(f"[red]✗[/red] Failed to remove volume {vol}: {e}")
+            console.print(f"[red]✗[/red] Failed to remove volume {vol}: {escape(str(e))}")
 
     for img in group.images:
         try:
@@ -365,7 +368,7 @@ def _remove_group(group: ResourceGroup) -> None:
                     f"[yellow]![/yellow] Could not remove image {img}: {result.stderr.strip()}"
                 )
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            console.print(f"[red]✗[/red] Failed to remove image {img}: {e}")
+            console.print(f"[red]✗[/red] Failed to remove image {img}: {escape(str(e))}")
 
 
 _STATUS_STYLE = {

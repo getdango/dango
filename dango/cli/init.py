@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 
 from dango.config import ConfigLoader, DangoConfig, ProjectContext, SourcesConfig
@@ -134,7 +135,7 @@ class ProjectInitializer:
 
         except Exception as e:
             # Unexpected error - rollback
-            print_error(f"\n\n✗ Unexpected error during initialization: {e}")
+            print_error(f"\n\n✗ Unexpected error during initialization: {escape(str(e))}")
             print_error("  Rolling back...")
             self._rollback_initialization()
             raise
@@ -144,8 +145,6 @@ class ProjectInitializer:
             self._create_pre_push_hook()
         except Exception as exc:
             # Never fail init over a convenience hook, but say it is missing
-            from rich.markup import escape
-
             hook_path = self.project_dir / ".git" / "hooks" / "pre-push"
             console.print(
                 "[yellow]Could not install the pre-push secret-scanning hook: "
@@ -1280,7 +1279,7 @@ on-run-end:
             console.print("    Install dbt-duckdb: pip install dbt-duckdb")
             return False
         except Exception as e:
-            print_error(f"✗ Failed to generate dbt docs: {e}")
+            print_error(f"✗ Failed to generate dbt docs: {escape(str(e))}")
             console.print("    You can generate docs later with: cd dbt && dbt docs generate")
             return False
 
@@ -1436,7 +1435,7 @@ on-run-end:
             return True
 
         except Exception as e:
-            print_error(f"Auth setup failed: {e}")
+            print_error(f"Auth setup failed: {escape(str(e))}")
             console.print("  [yellow]You can set up auth later with:[/yellow] dango auth enable")
             return False
 
@@ -1449,8 +1448,6 @@ on-run-end:
         before the first write); files and directories that existed before are kept, and a
         pre-existing top-level file init changed (such as `.gitignore`) is put back.
         """
-        from rich.markup import escape
-
         from dango.logging import close_file_handlers
 
         console.print("[dim]Cleaning up partial initialization...[/dim]")

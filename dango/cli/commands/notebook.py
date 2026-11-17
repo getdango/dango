@@ -6,6 +6,7 @@ Notebook management CLI commands.
 from __future__ import annotations
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 
@@ -211,7 +212,7 @@ def notebook_open(ctx: click.Context, name: str) -> None:
         console.print("\n[dim]Press Ctrl+C to release lock and exit.[/dim]")
         stop_event.wait()
     except IsolationRequiredError as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
         raise click.Abort() from exc
     except KeyboardInterrupt:  # noqa: BLE001
         pass

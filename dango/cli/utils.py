@@ -8,6 +8,7 @@ from pathlib import Path
 
 import click
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 
 from dango.config import ProjectNotFoundError
@@ -60,7 +61,7 @@ def require_project_context(ctx: click.Context) -> Path:
     try:
         return find_project_root()
     except ProjectNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise click.Abort() from e
 
 
@@ -209,7 +210,7 @@ def load_cloud_config_with_ssh(ctx: click.Context) -> tuple:
     try:
         ssh.connect(cloud_cfg.droplet_ip, username="root")
     except Exception as exc:
-        console.print(f"[red]Error:[/red] SSH connection failed: {exc}")
+        console.print(f"[red]Error:[/red] SSH connection failed: {escape(str(exc))}")
         raise SystemExit(1) from exc
 
     return cloud_cfg, ssh

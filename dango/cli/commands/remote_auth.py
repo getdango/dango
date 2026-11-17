@@ -20,6 +20,7 @@ import shlex
 from typing import Any
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 
@@ -50,7 +51,7 @@ def _connect_ssh_or_fail(ctx: click.Context) -> tuple[Any, Any]:
         ssh.connect(cloud_cfg.droplet_ip)
     except Exception as exc:
         console.print(
-            f"[red]Error:[/red] Cannot connect to server: {exc}\n"
+            f"[red]Error:[/red] Cannot connect to server: {escape(str(exc))}\n"
             "Check [bold]dango remote status[/bold] for connectivity."
         )
         raise SystemExit(1) from exc

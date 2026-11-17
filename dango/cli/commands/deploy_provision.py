@@ -463,7 +463,7 @@ def run_provisioning(
 
     except SizeUnavailableError as exc:
         # Nothing was created, so there is nothing to clean up.
-        console.print(f"\n[red]Cannot deploy:[/red] {exc}")
+        console.print(f"\n[red]Cannot deploy:[/red] {escape(str(exc))}")
         raise CloudProvisioningError(str(exc)) from exc
     except Exception as exc:
         # BUG-122: Handle empty exception messages (e.g. SSH timeout)

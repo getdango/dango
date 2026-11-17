@@ -9,6 +9,7 @@ from pathlib import Path
 
 import psutil
 from rich.console import Console
+from rich.markup import escape
 
 from dango.utils import process_group
 from dango.utils.process import (
@@ -330,7 +331,7 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
                                 if verbose:
                                     console.print(
                                         f"  [yellow]⚠[/yellow] Could not verify CWD for "
-                                        f"PID {proc_pid}: {e}"
+                                        f"PID {proc_pid}: {escape(str(e))}"
                                     )
                         else:
                             other_pids.append((proc_pid, cmd_line))
@@ -387,7 +388,7 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
 
     except Exception as e:
         if verbose:
-            console.print(f"[yellow]Warning:[/yellow] Could not check port: {e}")
+            console.print(f"[yellow]Warning:[/yellow] Could not check port: {escape(str(e))}")
         return False
 
     return False
