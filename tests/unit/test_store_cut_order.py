@@ -108,3 +108,21 @@ def test_dbt_model_route_redacts_before_cutting(project: Path) -> None:
     sent: Any = [c.args[0] for c in broadcast.call_args_list]
     assert "sk_live" not in json.dumps(sent)
     assert "sk_live" not in _read(project / ".dango" / "logs" / "activity.jsonl")
+
+
+def test_dbt_model_route_exception_is_redacted(project: Path) -> None:
+    from dango.web.routes import dbt as dbt_route
+
+    broadcast = AsyncMock()
+    with (
+        patch.object(dbt_route, "get_project_root", return_value=project),
+        patch("dango.utils.DbtLock"),
+        patch("dango.transformation._get_dbt_executable", return_value="dbt"),
+        patch("dango.transformation._dbt_telemetry_env", return_value={}),
+        patch.object(dbt_route.subprocess, "run", side_effect=RuntimeError(_straddling(200))),
+        patch.object(dbt_route.ws_manager, "broadcast", broadcast),
+    ):
+        asyncio.run(dbt_route.run_dbt_model_task("m", False))
+    sent: Any = [c.args[0] for c in broadcast.call_args_list]
+    assert "sk_live" not in json.dumps(sent)
+    assert "sk_live" not in _read(project / ".dango" / "logs" / "activity.jsonl")
