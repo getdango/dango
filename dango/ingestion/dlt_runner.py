@@ -3100,7 +3100,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
                             total_rows += table_rows
                     except Exception as table_err:
                         console.print(
-                            f"[dim]Warning: Could not count rows for {table_name}: {table_err}[/dim]"
+                            f"[dim]Warning: Could not count rows for {table_name}: {self._rich_err(table_err)}[/dim]"
                         )
                         continue
 

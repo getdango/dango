@@ -11,6 +11,9 @@ from rich.markup import escape
 
 from dango.utils.redact import redact_project_text
 
+# Longest error text printed to a terminal (stored records keep the full text).
+MAX_PRINTED_CHARS = 8000
+
 
 def redacted_error_text(project_root: Path | None, error: object) -> str:
     """Plain text of *error* with secrets masked (for logs and stored text)."""
@@ -18,5 +21,13 @@ def redacted_error_text(project_root: Path | None, error: object) -> str:
 
 
 def rich_error_text(project_root: Path | None, error: object) -> str:
-    """Text of *error* with secrets masked and Rich markup escaped (for ``console.print``)."""
-    return escape(redacted_error_text(project_root, error))
+    """Text of *error* with secrets masked and Rich markup escaped (for ``console.print``).
+
+    The text is redacted first and cut afterwards (a cut can never expose part of a secret), to
+    ``MAX_PRINTED_CHARS`` characters: nobody reads more than that on a terminal. The full text is
+    still what stored error records keep.
+    """
+    text = redacted_error_text(project_root, error)
+    if len(text) > MAX_PRINTED_CHARS:
+        text = f"{text[:MAX_PRINTED_CHARS]}... [truncated {len(text) - MAX_PRINTED_CHARS} chars]"
+    return escape(text)

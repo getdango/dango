@@ -126,11 +126,13 @@ def remote_sync(
                     )
                 else:
                     error = data.get("error", "Unknown error")
-                    console.print(f"[red]Sync failed[/red] for [bold]{source}[/bold]: {error}")
+                    console.print(
+                        f"[red]Sync failed[/red] for [bold]{source}[/bold]: {escape(str(error))}"
+                    )
                     raise SystemExit(1)
             else:
                 stderr = result.stderr.strip() if result.stderr else "No output"
-                console.print(f"[red]Error:[/red] {stderr}")
+                console.print(f"[red]Error:[/red] {escape(stderr)}")
                 raise SystemExit(1)
         else:
             # Fire-and-forget: only the sync command is backgrounded; the directory check
@@ -139,7 +141,7 @@ def remote_sync(
             result = ssh.exec_command(f"sh -c {shlex.quote(script)}", timeout=30, check=False)
             if not result.success:
                 stderr = result.stderr.strip() if result.stderr else "Could not start sync"
-                console.print(f"[red]Error:[/red] {stderr}")
+                console.print(f"[red]Error:[/red] {escape(stderr)}")
                 raise SystemExit(1)
             console.print(
                 f"[green]Sync triggered[/green] for [bold]{source}[/bold] "

@@ -26,16 +26,27 @@ MIN_SECRET_LENGTH = 6
 SECRET_KEY_RE = re.compile(
     r"(?i)(password|passwd|secret|token|api[_-]?key|authorization|credential|private[_-]?key)"
 )
+# Matching starts at the keyword (the text before it is kept as is, so it needs no capture) and
+# the trailing name part is bounded. The old ``(?<!..)[\w-]*keyword[\w-]*`` form was quadratic on
+# long runs of word characters: every ``_`` restarted a scan of the whole run.
 _SECRET_INLINE_RE = re.compile(
-    r"(?i)(?<![A-Za-z0-9])([\w-]*(?:password|passwd|secret|token|api[_-]?key|authorization)[\w-]*)"
+    r"(?i)((?:password|passwd|secret|token|api[_-]?key|private[_-]?key|authorization)[\w-]{0,20})"
     r"([\"']?\s*[=:]\s*)((?:Bearer|Basic|Token)\s+\S+|\"[^\"]*\"|'[^']*'|[^\s,;&}]+)"
 )
 _URL_USERINFO_RE = re.compile(r"(://)[^/\s@]+@")
 _BEARER_RE = re.compile(r"(?i)\b(Bearer|Basic)(\s+)[A-Za-z0-9._~+/=-]{6,}")
 _AUTH_HEADER_RE = re.compile(r"(?i)(authorization\s*[:=]\s*[\"']?(?:[A-Za-z]+\s+)?)[^\s\"',;]+")
 _QUERY_PARAM_RE = re.compile(
-    r"(?i)([?&](?:token|key|secret|password|api_key|access_token|signature)=)[^&\s\"'#]+"
+    r"(?i)((?:[?&]|%3F|%26)(?:token|key|secret|password|api_key|access_token|signature|sig|auth|sas"
+    r"|x-amz-signature|x-amz-credential|x-amz-security-token|x-goog-signature|x-goog-credential)"
+    r"(?:=|%3D))(?:(?!%26)[^&\s\"'#])+"
 )
+# A PEM private key (also the JSON form with escaped newlines, or cut off before the END line).
+_PEM_RE = re.compile(
+    r"-----BEGIN [A-Z ]{0,20}PRIVATE KEY-----[A-Za-z0-9+/=\s\\]*"
+    r"(?:-----END [A-Z ]{0,20}PRIVATE KEY-----)?"
+)
+_AIRTABLE_PAT_RE = re.compile(r"\bpat[A-Za-z0-9]{14}\.[A-Fa-f0-9]{64}\b")
 _WEBHOOK_RE = re.compile(
     r"(?i)(https://hooks\.slack\.com/(?:services|workflows|triggers)/|"
     r"https://(?:discord(?:app)?\.com)/api/(?:v\d+/)?webhooks/)[^\s\"'<>]+"
@@ -50,6 +61,8 @@ def redact_patterns(text: str) -> str:
     text = _AUTH_HEADER_RE.sub(r"\1****", text)
     text = _URL_USERINFO_RE.sub(rf"\1{REDACTED}@", text)
     text = _QUERY_PARAM_RE.sub(rf"\1{REDACTED}", text)
+    text = _PEM_RE.sub(REDACTED, text)
+    text = _AIRTABLE_PAT_RE.sub(REDACTED, text)
     text = _WEBHOOK_RE.sub(rf"\1{REDACTED}", text)
     return _BEARER_RE.sub(r"\1\2****", text)
 
