@@ -116,8 +116,22 @@ def metadata():
                     column("segment", "VARCHAR", "string"),
                 ],
             },
-            {"name": "semantic_bad_customers", "config": {"meta": {"hidden": True}}},
-            {"name": "semantic_orphan_events", "config": {"meta": {"hidden": True}}},
+            {
+                "name": "semantic_bad_customers",
+                "config": {"meta": {"hidden": True}},
+                "columns": [
+                    column("customer_id", "VARCHAR", "string"),
+                    column("segment", "VARCHAR", "string"),
+                ],
+            },
+            {
+                "name": "semantic_orphan_events",
+                "config": {"meta": {"hidden": True}},
+                "columns": [
+                    column("id", "INTEGER", "number"),
+                    column("customer_id", "VARCHAR", "string"),
+                ],
+            },
             {
                 "name": "semantic_line_totals",
                 "config": {"meta": {"primary_key": "id"}},
