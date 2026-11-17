@@ -150,7 +150,7 @@ def _save_persistent_status(project_root: Path, status: dict[str, dict[str, Any]
     status_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        with open(status_path, "w", encoding="utf-8") as f:
+        with open(status_path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(status, f, indent=2)
     except Exception:  # noqa: BLE001
         pass

@@ -106,7 +106,7 @@ class DbtLock:
             "hostname": hostname,
         }
 
-        with open(self.lock_info_path, "w", encoding="utf-8") as f:
+        with open(self.lock_info_path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(lock_info, f, indent=2)
 
     def _cleanup_stale_lock(self) -> bool:
@@ -147,7 +147,7 @@ class DbtLock:
 
             # Try to acquire the lock
             try:
-                self._lock_file = open(self.lock_file_path, "w", encoding="utf-8")
+                self._lock_file = open(self.lock_file_path, "w", encoding="utf-8", newline="\n")
 
                 # Platform-specific locking
                 if sys.platform == "win32":

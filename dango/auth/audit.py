@@ -178,7 +178,7 @@ def log_auth_event(
     # JSONL file write (never-fail)
     try:
         log_path = get_audit_log_path(log_dir)
-        with open(log_path, "a", encoding="utf-8") as fh:
+        with open(log_path, "a", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(entry) + "\n")
     except Exception:
         _logger.warning("audit_log_write_failed", audit_event=event_type.value, exc_info=True)

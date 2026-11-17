@@ -61,6 +61,7 @@ def get_latest_version_cached(project_root: Path) -> str | None:
                 }
             ),
             encoding="utf-8",
+            newline="\n",
         )
     except OSError:
         pass  # Non-critical — can't write cache

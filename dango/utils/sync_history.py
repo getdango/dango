@@ -39,7 +39,7 @@ def save_sync_history_entry(project_root: Path, source_name: str, entry: dict[st
             history = history[-100:]
 
         # Save back
-        with open(history_file, "w", encoding="utf-8") as f:
+        with open(history_file, "w", encoding="utf-8", newline="\n") as f:
             json.dump(history, f, indent=2)
 
     except Exception as e:
@@ -86,7 +86,7 @@ def update_last_sync_entry(project_root: Path, source_name: str, updates: dict[s
             history = json.load(f)
         if history:
             history[-1].update(redact_error_fields(project_root, updates))
-            with open(history_file, "w", encoding="utf-8") as f:
+            with open(history_file, "w", encoding="utf-8", newline="\n") as f:
                 json.dump(history, f, indent=2)
     except Exception as e:
         logger.warning("Failed to update sync history for %s: %s", source_name, e)

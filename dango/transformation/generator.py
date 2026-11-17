@@ -335,7 +335,9 @@ class DbtModelGenerator:
         if not seed_dest.exists():
             seeds_dir.mkdir(parents=True, exist_ok=True)
             seed_src = self.templates_dir / "seeds" / "geo_targets.csv"
-            seed_dest.write_text(seed_src.read_text(encoding="utf-8"), encoding="utf-8")
+            seed_dest.write_text(
+                seed_src.read_text(encoding="utf-8"), encoding="utf-8", newline="\n"
+            )
             provisioned.append("geo_targets.csv")
 
         # 2. Create staging join model from template
@@ -344,7 +346,7 @@ class DbtModelGenerator:
             self.staging_dir.mkdir(parents=True, exist_ok=True)
             template = (self.templates_dir / "stg_geo_names.sql").read_text(encoding="utf-8")
             model_sql = template.replace("__SOURCE_NAME__", source_name)
-            model_dest.write_text(model_sql, encoding="utf-8")
+            model_dest.write_text(model_sql, encoding="utf-8", newline="\n")
             provisioned.append(f"stg_{source_name}__geo_names.sql")
 
         return provisioned
@@ -656,7 +658,7 @@ class DbtModelGenerator:
                             write_needed = False
 
                     if write_needed:
-                        with open(model_file, "w", encoding="utf-8") as f:
+                        with open(model_file, "w", encoding="utf-8", newline="\n") as f:
                             f.write(model_sql)
 
                     generated_models.append(

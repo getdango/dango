@@ -168,14 +168,16 @@ def provision_geo_targets(project_root: Path, source_name: str) -> list[str]:
     if not seed_dest.exists():
         seeds_dir.mkdir(parents=True, exist_ok=True)
         seed_src = templates_dir / "seeds" / "geo_targets.csv"
-        seed_dest.write_text(seed_src.read_text(encoding="utf-8"), encoding="utf-8")
+        seed_dest.write_text(seed_src.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
         created.append("dbt/seeds/geo_targets.csv")
     staging_dir = project_root / "dbt" / "models" / "staging"
     model_dest = staging_dir / f"stg_{source_name}__geo_names.sql"
     if not model_dest.exists():
         staging_dir.mkdir(parents=True, exist_ok=True)
         template = (templates_dir / "stg_geo_names.sql").read_text(encoding="utf-8")
-        model_dest.write_text(template.replace("__SOURCE_NAME__", source_name), encoding="utf-8")
+        model_dest.write_text(
+            template.replace("__SOURCE_NAME__", source_name), encoding="utf-8", newline="\n"
+        )
         created.append(f"dbt/models/staging/stg_{source_name}__geo_names.sql")
     return created
 

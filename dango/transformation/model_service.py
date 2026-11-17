@@ -138,7 +138,7 @@ def _apply(
     try:
         if content is not None:
             sql_path.parent.mkdir(parents=True, exist_ok=True)
-            sql_path.write_text(content, encoding="utf-8")
+            sql_path.write_text(content, encoding="utf-8", newline="\n")
             result.files_changed.append(rel_path(project_root, sql_path))
         if docs_wanted:
             docs_rel = upsert_model_docs(

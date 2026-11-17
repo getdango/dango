@@ -201,7 +201,7 @@ class MetabaseCredentialStore:
         try:
             fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             apply_private_mode(fd, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as secret_file:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as secret_file:
                 fd = None
                 secret_file.write(payload)
                 secret_file.flush()

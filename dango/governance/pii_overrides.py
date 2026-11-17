@@ -89,7 +89,7 @@ def _save_overrides(project_root: Path, overrides: list[dict[str, Any]]) -> None
     )
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".yml.tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(content)
         os.replace(tmp, path)
     except Exception:
