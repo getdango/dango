@@ -4,6 +4,7 @@ The journey names the validate checks that failed or warned, and its fake docker
 are strict about the arguments the journey must use (a missing `-a` or a made-up subcommand).
 """
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -46,31 +47,62 @@ def test_a_plain_validate_failure_still_reports_the_exit_code(tmp_path: Path) ->
     assert "FAIL add-source: dango validate: exit code 1" in result.stdout
 
 
-REAL_TABLE = """
-CLI
- Check  Status  Details
- dbt    \u2717 FAIL  dbt --version timed out after 30 seconds. A first run or a busy
-                disk can be slow; run it yourself
+def _real_table() -> str:
+    """The table validate itself prints (its own _display_results) at the CI console width."""
+    import io
 
-Security
- Check  Status  Details
- .env   \u26a0 WARN  Sensitive file tracked by git: .env
- data   \u2713 PASS
-Validation Summary
- Failed: 1
-"""
+    from rich.console import Console
+
+    import dango.cli.validate as validate_module
+
+    results = validate_module.ValidationResult
+    validator = validate_module.ProjectValidator(Path("."))
+    validator.results = [
+        results("Package: DuckDB", "pass"),
+        results("CLI: dbt", "fail", "dbt --version timed out after 30 seconds. " + "slow " * 20),
+        results("Security: .env", "warn", "Sensitive file tracked by git: .env"),
+    ]
+    buffer = io.StringIO()
+    original = validate_module.console
+    validate_module.console = Console(file=buffer, width=80, force_terminal=False)
+    try:
+        validator._display_results()
+    finally:
+        validate_module.console = original
+    return buffer.getvalue()
 
 
-def test_flagged_rows_parse_the_real_rich_table_layout() -> None:
-    import sys
-
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+def test_flagged_rows_parse_the_real_rich_table_layout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "scripts"))
     from journey_support import flagged_rows
 
-    rows = flagged_rows(REAL_TABLE)
+    rows = flagged_rows(_real_table())
     assert [status for status, _ in rows] == ["FAIL", "WARN"]
     assert rows[0][1].startswith("CLI/dbt: dbt --version timed out after 30 seconds")
     assert rows[1][1] == "Security/.env: Sensitive file tracked by git: .env"
+
+
+def test_a_flagged_row_without_the_glyph_is_still_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "scripts"))
+    from journey_support import flagged_rows
+
+    rows = flagged_rows("CLI\n dbt    FAIL  broken\n git    WARN  old\n")
+    assert rows == [("FAIL", "CLI/dbt: broken"), ("WARN", "CLI/git: old")]
+
+
+def test_flagged_lines_never_look_like_step_lines(tmp_path: Path) -> None:
+    result = run_journey(tmp_path, mode="validate-rows", steps="init,add-source")
+    step_lines = [ln for ln in result.stdout.splitlines() if re.match(r"^(PASS|FAIL|SKIP) ", ln)]
+    assert step_lines == [
+        next(ln for ln in step_lines if ln.startswith("PASS init")),
+        next(ln for ln in step_lines if ln.startswith("FAIL add-source")),
+    ]
+    assert "CLI/dbt" in result.stdout  # the flagged rows are still printed, indented
+
+
+def test_children_get_a_wide_console_so_details_are_not_wrapped(tmp_path: Path) -> None:
+    run_journey(tmp_path, steps="init")
+    assert "COLUMNS=200" in (tmp_path / "work" / "env-seen.txt").read_text("utf-8")
 
 
 def _fake_docker(tmp_path: Path) -> Path:

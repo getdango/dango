@@ -60,6 +60,8 @@ def test_a_dbt_that_hangs_fails_with_an_actionable_message(tmp_path: Path) -> No
     assert result.status == "fail"
     assert "timed out after 30" in result.message
     assert "first run" in result.message
+    assert "yourself" not in result.message  # validate runs the project's own dbt, not PATH's
+    assert "dango validate" in result.message
     assert "Error checking dbt" not in result.message
     assert "dbt command failed" not in result.message
 

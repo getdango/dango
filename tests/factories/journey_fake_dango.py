@@ -108,7 +108,7 @@ if cmd == "init":
         (root / ".dango" / "auth.yml").write_text("enabled: true\n", encoding="utf-8")
     keys = [
         "DO_NOT_TRACK", "PYTHONUNBUFFERED", "DANGO_ADMIN_PASSWORD", "PYTHON_KEYRING_BACKEND",
-        "PYTHONUTF8", "PYTHONIOENCODING", "NO_COLOR", "TERM",
+        "PYTHONUTF8", "PYTHONIOENCODING", "NO_COLOR", "TERM", "COLUMNS",
     ]
     lines = ["%s=%s" % (k, os.environ.get(k, "<unset>")) for k in keys]
     (root / "env-seen.txt").write_text("\n".join(lines), encoding="utf-8")
@@ -125,7 +125,7 @@ elif cmd == "validate" and "validate-rows" in modes:
     print(" Check       Status    Details")
     print(" DuckDB      \u2713 PASS")
     print("\nCLI")
-    print(" dbt         \u2717 FAIL  Error checking dbt: timed out after 5 seconds")
+    print(" dbt         \u2717 FAIL  Error checking dbt: Command '['dbt', '--version']' timed out after 5 seconds")
     print(" git         \u26a0 WARN  git not found")
     print("\nPermissions")
     for i in range(24):
