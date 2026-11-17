@@ -118,6 +118,21 @@ if cmd == "init":
     if "init-warnings" in modes:
         print("Initialization Completed with Warnings")
     print("fake init ok")
+elif cmd == "validate" and "validate-rows" in modes:
+    # Shaped like the real table: the flagged rows come early, then more than 15 passing lines.
+    print("Validating Dango Project")
+    print("\nPackage")
+    print(" Check       Status    Details")
+    print(" DuckDB      \u2713 PASS")
+    print("\nCLI")
+    print(" dbt         \u2717 FAIL  Error checking dbt: timed out after 5 seconds")
+    print(" git         \u26a0 WARN  git not found")
+    print("\nPermissions")
+    for i in range(24):
+        print(" dir%d        \u2713 PASS" % i)
+    print("Validation Summary")
+    print("Passed: 25  Warnings: 1  Failed: 1")
+    sys.exit(1)
 elif cmd == "validate":
     ok = (root / ".dango" / "sources.yml").is_file() and "fail-validate" not in modes
     print("validate ok" if ok else "validate: failed")
