@@ -5,7 +5,8 @@ Symlink-safe file copying for notebook files.
 ``notebooks/`` can be writable by a lower-privileged user, so a path there may
 be a symlink planted to redirect a read or a write. These helpers never follow
 a symlink at the final path component, and optionally refuse symlinked
-directory components below a given root.
+directory components below a given root. On Windows ``O_NOFOLLOW`` is
+unavailable, so the ``lstat`` pre-check is the only symlink guard on the source side.
 """
 
 from __future__ import annotations

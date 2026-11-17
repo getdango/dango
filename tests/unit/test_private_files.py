@@ -56,7 +56,7 @@ class TestApplyPrivateMode:
         try:
             before = _mode(path)
             apply_private_mode(fd, 0o600)
-            expected = 0o600 if hasattr(os, "fchmod") else before
+            expected = 0o600 if os.name == "posix" else before
             assert _mode(path) == expected
         finally:
             os.close(fd)
