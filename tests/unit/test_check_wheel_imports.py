@@ -148,3 +148,10 @@ def test_run_skips_missing_dependency_under_optional_prefix(tmp_path: Path) -> N
     _package(tmp_path, "optpkg2", "src", "import module_that_does_not_exist_xyz\n")
     result = _run_with("optpkg2", tmp_path, "--optional-prefix", "optpkg2.src")
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_dlt_sources_missing_project_module_still_fails() -> None:
+    exc = ModuleNotFoundError(
+        "No module named 'dango.ingestion.helpers'", name="dango.ingestion.helpers"
+    )
+    assert _classify("dango.ingestion.dlt_sources.airtable", exc) == "fail"

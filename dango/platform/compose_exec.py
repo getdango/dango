@@ -135,7 +135,10 @@ class _Watch:
     def __enter__(self) -> _Watch:
         if threading.current_thread() is not threading.main_thread():
             return self
-        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        # SIGHUP does not exist on Windows
+        for sig in (signal.SIGINT, signal.SIGTERM, getattr(signal, "SIGHUP", None)):
+            if sig is None:
+                continue
             previous = signal.getsignal(sig)
             if previous == signal.SIG_IGN:
                 continue
@@ -238,7 +241,8 @@ def _project_mb_version(path: Path) -> str | None:
     be a regular file, and at most 64 KiB are read.  Present but unusable is an error.
     """
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(path, flags)
     except FileNotFoundError:
         return None
     except OSError as exc:
