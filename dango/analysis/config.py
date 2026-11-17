@@ -95,7 +95,7 @@ def save_monitors_config(
 
     lines.append(yaml.dump(data, default_flow_style=False, sort_keys=False))
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
 
 
 def add_monitors_to_config(

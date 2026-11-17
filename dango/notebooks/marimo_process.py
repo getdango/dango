@@ -43,7 +43,7 @@ def write_runner_record(
     pid_file.parent.mkdir(parents=True, exist_ok=True)
     record = {"pid": pid, "start_time": get_process_start_time(pid), "runner": "nb"}
     tmp = pid_file.with_name(pid_file.name + ".tmp")
-    tmp.write_text(json.dumps(record))
+    tmp.write_text(json.dumps(record), encoding="utf-8", newline="\n")
     os.replace(tmp, pid_file)
     if proc is not None:
         _runner_procs[pid] = proc
@@ -52,7 +52,7 @@ def write_runner_record(
 def is_runner_record(pid_file: Path) -> bool:
     """True when the pid file was written for a runner-owned Marimo."""
     try:
-        data = json.loads(pid_file.read_text())
+        data = json.loads(pid_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
     return isinstance(data, dict) and data.get("runner") == "nb"

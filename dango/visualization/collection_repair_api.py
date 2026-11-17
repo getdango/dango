@@ -96,7 +96,7 @@ class RequestsCollectionApi:
 
 def _previous_report_incomplete(path: Path) -> bool:
     try:
-        return json.loads(path.read_text()).get("complete") is False
+        return json.loads(path.read_text(encoding="utf-8")).get("complete") is False
     except (OSError, ValueError):
         return False
 
@@ -121,7 +121,7 @@ def write_report(project_root: Path, result: RepairResult, dango_version: str) -
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".collection_repair.", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(payload, handle, indent=2)
         os.replace(tmp_name, path)
     except OSError:

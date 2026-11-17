@@ -16,6 +16,13 @@ from typing import Any
 from dango.utils.process import pid_alive
 
 
+def _run_text(argv: list[str], *, check: bool = False) -> subprocess.CompletedProcess[str]:
+    """Run a command and capture its output as UTF-8 text (undecodable bytes replaced)."""
+    return subprocess.run(
+        argv, capture_output=True, text=True, check=check, encoding="utf-8", errors="replace"
+    )
+
+
 class NetworkConfig:
     """
     Manages ~/.dango/ global network configuration
@@ -44,13 +51,13 @@ class NetworkConfig:
         if not self.routing_file.exists():
             return {"version": "1.0", "port": 80, "projects": {}, "next_available_port": 8800}
 
-        with open(self.routing_file) as f:
+        with open(self.routing_file, encoding="utf-8") as f:
             result: dict[str, Any] = json.load(f)
             return result
 
     def save_routing(self, routing: dict[str, Any]) -> None:
         """Save routing.json"""
-        with open(self.routing_file, "w") as f:
+        with open(self.routing_file, "w", encoding="utf-8", newline="\n") as f:
             json.dump(routing, f, indent=2)
 
     def allocate_port(self) -> int:
@@ -252,14 +259,14 @@ server {{
     def write_base_config(self) -> None:
         """Write base nginx.conf"""
         config = self.generate_base_config()
-        with open(self.nginx_conf, "w") as f:
+        with open(self.nginx_conf, "w", encoding="utf-8", newline="\n") as f:
             f.write(config)
 
     def write_project_config(self, project_name: str, domain: str, backend_port: int) -> None:
         """Write project-specific nginx site config"""
         config = self.generate_project_config(project_name, domain, backend_port)
         site_conf = self.config.sites_dir / f"{project_name}.conf"
-        with open(site_conf, "w") as f:
+        with open(site_conf, "w", encoding="utf-8", newline="\n") as f:
             f.write(config)
 
     def remove_project_config(self, project_name: str) -> None:
@@ -274,7 +281,7 @@ server {{
             return False
 
         try:
-            with open(self.nginx_pid) as f:
+            with open(self.nginx_pid, encoding="utf-8") as f:
                 pid = int(f.read().strip())
 
             # Check if process exists (os.kill(pid, 0) is not a probe on Windows)
@@ -303,9 +310,7 @@ server {{
 
         # Start nginx
         try:
-            subprocess.run(
-                ["nginx", "-c", str(self.nginx_conf)], capture_output=True, text=True, check=True
-            )
+            _run_text(["nginx", "-c", str(self.nginx_conf)], check=True)
             return True, "nginx started successfully"
         except subprocess.CalledProcessError as e:
             return False, f"Failed to start nginx: {e.stderr}"
@@ -326,7 +331,7 @@ server {{
             return True, "nginx not running"
 
         try:
-            with open(self.nginx_pid) as f:
+            with open(self.nginx_pid, encoding="utf-8") as f:
                 pid = int(f.read().strip())
 
             import psutil
@@ -347,12 +352,7 @@ server {{
             return self.start()
 
         try:
-            subprocess.run(
-                ["nginx", "-s", "reload", "-c", str(self.nginx_conf)],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
+            _run_text(["nginx", "-s", "reload", "-c", str(self.nginx_conf)], check=True)
             return True, "nginx reloaded"
         except subprocess.CalledProcessError as e:
             return False, f"Failed to reload nginx: {e.stderr}"
@@ -383,15 +383,15 @@ class HostsManager:
     def backup_hosts(self) -> None:
         """Backup /etc/hosts before first modification"""
         if not self.backup_file.exists():
-            with open(self.HOSTS_FILE) as f:
+            with open(self.HOSTS_FILE, encoding="utf-8") as f:
                 content = f.read()
-            with open(self.backup_file, "w") as f:
+            with open(self.backup_file, "w", encoding="utf-8", newline="\n") as f:
                 f.write(content)
 
     def get_dango_domains(self) -> list[str]:
         """Get list of domains currently in /etc/hosts"""
         try:
-            with open(self.HOSTS_FILE) as f:
+            with open(self.HOSTS_FILE, encoding="utf-8") as f:
                 lines = f.readlines()
 
             in_section = False
@@ -427,7 +427,7 @@ class HostsManager:
         self.backup_hosts()
 
         try:
-            with open(self.HOSTS_FILE) as f:
+            with open(self.HOSTS_FILE, encoding="utf-8") as f:
                 content = f.read()
 
             # Check if domain already exists
@@ -451,13 +451,11 @@ class HostsManager:
 
             # Write back (requires sudo)
             temp_file = self.config.dango_home / "hosts-temp"
-            with open(temp_file, "w") as f:
+            with open(temp_file, "w", encoding="utf-8", newline="\n") as f:
                 f.write(new_content)
 
             # Use sudo to copy
-            result = subprocess.run(
-                ["sudo", "cp", str(temp_file), str(self.HOSTS_FILE)], capture_output=True, text=True
-            )
+            result = _run_text(["sudo", "cp", str(temp_file), str(self.HOSTS_FILE)])
 
             temp_file.unlink()
 
@@ -472,7 +470,7 @@ class HostsManager:
     def remove_domain(self, domain: str) -> tuple[bool, str]:
         """Remove domain from /etc/hosts"""
         try:
-            with open(self.HOSTS_FILE) as f:
+            with open(self.HOSTS_FILE, encoding="utf-8") as f:
                 lines = f.readlines()
 
             new_lines = []
@@ -481,12 +479,10 @@ class HostsManager:
                     new_lines.append(line)
 
             temp_file = self.config.dango_home / "hosts-temp"
-            with open(temp_file, "w") as f:
+            with open(temp_file, "w", encoding="utf-8", newline="\n") as f:
                 f.writelines(new_lines)
 
-            result = subprocess.run(
-                ["sudo", "cp", str(temp_file), str(self.HOSTS_FILE)], capture_output=True, text=True
-            )
+            result = _run_text(["sudo", "cp", str(temp_file), str(self.HOSTS_FILE)])
 
             temp_file.unlink()
 

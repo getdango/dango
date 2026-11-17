@@ -212,7 +212,7 @@ truncate_staging_dataset = true
         except UnicodeDecodeError as e:
             # Returning {} here would let a later save drop every other credential.
             raise _not_utf8_error(".dlt/secrets.toml") from e
-        except toml.TomlDecodeError as e:
+        except (toml.TomlDecodeError, IndexError) as e:
             raise _not_toml_error(".dlt/secrets.toml", e) from e
         except Exception as e:
             console.print(f"[yellow]Warning: Could not load .dlt/secrets.toml: {e}[/yellow]")
@@ -235,7 +235,7 @@ truncate_staging_dataset = true
         except UnicodeDecodeError as e:
             # Returning {} here would let a later save drop every other credential.
             raise _not_utf8_error(".dlt/config.toml") from e
-        except toml.TomlDecodeError as e:
+        except (toml.TomlDecodeError, IndexError) as e:
             raise _not_toml_error(".dlt/config.toml", e) from e
         except Exception as e:
             console.print(f"[yellow]Warning: Could not load .dlt/config.toml: {e}[/yellow]")

@@ -449,7 +449,7 @@ class DashboardManager:
             "exported_from": self.metabase_url,
         }
 
-        with open(self.state_file, "w") as f:
+        with open(self.state_file, "w", encoding="utf-8", newline="\n") as f:
             json.dump(state, f, indent=2)
 
     def _create_card_from_yaml(
@@ -847,7 +847,7 @@ class DashboardManager:
 
                 # Write file
                 try:
-                    with open(filepath, "w") as f:
+                    with open(filepath, "w", encoding="utf-8", newline="\n") as f:
                         f.write(content)
 
                     summary["exported_dashboards"].append(
@@ -900,7 +900,7 @@ class DashboardManager:
 
                 # Write file
                 try:
-                    with open(filepath, "w") as f:
+                    with open(filepath, "w", encoding="utf-8", newline="\n") as f:
                         f.write(content)
 
                     summary[summary_key].append(
@@ -931,7 +931,7 @@ class DashboardManager:
 
                 # Write file
                 try:
-                    with open(filepath, "w") as f:
+                    with open(filepath, "w", encoding="utf-8", newline="\n") as f:
                         f.write(content)
 
                     summary["exported_timelines"].append(
@@ -959,7 +959,7 @@ class DashboardManager:
                     for c in collections_to_export
                 ]
             }
-            with open(collections_file, "w") as f:
+            with open(collections_file, "w", encoding="utf-8", newline="\n") as f:
                 f.write(yaml.safe_dump(collections_data, default_flow_style=False, sort_keys=False))
         except Exception as e:
             summary["errors"].append(f"Failed to write collections.yml: {e}")
@@ -1039,7 +1039,7 @@ class DashboardManager:
         try:
             collections_file = metabase_dir / "collections.yml"
             if collections_file.exists():
-                with open(collections_file) as f:
+                with open(collections_file, encoding="utf-8") as f:
                     collections_data = yaml.safe_load(f) or {}
                 cols = collections_data.get("collections", [])
                 if cols:
@@ -1060,7 +1060,7 @@ class DashboardManager:
             if dashboards_dir.exists():
                 for filepath in dashboards_dir.glob("*.yml"):
                     try:
-                        with open(filepath) as f:
+                        with open(filepath, encoding="utf-8") as f:
                             dashboard_data = yaml.safe_load(f)
 
                         dashboard_name = dashboard_data.get("name")
@@ -1148,7 +1148,7 @@ class DashboardManager:
                 if card_dir.exists():
                     for filepath in card_dir.glob("*.yml"):
                         try:
-                            with open(filepath) as f:
+                            with open(filepath, encoding="utf-8") as f:
                                 card_data = yaml.safe_load(f)
 
                             card_name = card_data.get("name")

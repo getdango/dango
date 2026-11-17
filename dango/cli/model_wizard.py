@@ -448,7 +448,7 @@ class ModelWizard:
         )
 
         # Write file
-        with open(model_path, "w", encoding="utf-8") as f:
+        with open(model_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(sql_content)
 
         return model_path

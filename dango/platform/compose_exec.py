@@ -100,6 +100,11 @@ def effective_timeout(verb: str, timeout: float, *, helper: bool) -> float:
     return max(timeout, min_caller_timeout(verb))
 
 
+def _text_decoding(text: bool | None) -> dict[str, Any]:
+    """Decoding for text-mode output: UTF-8, undecodable bytes replaced (output is displayed)."""
+    return {"encoding": "utf-8", "errors": "replace"} if text else {}
+
+
 def _local_run(
     project_root: Path, verb: str, args: Sequence[str], timeout: float, opts: dict[str, Any]
 ) -> subprocess.CompletedProcess[Any]:
@@ -119,6 +124,7 @@ def _local_run(
     kwargs["capture_output"] = True
     if opts.get("text") is not None:
         kwargs["text"] = opts["text"]
+        kwargs.update(_text_decoding(opts["text"]))
     argv = [*compose_cmd, "-f", str(project_root / "docker-compose.yml"), *tokens, *args]
     return subprocess.run(argv, timeout=timeout, env=env, **kwargs)
 
@@ -177,6 +183,7 @@ def _helper_run(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=text,
+            **_text_decoding(text),
         )
         watch.proc = proc
         if watch.hit:
@@ -324,6 +331,8 @@ def render(project_root: Path, config: Any, *, force_helper: bool = False) -> No
         text=True,
         timeout=effective_timeout("render", 0, helper=True),
         check=False,
+        encoding="utf-8",
+        errors="replace",
     )
     if done.returncode == EXIT_BUSY:
         raise ComposeBusy(done.stderr.strip() or "dango-compose: busy")

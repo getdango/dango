@@ -22,6 +22,8 @@ from dango.web import helpers
 
 pytestmark = pytest.mark.unit
 
+_UTF8 = {"encoding": "utf-8", "errors": "replace"}
+
 SINCE = "2026-10-20T12:34:56.123456+00:00"
 
 
@@ -41,7 +43,7 @@ def test_log_ready_polls_docker_logs() -> None:
     assert calls(run) == [
         (
             ["docker", "logs", "--since", SINCE, "c-1"],
-            {"capture_output": True, "text": True, "timeout": 5},
+            {"capture_output": True, "text": True, **_UTF8, "timeout": 5},
         )
     ]
 
@@ -63,11 +65,11 @@ def test_refresh_uses_docker_ps_then_docker_restart(tmp_path: Path) -> None:
     got = calls(run)
     assert got[0] == (
         ["docker", "ps", "--filter", f"name={name}", "--format", "{{.Names}}"],
-        {"capture_output": True, "text": True, "timeout": 5},
+        {"capture_output": True, "text": True, **_UTF8, "timeout": 5},
     )
     assert got[1] == (
         ["docker", "restart", name],
-        {"capture_output": True, "text": True, "timeout": 30},
+        {"capture_output": True, "text": True, **_UTF8, "timeout": 30},
     )
     assert ready.call_args.args[0] == name
 
@@ -79,7 +81,7 @@ def test_service_check_uses_docker_ps() -> None:
     assert calls(run) == [
         (
             ["docker", "ps", "--filter", "name=metabase", "--format", "{{.Status}}"],
-            {"capture_output": True, "text": True, "timeout": 10},
+            {"capture_output": True, "text": True, **_UTF8, "timeout": 10},
         )
     ]
 
@@ -136,7 +138,7 @@ def test_admin_repair_docker_calls_keep_argv_env_and_timeouts(tmp_path: Path) ->
         ["docker", "ps", "-q"]
         + ["--filter", "label=com.docker.compose.project=dango-test"]
         + ["--filter", "label=com.docker.compose.service=metabase"],
-        {"capture_output": True, "text": True, "timeout": 30, "check": False},
+        {"capture_output": True, "text": True, **_UTF8, "timeout": 30, "check": False},
     )
 
 

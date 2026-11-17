@@ -68,6 +68,8 @@ def _write_status(state_dir: Path, sync_id: str | None = None, **fields: Any) ->
         prefix=".sync_status_",
         suffix=".tmp",
         delete=False,
+        encoding="utf-8",
+        newline="\n",
     )
     try:
         json.dump(data, tmp_f)

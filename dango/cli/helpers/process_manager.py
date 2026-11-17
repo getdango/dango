@@ -164,7 +164,7 @@ def start_fastapi_server(project_root: Path, host: str = "0.0.0.0", port: int = 
 
     try:
         # Open log file
-        log_handle = open(log_file, "w", encoding="utf-8")  # noqa: SIM115
+        log_handle = open(log_file, "w", encoding="utf-8", newline="\n")  # noqa: SIM115
 
         # Pass project root via env var so the uvicorn worker can resolve it
         import os

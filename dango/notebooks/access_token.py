@@ -36,7 +36,7 @@ def create_token_file(project_root: Path) -> Path:
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(tmp, flags, 0o600)
     try:
-        with os.fdopen(fd, "w") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(secrets.token_urlsafe(32))
         os.replace(tmp, path)
     except BaseException:
@@ -48,7 +48,7 @@ def create_token_file(project_root: Path) -> Path:
 def read_token(project_root: Path) -> str | None:
     """Return the current token, or ``None`` when Marimo runs without one."""
     try:
-        token = token_file_path(project_root).read_text().strip()
+        token = token_file_path(project_root).read_text(encoding="utf-8").strip()
     except OSError:
         return None
     return token or None
@@ -81,7 +81,7 @@ def open_private_log(path: Path) -> IO[str]:
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(path, flags, 0o600)
     apply_private_mode(fd, 0o600)  # an existing file keeps its old mode otherwise
-    return os.fdopen(fd, "w")
+    return os.fdopen(fd, "w", encoding="utf-8", newline="\n")
 
 
 def _try_lock_exclusive(fd: int) -> bool:

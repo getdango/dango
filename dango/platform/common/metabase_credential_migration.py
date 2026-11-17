@@ -389,7 +389,7 @@ def _write_state(project_root: Path, state: dict[str, object]) -> None:
     try:
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         apply_private_mode(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as state_file:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as state_file:
             fd = None
             json.dump(state, state_file, sort_keys=True)
             state_file.flush()
@@ -408,7 +408,7 @@ def _write_state(project_root: Path, state: dict[str, object]) -> None:
 
 def _read_state(project_root: Path) -> dict[str, Any] | None:
     try:
-        data = json.loads(_state_path(project_root).read_text())
+        data = json.loads(_state_path(project_root).read_text(encoding="utf-8"))
     except Exception:
         return None
     return data if isinstance(data, dict) else None
@@ -472,7 +472,7 @@ def _migration_lock(project_root: Path) -> Generator[None, None, None]:
     state_dir = Path(project_root) / ".dango" / "state"
     state_dir.mkdir(parents=True, exist_ok=True)
     lock_path = state_dir / _LOCK_FILENAME
-    lock_file = lock_path.open("a+")
+    lock_file = lock_path.open("a+", encoding="utf-8", newline="\n")
     try:
         if sys.platform == "win32":
             import msvcrt

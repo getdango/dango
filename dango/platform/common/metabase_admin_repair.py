@@ -220,6 +220,8 @@ def _metabase_running(env: dict[str, str], root: Path | None = None) -> bool:
             text=True,
             timeout=30,
             check=False,
+            encoding="utf-8",
+            errors="replace",
         )
     except (subprocess.TimeoutExpired, OSError):
         return False
@@ -230,7 +232,12 @@ def _compose_prefix() -> list[str]:
     """``docker compose`` (v2) or standalone ``docker-compose`` (v1), as DockerManager does."""
     try:
         probe = subprocess.run(
-            ["docker", "compose", "version"], capture_output=True, text=True, timeout=10
+            ["docker", "compose", "version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            encoding="utf-8",
+            errors="replace",
         )
         if probe.returncode == 0:
             return ["docker", "compose"]
@@ -291,6 +298,8 @@ def _run_reset_cli(root: Path, env: dict[str, str], admin_email: str) -> str | N
                 text=True,
                 timeout=_CLI_TIMEOUT_SECONDS,
                 check=False,
+                encoding="utf-8",
+                errors="replace",
             )
     except (
         subprocess.TimeoutExpired,
@@ -335,7 +344,7 @@ def _state_path(root: Path) -> Path:
 
 def _attempted_recently(root: Path) -> bool:
     try:
-        data: Any = json.loads(_state_path(root).read_text())
+        data: Any = json.loads(_state_path(root).read_text(encoding="utf-8"))
         then = datetime.fromisoformat(data["at"])
     except Exception:
         return False
@@ -353,7 +362,7 @@ def _failed(root: Path, reason: str) -> dict[str, object]:
     try:
         path = _state_path(root)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(state))
+        path.write_text(json.dumps(state), encoding="utf-8", newline="\n")
     except OSError:
         pass
     return {"status": "failed", "reason": reason}

@@ -193,6 +193,8 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
             text=True,
             timeout=300,  # 5 minute timeout
             env=_dbt_telemetry_env(),
+            encoding="utf-8",
+            errors="replace",
         )
 
         duration = time.time() - start_time

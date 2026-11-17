@@ -308,7 +308,7 @@ def set_metabase_telemetry_intent(project_root: Path, enabled: bool) -> bool:
     try:
         state_file = project_root / ".dango" / "metabase_telemetry_state"
         state_file.parent.mkdir(parents=True, exist_ok=True)
-        state_file.write_text("true" if enabled else "false", encoding="utf-8")
+        state_file.write_text("true" if enabled else "false", encoding="utf-8", newline="\n")
         return True
     except OSError:
         return False
@@ -388,7 +388,7 @@ def _get_or_create_uuid() -> str:
             except Exception:
                 existing_data = {}
         existing_data["uuid"] = new_uuid
-        with open(_IDENTITY_FILE, "w", encoding="utf-8") as f:
+        with open(_IDENTITY_FILE, "w", encoding="utf-8", newline="\n") as f:
             json.dump(existing_data, f, indent=2)
     except Exception:
         pass
@@ -417,7 +417,7 @@ def set_telemetry_enabled(enabled: bool) -> None:
             except Exception:
                 data = {}
         data["enabled"] = enabled
-        with open(_IDENTITY_FILE, "w", encoding="utf-8") as f:
+        with open(_IDENTITY_FILE, "w", encoding="utf-8", newline="\n") as f:
             json.dump(data, f, indent=2)
     except Exception:
         pass

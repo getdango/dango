@@ -134,7 +134,7 @@ def write_metabase_metadata(project_root: Path, metadata: dict[str, Any]) -> Non
     try:
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         apply_private_mode(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as metadata_file:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as metadata_file:
             fd = None
             yaml.safe_dump(metadata, metadata_file, default_flow_style=False, sort_keys=False)
             metadata_file.flush()

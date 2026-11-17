@@ -290,6 +290,16 @@ def _prune_loaded_packages(pipeline: Any) -> None:
         pass  # best effort (e.g. Windows)
 
 
+def _ends_with_newline(path: Path) -> bool:
+    """True for an empty file or one whose last byte is a newline."""
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        if f.tell() == 0:
+            return True
+        f.seek(-1, os.SEEK_END)
+        return f.read(1) == b"\n"
+
+
 class DltPipelineRunner:
     """
     Generic pipeline runner for all dlt sources
@@ -474,7 +484,12 @@ class DltPipelineRunner:
 
             new_deps = [d["pip"] for d in missing_deps if d["pip"] not in existing]
             if new_deps:
-                with open(req_file, "a", encoding="utf-8") as f:
+                # A file without a final newline (editor default) would otherwise
+                # join the first new dependency onto its last line.
+                needs_separator = req_file.exists() and not _ends_with_newline(req_file)
+                with open(req_file, "a", encoding="utf-8", newline="\n") as f:
+                    if needs_separator:
+                        f.write("\n")
                     for dep in new_deps:
                         f.write(f"{dep}\n")
                 console.print(

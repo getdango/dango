@@ -265,7 +265,7 @@ def snapshot_add(ctx: click.Context) -> None:
         updated_at=updated_at,
     )
 
-    output_file.write_text(rendered, encoding="utf-8")
+    output_file.write_text(rendered, encoding="utf-8", newline="\n")
 
     console.print(f"\n[green]✓[/green] Created snapshot [bold]{snapshot_name}[/bold]")
     console.print(f"  File: {output_file}")

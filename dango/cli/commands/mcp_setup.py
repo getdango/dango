@@ -406,7 +406,7 @@ def _atomic_write_json(config_path: Path, data: dict, original_mode: int | None)
         dir=config_path.parent, prefix=f".{config_path.name}.", suffix=".tmp"
     )
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(data, indent=2))
         # tempfile.mkstemp() always creates its file at mode 0600 regardless
         # of the target's prior permissions. Without this, every write would
