@@ -12,6 +12,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from dango.utils import process_group
 from dango.utils.process import (
     is_process_running,
     kill_process,
@@ -122,7 +123,7 @@ def start_file_watcher(project_root: Path) -> int | None:
             stdin=subprocess.DEVNULL,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
-            start_new_session=True,  # Detach from parent session
+            **process_group.detach_kwargs(),  # Detach from parent session
         )
 
         # Give watcher a moment to start

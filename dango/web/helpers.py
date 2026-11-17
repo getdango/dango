@@ -260,14 +260,16 @@ def get_source_row_count(source_name: str) -> int | None:
             raise TimeoutError(f"Query timed out after {seconds} seconds")
 
         # Set the signal handler and alarm (Unix only)
-        if hasattr(signal, "SIGALRM"):
-            old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(seconds)
+        sigalrm = getattr(signal, "SIGALRM", None)
+        alarm = getattr(signal, "alarm", None)
+        if sigalrm is not None and alarm is not None:
+            old_handler = signal.signal(sigalrm, timeout_handler)
+            alarm(seconds)
             try:
                 yield
             finally:
-                signal.alarm(0)
-                signal.signal(signal.SIGALRM, old_handler)
+                alarm(0)
+                signal.signal(sigalrm, old_handler)
         else:
             # Windows doesn't support SIGALRM - just skip timeout
             yield

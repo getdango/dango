@@ -66,22 +66,6 @@ UNIX_ONLY_ATTRS = {
     ),
 }
 
-# Sites owned by WP-11b (process groups / signals / detach semantics). Shrink-only: an entry that no
-# longer matches a real site fails ``test_known_unfixed_entries_are_still_real``. Key = (file, name);
-# imports are named ``import <module>``.
-KNOWN_UNFIXED = {
-    ("dango/notebooks/marimo_process.py", "killpg"),  # WP-11b
-    ("dango/notebooks/marimo_process.py", "getpgid"),  # WP-11b
-    ("dango/notebooks/marimo_process.py", "getpgrp"),  # WP-11b
-    ("dango/notebooks/marimo_process.py", "SIGKILL"),  # WP-11b
-    ("dango/platform/run_as.py", "killpg"),  # WP-11b
-    ("dango/platform/run_as.py", "import pwd"),  # WP-11b
-    ("dango/platform/script_launch.py", "killpg"),  # WP-11b
-    ("dango/ingestion/dlt_runner.py", "SIGALRM"),  # WP-11b
-    ("dango/ingestion/dlt_runner.py", "alarm"),  # WP-11b
-    ("dango/web/helpers.py", "alarm"),  # WP-11b
-}
-
 
 def _is_sys_platform(node: ast.expr) -> bool:
     return (
@@ -320,14 +304,9 @@ def _scan_tree() -> set[tuple[str, str]]:
     return found
 
 
-def test_no_new_unguarded_unix_only_use_in_local_code() -> None:
-    new = sorted(_scan_tree() - KNOWN_UNFIXED)
-    assert not new, f"unguarded Unix-only use in local code (see docstring of _Checker): {new}"
-
-
-def test_known_unfixed_entries_are_still_real() -> None:
-    stale = sorted(KNOWN_UNFIXED - _scan_tree())
-    assert not stale, f"KNOWN_UNFIXED entries that no longer match a site (delete them): {stale}"
+def test_no_unguarded_unix_only_use_in_local_code() -> None:
+    found = sorted(_scan_tree())
+    assert not found, f"unguarded Unix-only use in local code (see docstring of _Checker): {found}"
 
 
 def test_server_only_matching_is_exact_on_directory_boundary() -> None:
@@ -357,6 +336,13 @@ def test_server_only_packages_exist() -> None:
         ("import signal\nsignal.alarm(3)\n", ["alarm"]),
         ("from os import killpg\n", ["killpg"]),
         ("import os\nx = getattr(os, 'killpg')\n", ["killpg"]),
+        ("import os as _os\nx = getattr(_os, 'killpg')\n", ["killpg"]),
+        # an ImportError handler body and the else branch do not inherit the import guard
+        ("try:\n    import json\nexcept ImportError:\n    import fcntl\n", ["import fcntl"]),
+        (
+            "try:\n    import json\nexcept ImportError:\n    pass\nelse:\n    import fcntl\n",
+            ["import fcntl"],
+        ),
         # an ImportError handler does not catch the AttributeError a missing attribute raises
         (
             "import os\ntry:\n    import json\n    os.fchmod(1, 0o600)\nexcept ImportError:\n    pass\n",
@@ -429,6 +415,8 @@ def test_checker_detects(source: str, names: list[str]) -> None:
         "import sys\ndef f():\n    if sys.platform == 'win32':\n        return 1\n    import fcntl\n",
         "import os\nos.O_RDONLY\n",
         "from os import O_RDONLY\n",
+        # a from-import raises ImportError when the name is missing, so the handler catches it
+        "try:\n    from os import killpg\nexcept ImportError:\n    killpg = None\n",
     ],
 )
 def test_checker_accepts(source: str) -> None:

@@ -32,6 +32,7 @@ from dango.notebooks.marimo_process import (
 )
 from dango.notebooks.protection import ensure_marimo_protected as ensure_marimo_protected
 from dango.platform import run_as
+from dango.utils import process_group
 from dango.utils.dango_db import connect
 from dango.utils.process import (
     is_process_running,
@@ -216,7 +217,7 @@ def _start_marimo_locked(
             launch.argv,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
-            start_new_session=True,
+            **process_group.detach_kwargs(),
             env=launch.env,
         )
 

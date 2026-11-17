@@ -6,7 +6,6 @@ Generic runner for all dlt verified sources + custom CSV/REST API sources.
 import importlib
 import logging as _logging
 import os
-import platform
 import signal
 import subprocess
 import sys
@@ -378,10 +377,11 @@ class DltPipelineRunner:
         Raises:
             SyncTimeoutError: If execution exceeds timeout
         """
-        # Check if we're on a Unix-like system (signal.alarm not available on Windows)
-        is_unix = platform.system() in ["Linux", "Darwin"]  # Darwin = macOS
+        # SIGALRM and signal.alarm exist on POSIX only (not on Windows)
+        sigalrm = getattr(signal, "SIGALRM", None)
+        alarm = getattr(signal, "alarm", None)
 
-        if not is_unix:
+        if sigalrm is None or alarm is None:
             # Windows: No timeout (signal.alarm not available)
             console.print(
                 "[dim]⚠️  Timeout not supported on Windows - running without timeout[/dim]"
@@ -393,19 +393,19 @@ class DltPipelineRunner:
             raise SyncTimeoutError(f"Sync exceeded {timeout_minutes} minute timeout")
 
         # Set up signal handler
-        old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(timeout_minutes * 60)
+        old_handler = signal.signal(sigalrm, timeout_handler)
+        alarm(timeout_minutes * 60)
 
         try:
             result = func(*args, **kwargs)
-            signal.alarm(0)  # Cancel alarm
+            alarm(0)  # Cancel alarm
             return result
         except SyncTimeoutError:
             console.print(f"[red]⏱️  Sync timeout after {timeout_minutes} minutes[/red]")
             raise
         finally:
-            signal.alarm(0)  # Ensure alarm is cancelled
-            signal.signal(signal.SIGALRM, old_handler)  # Restore old handler
+            alarm(0)  # Ensure alarm is cancelled
+            signal.signal(sigalrm, old_handler)  # Restore old handler
 
     def run_source(
         self,

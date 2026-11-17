@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Literal
 
 from dango.exceptions import DangoError
+from dango.utils import process_group
 
 __all__ = [
     "DISABLED_MARKER",
@@ -317,13 +318,7 @@ def _sudo_kill(role: str, signame: str, target: str) -> bool:
 
 def _group_alive(pgid: int) -> bool:
     """True while any process is left in group *pgid* (EPERM means one exists)."""
-    try:
-        os.killpg(pgid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+    return process_group.group_alive(pgid)
 
 
 def _wait_until(done: Callable[[], bool], grace: float) -> bool:
@@ -405,6 +400,9 @@ def runner_uid(role: str) -> int:
         KeyError: If the user does not exist.
         ValueError: If the uid is not allowed.
     """
-    import pwd
+    try:
+        import pwd
+    except ImportError:  # no user database (Windows): there is no runner user
+        raise KeyError(runner_user(role)) from None
 
     return assert_runner_uid(pwd.getpwnam(runner_user(role)).pw_uid)

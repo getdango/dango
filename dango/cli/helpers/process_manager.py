@@ -10,6 +10,7 @@ from pathlib import Path
 import psutil
 from rich.console import Console
 
+from dango.utils import process_group
 from dango.utils.process import (
     PidRecord,
     is_process_running,
@@ -189,7 +190,7 @@ def start_fastapi_server(project_root: Path, host: str = "0.0.0.0", port: int = 
             stdin=subprocess.DEVNULL,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
-            start_new_session=True,  # Detach from parent session
+            **process_group.detach_kwargs(),  # Detach from parent session
         )
 
         # Give server a moment to start
