@@ -19,7 +19,9 @@ def _err(errors: list[str]) -> Exception:
 def _load_yaml(path: Path) -> dict[str, Any]:
     """Load a yml file as a dict; invalid YAML or a non-mapping raises ModelServiceError."""
     try:
-        data = yaml.safe_load(path.read_text())
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError as e:
+        raise _err([f"{path.name} is not valid UTF-8; re-save it as UTF-8"]) from e
     except (yaml.YAMLError, OSError) as e:
         raise _err([f"{path.name} is not valid YAML: {e}"]) from e
     if data is None:
@@ -49,8 +51,8 @@ def locate_model_docs(project_root: Path, model_name: str) -> Path | None:
     for pattern in ("*.yml", "*.yaml"):
         for path in sorted(models_dir.rglob(pattern)):
             try:
-                data = yaml.safe_load(path.read_text())
-            except (yaml.YAMLError, OSError):
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            except (yaml.YAMLError, OSError, UnicodeDecodeError):
                 continue
             if isinstance(data, dict) and any(
                 m.get("name") == model_name for m in _model_entries(data)
@@ -80,7 +82,7 @@ def resolve_docs_path(project_root: Path, layer: str, model_name: str) -> Path:
 
 def _write_yaml(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 

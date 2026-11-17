@@ -73,7 +73,7 @@ def config_validate(ctx: click.Context) -> None:
                 dbt_errors = []
                 for sources_file in sources_files:
                     try:
-                        with open(sources_file) as f:
+                        with open(sources_file, encoding="utf-8") as f:
                             data = yaml.safe_load(f)
 
                         # Basic validation
@@ -167,7 +167,7 @@ def config_show(ctx: click.Context) -> None:
 
         # Show project.yml
         if loader.project_file.exists():
-            with open(loader.project_file) as f:
+            with open(loader.project_file, encoding="utf-8") as f:
                 project_yaml = f.read()
 
             console.print("[bold cyan]project.yml:[/bold cyan]")
@@ -177,7 +177,7 @@ def config_show(ctx: click.Context) -> None:
 
         # Show sources.yml
         if loader.sources_file.exists():
-            with open(loader.sources_file) as f:
+            with open(loader.sources_file, encoding="utf-8") as f:
                 sources_yaml = f.read()
 
             console.print("[bold cyan]sources.yml:[/bold cyan]")
@@ -189,7 +189,7 @@ def config_show(ctx: click.Context) -> None:
 
         # Show schedules.yml
         if loader.schedules_file.exists():
-            with open(loader.schedules_file) as f:
+            with open(loader.schedules_file, encoding="utf-8") as f:
                 schedules_yaml = f.read()
 
             console.print("[bold cyan]schedules.yml:[/bold cyan]")
@@ -200,7 +200,7 @@ def config_show(ctx: click.Context) -> None:
         # Show monitors.yml
         monitors_file = loader.dango_dir / "monitors.yml"
         if monitors_file.exists():
-            with open(monitors_file) as f:
+            with open(monitors_file, encoding="utf-8") as f:
                 monitors_yaml = f.read()
 
             console.print("[bold cyan]monitors.yml:[/bold cyan]")

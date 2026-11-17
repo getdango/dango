@@ -465,7 +465,7 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
             continue
 
         try:
-            content = schema_file.read_text()
+            content = schema_file.read_text(encoding="utf-8")
             data = yaml.safe_load(content)
             if not data or "models" not in data:
                 continue
@@ -524,7 +524,7 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
                         break
                 header = "".join(header_lines)
                 yml_body = yaml.dump(data, default_flow_style=False, sort_keys=False)
-                schema_file.write_text(header + yml_body)
+                schema_file.write_text(header + yml_body, encoding="utf-8", newline="\n")
                 logger.debug("staging_tests_enriched", source=source)
         except Exception:
             logger.warning("staging_test_enrichment_error", source=source, exc_info=True)
@@ -633,8 +633,8 @@ def _profile_dbt_models(project_root: Path) -> None:
         return
 
     try:
-        run_results = json.loads(run_results_path.read_text())
-        manifest = json.loads(manifest_path.read_text())
+        run_results = json.loads(run_results_path.read_text(encoding="utf-8"))
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         logger.warning("profiling_dbt_json_error", exc_info=True)
         return

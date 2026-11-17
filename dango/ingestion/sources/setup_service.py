@@ -124,7 +124,7 @@ def write_default_config(
         config_path = dlt_dir / "config.toml"
         dlt_dir.mkdir(parents=True, exist_ok=True)
         if config_path.exists():
-            doc = tomlkit.parse(config_path.read_text())
+            doc = tomlkit.parse(config_path.read_text(encoding="utf-8"))
         else:
             doc = tomlkit.document()
         if "sources" not in doc:
@@ -152,7 +152,7 @@ def write_default_config(
                     source_table.add(tomlkit.comment(note))
             source_table.add(key, value)
 
-        config_path.write_text(tomlkit.dumps(doc))
+        config_path.write_text(tomlkit.dumps(doc), encoding="utf-8", newline="\n")
         return True
     except Exception as exc:
         logger.warning("default_config_write_failed", source_type=source_type, error=str(exc))
@@ -228,13 +228,13 @@ def write_secrets_toml_template(
     dlt_dir = project_root / ".dlt"
     secrets_path = dlt_dir / "secrets.toml"
     dlt_dir.mkdir(parents=True, exist_ok=True)
-    existing = secrets_path.read_text() if secrets_path.exists() else ""
+    existing = secrets_path.read_text(encoding="utf-8") if secrets_path.exists() else ""
     if f"[sources.{source_name}." in existing:
         return None
     template_vars = defaultdict(str, source_name=source_name, **params)
     template_text = secrets_template.format_map(template_vars)
     prefix = existing.rstrip() + "\n\n" if existing.strip() else ""
-    secrets_path.write_text(prefix + template_text + "\n")
+    secrets_path.write_text(prefix + template_text + "\n", encoding="utf-8", newline="\n")
     return ".dlt/secrets.toml"
 
 

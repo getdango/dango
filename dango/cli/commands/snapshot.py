@@ -265,7 +265,7 @@ def snapshot_add(ctx: click.Context) -> None:
         updated_at=updated_at,
     )
 
-    output_file.write_text(rendered)
+    output_file.write_text(rendered, encoding="utf-8")
 
     console.print(f"\n[green]✓[/green] Created snapshot [bold]{snapshot_name}[/bold]")
     console.print(f"  File: {output_file}")
@@ -302,7 +302,7 @@ def snapshot_list(ctx: click.Context) -> None:
     table.add_column("File")
 
     for sql_file in sorted(snapshots_dir.glob("*.sql")):
-        content = sql_file.read_text()
+        content = sql_file.read_text(encoding="utf-8")
 
         # Parse snapshot name from {% snapshot <name> %}
         name_match = re.search(r"\{%\s*snapshot\s+(\w+)\s*%\}", content)

@@ -915,7 +915,11 @@ def schedule_add(ctx: click.Context) -> None:
                 if script_full.exists():
                     console.print(f"[red]scripts/{script_name} already exists.[/red]")
                     return
-                script_full.write_text(_SCRIPT_TEMPLATE.format(script_name=Path(script_name).stem))
+                script_full.write_text(
+                    _SCRIPT_TEMPLATE.format(script_name=Path(script_name).stem),
+                    encoding="utf-8",
+                    newline="\n",
+                )
                 console.print(f"[green]✓ Created scripts/{script_name}[/green]")
                 script_path = script_name
             else:

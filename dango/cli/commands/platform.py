@@ -81,7 +81,12 @@ def _check_docker_ports(platform_config: object) -> None:
             process_info = None
             try:
                 result = subprocess.run(
-                    ["lsof", "-ti", f":{port}"], capture_output=True, text=True, timeout=2
+                    ["lsof", "-ti", f":{port}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    encoding="utf-8",
+                    errors="replace",
                 )
 
                 if result.returncode == 0 and result.stdout.strip():
@@ -93,6 +98,8 @@ def _check_docker_ports(platform_config: object) -> None:
                         capture_output=True,
                         text=True,
                         timeout=2,
+                        encoding="utf-8",
+                        errors="replace",
                     )
 
                     if cmd_result.returncode == 0:
@@ -305,7 +312,12 @@ def start(ctx: click.Context, yes: bool) -> None:
             # Try to find and kill zombie processes
             try:
                 result = subprocess.run(
-                    ["lsof", "-ti", f":{port}"], capture_output=True, text=True, timeout=5
+                    ["lsof", "-ti", f":{port}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    encoding="utf-8",
+                    errors="replace",
                 )
 
                 if result.returncode == 0 and result.stdout.strip():
@@ -339,6 +351,8 @@ def start(ctx: click.Context, yes: bool) -> None:
                                 capture_output=True,
                                 text=True,
                                 timeout=2,
+                                encoding="utf-8",
+                                errors="replace",
                             )
 
                             if cmd_result.returncode == 0:
@@ -519,6 +533,8 @@ def start(ctx: click.Context, yes: bool) -> None:
                     capture_output=True,
                     text=True,
                     timeout=5,
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     container_ids = [c for c in result.stdout.strip().split("\n") if c]
@@ -1290,6 +1306,8 @@ def status(ctx: click.Context) -> None:
                     capture_output=True,
                     text=True,
                     timeout=5,
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 state = systemd_result.stdout.strip()
                 if state == "active":

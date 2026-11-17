@@ -40,8 +40,8 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     import yaml
 
     try:
-        data = yaml.safe_load(path.read_text())
-    except (yaml.YAMLError, OSError):
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (yaml.YAMLError, OSError, UnicodeDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
 

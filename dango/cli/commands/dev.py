@@ -40,7 +40,7 @@ def _read_dbt_profile_name(project_root: Path) -> str:
         # Use PyYAML (available via dbt dependency) for reliable parsing
         import yaml
 
-        with open(dbt_project_path) as f:
+        with open(dbt_project_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         profile_name: str = data["profile"]
         return profile_name
@@ -109,7 +109,7 @@ def _create_dev_profile(dev_dir: Path, profile_name: str, dev_db_path: Path) -> 
         f"        threads: 4\n"
     )
     profiles_path = dev_dir / "profiles.yml"
-    profiles_path.write_text(profiles_content)
+    profiles_path.write_text(profiles_content, encoding="utf-8", newline="\n")
     return profiles_path
 
 
@@ -156,7 +156,7 @@ def _parse_run_results(project_root: Path) -> list[dict[str, Any]]:
         return []
 
     try:
-        with open(run_results_path) as f:
+        with open(run_results_path, encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
         return []

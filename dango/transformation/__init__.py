@@ -103,6 +103,8 @@ def run_dbt_models(
             text=True,
             timeout=300,  # 5 minute timeout
             env=_dbt_telemetry_env(),
+            encoding="utf-8",
+            errors="replace",
         )
 
         output = result.stdout + result.stderr
@@ -190,6 +192,8 @@ def run_dbt_snapshots(
             text=True,
             timeout=300,  # 5 minute timeout
             env=_dbt_telemetry_env(),
+            encoding="utf-8",
+            errors="replace",
         )
 
         if result.returncode == 0:
@@ -267,6 +271,8 @@ def generate_dbt_docs(project_root: Path) -> tuple[bool, str]:
             text=True,
             timeout=60,
             env=_dbt_telemetry_env(),
+            encoding="utf-8",
+            errors="replace",
         )
 
         return (result.returncode == 0, result.stdout + result.stderr)

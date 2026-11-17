@@ -148,7 +148,7 @@ class SchemaManager:
             return None
 
         try:
-            with open(schema_path) as f:
+            with open(schema_path, encoding="utf-8") as f:
                 result = yaml.safe_load(f)
                 return result if isinstance(result, dict) else None
         except Exception:
@@ -279,7 +279,7 @@ class SchemaManager:
         """
         schema_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(schema_path, "w") as f:
+        with open(schema_path, "w", encoding="utf-8", newline="\n") as f:
             yaml.dump(schema, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
     def _report_changes(self, model_name: str, changes: dict[str, Any], schema_path: Path) -> None:

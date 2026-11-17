@@ -338,7 +338,7 @@ def _env_vars_matching(project_root: Path, name: str, other_names: list[str]) ->
     longer = [o for o in other_names if o.startswith(f"{name}_")]
     return [
         k
-        for k in parse_env_file(env_file.read_text())
+        for k in parse_env_file(env_file.read_text(encoding="utf-8"))
         if belongs(k, name) and not any(belongs(k, o) for o in longer)
     ]
 
@@ -385,7 +385,7 @@ def _remove_config_toml_section(
     try:
         import tomlkit
 
-        doc = tomlkit.parse(config_toml.read_text())
+        doc = tomlkit.parse(config_toml.read_text(encoding="utf-8"))
         sources_section: Any = doc.get("sources", {})
         if st not in sources_section:
             return
@@ -400,7 +400,7 @@ def _remove_config_toml_section(
         del sources_section[st]
         if not sources_section:
             del doc["sources"]
-        config_toml.write_text(tomlkit.dumps(doc))
+        config_toml.write_text(tomlkit.dumps(doc), encoding="utf-8", newline="\n")
     except Exception as exc:
         result.config_toml_section_removed = False
         result.warnings.append(f"Could not clean up .dlt/config.toml: {exc}")

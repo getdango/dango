@@ -142,6 +142,8 @@ def _collect_docker_volumes() -> list[str]:
             capture_output=True,
             text=True,
             timeout=10,
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode != 0:
             return []
@@ -343,6 +345,8 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
                         capture_output=True,
                         text=True,
                         timeout=30,
+                        encoding="utf-8",
+                        errors="replace",
                     )
                     if result.returncode == 0:
                         removed += 1

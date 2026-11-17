@@ -126,7 +126,7 @@ class GoogleOAuthProvider(BaseOAuthProvider):
             # Debug: check if .env exists and has the keys
             if not client_id and env_file.exists():
                 # Try reading directly from file as fallback
-                with open(env_file) as f:
+                with open(env_file, encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if line.startswith("GOOGLE_CLIENT_ID="):

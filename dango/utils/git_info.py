@@ -47,6 +47,8 @@ def _run_git(args: list[str], cwd: Path) -> str | None:
             capture_output=True,
             text=True,
             timeout=5,
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode == 0:
             return result.stdout.strip()

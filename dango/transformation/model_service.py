@@ -75,6 +75,8 @@ def parse_project(project_root: Path) -> tuple[bool, str]:
             text=True,
             timeout=30,
             env=_dbt_telemetry_env(),
+            encoding="utf-8",
+            errors="replace",
         )
         return result.returncode == 0, (result.stdout or "") + (result.stderr or "")
     except subprocess.TimeoutExpired:
@@ -136,7 +138,7 @@ def _apply(
     try:
         if content is not None:
             sql_path.parent.mkdir(parents=True, exist_ok=True)
-            sql_path.write_text(content)
+            sql_path.write_text(content, encoding="utf-8")
             result.files_changed.append(rel_path(project_root, sql_path))
         if docs_wanted:
             docs_rel = upsert_model_docs(
@@ -268,7 +270,7 @@ def update_model(
     if sql is not None:
         rendered = render_model_sql(model_name, layer, sql=sql)
         if layer == "staging":
-            current_auto = _AUTOGEN_MARKER in sql_path.read_text()[:500]
+            current_auto = _AUTOGEN_MARKER in sql_path.read_text(encoding="utf-8")[:500]
             kept = [ln for ln in rendered.splitlines() if _AUTOGEN_MARKER not in ln]
             if len(kept) != len(rendered.splitlines()) or current_auto:
                 warnings.append(
@@ -353,8 +355,8 @@ def remove_model(
         if path == sql_path:
             continue
         try:
-            other_refs, _ = extract_refs(path.read_text())
-        except OSError:
+            other_refs, _ = extract_refs(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
             continue
         if model_name in other_refs:
             downstream.append(f"{other_layer}.{path.stem}")

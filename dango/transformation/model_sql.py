@@ -56,8 +56,8 @@ def _find_cycle(project_root: Path, model_name: str, refs: list[str]) -> list[st
     for path, _layer in iter_model_files(project_root):
         if path.stem != model_name:
             try:
-                graph[path.stem] = extract_refs(path.read_text())[0]
-            except OSError:
+                graph[path.stem] = extract_refs(path.read_text(encoding="utf-8"))[0]
+            except (OSError, UnicodeDecodeError):
                 continue
     graph[model_name] = refs
 

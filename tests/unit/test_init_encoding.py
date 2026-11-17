@@ -59,6 +59,9 @@ def test_init_skip_wizard_succeeds_under_cp1252(tmp_path: Path) -> None:
         "HTTP_PROXY": "http://127.0.0.1:9",
         "https_proxy": "http://127.0.0.1:9",
         "http_proxy": "http://127.0.0.1:9",
+        # A runner whose NO_PROXY covers github.com would otherwise bypass the dummy proxy.
+        "NO_PROXY": "",
+        "no_proxy": "",
     }
     (tmp_path / "home").mkdir()
     proc = subprocess.run(

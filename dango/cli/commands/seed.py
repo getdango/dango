@@ -102,7 +102,7 @@ def seed_add(ctx: click.Context, path: str) -> None:
                         proj_seeds = seeds_cfg.setdefault(project_name, {})
                         if proj_seeds.get("+schema") != "seeds":
                             proj_seeds["+schema"] = "seeds"
-                            with open(dbt_project_path, "w", encoding="utf-8") as f:
+                            with open(dbt_project_path, "w", encoding="utf-8", newline="\n") as f:
                                 yaml.safe_dump(
                                     dbt_data, f, default_flow_style=False, allow_unicode=True
                                 )

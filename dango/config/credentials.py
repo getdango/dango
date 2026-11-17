@@ -9,7 +9,34 @@ from typing import Any
 import toml
 from rich.console import Console
 
+from dango.error_format import format_structured_error
+from dango.exceptions import ConfigError
+
 console = Console()
+
+
+def _not_toml_error(label: str, cause: Exception) -> ConfigError:
+    """Error for a .dlt TOML file with a syntax error (nothing is read or replaced)."""
+    return ConfigError(
+        f"{label} is not valid TOML ({cause}); fix it by hand (the file was left unchanged)",
+        user_message=format_structured_error(
+            what_failed=f"Cannot read {label}: the file is not valid TOML",
+            causes=[f"Syntax error: {cause}"],
+            suggested_fix="Fix the syntax error in your editor and try again",
+        ),
+    )
+
+
+def _not_utf8_error(label: str) -> ConfigError:
+    """Error for a .dlt TOML file that is not valid UTF-8 (nothing is read or replaced)."""
+    return ConfigError(
+        f"{label} is not valid UTF-8; re-save it as UTF-8 (the file was left unchanged)",
+        user_message=format_structured_error(
+            what_failed=f"Cannot read {label}: the file is not valid UTF-8",
+            causes=["The file was saved in another encoding (for example Windows cp1252)"],
+            suggested_fix="Re-save the file as UTF-8 in your editor and try again",
+        ),
+    )
 
 
 SENSITIVE_ARTIFACT_GITIGNORE_PATTERNS = (
@@ -51,7 +78,7 @@ def ensure_sensitive_artifact_gitignores(project_root: Path) -> bool:
     if existing and not existing.endswith("\n"):
         existing += "\n"
 
-    gitignore_path.write_text(existing + addition, encoding="utf-8")
+    gitignore_path.write_text(existing + addition, encoding="utf-8", newline="\n")
     return True
 
 
@@ -105,7 +132,7 @@ class CredentialManager:
             # Note: write_text without prior chmod — low risk since file is
             # user-owned and gitignored, but see cloud/ssh.py os.open() pattern
             # for sensitive files that need restricted permissions at creation.
-            self.secrets_file.write_text(secrets_template, encoding="utf-8")
+            self.secrets_file.write_text(secrets_template, encoding="utf-8", newline="\n")
             console.print(f"[dim]Created {self.secrets_file.relative_to(self.project_root)}[/dim]")
 
         # Create config.toml if it doesn't exist
@@ -125,7 +152,7 @@ truncate_staging_dataset = true
 # [sources.facebook_ads]
 # start_date = "2024-01-01"
 """
-            self.config_file.write_text(config_template, encoding="utf-8")
+            self.config_file.write_text(config_template, encoding="utf-8", newline="\n")
             console.print(f"[dim]Created {self.config_file.relative_to(self.project_root)}[/dim]")
 
         # Ensure .gitignore includes .dlt/secrets.toml
@@ -182,6 +209,11 @@ truncate_staging_dataset = true
             with open(self.secrets_file, encoding="utf-8") as f:
                 secrets: dict[str, Any] = toml.load(f)
             return secrets
+        except UnicodeDecodeError as e:
+            # Returning {} here would let a later save drop every other credential.
+            raise _not_utf8_error(".dlt/secrets.toml") from e
+        except toml.TomlDecodeError as e:
+            raise _not_toml_error(".dlt/secrets.toml", e) from e
         except Exception as e:
             console.print(f"[yellow]Warning: Could not load .dlt/secrets.toml: {e}[/yellow]")
             return {}
@@ -200,6 +232,11 @@ truncate_staging_dataset = true
             with open(self.config_file, encoding="utf-8") as f:
                 config: dict[str, Any] = toml.load(f)
             return config
+        except UnicodeDecodeError as e:
+            # Returning {} here would let a later save drop every other credential.
+            raise _not_utf8_error(".dlt/config.toml") from e
+        except toml.TomlDecodeError as e:
+            raise _not_toml_error(".dlt/config.toml", e) from e
         except Exception as e:
             console.print(f"[yellow]Warning: Could not load .dlt/config.toml: {e}[/yellow]")
             return {}
@@ -224,7 +261,7 @@ truncate_staging_dataset = true
             merged = secrets
 
         # Write to file
-        with open(self.secrets_file, "w", encoding="utf-8") as f:
+        with open(self.secrets_file, "w", encoding="utf-8", newline="\n") as f:
             toml.dump(merged, f)
 
         console.print("[green]✓[/green] Saved credentials to .dlt/secrets.toml")
@@ -249,7 +286,7 @@ truncate_staging_dataset = true
             merged = config
 
         # Write to file
-        with open(self.config_file, "w", encoding="utf-8") as f:
+        with open(self.config_file, "w", encoding="utf-8", newline="\n") as f:
             toml.dump(merged, f)
 
         console.print("[green]✓[/green] Saved config to .dlt/config.toml")

@@ -28,7 +28,7 @@ def save_sync_history_entry(project_root: Path, source_name: str, entry: dict[st
         # Load existing history
         history = []
         if history_file.exists():
-            with open(history_file) as f:
+            with open(history_file, encoding="utf-8") as f:
                 history = json.load(f)
 
         # Add new entry (error text can carry a source credential: redact it once, here)
@@ -39,7 +39,7 @@ def save_sync_history_entry(project_root: Path, source_name: str, entry: dict[st
             history = history[-100:]
 
         # Save back
-        with open(history_file, "w") as f:
+        with open(history_file, "w", encoding="utf-8") as f:
             json.dump(history, f, indent=2)
 
     except Exception as e:
@@ -60,7 +60,7 @@ def get_earliest_start_date(project_root: Path, source_name: str) -> str | None:
         return None
 
     try:
-        with open(history_file) as f:
+        with open(history_file, encoding="utf-8") as f:
             history: list[dict[str, Any]] = json.load(f)
 
         earliest: str | None = None
@@ -82,11 +82,11 @@ def update_last_sync_entry(project_root: Path, source_name: str, updates: dict[s
     try:
         if not history_file.exists():
             return
-        with open(history_file) as f:
+        with open(history_file, encoding="utf-8") as f:
             history = json.load(f)
         if history:
             history[-1].update(redact_error_fields(project_root, updates))
-            with open(history_file, "w") as f:
+            with open(history_file, "w", encoding="utf-8") as f:
                 json.dump(history, f, indent=2)
     except Exception as e:
         logger.warning("Failed to update sync history for %s: %s", source_name, e)
@@ -102,7 +102,7 @@ def load_sync_history(
         return []
 
     try:
-        with open(history_file) as f:
+        with open(history_file, encoding="utf-8") as f:
             history = json.load(f)
             # Return most recent entries first. Entries written before errors were redacted
             # on save can still hold raw text, so redact on read as well.

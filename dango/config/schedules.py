@@ -476,6 +476,8 @@ def _install_script_dependencies(project_root: Path) -> None:
             capture_output=True,
             text=True,
             timeout=120,
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode != 0:
             logger.warning(

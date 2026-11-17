@@ -138,7 +138,7 @@ def dashboard_provision(
 
             credentials_file = project_root / ".dango" / "metabase.yml"
             if credentials_file.exists():
-                stored = yaml.safe_load(credentials_file.read_text())
+                stored = yaml.safe_load(credentials_file.read_text(encoding="utf-8"))
                 database_id = (stored or {}).get("database", {}).get("id")
         except Exception:  # noqa: BLE001
             pass
