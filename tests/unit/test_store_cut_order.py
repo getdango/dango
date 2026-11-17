@@ -50,7 +50,9 @@ def test_crash_record_redacts_before_cutting(project: Path) -> None:
     assert "sk_live" not in _read(project / ".dango" / "history" / "src2.json")
 
 
-def test_dbt_transform_error_redacts_before_cutting(project: Path) -> None:
+def test_dbt_transform_error_redacts_before_cutting(
+    project: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     from dango.ingestion import dlt_runner
     from dango.utils.sync_history import save_sync_history_entry
 
@@ -76,6 +78,8 @@ def test_dbt_transform_error_redacts_before_cutting(project: Path) -> None:
     assert summary["transform_status"] == "failed"
     assert "sk_live" not in json.dumps(summary["transform_error"])
     assert "sk_live" not in _read(project / ".dango" / "history" / "good.json")
+    assert "dbt_transform_failed" in caplog.text
+    assert "sk_live" not in caplog.text
 
 
 def test_dbt_snapshot_failure_log_redacts_before_cutting(project: Path) -> None:

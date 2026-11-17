@@ -162,3 +162,24 @@ def test_known_secret_straddling_the_cap_is_not_partly_shown(tmp_path) -> None:
     text = "x" * 7990 + "sk_live_ABCDEFGHIJKLMNOP" + "y" * 100
     out = rich_error_text(tmp_path, text)
     assert "sk_live" not in out
+
+
+@pytest.mark.parametrize(
+    ("tail", "secret"),
+    [
+        ("api_key=TAILSECRET123", "TAILSECRET123"),
+        ("API-KEY: TAILSECRET123", "TAILSECRET123"),
+        ("private_key=TAILSECRET123", "TAILSECRET123"),
+        ("secret: TAILSECRET123", "TAILSECRET123"),
+        ("token=TAILSECRET123", "TAILSECRET123"),
+    ],
+)
+def test_cut_off_key_block_does_not_hide_a_following_secret_line(tail: str, secret: str) -> None:
+    text = f"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQ\n{tail}"
+    out = redact_patterns(text)
+    assert secret not in out
+    assert "MIIEvQIBADAN" not in out
+
+
+def test_name_suffix_bound_covers_sixty_characters() -> None:
+    assert "SIXTYSECRET1" not in redact_patterns(f"api_key_{'z' * 55}=SIXTYSECRET1")
