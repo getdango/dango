@@ -69,7 +69,11 @@ def test_local_spawn_uses_token_file_not_no_token(tmp_path: Path) -> None:
 @pytest.mark.unit
 def test_token_file_mode_0600_and_dir_private(tmp_path: Path) -> None:
     seen = _start(tmp_path)
-    assert seen["mode"] == 0o600
+    path = seen["token_path"]
+    assert path.is_file()
+    assert len(seen["token"]) >= 32
+    if os.name == "posix":  # Windows has no POSIX permission bits to assert
+        assert seen["mode"] == 0o600
 
 
 @pytest.mark.unit
