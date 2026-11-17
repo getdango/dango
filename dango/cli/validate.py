@@ -811,8 +811,8 @@ class ProjectValidator:
                     "CLI: dbt",
                     "fail",
                     f"dbt --version timed out after {DBT_VERSION_TIMEOUT_SECONDS} seconds. "
-                    "A first run or a busy disk can be slow; run 'dbt --version' yourself "
-                    "to see whether dbt hangs.",
+                    "A first run or a busy disk can be slow: run 'dango validate' again, and if "
+                    "it persists check that dbt starts quickly in this environment.",
                 )
             )
         except Exception as e:

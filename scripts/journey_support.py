@@ -107,6 +107,7 @@ class Journey:
         env["PYTHONUNBUFFERED"] = "1"
         env["NO_COLOR"] = "1"  # plain text in the pasted log
         env["TERM"] = "dumb"
+        env["COLUMNS"] = "200"  # rich tables are not wrapped at the 80 columns of a CI console
         # Stdio is UTF-8 as on a real console; file encodings stay at the platform default on
         # purpose, so file-encoding defects surface. --utf8-mode and --legacy-stdio change that.
         if self.legacy_stdio:
@@ -215,7 +216,8 @@ def report(step: Step) -> None:
     print(safe(f"{step.status} {step.name}{suffix}"), flush=True)
     if step.status == "FAIL" and step.flagged:
         print("--- flagged checks ---")
-        print(safe(step.flagged))
+        # Indented so a `^(PASS|FAIL|SKIP) ` grep of the output only sees real step lines.
+        print(safe("\n".join("  " + ln for ln in step.flagged.splitlines())))
         print("---", flush=True)
     if step.status == "FAIL" and step.tail:
         print("--- last output lines ---")
