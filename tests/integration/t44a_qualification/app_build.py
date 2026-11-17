@@ -12,6 +12,7 @@ import urllib.request
 from pathlib import Path
 
 from app_acquire import ACQUIRE, HOOK, YAML_SHA, critical
+from engine_behavior import reserve as engine_reserve
 from run import PINS, disk_gate, image_present, sha
 from semantic_fixture import reserve as semantic_reserve
 
@@ -145,10 +146,15 @@ def build_remaining(inventory, lock, cache_bytes):
     return virtual * 2 + cache_bytes * 2 + BUILD_OUTPUT_TEMP + (64 + 8) * 1024**2
 
 
-def build_outputs(project):
+def build_outputs(project, engine=False):
     """Bind complete emitted trees without publishing compiled application bytes."""
     trees = {}
-    for name in ["formula", "common", "warehouses", "visualization", "backend", "frontend", "cli"]:
+    names = (
+        ["formula", "common", "warehouses"]
+        if engine
+        else ["formula", "common", "warehouses", "visualization", "backend", "frontend", "cli"]
+    )
+    for name in names:
         directory = project / "packages" / name / ("build" if name == "frontend" else "dist")
         rows = []
         allocated = 0
@@ -175,13 +181,16 @@ def build_outputs(project):
         "frontend/build/build-hash.json",
         "cli/dist/index.js",
     ]
+    if engine:
+        entries = ["formula/dist/index.js", "common/dist/cjs/index.js", "warehouses/dist/index.js"]
     entry_hashes = {}
     for name in entries:
         body = (project / "packages" / name).read_bytes()
         assert body, "Empty build entrypoint: " + name
         entry_hashes[name] = sha(body)
-    assets = project / "packages/frontend/build/assets"
-    assert any(assets.rglob("*.js")) and any(assets.rglob("*.css")), "Missing frontend assets"
+    if not engine:
+        assets = project / "packages/frontend/build/assets"
+        assert any(assets.rglob("*.js")) and any(assets.rglob("*.css")), "Missing frontend assets"
     assert sum(max(tree["bytes"], tree["allocated_bytes"]) for tree in trees.values()) <= 4 * GIB, (
         "Build outputs exceed allowance"
     )
@@ -191,6 +200,8 @@ def build_outputs(project):
 def main():
     """Reuse the original bounded installer and capture before exact owned cleanup."""
     root, baseline = [Path(p).resolve() for p in sys.argv[1:]]
+    engine_mode = engine_reserve(root) > 0
+    expected = "PASS_NORMAL_SELECTED_CLIENT_BUILD" if engine_mode else "PASS_COMPLETE_NORMAL_BUILD"
     previous = json.loads((root / "evidence/app-acquisition.json").read_text())
     assert previous["status"] == "PASS_FULL_DEV_ACQUISITION_ONLY"
     data = (root / "evidence/app-package-inventory.json").read_bytes()
@@ -240,6 +251,7 @@ def main():
         result["source_before"] = source_before
         remaining = build_remaining(inventory, lock, acquire.bytes_used(app / "pnpm-cache"))
         remaining += semantic_reserve(root)
+        remaining += engine_reserve(root)
         result["remaining_upper"] = remaining
         result["output_temp_allowance"] = BUILD_OUTPUT_TEMP
         disk_gate(rig, remaining, "before-offline-full-install-license-and-staging")
@@ -315,7 +327,7 @@ def main():
         result["install"] = "PASS_OFFLINE_FULL_NO_LIFECYCLES"
         project = target / "project"
         assert critical(project, lock) == before
-        for command in BUILD_COMMANDS:
+        for command in BUILD_COMMANDS[:3] if engine_mode else BUILD_COMMANDS:
             disk_gate(rig, remaining, "before-normal-" + command)
             build = pnpm + " run " + command
             if command == "backend-build":
@@ -336,10 +348,12 @@ def main():
             assert {
                 name: sha((project / name).read_bytes()) for name in source_before
             } == source_before
-        result["outputs"] = build_outputs(project)
+        result["outputs"] = build_outputs(project, engine_mode)
         disk_gate(rig, 0, "after-complete-normal-app-build")
-        result["status"] = "PASS_COMPLETE_NORMAL_BUILD"
-        result["full_app"] = "BUILD_PASS_RUNTIME_UNRUN"
+        result["status"] = expected
+        result["full_app"] = (
+            "UNRUN_SELECTED_CLIENT_ONLY" if engine_mode else "BUILD_PASS_RUNTIME_UNRUN"
+        )
         result["lifecycles"] = (
             "Dependency install lifecycles unexecuted; normal upstream build commands and their pre/post hooks execute offline. No canvas/Cypress/legacy DuckDB install/rebuild. App runtime native initialization remains UNRUN."
         )
@@ -362,7 +376,7 @@ def main():
         result["seconds"] = time.monotonic() - started
         result["secret_files"] = sum(p.is_file() for p in (root / "secrets").rglob("*"))
         (root / "evidence/app-build.json").write_text(json.dumps(result, indent=2) + "\n")
-    assert result["status"] == "PASS_COMPLETE_NORMAL_BUILD", result.get("error")
+    assert result["status"] == expected, result.get("error")
 
 
 if __name__ == "__main__":

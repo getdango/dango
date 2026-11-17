@@ -16,6 +16,7 @@ import time
 import urllib.request
 from pathlib import Path
 
+import engine_behavior as engine
 import notebook_run
 from dbt_assets import EXTRA_PEAK, export_candidates
 from dbt_publication import EXTRA_PEAK as PUBLICATION_PEAK
@@ -167,8 +168,10 @@ def main():
         "--held-reader",
         "--notebook",
         "--semantic",
+        "--engine",
     }
-    held_reader = producer_capture and sys.argv[3] in {"--held-reader", "--semantic"}
+    held_reader = producer_capture and sys.argv[3] in {"--held-reader", "--semantic", "--engine"}
+    engine_mode = producer_capture and sys.argv[3] == "--engine"
     notebook = producer_capture and sys.argv[3] == "--notebook"
     expected_status = (
         notebook_run.STATUS
@@ -234,6 +237,7 @@ def main():
             ]
             + DLT_FILES
             + (notebook_run.FILES if notebook else [])
+            + (engine.FILES if engine_mode else [])
         },
     }
     existing = {}
@@ -270,6 +274,8 @@ def main():
             from semantic_fixture import EXTRA_PEAK as SEMANTIC_PEAK
 
             rig.remaining += SEMANTIC_PEAK
+        if engine_mode:
+            rig.remaining += engine.EXTRA_PEAK
         disk_gate(rig, rig.remaining, "before-public-acquisition-and-image-pulls")
         for role, pin in PINS["images"].items():
             existing[role] = image_present(rig, pin["ref"])
@@ -292,6 +298,7 @@ def main():
             ]
             + DLT_FILES
             + (notebook_run.FILES if notebook else [])
+            + (engine.FILES if engine_mode else [])
         ):
             shutil.copyfile(HERE / name, root / "scripts" / name)
             assert sha((root / "scripts" / name).read_bytes()) == sha((HERE / name).read_bytes())
@@ -370,6 +377,18 @@ def main():
             captured = json.loads((root / "work/producer-capture.json").read_text())
             assert captured["status"] == "PASS_SOURCE_PINNED_DLT_DUCKLAKE_CAPTURE"
             result["producer_capture"] = captured["status"]
+            if engine_mode:
+                for name in engine.FILES:
+                    assert (
+                        sha((root / "scripts" / name).read_bytes())
+                        == result["qualification_inputs"][name]
+                    )
+                rig.run(
+                    "producer",
+                    ["-c", "/work/venv/bin/python /scripts/engine_behavior.py early"],
+                    timeout=900,
+                )
+                result["engine_early"] = sha((root / "work/engine-python-early.json").read_bytes())
             if held_reader:
                 result["held_prerequisite"] = prerequisite(
                     root / "work", root / "work/project/target"
@@ -419,6 +438,8 @@ def main():
             export(rig)
             if notebook:
                 notebook_run.export(rig, disk_gate)
+            if engine_mode:
+                engine.export(rig, rig.secrets, disk_gate)
         except Exception as error:
             result["status"], result["export_error"] = "FAIL", str(error)
         try:

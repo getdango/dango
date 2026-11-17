@@ -20,6 +20,8 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from engine_behavior import require_early
+from engine_behavior import reserve as engine_reserve
 from held_reader import require_acquisition_prerequisite
 from run import PINS, disk_gate, sha
 from semantic_fixture import reserve as semantic_reserve
@@ -160,6 +162,7 @@ def main():
     root, baseline = [Path(p).resolve() for p in sys.argv[1:]]
     assert platform.system() == "Linux" and platform.machine() == "x86_64"
     require_acquisition_prerequisite(root)
+    require_early(root)
     assert not any(p.is_file() for p in (root / "secrets").rglob("*")), "Prior secret cleanup"
     base = baseline / "tests/integration/lightdash_probe"
     assert sha((base / "runtime.py").read_bytes()) == PINS["baseline_runtime_sha256"]
@@ -229,7 +232,7 @@ def main():
         assert len(evidence) <= 32 * 1024**2
         disk_gate(rig, len(evidence) * 2, "before-small-inventory-evidence")
         (root / "evidence/app-package-inventory.json").write_bytes(evidence + b"\n")
-        remaining = fetch_peak(rows, lock) + semantic_reserve(root)
+        remaining = fetch_peak(rows, lock) + semantic_reserve(root) + engine_reserve(root)
         remaining += sum(math.ceil(len(b) / 4096) * 4096 + 4096 for b in notices.values())
         remaining += len(evidence) * 2
         result["before_fetch_remaining_upper"] = remaining

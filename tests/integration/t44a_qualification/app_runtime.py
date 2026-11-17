@@ -107,7 +107,7 @@ def runtime_rig(base):
         def start_owned(self, name, attached=False):
             component, frozen = self.objects[name]
             self.component = component
-            role = "postgres" if component == "postgres" else "consumer"
+            role = {"postgres": "postgres", "fixture": "producer"}.get(component, "consumer")
             if component != "postgres":
                 assert self.ready[component] == self.signature(role), "STALE runtime readiness"
             now = json.loads(self.call(["docker", "inspect", name]).stdout)[0]

@@ -480,5 +480,30 @@
     "additional_peak_bytes": 872415232,
     "fit": "288MiB original3x3x32MiB stage artifacts +96MiB current targets +288MiB exports +40MiB original/export reports +32MiB project/source/logs +64MiB data/PG metadata +24MiB residual =832MiB. Actual allocated project+stage copies<=416MiB; extra exports<=308MiB. Whole actualowned/frozenimages/remaining/headroom anddf gates before fetch/install/runtime/export; actualnativefitUNRUN.",
     "dbt_fixture_execution": "N1-only standard pinnedCLI --threads1 plus supported --no-parallel (test/debug sequential task/parser knob). No model/test/type/error suppression, engine/client/profile/dependency change. Prior two-thread DDL temporary-table/schema-path failures inCI43899635925 retained; parallel dbt DDL not qualified by this serial fixture."
+  },
+  "engine_behavior_N2": {
+    "authority": "DANGO110-T44A-ADAPTED-CONTINUATION-20261116-12; same exact source/dependency/native pins",
+    "cases": "engine-cases.json frozen SQL and independent expected results/errors; Python2/dbtOSS2 ADBC then normal compiled Lightdash WarehouseClient2",
+    "build": "Existing full-dev offline install without lifecycles; normal formula/common/warehouses commands only. No source/API patch, esbuild substitute or new dependency. Complete full-app/default build unchanged.",
+    "profiles": "Reuse original frozen PG0.5CPU512MiB; fixture3CPU3072MiB; Garage0.25CPU256MiB; actor1CPU1024MiB. Serial build4CPU4608MiB with no services. Runtime maxPG+Garage+fixture3.75CPU3840MiB; Node actor replaces fixture1.75CPU1792MiB. Same uid/mount/secret/network/readiness/cgroup guards.",
+    "extension_staging": "Python installed native library matches frozen wheel before import; pre-fetched signed extension hashes before bootstrap. Node actual2.0.0-r.1 platform files match measured frozen inventory, then its exact version chooses upstream dist/duckdbExtensions/<version>/httpfs path; copy/hash pinned httpfs before normal client bootstrap, avoiding INSTALL fallback. Bundled ICU identity is native artifact plus actual STATICALLY_LINKED row.",
+    "s3_engine": "One exact existing Garage readiness object. PythonDuckDB/httpfs and normal public DuckdbWarehouseClient.createForPreAggregate each use correct hash -> wrong native403 -> correct same hash. SDK only seeds/deletes object; prior SDK good/bad/good separate evidence. Every Node S3 runQuery isolated; extension inventory call is NOT the blob-read session. No cache key, no ambient credential chain, no raw credential SQL/argv/logs/evidence.",
+    "fit": {
+      "extra_peak_bytes": 1342177280,
+      "components_mib": {
+        "all_original_stages_and_reports_aggregate": 400,
+        "separate_export_copies_aggregate": 400,
+        "current_target": 96,
+        "source_project": 16,
+        "owned_temp_native_data": 64,
+        "Garage_growth_and_phase_margin": 256,
+        "terminal_host_report": 16,
+        "allocation_residual": 32
+      },
+      "last_measured_fullapp_conservative_inclusive": 29613572516,
+      "projection_not_measurement": 30955749796,
+      "runtime_fresh_fixture": "Existing PG/WAL/dbt/driver/image/Garage staging additionally charged before growth; measured40e9 whole-owned + all planned images + remaining +2GiB AND actualdf before install/each compiler/runtime/native phase/export."
+    },
+    "reuse_limits": "N1 scoped15queries and named-zone calendar evidence valid; old SDK S3 proof separate; unsupported parallel2-thread DDL remains unresolved. G10 still UNRUN until native evidence and serial independent reviews."
   }
 }

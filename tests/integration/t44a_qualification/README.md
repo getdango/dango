@@ -471,3 +471,46 @@ failure (missing temporary table and missing schema path at DuckLake commit). Th
 created the same SQL successfully; the corrected hidden metadata did not change model SQL.
 Serial fixture generation does not qualify parallel dbt DDL; that observed limitation is retained,
 and this is not a claim that one scheduling flag repairs the underlying native boundary.
+
+## N2 engine cases — candidate, native execution pending
+
+N1's fifteen ordinary-actor jobs passed on head53470599/run44005697884 and received scoped general
+and native-boundary review. That evidence retains its explicit named-zone calendar scope; it is
+not a dynamic report-session timezone claim. The earlier hidden-only metadata inference was
+falsified by prevalidation order; authentic column declarations fixed it. The prior two-thread
+dbt DDL failure remains unresolved, so these fixture commands are serial.
+
+Engine mode runs only the missing G10 assertions from `engine-cases.json`: quoted-CTE parsing,
+Python-style lambda success and deprecated-arrow native Binder refusal, integer/float division,
+modulo and both integer-zero native errors, explicit TRY/NULL, naive/aware timestamp types and
+microsecond/nanosecond precision. Python2 executes actual SQL; normal dbtOSS2/ADBC materializes
+seven positives and retains three distinct deliberate native-error stages and untouched artifacts.
+Selected captured inputs and orders350 stay invariant. The exact source/lock/artifact graph is
+unchanged. After ordinary offline installation, only normal formula/common/warehouse builds run;
+this is a selected-client build, never labelled a complete app build. No accepted BI/notebook case
+or frontend/backend application is rerun for this stage.
+
+The normally compiled Lightdash WarehouseClient executes the same cases through its usual
+READ_ONLY DuckLake route. For engine S3, the public `createForPreAggregate` factory accepts the
+single server-owned object URI. It does not change ordinary-user SQL validation. Frozen native
+bindings are hashed before import, then exact signed httpfs bytes are copied and verified under
+the upstream versioned `dist/duckdbExtensions` lookup before bootstrap. Loaded extension rows are
+checked against pins. **Each S3 runQuery is isolated: its extension-inventory call and blob-read
+call are separate sessions.** The inventory is not presented as a measurement of the read session;
+the source-bound normal bootstrap and staged bytes bind the read path.
+
+One unchanged Garage profile serves the existing synthetic readiness object. Both Python
+DuckDB/httpfs and selected Node S3 clients must read its independently computed body hash, refuse
+a wrong synthetic secret with a native HTTP403 authentication diagnostic, then read the identical
+hash again with correct credentials. SDK calls only seed/delete this object; earlier SDK
+positive/negative/positive evidence is separate and does not prove engine credentials. Secret
+SQL stays in child memory; raw-secret checking precedes export, Garage warning filters stay in
+place, and exact container/Garage credential-store cleanup remains mandatory.
+
+No new dependency, artifact pin, runtime profile or service is introduced. Build remains alone at
+4CPU/4608MiB. Runtime is serial PG+Garage+Node actor (1.75CPU/1792MiB), then PG+Garage+Python fixture
+(3.75CPU/3840MiB). Reserve1280MiB for both sets of four-stage artifacts, current targets, reports,
+owned temp/data and Garage growth. Conservative prior peak plus this reserve is30,955,749,796
+bytes, a projection only; fresh PG/WAL/driver/setup growth is charged separately. Every actual
+phase still measures inclusive40e9 fit, all planned images, remaining copies and >=2GiB headroom
+against real runner free space. Native G10 results and scoped acceptance remain pending.
