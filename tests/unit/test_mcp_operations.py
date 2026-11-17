@@ -453,3 +453,27 @@ class TestRunSyncRedaction:
         result = mcp_operations.run_sync("test_source")
         _assert_redacted(result)
         assert result["source"] == "test_source"
+
+
+@pytest.mark.unit
+class TestMcpErrorRedactionOtherReturns:
+    """Config-load and run_transform failures redact too."""
+
+    @pytest.fixture(autouse=True)
+    def _secrets_file(self, project: Path) -> None:
+        (project / ".dlt").mkdir(exist_ok=True)
+        (project / ".dlt" / "secrets.toml").write_text(f'[s]\nk = "{_SECRET}"\n', encoding="utf-8")
+
+    def test_config_load_error_redacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def boom(*a: Any, **k: Any) -> None:
+            raise RuntimeError(_ERR)
+
+        monkeypatch.setattr("dango.config.helpers.load_config", boom)
+        _assert_redacted(mcp_operations.run_sync("test_source"))
+
+    def test_run_transform_exception_redacted(self, project: Path, monkeypatch: pytest.MonkeyPatch):
+        def boom(*a: Any, **k: Any) -> None:
+            raise RuntimeError(_ERR)
+
+        monkeypatch.setattr("dango.transformation.run_dbt_models", boom)
+        _assert_redacted(mcp_operations.run_transform())

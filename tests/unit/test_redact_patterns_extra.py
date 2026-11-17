@@ -97,3 +97,68 @@ def test_printed_error_text_is_capped() -> None:
     assert len(out) < 10_000
     assert "hunter22hunter" not in out
     assert "truncated" in out
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"private_key": "-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQ',
+        "private_key: -----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\n",
+        "private_key = -----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAxyz\n-----END RSA PRIVATE KEY-----",
+        "{'type': 'service_account', 'private_key': '-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQ\\n-----END PRIVATE KEY-----\\n'}",
+        "secret: -----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIBkg4LVWM9nuwNSk3yByxZpYRTBnVJk5\n-----END EC PRIVATE KEY-----",
+    ],
+)
+def test_key_body_is_masked_when_a_key_name_precedes_the_block(text: str) -> None:
+    out = redact_patterns(text)
+    for body in ("MIIEvQIBADAN", "MIIEowIBAAKC", "MHcCAQEEIBkg"):
+        assert body not in out
+
+
+def test_long_name_suffix_is_still_matched() -> None:
+    assert "PRODSECRET1" not in redact_patterns(
+        "api_key_for_production_environment_us_east=PRODSECRET1"
+    )
+    suffix = "x" * 40
+    assert "LONGSUFFIX1" not in redact_patterns(f"password_{suffix}=LONGSUFFIX1")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "x_api_key=KEYVALUE12",
+        "myapi_key=KEYVALUE12",
+        "refresh_token=KEYVALUE12",
+        "CLIENT_SECRET: KEYVALUE12",
+        "password_hash=KEYVALUE12",
+        "secret_access_key_id=KEYVALUE12",
+    ],
+)
+def test_existing_name_shapes_unchanged(text: str) -> None:
+    assert "KEYVALUE12" not in redact_patterns(text)
+
+
+def test_sas_parameter_and_encoded_ampersand_stop() -> None:
+    assert "SASVALUE123" not in redact_patterns("GET https://h/b?sas=SASVALUE123&a=1")
+    out = redact_patterns("url /v1/x%3Fapi_key%3DENCSECRET12%26page%3D2")
+    assert "ENCSECRET12" not in out and "%26page%3D2" in out
+
+
+def test_cap_applies_after_redaction_and_notice_is_literal() -> None:
+    from io import StringIO
+
+    from rich.console import Console
+
+    text = "x" * 7990 + "KNOWNSECRETVALUE" + "y" * 500
+    out = rich_error_text(None, text.replace("KNOWNSECRETVALUE", "password=hunter22hunter"))
+    assert "hunter22" not in out and "password=hunt" not in out.replace("password=****", "")
+    buf = StringIO()
+    Console(file=buf, width=20000).print(f"[red]{out}[/red]")
+    assert "[truncated" in buf.getvalue()
+
+
+def test_known_secret_straddling_the_cap_is_not_partly_shown(tmp_path) -> None:
+    (tmp_path / ".env").write_text("TOKEN=sk_live_ABCDEFGHIJKLMNOP\n", encoding="utf-8")
+    text = "x" * 7990 + "sk_live_ABCDEFGHIJKLMNOP" + "y" * 100
+    out = rich_error_text(tmp_path, text)
+    assert "sk_live" not in out

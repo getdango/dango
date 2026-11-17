@@ -77,3 +77,16 @@ def test_schema_mismatch_with_markup_like_column_is_reported(tmp_path: Path, out
     result = loader.load("src", config, "raw_src")
     assert result["status"] == "error"
     assert "[/x]col" in out.getvalue()
+
+
+def test_cleanup_failure_is_redacted_and_escaped(tmp_path: Path, out: StringIO) -> None:
+    (tmp_path / ".env").write_text("K=CleanupSecret12345\n", encoding="utf-8")
+    loader, data = _loader(tmp_path)
+    bad = data / "b.csv"
+    _bad_csv(bad)
+    conn = MagicMock()
+    conn.execute.side_effect = RuntimeError("drop [/x] failed CleanupSecret12345")
+    assert loader._load_new_file(conn, str(bad), "t", "orders", skip_schema_check=True) is False
+    printed = out.getvalue()
+    assert "CleanupSecret12345" not in printed
+    assert printed.count("drop [/x] failed") == 2
