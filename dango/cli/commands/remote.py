@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.commands import remote_report
@@ -373,7 +374,7 @@ def remote_push(
     try:
         ssh = _connect_ssh(cloud_cfg, project_root)
     except CloudError as exc:  # e.g. a changed host key: one clean line, like `remote status`
-        console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
+        console.print(f"[red]Error:[/red] Failed to connect to server: {escape(str(exc))}")
         raise SystemExit(1) from exc
 
     try:
@@ -634,7 +635,7 @@ def _reopen_web_ports_for_certificate(cloud_cfg: Any) -> None:
         allow_all_web(client, cloud_cfg.firewall_id)
     except CloudError as exc:
         console.print(
-            f"[yellow]Warning:[/yellow] Could not check the firewall: {exc}\n"
+            f"[yellow]Warning:[/yellow] Could not check the firewall: {escape(str(exc))}\n"
             "  The certificate may fail to issue until ports 80/443 are open to all. Run "
             "[bold]dango remote firewall allow-all[/bold]"
         )

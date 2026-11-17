@@ -4,6 +4,7 @@ Configuration management commands (validate, show).
 """
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 
@@ -135,8 +136,10 @@ def config_validate(ctx: click.Context) -> None:
             console.print("[dim]Fix errors and run 'dango config validate' again[/dim]")
             raise click.Abort()
 
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -208,8 +211,10 @@ def config_show(ctx: click.Context) -> None:
             console.print(syntax)
             console.print()
 
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

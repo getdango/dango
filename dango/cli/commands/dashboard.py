@@ -239,8 +239,10 @@ def dashboard_provision(
     except KeyboardInterrupt:
         console.print("\n[yellow]Provisioning cancelled[/yellow]")
         raise click.Abort() from None
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"\n[red]Error:[/red] {e}")
+        console.print(f"\n[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.commands.schedule import (
@@ -224,4 +225,4 @@ def webhook_test(ctx: click.Context, name: str) -> None:
         else:
             console.print(f"[red]Failed.[/red] Status: {resp.status_code}")
     except httpx.HTTPError as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")

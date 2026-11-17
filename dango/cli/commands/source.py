@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.utils import safe_confirm
@@ -197,7 +198,7 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
     try:
         yaml.safe_load(edited)
     except yaml.YAMLError as e:
-        console.print(f"[red]Invalid YAML:[/red] {e}")
+        console.print(f"[red]Invalid YAML:[/red] {escape(str(e))}")
         console.print("[yellow]Changes NOT saved.[/yellow]")
         return
 
@@ -404,8 +405,10 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
             f"[dim]Total: {total_count} sources ({enabled_count} enabled, {total_count - enabled_count} disabled)[/dim]"
         )
 
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -563,7 +566,7 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -833,7 +836,7 @@ def source_inspect_state(ctx: click.Context, source_name: str) -> None:
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -1128,10 +1131,15 @@ def sync(
 
         # Exit with error code if any sources failed
         if summary["failed_count"] > 0:
+            from ..sync_report import print_failed_sources
+
+            print_failed_sources(summary, project_root)
             raise click.Abort()
 
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

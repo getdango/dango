@@ -9,6 +9,7 @@ from typing import Any
 import duckdb
 import yaml
 from rich.console import Console
+from rich.markup import escape
 
 from dango.utils.dbt_escaping import needs_identifier_quoting, neutralize_jinja
 
@@ -87,7 +88,9 @@ class SchemaManager:
         try:
             schema_path = resolve_docs_path(self.project_root, layer, model_name)
         except ModelServiceError as e:
-            console.print(f"[yellow]⚠️[/yellow]  Skipping schema.yml for {model_name}: {e}")
+            console.print(
+                f"[yellow]⚠️[/yellow]  Skipping schema.yml for {model_name}: {escape(str(e))}"
+            )
             return
 
         # Load existing schema.yml or create new

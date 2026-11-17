@@ -13,6 +13,7 @@ import re
 import shlex
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
@@ -288,7 +289,7 @@ def remote_repair(ctx: click.Context) -> None:
             )
 
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Could not connect to server: {exc}")
+        console.print(f"[red]Error:[/red] Could not connect to server: {escape(str(exc))}")
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
@@ -481,7 +482,7 @@ def remote_reset_metabase(ctx: click.Context) -> None:
     except click.Abort:
         raise
     except Exception as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()

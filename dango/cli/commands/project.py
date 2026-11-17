@@ -4,6 +4,7 @@ Project management commands (init, rename, info).
 """
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 
@@ -36,7 +37,7 @@ def init(ctx: click.Context, project_name: str, skip_wizard: bool, force: bool) 
     try:
         init_project(project_dir, skip_wizard=skip_wizard, force=force)
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -210,8 +211,10 @@ def rename(ctx: click.Context, new_name: str) -> None:
             console.print("[dim]Start the project to use the new URL:[/dim]")
             console.print("[dim]  dango start[/dim]")
 
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -296,8 +299,10 @@ def info(ctx: click.Context) -> None:
             )
             console.print()
 
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.utils import safe_confirm
@@ -309,7 +310,7 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
                 )
             except OSError as e:
                 console.print(
-                    f"[red]\u2717[/red] Failed to remove {path.relative_to(project_root)}/: {e}"
+                    f"[red]\u2717[/red] Failed to remove {path.relative_to(project_root)}/: {escape(str(e))}"
                 )
 
         # Python cache
@@ -383,7 +384,7 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
         console.print("\n[yellow]Cancelled.[/yellow]")
         raise click.Abort() from None
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

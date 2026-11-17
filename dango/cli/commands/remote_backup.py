@@ -632,6 +632,8 @@ def backup_restore(ctx: click.Context, source: str, yes: bool, from_local: bool)
             raise SystemExit(1)
     except SystemExit:
         raise
+    except click.Abort:
+        raise
     except Exception as exc:
         remote_report.error(exc)
         raise SystemExit(1) from exc
@@ -695,6 +697,8 @@ def _backup_restore_from_local(ctx: click.Context, source: str, yes: bool) -> No
             backup_notices.print_reenter(*archive_secrets_info(local_path))
             _print_post_restore_credential_guidance()
     except SystemExit:
+        raise
+    except click.Abort:
         raise
     except Exception as exc:
         remote_report.error(exc)

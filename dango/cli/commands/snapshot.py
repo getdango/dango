@@ -6,6 +6,7 @@ Snapshot command group: dbt snapshots (SCD Type 2) and DuckDB snapshots.
 from __future__ import annotations
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.utils.dbt_escaping import comment_text, jinja_string_literal
@@ -374,7 +375,7 @@ def snapshot_run(ctx: click.Context, select: str | None) -> None:
             raise SystemExit(1)
 
     except DbtLockError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise SystemExit(1) from e
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled[/yellow]")
@@ -401,10 +402,10 @@ def snapshot_db(ctx: click.Context, user: str) -> None:
     try:
         snap_path = create_snapshot(project_root, username=user)
     except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise SystemExit(1) from e
     except IsolationRequiredError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise click.Abort() from e
 
     size_mb = snap_path.stat().st_size / (1024 * 1024)

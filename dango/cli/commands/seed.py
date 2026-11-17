@@ -12,6 +12,7 @@ from pathlib import Path
 
 import click
 import yaml
+from rich.markup import escape
 
 from dango.cli import console
 
@@ -111,7 +112,7 @@ def seed_add(ctx: click.Context, path: str) -> None:
                             schema_configured = True
             except yaml.YAMLError as e:
                 console.print(
-                    f"[yellow]⚠[/yellow] Failed to parse dbt_project.yml: {e}. "
+                    f"[yellow]⚠[/yellow] Failed to parse dbt_project.yml: {escape(str(e))}. "
                     "Seed will be added, but schema config skipped."
                 )
         else:
@@ -139,7 +140,7 @@ def seed_add(ctx: click.Context, path: str) -> None:
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -181,5 +182,5 @@ def seed_list(ctx: click.Context) -> None:
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise click.Abort() from e

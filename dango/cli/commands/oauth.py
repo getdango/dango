@@ -69,7 +69,7 @@ def _try_service_account_auth(source_type: str, project_root: Path) -> bool:
     try:
         key_data = json.loads(key_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
-        console.print(f"\n[red]✗ Failed to read JSON key: {e}[/red]\n")
+        console.print(f"\n[red]✗ Failed to read JSON key: {escape(str(e))}[/red]\n")
         raise click.Abort() from e
 
     # Validate JSON structure
@@ -188,6 +188,8 @@ def oauth_list(ctx: click.Context) -> None:
         console.print("\n[dim]To re-authenticate: dango oauth <source_type>[/dim]")
         console.print("[dim]To remove: dango oauth remove <source_type>[/dim]\n")
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -268,6 +270,8 @@ def oauth_status(ctx: click.Context) -> None:
                     f"    [cyan]Re-authenticate: dango oauth refresh {cred.source_type}[/cyan]\n"
                 )
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -325,6 +329,8 @@ def oauth_remove(ctx: click.Context, source_type: str) -> None:
             console.print("\n[red]✗ Failed to remove OAuth credential[/red]\n")
             raise click.Abort()
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -398,6 +404,8 @@ def oauth_refresh(ctx: click.Context, source_type: str) -> None:
         console.print("\n[green]✓ OAuth credential refreshed successfully[/green]")
         console.print(f"[dim]  New credential: {new_oauth_name}[/dim]\n")
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -441,6 +449,8 @@ def oauth_facebook_ads(ctx: click.Context) -> None:
             console.print("[red]Authentication failed[/red]")
             raise click.Abort()
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -488,6 +498,8 @@ def oauth_google_sheets(ctx: click.Context) -> None:
             f"See: {escape('https://console.cloud.google.com/apis/credentials/consent')}[/dim]"
         )
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -535,6 +547,8 @@ def oauth_google_analytics(ctx: click.Context) -> None:
             f"See: {escape('https://console.cloud.google.com/apis/credentials/consent')}[/dim]"
         )
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -579,6 +593,8 @@ def oauth_google_ads(ctx: click.Context) -> None:
             f"See: {escape('https://console.cloud.google.com/apis/credentials/consent')}[/dim]"
         )
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -748,6 +764,8 @@ def oauth_check(ctx: click.Context) -> None:
 
         console.print("")
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -929,6 +947,8 @@ def oauth_setup(ctx: click.Context, provider: str) -> None:
     except KeyboardInterrupt:
         console.print("\n[yellow]Setup cancelled[/yellow]")
         raise click.Abort() from None
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode

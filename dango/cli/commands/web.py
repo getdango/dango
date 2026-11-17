@@ -4,6 +4,7 @@ Web UI backend server command.
 """
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 
@@ -58,8 +59,10 @@ def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Server stopped[/yellow]")
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"\n[red]Error starting server:[/red] {e}")
+        console.print(f"\n[red]Error starting server:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

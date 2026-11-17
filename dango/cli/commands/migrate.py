@@ -4,6 +4,7 @@ CLI commands for database migration management (status, run).
 """
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 
@@ -109,5 +110,5 @@ def migrate_run(ctx: click.Context, db_name: str | None) -> None:
                     for m in applied:
                         console.print(f"    {m.version}: {m.description}")
     except MigrationError as exc:
-        console.print(f"[red]Migration error:[/red] {exc}")
+        console.print(f"[red]Migration error:[/red] {escape(str(exc))}")
         raise click.Abort() from exc

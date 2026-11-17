@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from rich.markup import escape
 from rich.table import Table
 
 from dango.cli import console
@@ -375,7 +376,7 @@ def dev(ctx: click.Context, select: str | None, show_diff: bool) -> None:
         console.print("\n[yellow]Cancelled.[/yellow]")
         raise click.Abort() from None
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -419,7 +420,7 @@ def dev_clean(ctx: click.Context) -> None:
         console.print("\n[yellow]Cancelled.[/yellow]")
         raise click.Abort() from None
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

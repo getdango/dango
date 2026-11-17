@@ -13,6 +13,7 @@ import json
 import shlex
 
 import click
+from rich.markup import escape
 from rich.status import Status
 
 from dango.cli import console
@@ -73,7 +74,7 @@ def remote_sync(
         try:
             backfill_days = parse_backfill_duration(backfill)
         except ValueError as exc:
-            console.print(f"[red]Error:[/red] {exc}")
+            console.print(f"[red]Error:[/red] {escape(str(exc))}")
             raise SystemExit(1) from None
 
     cloud_cfg, project_root = _load_cloud_config_with_ip(ctx)
@@ -82,7 +83,7 @@ def remote_sync(
     try:
         ssh.connect(cloud_cfg.droplet_ip)
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
+        console.print(f"[red]Error:[/red] Failed to connect to server: {escape(str(exc))}")
         raise SystemExit(1) from exc
 
     # Build the JSON payload for the server-side runner
@@ -145,7 +146,7 @@ def remote_sync(
                 f"(running in background on server)."
             )
     except CloudSSHError as exc:
-        console.print(f"[red]Error:[/red] SSH command failed: {exc}")
+        console.print(f"[red]Error:[/red] SSH command failed: {escape(str(exc))}")
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()

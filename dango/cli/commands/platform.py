@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.logging import get_logger
@@ -256,7 +257,7 @@ def start(ctx: click.Context, yes: bool) -> None:
             from dango.exceptions import VersionMismatchError
 
             if isinstance(version_exc, VersionMismatchError):
-                console.print(f"[red]❌ DuckDB version mismatch:[/red] {version_exc}")
+                console.print(f"[red]❌ DuckDB version mismatch:[/red] {escape(str(version_exc))}")
                 raise click.Abort() from version_exc
             raise
 
@@ -275,7 +276,7 @@ def start(ctx: click.Context, yes: bool) -> None:
             from dango.exceptions import MigrationError
 
             if isinstance(migration_exc, MigrationError):
-                console.print(f"[red]Migration error:[/red] {migration_exc}")
+                console.print(f"[red]Migration error:[/red] {escape(str(migration_exc))}")
                 raise click.Abort() from migration_exc
             raise
 
@@ -571,7 +572,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                 console.print("[red]❌ DuckDB driver integrity verification failed[/red]")
             elif isinstance(e, DriverFilesystemError):
                 console.print("[red]❌ Could not write the DuckDB driver locally[/red]")
-                console.print(f"  {e}")
+                console.print(f"  {escape(str(e))}")
             else:
                 console.print("[red]❌ Failed to download DuckDB driver[/red]")
             console.print()
@@ -788,7 +789,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                         f"{import_result['errors'][0]}"
                     )
         except Exception as e:
-            console.print(f"[yellow]⚠[/yellow]  Dashboard import failed: {e}")
+            console.print(f"[yellow]⚠[/yellow]  Dashboard import failed: {escape(str(e))}")
 
         console.print()
 
@@ -803,7 +804,7 @@ def start(ctx: click.Context, yes: bool) -> None:
             # FastAPI failed - roll back Docker services
             from dango.platform import DockerManager
 
-            console.print(f"[red]❌ Web UI failed to start:[/red] {e}")
+            console.print(f"[red]❌ Web UI failed to start:[/red] {escape(str(e))}")
             console.print()
             console.print("[yellow]Rolling back: Stopping Docker services...[/yellow]")
             DockerManager(project_root).stop_services()
@@ -848,7 +849,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                 console.print()
             except RuntimeError as e:
                 # File watcher is non-critical - platform still works without it
-                console.print(f"[yellow]⚠[/yellow]  File watcher failed to start: {e}")
+                console.print(f"[yellow]⚠[/yellow]  File watcher failed to start: {escape(str(e))}")
                 from dango.exceptions import is_debug_mode
 
                 if is_debug_mode():
@@ -985,7 +986,7 @@ def start(ctx: click.Context, yes: bool) -> None:
     except Exception as e:
         # Unexpected error - roll back everything
         console.print()
-        console.print(f"[red]❌ Unexpected error:[/red] {e}")
+        console.print(f"[red]❌ Unexpected error:[/red] {escape(str(e))}")
         console.print()
         console.print("[yellow]Rolling back: Stopping all services...[/yellow]")
 
@@ -1122,8 +1123,10 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
         )
         console.print(f"[red]Error:[/red]\n{msg}")
         raise click.Abort() from e
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -1448,8 +1451,10 @@ def status(ctx: click.Context) -> None:
         except Exception:  # noqa: BLE001
             logger.debug("version_check_failed", exc_info=True)
 
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

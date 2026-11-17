@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.utils import safe_confirm
@@ -249,7 +250,7 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
         safety = _pre_upgrade_safety_copy(project_root)
     except OSError as exc:
         console.print(
-            f"[red]Error:[/red] Could not create the pre-upgrade safety copy of .dango/: {exc}\n"
+            f"[red]Error:[/red] Could not create the pre-upgrade safety copy of .dango/: {escape(str(exc))}\n"
             "Upgrade aborted; nothing was changed."
         )
         raise click.Abort() from exc
@@ -298,7 +299,7 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
                         f"  [green]Applied {len(applied)} migration(s) to {db_name}[/green]"
                     )
     except Exception as exc:
-        console.print(f"[red]Migration error:[/red] {exc}")
+        console.print(f"[red]Migration error:[/red] {escape(str(exc))}")
         console.print(
             "\n[yellow]The package was upgraded but migrations failed.[/yellow]\n"
             f"The databases and config from before the upgrade are in {safety.relative_to(project_root)}.\n"

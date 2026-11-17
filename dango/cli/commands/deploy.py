@@ -215,7 +215,7 @@ def _handle_reconnect(project_root: Path, ip: str | None) -> None:
     try:
         ssh.connect(ip, username="root")
     except Exception as exc:
-        console.print(f"[red]Error:[/red] SSH connection failed: {exc}")
+        console.print(f"[red]Error:[/red] SSH connection failed: {escape(str(exc))}")
         raise SystemExit(1) from exc
 
     try:
@@ -224,7 +224,7 @@ def _handle_reconnect(project_root: Path, ip: str | None) -> None:
         except CloudProvisioningError as exc:
             console.print(
                 "[red]Error:[/red] Server is not a Dango deployment or the project file "
-                f"is unreadable: {exc}"
+                f"is unreadable: {escape(str(exc))}"
             )
             raise SystemExit(1) from exc
         head = "\n".join(project_yml.splitlines()[:5])
@@ -640,7 +640,7 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
             raise
         except Exception as exc:
             console.print(
-                f"[yellow]Warning:[/yellow] Could not fully clean up remote server: {exc}"
+                f"[yellow]Warning:[/yellow] Could not fully clean up remote server: {escape(str(exc))}"
             )
             console.print("[dim]You may need to SSH in and clean up manually.[/dim]")
         finally:
@@ -657,7 +657,9 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
             cloud_yml.unlink()
             console.print("[green]Removed[/green] .dango/cloud.yml")
         except OSError as exc:
-            console.print(f"[yellow]Warning:[/yellow] Could not remove cloud.yml: {exc}")
+            console.print(
+                f"[yellow]Warning:[/yellow] Could not remove cloud.yml: {escape(str(exc))}"
+            )
 
     console.print("\n[green]BYOS deployment destroyed.[/green]")
     console.print(
@@ -750,7 +752,7 @@ def _destroy_do(
             console.print("[green]Deleted[/green] droplet.")
         except Exception as exc:
             errors.append(f"Droplet: {exc}")
-            console.print(f"[red]Failed[/red] to delete droplet: {exc}")
+            console.print(f"[red]Failed[/red] to delete droplet: {escape(str(exc))}")
 
     # 2. Delete firewall
     if cloud_cfg.firewall_id:
@@ -759,7 +761,7 @@ def _destroy_do(
             console.print("[green]Deleted[/green] firewall.")
         except Exception as exc:
             errors.append(f"Firewall: {exc}")
-            console.print(f"[red]Failed[/red] to delete firewall: {exc}")
+            console.print(f"[red]Failed[/red] to delete firewall: {escape(str(exc))}")
 
     # 3. Delete SSH key from DO
     if not keep_ssh_key:
@@ -904,7 +906,9 @@ def _offer_backup_download(cloud_cfg: Any, project_root: Path) -> None:
                 ssh.download_file(remote_path, local_path)
                 console.print(f"[green]Downloaded[/green] backup to {local_path}")
             except Exception as exc:
-                console.print(f"[yellow]Warning:[/yellow] Failed to download backup: {exc}")
+                console.print(
+                    f"[yellow]Warning:[/yellow] Failed to download backup: {escape(str(exc))}"
+                )
         elif spaces_latest:
             _download_from_spaces(cloud_cfg, project_root, spaces_latest)
     finally:
@@ -948,7 +952,9 @@ def _download_from_spaces(cloud_cfg: Any, project_root: Path, backup_name: str) 
         local_path.write_bytes(data)
         console.print(f"[green]Downloaded[/green] backup to {local_path}")
     except Exception as exc:
-        console.print(f"[yellow]Warning:[/yellow] Failed to download Spaces backup: {exc}")
+        console.print(
+            f"[yellow]Warning:[/yellow] Failed to download Spaces backup: {escape(str(exc))}"
+        )
 
 
 def _delete_ssh_key(
@@ -964,7 +970,7 @@ def _delete_ssh_key(
             console.print("[green]Deleted[/green] SSH key from DigitalOcean.")
         except Exception as exc:
             errors.append(f"SSH key: {exc}")
-            console.print(f"[red]Failed[/red] to delete SSH key: {exc}")
+            console.print(f"[red]Failed[/red] to delete SSH key: {escape(str(exc))}")
         return
 
     # Fallback: find key by fingerprint
@@ -993,7 +999,7 @@ def _delete_ssh_key(
         )
     except Exception as exc:
         errors.append(f"SSH key: {exc}")
-        console.print(f"[red]Failed[/red] to delete SSH key: {exc}")
+        console.print(f"[red]Failed[/red] to delete SSH key: {escape(str(exc))}")
 
 
 def _delete_spaces_bucket(cloud_cfg: Any, errors: list[str]) -> None:
@@ -1019,4 +1025,4 @@ def _delete_spaces_bucket(cloud_cfg: Any, errors: list[str]) -> None:
         console.print("[green]Deleted[/green] Spaces bucket.")
     except Exception as exc:
         errors.append(f"Spaces: {exc}")
-        console.print(f"[red]Failed[/red] to delete Spaces bucket: {exc}")
+        console.print(f"[red]Failed[/red] to delete Spaces bucket: {escape(str(exc))}")
