@@ -478,6 +478,7 @@
     "calendars": "Named UTC/Singapore/New York business-calendar DATE/hour/offset in dbt SQL, independent Python zoneinfo; no experimental session-TZ support claim",
     "mode": "semantic: existing full app build/runtime; ordinary member project editor; no held/notebook case rerun",
     "additional_peak_bytes": 872415232,
-    "fit": "288MiB original3x3x32MiB stage artifacts +96MiB current targets +288MiB exports +40MiB original/export reports +32MiB project/source/logs +64MiB data/PG metadata +24MiB residual =832MiB. Actual allocated project+stage copies<=416MiB; extra exports<=308MiB. Whole actualowned/frozenimages/remaining/headroom anddf gates before fetch/install/runtime/export; actualnativefitUNRUN."
+    "fit": "288MiB original3x3x32MiB stage artifacts +96MiB current targets +288MiB exports +40MiB original/export reports +32MiB project/source/logs +64MiB data/PG metadata +24MiB residual =832MiB. Actual allocated project+stage copies<=416MiB; extra exports<=308MiB. Whole actualowned/frozenimages/remaining/headroom anddf gates before fetch/install/runtime/export; actualnativefitUNRUN.",
+    "dbt_fixture_execution": "N1-only standard pinnedCLI --threads1 plus supported --no-parallel (test/debug sequential task/parser knob). No model/test/type/error suppression, engine/client/profile/dependency change. Prior two-thread DDL temporary-table/schema-path failures inCI43899635925 retained; parallel dbt DDL not qualified by this serial fixture."
   }
 }

@@ -463,3 +463,11 @@ all frozen image bounds, remaining peak and free disk before accepting. Historic
 and separate notebook overage remain historical; no simultaneous all-app fit is claimed.
 Released dlt1.32.0 still excludes DuckDB2; only exact upstream PR4600 commit
 `d220927d13a79740ac799419d08ed9847f7b5069` is a development qualification candidate, not shipping.
+
+N1 fixture dbt invocations explicitly use the frozen CLI's `--threads 1 --no-parallel`:
+warehouse/adapter work and task/parser scheduling are serial, while the genuine models/tests
+and their assertions are unchanged. CI43899635925 retained a two-thread fixture-creation
+failure (missing temporary table and missing schema path at DuckLake commit). The earlier run
+created the same SQL successfully; the corrected hidden metadata did not change model SQL.
+Serial fixture generation does not qualify parallel dbt DDL; that observed limitation is retained,
+and this is not a claim that one scheduling flag repairs the underlying native boundary.

@@ -175,6 +175,9 @@ def prepare():
         args = [
             "/work/venv/bin/dbt",
             *command,
+            "--threads",
+            "1",
+            "--no-parallel",
             "--project-dir",
             str(project),
             "--profiles-dir",
