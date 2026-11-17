@@ -221,15 +221,11 @@ def start(ctx: click.Context, yes: bool) -> None:
 
         stale_pid = read_pid_file(project_root)
         if stale_pid is not None:
-            import os
+            from dango.utils.process import pid_alive
 
-            try:
-                os.kill(stale_pid, 0)
-                # Process is alive — existing server running, port check will catch it
-            except ProcessLookupError:
-                # Process is dead (ESRCH) — stale PID file
-                # Note: PermissionError (EPERM) means the process exists but is
-                # owned by another user — let the port-conflict check handle it.
+            # Alive (including another user's process, EPERM): an existing server may be
+            # running, the port check will catch it. Dead: stale PID file.
+            if not pid_alive(stale_pid):
                 console.print("  Server was stopped. Restarting...")
                 remove_pid_file(project_root)
                 console.print()

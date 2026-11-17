@@ -6,13 +6,14 @@ Manages shared nginx instance for clean URLs across multiple Dango projects. Arc
 from __future__ import annotations
 
 import json
-import os
 import socket
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from dango.utils.process import pid_alive
 
 
 class NetworkConfig:
@@ -276,9 +277,8 @@ server {{
             with open(self.nginx_pid) as f:
                 pid = int(f.read().strip())
 
-            # Check if process exists
-            os.kill(pid, 0)
-            return True
+            # Check if process exists (os.kill(pid, 0) is not a probe on Windows)
+            return pid_alive(pid)
         except (OSError, ValueError):
             return False
 

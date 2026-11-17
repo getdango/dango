@@ -118,6 +118,21 @@ def ensure_std_fds() -> None:
             os.open(os.devnull, os.O_RDWR)
 
 
+def pid_alive(pid: int) -> bool:
+    """Return True if a process with this PID exists (cross-platform liveness probe).
+
+    ``os.kill(pid, 0)`` is not a probe on Windows (signal 0 is ``CTRL_C_EVENT``), so this uses
+    ``psutil.pid_exists``. Semantics match the POSIX ``os.kill(pid, 0)`` probe where they are
+    deliberate: a zombie counts as alive (the PID still exists until reaped), and a process we
+    may not signal (EPERM, another user's) counts as alive. A PID that is out of range is dead.
+    Does not verify identity: use :func:`is_process_running` with a recorded start time for that.
+    """
+    try:
+        return psutil.pid_exists(pid)
+    except (ValueError, OverflowError):
+        return False
+
+
 def is_process_running(pid: int, expected_start_time: float | None = None) -> bool:
     """
     Check if process with given PID is running, and — when known — verify it's the
