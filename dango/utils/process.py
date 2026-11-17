@@ -53,7 +53,7 @@ def write_pid_record(pid_file: Path, pid: int) -> None:
     """
     pid_file.parent.mkdir(parents=True, exist_ok=True)
     start_time = get_process_start_time(pid)
-    pid_file.write_text(json.dumps({"pid": pid, "start_time": start_time}))
+    pid_file.write_text(json.dumps({"pid": pid, "start_time": start_time}), encoding="utf-8")
 
 
 def read_pid_record(pid_file: Path) -> PidRecord | None:
@@ -70,7 +70,7 @@ def read_pid_record(pid_file: Path) -> PidRecord | None:
     if not pid_file.exists():
         return None
     try:
-        text = pid_file.read_text().strip()
+        text = pid_file.read_text(encoding="utf-8").strip()
     except OSError:
         return None
     if not text:

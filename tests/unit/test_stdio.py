@@ -7,6 +7,7 @@ import io
 import sys
 
 import pytest
+
 from dango.utils.stdio import ensure_safe_stdio
 
 pytestmark = pytest.mark.unit

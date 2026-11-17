@@ -26,7 +26,7 @@ def _read_config() -> configparser.ConfigParser:
     """Read the credentials file, returning an empty config if missing."""
     config = configparser.ConfigParser()
     if _CREDENTIALS_FILE.is_file():
-        config.read(str(_CREDENTIALS_FILE))
+        config.read(str(_CREDENTIALS_FILE), encoding="utf-8")
     return config
 
 
@@ -40,7 +40,7 @@ def _write_config(config: configparser.ConfigParser) -> None:
         os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
         0o600,
     )
-    with os.fdopen(fd, "w") as f:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         config.write(f)
 
 
@@ -61,7 +61,7 @@ def get_do_token(project_root: Path | None = None) -> str | None:
         project_creds = project_root / ".dango" / "credentials"
         if project_creds.is_file():
             project_config = configparser.ConfigParser()
-            project_config.read(str(project_creds))
+            project_config.read(str(project_creds), encoding="utf-8")
             if project_config.has_option(_SECTION, _TOKEN_KEY):
                 val = project_config.get(_SECTION, _TOKEN_KEY)
                 if val:
@@ -87,12 +87,12 @@ def save_do_token(token: str, project_root: Path | None = None) -> None:
         cred_file = cred_dir / "credentials"
         config = configparser.ConfigParser()
         if cred_file.is_file():
-            config.read(str(cred_file))
+            config.read(str(cred_file), encoding="utf-8")
         if not config.has_section(_SECTION):
             config.add_section(_SECTION)
         config.set(_SECTION, _TOKEN_KEY, token)
         fd = os.open(str(cred_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             config.write(f)
     else:
         config = _read_config()
@@ -116,14 +116,14 @@ def clear_do_token(project_root: Path | None = None) -> bool:
         if not cred_file.is_file():
             return False
         config = configparser.ConfigParser()
-        config.read(str(cred_file))
+        config.read(str(cred_file), encoding="utf-8")
         if not config.has_option(_SECTION, _TOKEN_KEY):
             return False
         config.remove_option(_SECTION, _TOKEN_KEY)
         if not config.options(_SECTION):
             config.remove_section(_SECTION)
         fd = os.open(str(cred_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             config.write(f)
         return True
 

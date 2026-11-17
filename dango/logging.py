@@ -39,6 +39,7 @@ from structlog.contextvars import (
 import dango
 
 __all__ = [
+    "close_file_handlers",
     "configure_logging",
     "get_logger",
     "bind_contextvars",
@@ -263,6 +264,19 @@ def _setup_file_handler(
         "encoding": "utf-8",
     }
     return True
+
+
+def close_file_handlers() -> None:
+    """Detach and close Dango's log file handlers.
+
+    Releases the open ``dango.log`` so its directory can be deleted (Windows
+    refuses to delete an open file). Console logging is left in place.
+    """
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if isinstance(handler, _DangoFileHandler):
+            root.removeHandler(handler)
+            handler.close()
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:

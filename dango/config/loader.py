@@ -94,7 +94,7 @@ class ConfigLoader:
             )
 
         try:
-            with open(file_path) as f:
+            with open(file_path, encoding="utf-8") as f:
                 data = yaml.safe_load(f)
                 return data or {}
         except yaml.YAMLError as e:
@@ -137,7 +137,7 @@ class ConfigLoader:
         temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
 
         try:
-            with open(temp_path, "w") as f:
+            with open(temp_path, "w", encoding="utf-8", newline="\n") as f:
                 yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False, indent=2)
 
             # Atomic rename (overwrites destination on POSIX systems)
@@ -342,7 +342,7 @@ class ConfigLoader:
             return None
 
         try:
-            with open(self.cloud_file) as f:
+            with open(self.cloud_file, encoding="utf-8") as f:
                 import yaml
 
                 data: dict = yaml.safe_load(f) or {}

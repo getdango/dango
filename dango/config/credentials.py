@@ -105,7 +105,7 @@ class CredentialManager:
             # Note: write_text without prior chmod — low risk since file is
             # user-owned and gitignored, but see cloud/ssh.py os.open() pattern
             # for sensitive files that need restricted permissions at creation.
-            self.secrets_file.write_text(secrets_template)
+            self.secrets_file.write_text(secrets_template, encoding="utf-8")
             console.print(f"[dim]Created {self.secrets_file.relative_to(self.project_root)}[/dim]")
 
         # Create config.toml if it doesn't exist
@@ -125,7 +125,7 @@ truncate_staging_dataset = true
 # [sources.facebook_ads]
 # start_date = "2024-01-01"
 """
-            self.config_file.write_text(config_template)
+            self.config_file.write_text(config_template, encoding="utf-8")
             console.print(f"[dim]Created {self.config_file.relative_to(self.project_root)}[/dim]")
 
         # Ensure .gitignore includes .dlt/secrets.toml
@@ -144,7 +144,7 @@ truncate_staging_dataset = true
         # Read existing .gitignore
         existing_lines = []
         if gitignore_path.exists():
-            existing_lines = gitignore_path.read_text().splitlines()
+            existing_lines = gitignore_path.read_text(encoding="utf-8").splitlines()
 
         # Check which patterns are missing
         missing_patterns = []
@@ -154,7 +154,7 @@ truncate_staging_dataset = true
 
         # Add missing patterns
         if missing_patterns:
-            with open(gitignore_path, "a") as f:
+            with open(gitignore_path, "a", encoding="utf-8", newline="\n") as f:
                 if existing_lines and not existing_lines[-1].strip():
                     # .gitignore exists but doesn't end with newline
                     pass
@@ -179,7 +179,7 @@ truncate_staging_dataset = true
             return {}
 
         try:
-            with open(self.secrets_file) as f:
+            with open(self.secrets_file, encoding="utf-8") as f:
                 secrets: dict[str, Any] = toml.load(f)
             return secrets
         except Exception as e:
@@ -197,7 +197,7 @@ truncate_staging_dataset = true
             return {}
 
         try:
-            with open(self.config_file) as f:
+            with open(self.config_file, encoding="utf-8") as f:
                 config: dict[str, Any] = toml.load(f)
             return config
         except Exception as e:
@@ -224,7 +224,7 @@ truncate_staging_dataset = true
             merged = secrets
 
         # Write to file
-        with open(self.secrets_file, "w") as f:
+        with open(self.secrets_file, "w", encoding="utf-8") as f:
             toml.dump(merged, f)
 
         console.print("[green]✓[/green] Saved credentials to .dlt/secrets.toml")
@@ -249,7 +249,7 @@ truncate_staging_dataset = true
             merged = config
 
         # Write to file
-        with open(self.config_file, "w") as f:
+        with open(self.config_file, "w", encoding="utf-8") as f:
             toml.dump(merged, f)
 
         console.print("[green]✓[/green] Saved config to .dlt/config.toml")
