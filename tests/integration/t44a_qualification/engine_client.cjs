@@ -60,7 +60,7 @@ function stage() {
     }
     assert.ok(found, 'Missing selected API/bindings package identity');
   }
-  const native = path.dirname(bindingsRequire.resolve('@duckdb/node-bindings-linux-x64'));
+  const native = path.dirname(bindingsRequire.resolve('@duckdb/node-bindings-linux-x64/duckdb.node'));
   assert.equal(JSON.parse(fs.readFileSync(path.join(native, 'package.json'))).version, '2.0.0-r.1');
   const inventory = JSON.parse(fs.readFileSync('/work/engine-package-inventory.json', 'utf8'));
   const pin = inventory.packages.find(p => p.package === '@duckdb/node-bindings-linux-x64@2.0.0-r.1');
