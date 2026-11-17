@@ -9,6 +9,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
@@ -385,6 +386,14 @@ class DltPipelineRunner:
             # Windows: No timeout (signal.alarm not available)
             console.print(
                 "[dim]⚠️  Timeout not supported on Windows - running without timeout[/dim]"
+            )
+            return func(*args, **kwargs)
+
+        if threading.current_thread() is not threading.main_thread():
+            # signal.signal() only works on the main thread (MCP tools run on a worker
+            # thread). A running thread cannot be interrupted safely, so no timeout.
+            _logging.getLogger(__name__).warning(
+                "dlt sync: timeout not enforced when running off the main thread"
             )
             return func(*args, **kwargs)
 

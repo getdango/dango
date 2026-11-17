@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import subprocess
 import sys
 import time
@@ -60,11 +59,9 @@ def read_sync_status(project_root: Path, sync_id: str | None = None) -> dict[str
 
 def _is_pid_alive(pid: int) -> bool:
     """Check if a PID is alive (cross-platform)."""
-    try:
-        os.kill(pid, 0)
-        return True
-    except (OSError, ProcessLookupError):
-        return False
+    from dango.utils.process import pid_alive
+
+    return pid_alive(pid)
 
 
 def cleanup_sync_status(project_root: Path, sync_id: str | None = None) -> None:
