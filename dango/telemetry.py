@@ -116,7 +116,7 @@ def is_telemetry_enabled() -> bool:
         try:
             import yaml
 
-            with open(_GLOBAL_CONFIG_FILE) as f:
+            with open(_GLOBAL_CONFIG_FILE, encoding="utf-8") as f:
                 config_data: dict[str, Any] = yaml.safe_load(f) or {}
             if config_data.get("telemetry") is False:
                 return False
@@ -125,7 +125,7 @@ def is_telemetry_enabled() -> bool:
 
     if _IDENTITY_FILE.is_file():
         try:
-            with open(_IDENTITY_FILE) as f:
+            with open(_IDENTITY_FILE, encoding="utf-8") as f:
                 identity_data: dict[str, Any] = json.load(f)
             if identity_data.get("enabled") is False:
                 return False
@@ -142,7 +142,7 @@ def _read_global_config() -> dict[str, Any]:
     try:
         import yaml
 
-        with open(_GLOBAL_CONFIG_FILE) as f:
+        with open(_GLOBAL_CONFIG_FILE, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     except Exception:
         return {}
@@ -169,7 +169,7 @@ def _write_global_config_key(key: str, value: Any) -> bool:
 
         data = _read_global_config()
         data[key] = value
-        with open(_GLOBAL_CONFIG_FILE, "w") as f:
+        with open(_GLOBAL_CONFIG_FILE, "w", encoding="utf-8", newline="\n") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
         return True
     except Exception:
@@ -227,7 +227,7 @@ def _read_legacy_dlt_toml_opt_out(project_root: Path) -> bool | None:
     try:
         import tomlkit
 
-        doc = tomlkit.parse(config_path.read_text())
+        doc = tomlkit.parse(config_path.read_text(encoding="utf-8"))
         runtime = doc.get("runtime")
         if runtime is None or "dlthub_telemetry" not in runtime:
             return None
@@ -308,7 +308,7 @@ def set_metabase_telemetry_intent(project_root: Path, enabled: bool) -> bool:
     try:
         state_file = project_root / ".dango" / "metabase_telemetry_state"
         state_file.parent.mkdir(parents=True, exist_ok=True)
-        state_file.write_text("true" if enabled else "false")
+        state_file.write_text("true" if enabled else "false", encoding="utf-8")
         return True
     except OSError:
         return False
@@ -350,7 +350,7 @@ def has_recorded_consent() -> bool:
     """
     try:
         if _IDENTITY_FILE.is_file():
-            with open(_IDENTITY_FILE) as f:
+            with open(_IDENTITY_FILE, encoding="utf-8") as f:
                 data: dict[str, Any] = json.load(f)
             return "enabled" in data
     except Exception:
@@ -369,7 +369,7 @@ def _get_or_create_uuid() -> str:
     """
     try:
         if _IDENTITY_FILE.is_file():
-            with open(_IDENTITY_FILE) as f:
+            with open(_IDENTITY_FILE, encoding="utf-8") as f:
                 data: dict[str, Any] = json.load(f)
             existing = data.get("uuid")
             if existing:
@@ -383,12 +383,12 @@ def _get_or_create_uuid() -> str:
         existing_data: dict[str, Any] = {}
         if _IDENTITY_FILE.is_file():
             try:
-                with open(_IDENTITY_FILE) as f:
+                with open(_IDENTITY_FILE, encoding="utf-8") as f:
                     existing_data = json.load(f)
             except Exception:
                 existing_data = {}
         existing_data["uuid"] = new_uuid
-        with open(_IDENTITY_FILE, "w") as f:
+        with open(_IDENTITY_FILE, "w", encoding="utf-8") as f:
             json.dump(existing_data, f, indent=2)
     except Exception:
         pass
@@ -412,12 +412,12 @@ def set_telemetry_enabled(enabled: bool) -> None:
         data: dict[str, Any] = {}
         if _IDENTITY_FILE.is_file():
             try:
-                with open(_IDENTITY_FILE) as f:
+                with open(_IDENTITY_FILE, encoding="utf-8") as f:
                     data = json.load(f)
             except Exception:
                 data = {}
         data["enabled"] = enabled
-        with open(_IDENTITY_FILE, "w") as f:
+        with open(_IDENTITY_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
     except Exception:
         pass

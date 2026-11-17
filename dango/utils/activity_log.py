@@ -56,7 +56,7 @@ def log_activity(
     log_file = get_activity_log_file(project_root)
 
     try:
-        with open(log_file, "a") as f:
+        with open(log_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry) + "\n")
     except Exception as e:
         # Don't fail if logging fails

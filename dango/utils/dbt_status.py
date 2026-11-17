@@ -26,7 +26,7 @@ def update_model_status(project_root: Path) -> None:
 
     try:
         # Read dbt's run_results.json
-        with open(run_results_path) as f:
+        with open(run_results_path, encoding="utf-8") as f:
             run_results = json.load(f)
 
         # Load our persistent status
@@ -83,7 +83,7 @@ def mark_source_models_stale(project_root: Path, failed_sources: list[str]) -> N
         return
 
     try:
-        with open(manifest_path) as f:
+        with open(manifest_path, encoding="utf-8") as f:
             manifest = json.load(f)
 
         persistent_status = _load_persistent_status(project_root)
@@ -137,7 +137,7 @@ def _load_persistent_status(project_root: Path) -> dict[str, dict[str, Any]]:
         return {}
 
     try:
-        with open(status_path) as f:
+        with open(status_path, encoding="utf-8") as f:
             result: dict[str, dict[str, Any]] = json.load(f)
             return result
     except Exception:
@@ -150,7 +150,7 @@ def _save_persistent_status(project_root: Path, status: dict[str, dict[str, Any]
     status_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        with open(status_path, "w") as f:
+        with open(status_path, "w", encoding="utf-8") as f:
             json.dump(status, f, indent=2)
     except Exception:  # noqa: BLE001
         pass

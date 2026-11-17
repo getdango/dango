@@ -84,7 +84,7 @@ class OAuthStorage:
 
         # Create secrets.toml if it doesn't exist
         if not self.secrets_file.exists():
-            self.secrets_file.write_text("")
+            self.secrets_file.write_text("", encoding="utf-8", newline="\n")
 
     def _load_secrets(self) -> dict[str, Any]:
         """Load secrets.toml"""
@@ -95,7 +95,7 @@ class OAuthStorage:
 
     def _save_secrets(self, secrets: dict[str, Any]) -> None:
         """Save secrets.toml"""
-        with open(self.secrets_file, "w") as f:
+        with open(self.secrets_file, "w", encoding="utf-8", newline="\n") as f:
             toml.dump(secrets, f)
 
     def save(self, oauth_cred: OAuthCredential) -> bool:

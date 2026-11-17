@@ -415,6 +415,8 @@ def get_component_disk_usage(project_root: Path) -> dict[str, Any]:
                 timeout=5,
                 cwd=project_root,
                 env={**os.environ, "COMPOSE_PROJECT_NAME": get_compose_project_name(project_root)},
+                encoding="utf-8",
+                errors="replace",
             )
         if proc.returncode == 0 and proc.stdout.strip().isdigit():
             metabase_info["size_mb"] = round(int(proc.stdout.strip()) / (1024**2), 2)

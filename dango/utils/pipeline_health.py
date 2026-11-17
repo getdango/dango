@@ -178,7 +178,7 @@ def _materialize_dbt_test_results(conn: Any, project_root: Path) -> None:
         return
 
     try:
-        run_results = json.loads(run_results_path.read_text())
+        run_results = json.loads(run_results_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         logger.warning("pipeline_health_run_results_read_error", exc_info=True)
         return
