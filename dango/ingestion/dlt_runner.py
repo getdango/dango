@@ -21,6 +21,7 @@ from dlt.common.pipeline import LoadInfo
 from dlt.pipeline.exceptions import PipelineStepFailed
 from dotenv import load_dotenv
 from rich.console import Console
+from rich.markup import escape
 
 from dango.config.models import (
     DataSource,
@@ -29,6 +30,7 @@ from dango.config.models import (
 from dango.exceptions import SyncTimeoutError
 from dango.ingestion.csv_loader import CSVLoader, check_duplicate_filenames
 from dango.ingestion.sources.registry import get_source_metadata
+from dango.utils.error_text import redacted_error_text, rich_error_text
 
 if TYPE_CHECKING:
     import duckdb
@@ -323,6 +325,10 @@ class DltPipelineRunner:
         # Load credentials with priority: .dlt/ > .env
         self._load_credentials()
 
+    def _rich_err(self, error: object) -> str:
+        """Redacted, Rich-escaped error text for ``console.print`` (tolerates a bare instance)."""
+        return rich_error_text(getattr(self, "project_root", None), error)
+
     def _load_credentials(self):
         """
         Load credentials from .dlt/ directory and .env file
@@ -563,7 +569,7 @@ class DltPipelineRunner:
             check_disk_space(self.project_root, min_free_gb=5)
         except DiskSpaceError as e:
             error_message = str(e)
-            console.print(f"[red]❌ {error_message}[/red]")
+            console.print(f"[red]❌ {self._rich_err(error_message)}[/red]")
 
             # Save failed sync history
             history_entry = {
@@ -602,7 +608,7 @@ class DltPipelineRunner:
                     f"[yellow]⚠️  Database is very large ({db_health['size_gb']}GB) - performance may be affected[/yellow]"
                 )
         except Exception as e:
-            console.print(f"[dim]⚠️  Could not check database health: {e}[/dim]")
+            console.print(f"[dim]⚠️  Could not check database health: {self._rich_err(e)}[/dim]")
 
         # Log sync start
         log_activity(
@@ -637,7 +643,7 @@ class DltPipelineRunner:
                     )
                 except SyncTimeoutError as e:
                     error_message = str(e)
-                    console.print(f"[red]❌ {error_message}[/red]")
+                    console.print(f"[red]❌ {self._rich_err(e)}[/red]")
                     console.print(
                         "[yellow]ℹ️  Pipeline state has been restored to prevent corruption[/yellow]"
                     )
@@ -683,7 +689,7 @@ class DltPipelineRunner:
                     )
                 except SyncTimeoutError as e:
                     error_message = str(e)
-                    console.print(f"[red]❌ {error_message}[/red]")
+                    console.print(f"[red]❌ {self._rich_err(e)}[/red]")
                     console.print(
                         "[yellow]ℹ️  Pipeline state has been restored to prevent corruption[/yellow]"
                     )
@@ -786,7 +792,7 @@ class DltPipelineRunner:
         except Exception as e:
             # Get user-friendly error message
             friendly_error = self._analyze_error(e, source_name)
-            console.print(f"[red]{friendly_error}[/red]")
+            console.print(f"[red]{escape(friendly_error)}[/red]")
 
             # Log error
             duration = (datetime.now(tz=timezone.utc) - start_time).total_seconds()
@@ -909,7 +915,7 @@ class DltPipelineRunner:
                 )
                 console.print("  🔄 Full refresh: cleared file metadata")
             except Exception as e:
-                console.print(f"  ⚠️  Could not drop table/metadata: {e}")
+                console.print(f"  ⚠️  Could not drop table/metadata: {self._rich_err(e)}")
             finally:
                 conn.close()
 
@@ -1097,7 +1103,7 @@ class DltPipelineRunner:
                 )
                 console.print("  🔄 Full refresh: cleared file metadata")
             except Exception as e:
-                console.print(f"  ⚠️  Could not drop table/metadata: {e}")
+                console.print(f"  ⚠️  Could not drop table/metadata: {self._rich_err(e)}")
             finally:
                 conn.close()
 
@@ -1375,7 +1381,7 @@ class DltPipelineRunner:
                 try:
                     pipeline.drop()
                 except Exception as e:
-                    console.print(f"  ⚠️  Could not drop pipeline state: {e}")
+                    console.print(f"  ⚠️  Could not drop pipeline state: {self._rich_err(e)}")
                 self._clear_local_pipeline_cache(pipeline_name)
                 # Re-create the pipeline object: the one above was constructed
                 # against the on-disk working directory we just deleted, and dlt's
@@ -1838,7 +1844,7 @@ class DltPipelineRunner:
                 try:
                     pipeline.drop()
                 except Exception as e:
-                    console.print(f"  ⚠️  Could not drop pipeline state: {e}")
+                    console.print(f"  ⚠️  Could not drop pipeline state: {self._rich_err(e)}")
                 # NOTE: this method's pipeline is always named `source_name` (see
                 # dlt.pipeline(pipeline_name=source_name, ...) above) — unlike
                 # _run_dlt_native_source, there is no separate pipeline_name override.
@@ -2026,7 +2032,7 @@ class DltPipelineRunner:
 
         except Exception as e:
             # Pipeline failed - restore previous state
-            console.print(f"  ❌ Pipeline failed: {e}")
+            console.print(f"  ❌ Pipeline failed: {self._rich_err(e)}")
 
             # Slack-specific error guidance
             error_str = str(e).lower()
@@ -2528,7 +2534,9 @@ class DltPipelineRunner:
             return source_kwargs
 
         except Exception as e:
-            console.print(f"  [dim]Warning: Could not inject credentials: {e}[/dim]")
+            console.print(
+                f"  [dim]Warning: Could not inject credentials: {self._rich_err(e)}[/dim]"
+            )
             return source_kwargs
 
     def _load_dlt_source(
@@ -2737,6 +2745,7 @@ class DltPipelineRunner:
             User-friendly error message with guidance
         """
         error_str = str(error).lower()
+        shown = redacted_error_text(getattr(self, "project_root", None), error)
 
         # Authentication errors
         if any(
@@ -2770,7 +2779,7 @@ Example fix:
   # Update .env with correct credentials
   {source_name.upper()}_API_KEY=sk_live_xxx...
 
-Error details: {str(error)}
+Error details: {shown}
 """
 
         # Rate limit errors
@@ -2804,7 +2813,7 @@ Next steps:
   # Or use a smaller date range
   dango sync {source_name} --since 2024-12-01 --until 2024-12-31
 
-Error details: {str(error)}
+Error details: {shown}
 """
 
         # Schema/data validation errors
@@ -2832,7 +2841,7 @@ Fix commands:
   # Re-run dbt to update models
   dango run
 
-Error details: {str(error)}
+Error details: {shown}
 """
 
         # DuckDB lock errors (must be checked before connection — lock messages
@@ -2859,7 +2868,7 @@ Fix commands:
   # Restart services
   dango stop && dango start
 
-Error details: {str(error)}
+Error details: {shown}
 """
 
         # Connection/network errors
@@ -2889,14 +2898,14 @@ Next steps:
   # Check API status
   Visit source's status page (docs.api-provider.com/status)
 
-Error details: {str(error)}
+Error details: {shown}
 """
 
         # Generic error with helpful context
         return f"""
 Sync Error for '{source_name}':
 
-{str(error)}
+{shown}
 
 Troubleshooting steps:
   1. Check logs: dango start → Activity Logs
@@ -3010,7 +3019,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
 
             except Exception as e:
                 last_exception = e
-                console.print(f"  ⚠️  Attempt {attempt} failed: {e}")
+                console.print(f"  ⚠️  Attempt {attempt} failed: {self._rich_err(e)}")
 
                 if attempt < max_retries:
                     # Exponential backoff: 2^attempt seconds
@@ -3057,7 +3066,9 @@ Need help? Visit: https://github.com/getdango/dango/issues
                                             loaded_tables.add(table_name)
                                             stats["tables_loaded"].append(table_name)
         except Exception as e:
-            console.print(f"[dim]Warning: Could not extract table list from metrics: {e}[/dim]")
+            console.print(
+                f"[dim]Warning: Could not extract table list from metrics: {self._rich_err(e)}[/dim]"
+            )
 
         # Query database for row counts
         # Get dataset name (schema) from load_info
@@ -3097,7 +3108,9 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 stats["rows_loaded"] = total_rows
 
             except Exception as e:
-                console.print(f"[dim]Warning: Could not query database for row counts: {e}[/dim]")
+                console.print(
+                    f"[dim]Warning: Could not query database for row counts: {self._rich_err(e)}[/dim]"
+                )
                 # If we can't get row counts, report 0 rather than confusing -1
                 stats["rows_loaded"] = 0
         elif not loaded_tables:
@@ -3192,7 +3205,9 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 try:
                     staging_pipeline_obj.drop()
                 except Exception as e:
-                    console.print(f"  ⚠️  Could not drop staging pipeline state: {e}")
+                    console.print(
+                        f"  ⚠️  Could not drop staging pipeline state: {self._rich_err(e)}"
+                    )
             try:
                 db = _connect_with_lock_retry(
                     self.duckdb_path,
@@ -3206,7 +3221,9 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 finally:
                     db.close()
             except Exception as e:
-                console.print(f"  ⚠️  Could not clean up full-refresh staging schema: {e}")
+                console.print(
+                    f"  ⚠️  Could not clean up full-refresh staging schema: {self._rich_err(e)}"
+                )
             self._clear_local_pipeline_cache(staging_pipeline_name)
 
         # Always start from a guaranteed-clean slate -- see docstring for the verified
@@ -3353,7 +3370,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
             return result
 
         except Exception as e:
-            console.print(f"  ❌ Full refresh staging failed: {e}")
+            console.print(f"  ❌ Full refresh staging failed: {self._rich_err(e)}")
             _cleanup_staging(staging_pipeline)
             error_msg = (
                 f"Full refresh failed during staging — the existing destination data "
@@ -3398,7 +3415,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
         try:
             backup_dir.mkdir(mode=0o700)
         except OSError as e:  # e.g. a backup from the same second already exists
-            console.print(f"  [dim]⚠️  Could not backup state: {e}[/dim]")
+            console.print(f"  [dim]⚠️  Could not backup state: {self._rich_err(e)}[/dim]")
             return None
         try:
             os.chmod(backup_dir, 0o700)
@@ -3412,7 +3429,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
             return backup_dir
         except Exception as e:
             shutil.rmtree(backup_dir, ignore_errors=True)
-            console.print(f"  [dim]⚠️  Could not backup state: {e}[/dim]")
+            console.print(f"  [dim]⚠️  Could not backup state: {self._rich_err(e)}[/dim]")
             return None
 
     def _clear_local_pipeline_cache(self, pipeline_name: str) -> None:
@@ -3442,7 +3459,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 f"  [dim]🗑️  Cleared local pipeline cache ({pipeline_state_dir.name})[/dim]"
             )
         except Exception as e:
-            console.print(f"  ⚠️  Could not clear local pipeline cache: {e}")
+            console.print(f"  ⚠️  Could not clear local pipeline cache: {self._rich_err(e)}")
 
     def _restore_dlt_state(self, backup_dir: Path | None):
         """
@@ -3487,7 +3504,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
             console.print("  [dim]✓ Backup cleaned up[/dim]")
 
         except Exception as e:
-            console.print(f"  [yellow]⚠️  Could not restore state: {e}[/yellow]")
+            console.print(f"  [yellow]⚠️  Could not restore state: {self._rich_err(e)}[/yellow]")
             console.print(f"  [dim]Backup preserved at: {backup_dir}[/dim]")
 
     def _cleanup_state_backup(self, backup_dir: Path | None):
@@ -3506,7 +3523,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
             shutil.rmtree(backup_dir)
             console.print("  [dim]✓ State backup cleaned up[/dim]")
         except Exception as e:
-            console.print(f"  [dim]⚠️  Could not clean up backup: {e}[/dim]")
+            console.print(f"  [dim]⚠️  Could not clean up backup: {self._rich_err(e)}[/dim]")
 
 
 # ============================================================================
@@ -3650,7 +3667,7 @@ def run_sync(
         console.print(f"[red]✗ Failed ({len(failed_sources)}):[/red]")
         for item in failed_sources:
             console.print(f"  • {item['name']}")
-            console.print(f"    [dim]{item['error']}[/dim]")
+            console.print(f"    [dim]{rich_error_text(project_root, item['error'])}[/dim]")
         console.print()
 
     if skipped_sources:
