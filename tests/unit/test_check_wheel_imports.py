@@ -181,6 +181,54 @@ def test_server_only_quoted_name_of_project_symbol_still_fails(exc: BaseExceptio
     assert _classify("dango.runtime.isolated_run", exc) == "fail"
 
 
+@pytest.mark.parametrize(
+    "exc",
+    [
+        ImportError("cannot import name 'resource' from 'dango.platform.cloud.helpers'"),
+        AttributeError("module 'dango.x' has no attribute 'getuid'"),
+    ],
+)
+def test_server_only_unix_names_of_project_modules_still_fail(exc: BaseException) -> None:
+    assert _classify("dango.runtime.isolated_run", exc) == "fail"
+
+
+def test_server_only_class_applies_on_darwin() -> None:
+    exc = ModuleNotFoundError("No module named 'fcntl'", name="fcntl")
+    assert _classify("dango.runtime.isolated_run", exc, platform="darwin") == "server_only"
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        ModuleNotFoundError("No module named 'posix'", name="posix"),
+        AttributeError("module 'signal' has no attribute 'alarm'"),
+        AttributeError("module 'signal' has no attribute 'SIGQUIT'"),
+        AttributeError("module 'os' has no attribute 'fork'"),
+        ImportError("cannot import name 'setpgrp' from 'os' (/usr/lib/os.py)"),
+    ],
+)
+def test_server_only_class_covers_every_unix_only_name_of_the_static_rule(
+    exc: BaseException,
+) -> None:
+    assert _classify("dango.runtime.isolated_run", exc) == "server_only"
+
+
+def test_classifier_and_static_rule_share_the_unix_only_names() -> None:
+    script = _load_script()
+    spec = importlib.util.spec_from_file_location(
+        "portability_rule", Path(__file__).with_name("test_portability_static_rule.py")
+    )
+    assert spec is not None and spec.loader is not None
+    rule = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = rule  # dataclasses resolve their module through sys.modules
+    try:
+        spec.loader.exec_module(rule)
+    finally:
+        del sys.modules[spec.name]
+    assert script.UNIX_ONLY_MODULES == rule.UNIX_ONLY_MODULES
+    assert script.UNIX_ONLY_ATTRS == rule.UNIX_ONLY_ATTRS
+
+
 def test_server_only_name_must_be_quoted_whole() -> None:
     exc = ModuleNotFoundError("No module named 'resourcepool'", name="resourcepool")
     assert _classify("dango.runtime.isolated_run", exc) == "fail"
@@ -220,3 +268,9 @@ def test_main_treats_server_only_failure_as_failure_on_linux(tmp_path: Path) -> 
     _fake_dango(tmp_path)
     result = _run_with("dango", tmp_path, "--platform", "linux")
     assert result.returncode == 1, result.stdout + result.stderr
+
+
+def test_main_platform_default_is_this_interpreters(tmp_path: Path) -> None:
+    _fake_dango(tmp_path)
+    result = _run_with("dango", tmp_path)
+    assert (result.returncode == 1) == sys.platform.startswith("linux"), result.stdout
