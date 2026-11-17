@@ -367,10 +367,11 @@ class TestLocalModeUnchanged:
         script = project / "scripts" / "hello.py"
         assert popen.call_args.args[0] == [sys.executable, str(script)]
         kwargs = popen.call_args.kwargs
-        assert set(kwargs) == {"cwd", "env", "stdout", "stderr", "text"}
+        assert set(kwargs) == {"cwd", "env", "stdout", "stderr", "text", "encoding", "errors"}
         assert kwargs["cwd"] == str(project)
         assert kwargs["text"] is True
         expected = os.environ.copy()
+        expected["PYTHONIOENCODING"] = "utf-8"
         expected["DANGO_PROJECT_ROOT"] = str(project)
         expected["DANGO_SCRIPT_RUN_ID"] = body["run_id"]
         assert kwargs["env"] == expected
@@ -388,9 +389,10 @@ class TestLocalModeUnchanged:
         script = (project / "scripts" / "hello.py").resolve()
         assert popen.call_args.args[0] == [sys.executable, str(script)]
         kwargs = popen.call_args.kwargs
-        assert set(kwargs) == {"cwd", "env", "stdout", "stderr", "text"}
+        assert set(kwargs) == {"cwd", "env", "stdout", "stderr", "text", "encoding", "errors"}
         assert kwargs["cwd"] == str(project)
         expected = os.environ.copy()
+        expected["PYTHONIOENCODING"] = "utf-8"
         expected["DANGO_PROJECT_ROOT"] = str(project)
         assert kwargs["env"] == expected
         proc.communicate.assert_called_once_with(timeout=120)

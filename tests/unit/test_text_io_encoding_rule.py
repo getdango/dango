@@ -1,10 +1,10 @@
 """tests/unit/test_text_io_encoding_rule.py
 
-Repo-wide rule: local code names the encoding of every text file open and text subprocess, and
-writes text files with newline="\\n". Server-only (platform/cloud, runtime) and vendored
-(ingestion/dlt_sources) code is excluded: it only runs on Linux servers or is third-party.
+Repo-wide rule: local code names UTF-8 on every text open and text subprocess, and writes LF.
 """
 
+# Server-only (platform/cloud, runtime) and vendored (ingestion/dlt_sources) code is excluded:
+# it only runs on Linux servers or is third-party. See tests/factories/text_io_scan.py.
 import subprocess
 
 import pytest

@@ -232,6 +232,8 @@ def build_env(
         "HOME": home,
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
+        # Output is decoded as UTF-8 by the launcher whatever the child's locale.
+        "PYTHONIOENCODING": "utf-8",
         "DANGO_PROJECT_ROOT": str(project_root),
         "DANGO_WORKSPACE": home,
         "DANGO_CLOUD_MODE": "true",

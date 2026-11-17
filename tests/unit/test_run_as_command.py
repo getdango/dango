@@ -142,6 +142,7 @@ class TestBuildEnv:
             "HOME",
             "LANG",
             "LC_ALL",
+            "PYTHONIOENCODING",
             "DANGO_PROJECT_ROOT",
             "DANGO_WORKSPACE",
             "DANGO_CLOUD_MODE",

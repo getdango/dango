@@ -35,7 +35,15 @@ __all__ = [
 ]
 
 _ROLE = "script"
-_PIPES: dict[str, Any] = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": True}
+# Scripts are decoded as UTF-8 and told to write UTF-8 (``PYTHONIOENCODING`` below), so the
+# parent and the child agree whatever the locale; undecodable bytes are replaced, not fatal.
+_PIPES: dict[str, Any] = {
+    "stdout": subprocess.PIPE,
+    "stderr": subprocess.PIPE,
+    "text": True,
+    "encoding": "utf-8",
+    "errors": "replace",
+}
 
 
 class RunnerProc:
@@ -137,6 +145,7 @@ def start_script(
     state = run_as.require_isolation_ready()
     if state != "on":
         env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
         env["DANGO_PROJECT_ROOT"] = str(project_root)
         if run_id is not None:
             env["DANGO_SCRIPT_RUN_ID"] = run_id
