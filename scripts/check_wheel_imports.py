@@ -19,17 +19,66 @@ import sys
 DEFAULT_OPTIONAL = {"dango": ["dango.ingestion.dlt_sources."]}
 DEFAULT_SERVER_ONLY = {"dango": ["dango.platform.cloud.", "dango.runtime."]}
 
-_UNIX_MODULES = "fcntl|resource|pwd|grp|termios"
-_UNIX_ATTRS = (
-    "fchmod|fchown|chown|killpg|getpgid|getpgrp|setsid|geteuid|getuid|getgid"
-    "|O_NOFOLLOW|O_NONBLOCK|O_DIRECTORY|SIGHUP|SIGALRM|SIGKILL|SIGUSR1"
-)
+# Unix-only names (absent on Windows). tests/unit/test_portability_static_rule.py keeps the same lists for the
+# static rule; test_classifier_and_static_rule_share_the_unix_only_names fails when the two drift apart.
+UNIX_ONLY_MODULES = frozenset({"fcntl", "pwd", "grp", "resource", "termios", "posix"})
+UNIX_ONLY_ATTRS = {
+    "os": frozenset(
+        {
+            "fchmod",
+            "fchown",
+            "chown",
+            "killpg",
+            "getpgid",
+            "getpgrp",
+            "setsid",
+            "geteuid",
+            "getuid",
+            "getgid",
+            "O_NOFOLLOW",
+            "O_NONBLOCK",
+            "O_DIRECTORY",
+            "setpgrp",
+            "fork",
+            "forkpty",
+            "openpty",
+            "mkfifo",
+            "nice",
+            "wait",
+            "WNOHANG",
+        }
+    ),
+    "signal": frozenset(
+        {
+            "SIGHUP",
+            "SIGALRM",
+            "SIGKILL",
+            "SIGUSR1",
+            "alarm",
+            "SIGQUIT",
+            "SIGUSR2",
+            "SIGCHLD",
+            "SIGPIPE",
+            "setitimer",
+            "getitimer",
+        }
+    ),
+}
+
+
+def _alternation(names: frozenset[str]) -> str:
+    return "|".join(sorted(re.escape(name) for name in names))
+
+
 # A Unix-only MODULE that is missing, or a Unix-only attribute missing from the os / signal modules.
 # A quoted name elsewhere ("cannot import name 'getuid' from 'dango.x'") is a real defect, not this.
 _UNIX_ONLY_RE = re.compile(
-    rf"No module named '(?:{_UNIX_MODULES})'$"
-    rf"|module '(?:os|signal)' has no attribute '(?:{_UNIX_ATTRS})'$"
-    rf"|cannot import name '(?:{_UNIX_ATTRS})' from '(?:os|signal)'"
+    rf"No module named '(?:{_alternation(UNIX_ONLY_MODULES)})'$"
+    + "".join(
+        rf"|module '{module}' has no attribute '(?:{_alternation(attrs)})'$"
+        rf"|cannot import name '(?:{_alternation(attrs)})' from '{module}'"
+        for module, attrs in UNIX_ONLY_ATTRS.items()
+    )
 )
 
 

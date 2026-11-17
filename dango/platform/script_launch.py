@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from dango.platform import run_as
+from dango.utils import process_group
 
 __all__ = [
     "RunnerProc",
@@ -100,13 +101,7 @@ class ScriptStart:
 
 
 def _group_present(pgid: int) -> bool:
-    try:
-        os.killpg(pgid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+    return process_group.group_alive(pgid)
 
 
 def _unisolated_env(
@@ -173,7 +168,11 @@ def start_script(
     )
     _report(log, launch.missing)
     proc = subprocess.Popen(
-        launch.argv, cwd=str(project_root), env=launch.env, start_new_session=True, **_PIPES
+        launch.argv,
+        cwd=str(project_root),
+        env=launch.env,
+        **process_group.detach_kwargs(),
+        **_PIPES,
     )
     return ScriptStart(RunnerProc(proc), isolated=True)
 

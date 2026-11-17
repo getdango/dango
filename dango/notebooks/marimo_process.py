@@ -14,6 +14,12 @@ from pathlib import Path
 
 from dango.platform import run_as
 from dango.utils.process import get_process_start_time, is_process_running, kill_process
+from dango.utils.process_group import (
+    group_signal_available,
+    leads_own_group,
+    sigkill,
+    signal_group,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +89,8 @@ def _stop_unready_process(proc: subprocess.Popen[bytes], *, runner_owned: bool =
     Marimo starts with ``start_new_session=True``, so its pid is also its
     process group id: SIGTERM the group, then SIGKILL it after 5 s.  A
     process that was already reaped (``returncode`` set) is not signalled,
-    since its pid and group id may since have been reused.
+    since its pid and group id may since have been reused.  Where there are
+    no process groups (Windows) the process tree is killed instead.
     """
     import signal
 
@@ -91,7 +98,7 @@ def _stop_unready_process(proc: subprocess.Popen[bytes], *, runner_owned: bool =
         if proc.returncode is not None:
             return
         try:
-            os.killpg(proc.pid, sig)
+            signal_group(proc.pid, sig)
         except ProcessLookupError:
             pass
 
@@ -105,11 +112,16 @@ def _stop_unready_process(proc: subprocess.Popen[bytes], *, runner_owned: bool =
         return
 
     try:
+        if not group_signal_available():
+            if proc.returncode is None:
+                kill_process(proc.pid, timeout=5)
+            proc.wait(timeout=5)
+            return
         _signal_group(signal.SIGTERM)
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            _signal_group(signal.SIGKILL)
+            _signal_group(sigkill())
             proc.wait(timeout=5)
     except Exception:
         logger.warning("Could not stop unready Marimo process %s", proc.pid, exc_info=True)
@@ -144,8 +156,8 @@ def _stop_marimo_process(pid: int, start_time: float | None) -> str:
     process group (pgid == pid): SIGTERM the group, then SIGKILL it.  The
     group is signalled only when the pid file recorded the process start
     time (the caller has verified it still matches), the pid leads its own
-    group, and that group is not ours.  Otherwise the plain process-tree
-    kill is used.  A pid we may not signal (EPERM) belongs to someone else:
+    group, and that group is not ours.  Otherwise (and always where there
+    are no process groups, as on Windows) the plain process-tree kill is used.  A pid we may not signal (EPERM) belongs to someone else:
     ``foreign``.
     """
     import signal
@@ -153,8 +165,7 @@ def _stop_marimo_process(pid: int, start_time: float | None) -> str:
     import psutil
 
     try:
-        pgid = os.getpgid(pid)
-        group_ok = start_time is not None and pgid == pid and pgid != os.getpgrp()
+        group_ok = leads_own_group(pid) and start_time is not None
         if not group_ok:
             kill_process(
                 pid, timeout=int(_STOP_TERM_TIMEOUT_SECONDS), expected_start_time=start_time
@@ -163,9 +174,9 @@ def _stop_marimo_process(pid: int, start_time: float | None) -> str:
 
         for sig, timeout in (
             (signal.SIGTERM, _STOP_TERM_TIMEOUT_SECONDS),
-            (signal.SIGKILL, _STOP_KILL_TIMEOUT_SECONDS),
+            (sigkill(), _STOP_KILL_TIMEOUT_SECONDS),
         ):
-            os.killpg(pid, sig)
+            signal_group(pid, sig)
             if _wait_gone(pid, timeout):
                 return "stopped"
         return "survived"
