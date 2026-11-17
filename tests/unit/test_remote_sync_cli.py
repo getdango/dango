@@ -235,3 +235,30 @@ class TestRemoteSyncCommand:
         assert result.exit_code != 0
         assert "Sync failed" in result.output
         assert "DB timeout" in result.output
+
+
+@pytest.mark.unit
+class TestRemoteSyncErrorEscaping:
+    """Remote error text with markup-like content prints literally."""
+
+    @patch(f"{_PATCH_MGMT}._make_ssh_manager")
+    @patch(f"{_PATCH_MGMT}._load_cloud_config_with_ip")
+    def test_wait_failure_with_markup_text(self, mock_load, mock_ssh_maker, tmp_path):
+        mock_load.return_value = (_make_cloud_cfg(), tmp_path)
+        payload = json.dumps({"status": "failed", "error": "boom [/x] [red]oops[/red]"})
+        mock_ssh_maker.return_value = _make_ssh_mock(stdout=payload)
+        result = CliRunner().invoke(cli, ["remote", "sync", "src", "--wait"])
+        assert result.exit_code == 1
+        assert "MarkupError" not in repr(result.exception)
+        assert "boom [/x] [red]oops[/red]" in _ANSI_RE.sub("", result.output)
+
+    @patch(f"{_PATCH_MGMT}._make_ssh_manager")
+    @patch(f"{_PATCH_MGMT}._load_cloud_config_with_ip")
+    def test_stderr_with_markup_text(self, mock_load, mock_ssh_maker, tmp_path):
+        mock_load.return_value = (_make_cloud_cfg(), tmp_path)
+        mock_ssh_maker.return_value = _make_ssh_mock(stderr="bad [/x] thing", success=False)
+        for args in (["src", "--wait"], ["src"]):
+            result = CliRunner().invoke(cli, ["remote", "sync", *args])
+            assert result.exit_code == 1
+            assert "MarkupError" not in repr(result.exception)
+            assert "bad [/x] thing" in _ANSI_RE.sub("", result.output)

@@ -187,3 +187,35 @@ def test_full_refresh_staging_failure_is_redacted(project: Path, out: StringIO) 
     printed = out.getvalue()
     assert TOML_SECRET not in printed
     assert "[/x]" in printed
+
+
+def test_row_count_failure_is_escaped(project: Path, out: StringIO) -> None:
+    runner = DltPipelineRunner(project)
+    job = MagicMock()
+    job.table_name = "orders"
+    load_info = MagicMock()
+    load_info.metrics = {"1": [{"job_metrics": {"j": job}}]}
+    load_info.dataset_name = "raw_x"
+    conn = MagicMock()
+    conn.execute.side_effect = RuntimeError(f"count [/x] failed {TOML_SECRET}")
+    with patch("dango.ingestion.dlt_runner._connect_with_lock_retry", return_value=conn):
+        runner._extract_load_stats(load_info)
+    printed = out.getvalue()
+    assert "count [/x] failed" in printed and TOML_SECRET not in printed
+
+
+@pytest.mark.parametrize("kind", ["native", "dlt"])
+def test_activity_log_has_no_secret_at_rest(project: Path, out: StringIO, kind: str) -> None:
+    _run(project, kind, ERRORS["requests_url"], ("src_a",))
+    log = (project / ".dango" / "logs" / "activity.jsonl").read_text(encoding="utf-8")
+    assert "Sync failed" in log
+    assert "SECRET123" not in log
+
+
+def test_log_activity_redacts_known_values(project: Path) -> None:
+    from dango.utils.activity_log import log_activity
+
+    log_activity(project, "error", "s", f"Sync failed: {TOML_SECRET} {URL_ERROR}")
+    log = (project / ".dango" / "logs" / "activity.jsonl").read_text(encoding="utf-8")
+    assert TOML_SECRET not in log and "SECRET123" not in log
+    assert "Sync failed" in log and "api.example.com" in log
