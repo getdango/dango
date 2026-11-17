@@ -12,6 +12,7 @@ from rich.panel import Panel
 from dango.config import ConfigLoader, DangoConfig, ProjectContext, SourcesConfig
 from dango.config.credentials import ensure_sensitive_artifact_gitignores
 
+from .init_rollback import InitSnapshot, rollback_to_snapshot, take_snapshot
 from .utils import print_error, print_success
 from .wizard import ProjectWizard
 
@@ -24,6 +25,7 @@ class ProjectInitializer:
     def __init__(self, project_dir: Path):
         self.project_dir = project_dir.resolve()
         self.loader = ConfigLoader(self.project_dir)
+        self._snapshot: InitSnapshot | None = None
 
     def initialize(self, skip_wizard: bool = False, force: bool = False):
         """
@@ -57,6 +59,9 @@ class ProjectInitializer:
         else:
             wizard = ProjectWizard(self.project_dir)
             config = wizard.run()
+
+        # Remember what exists so a rollback removes only what this run creates
+        self._snapshot = take_snapshot(self.project_dir)
 
         # Wrap initialization in try/catch for atomic rollback on critical errors
         try:
@@ -1440,9 +1445,11 @@ on-run-end:
         Rollback project initialization by removing created files/directories.
 
         Called when critical initialization steps fail to prevent partial state.
-        Only removes Dango-created files, preserves any user files that existed before.
+        Removes only paths created since init started (compared with a snapshot taken
+        before the first write); files and directories that existed before are kept, and a
+        pre-existing top-level file init changed (such as `.gitignore`) is put back.
         """
-        import shutil
+        from rich.markup import escape
 
         from dango.logging import close_file_handlers
 
@@ -1451,34 +1458,12 @@ on-run-end:
         # Release the open .dango/logs/dango.log so .dango can be removed on Windows
         close_file_handlers()
 
-        # List of files/directories to remove (in order)
-        cleanup_targets = [
-            ".dango",
-            "data",
-            "dbt",
-            "metabase-plugins",
-            "docker-compose.yml",
-            "Dockerfile.metabase",
-            "entrypoint.sh",
-            "README.md",  # Only if created by us
-            "COMPATIBILITY.md",
-            "SCALABILITY.md",
-            ".gitignore",  # Only if created by us
-        ]
+        if self._snapshot is None:
+            console.print("[dim]  Nothing recorded to roll back; no files were removed.[/dim]")
+            return
 
-        for target in cleanup_targets:
-            target_path = self.project_dir / target
-            try:
-                if target_path.exists():
-                    if target_path.is_dir():
-                        shutil.rmtree(target_path)
-                        console.print(f"[dim]  ✓ Removed {target}/[/dim]")
-                    else:
-                        target_path.unlink()
-                        console.print(f"[dim]  ✓ Removed {target}[/dim]")
-            except Exception as e:
-                # Log but don't fail on cleanup errors
-                console.print(f"[dim]  ⚠ Could not remove {target}: {e}[/dim]")
+        for line in rollback_to_snapshot(self.project_dir, self._snapshot):
+            console.print(f"[dim]  {escape(line)}[/dim]")
 
         console.print("[green]✓[/green] Cleanup complete")
 

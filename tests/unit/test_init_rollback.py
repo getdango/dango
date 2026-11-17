@@ -53,7 +53,8 @@ def _fail_with(monkeypatch: pytest.MonkeyPatch, how: str) -> type[BaseException]
         raise exc("stop")
 
     monkeypatch.setattr(ProjectInitializer, "_setup_auth", boom)
-    return exc
+    # init turns a cancel into SystemExit(1) and re-raises any other error
+    return SystemExit if how == "interrupt" else exc
 
 
 @pytest.mark.parametrize("how", ["docs", "error", "interrupt"])

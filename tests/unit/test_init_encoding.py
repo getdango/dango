@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 
 from dango.cli.init import ProjectInitializer
+from dango.cli.init_rollback import take_snapshot
 from dango.logging import _DangoFileHandler, configure_logging
 
 pytestmark = pytest.mark.unit
@@ -93,6 +94,8 @@ def restore_root_logging() -> Iterator[None]:
 def test_rollback_closes_dango_log_handler_before_removing_dango_dir(
     tmp_path: Path, restore_root_logging: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    initializer = ProjectInitializer(tmp_path)
+    initializer._snapshot = take_snapshot(tmp_path)
     configure_logging(log_dir=tmp_path / ".dango" / "logs")
     root = logging.getLogger()
     handlers = [h for h in root.handlers if isinstance(h, _DangoFileHandler)]
@@ -111,7 +114,7 @@ def test_rollback_closes_dango_log_handler_before_removing_dango_dir(
 
     monkeypatch.setattr(shutil, "rmtree", checking_rmtree)
 
-    ProjectInitializer(tmp_path)._rollback_initialization()
+    initializer._rollback_initialization()
 
     assert seen and all(seen)
     assert handlers[0].stream is None
