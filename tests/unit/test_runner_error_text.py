@@ -5,6 +5,7 @@ Error text printed by the dlt runner is redacted and escaped (secrets, Rich mark
 
 from __future__ import annotations
 
+import importlib
 import logging
 from collections.abc import Iterator
 from io import StringIO
@@ -19,6 +20,9 @@ from rich.console import Console
 
 from dango.config.models import SourceType
 from dango.ingestion.dlt_runner import DltPipelineRunner, run_sync
+
+# dango.utils exports a function named like some submodules; use the real module for patching
+_db_health = importlib.import_module("dango.utils.db_health")
 
 pytestmark = pytest.mark.unit
 
@@ -79,9 +83,20 @@ def _failing_pipeline(exc: Exception) -> MagicMock:
     return pipeline
 
 
-def _run(project: Path, kind: str, exc: Exception, names: tuple[str, ...]) -> dict[str, Any]:
+def _run(
+    project: Path,
+    kind: str,
+    exc: Exception,
+    names: tuple[str, ...],
+    *,
+    pipeline_extra: dict[str, Any] | None = None,
+    health: Any = None,
+    full_refresh: bool = False,
+) -> dict[str, Any]:
     """Run ``run_sync`` over failing sources of one kind with extract raising *exc*."""
     pipeline = _failing_pipeline(exc)
+    for attr, value in (pipeline_extra or {}).items():
+        getattr(pipeline, attr).side_effect = value
     module = MagicMock()
     module.fake_fn.return_value = MagicMock()
     meta = {"dlt_package": "dlt.sources.test", "dlt_function": "fake_fn"}
@@ -90,7 +105,7 @@ def _run(project: Path, kind: str, exc: Exception, names: tuple[str, ...]) -> di
         "_backup_dlt_state": None,
         "_get_source_total_rows": 0,
         "_get_source_table_rows": {},
-        "_detect_write_disposition": False,
+        "_detect_write_disposition": full_refresh,
         "_check_oauth_token_expiry": None,
         "_inject_oauth_credentials": {},
         "_get_dataset_name": "raw_x",
@@ -103,8 +118,13 @@ def _run(project: Path, kind: str, exc: Exception, names: tuple[str, ...]) -> di
         patch("dango.ingestion.dlt_runner.time.sleep"),
         patch("dango.ingestion.dlt_runner.get_source_metadata", return_value=meta),
         patch("importlib.import_module", return_value=module),
-        patch("dango.utils.db_health.check_disk_space"),
-        patch("dango.utils.db_health.check_duckdb_health", return_value={"status": "ok"}),
+        patch.object(_db_health, "check_disk_space"),
+        patch.object(
+            _db_health,
+            "check_duckdb_health",
+            **({"side_effect": health} if health else {"return_value": {"status": "ok"}}),
+        ),
+        patch.object(DltPipelineRunner, "_clear_local_pipeline_cache"),
         patch.object(DltPipelineRunner, "_restore_dlt_state"),
         patch.object(DltPipelineRunner, "_cleanup_state_backup"),
         patch("dango.ingestion.dlt_runner._connect_with_lock_retry"),
@@ -112,7 +132,9 @@ def _run(project: Path, kind: str, exc: Exception, names: tuple[str, ...]) -> di
             DltPipelineRunner, **{k: MagicMock(return_value=v) for k, v in runner_patches.items()}
         ),
     ):
-        return run_sync(project, [_source(n, kind) for n in names], skip_dbt=True)
+        return run_sync(
+            project, [_source(n, kind) for n in names], skip_dbt=True, full_refresh=full_refresh
+        )
 
 
 @pytest.mark.parametrize("kind", ["native", "dlt"])
@@ -219,3 +241,30 @@ def test_log_activity_redacts_known_values(project: Path) -> None:
     log = (project / ".dango" / "logs" / "activity.jsonl").read_text(encoding="utf-8")
     assert TOML_SECRET not in log and "SECRET123" not in log
     assert "Sync failed" in log and "api.example.com" in log
+
+
+def test_db_health_failure_is_escaped(project: Path, out: StringIO) -> None:
+    _run(project, "dlt", ERRORS["requests_url"], ("s",), health=RuntimeError("health [/x] bad"))
+    assert "health [/x] bad" in out.getvalue()
+
+
+@pytest.mark.parametrize("kind", ["native", "dlt"])
+def test_drop_pipeline_state_failure_is_escaped(project: Path, out: StringIO, kind: str) -> None:
+    _run(
+        project,
+        kind,
+        ERRORS["requests_url"],
+        ("s",),
+        pipeline_extra={"drop": RuntimeError(f"drop [/x] bad {TOML_SECRET}")},
+        full_refresh=True,
+    )
+    printed = out.getvalue()
+    assert "Could not drop pipeline state" in printed
+    assert "drop [/x] bad" in printed and TOML_SECRET not in printed
+
+
+def test_inject_credentials_failure_is_escaped(project: Path, out: StringIO) -> None:
+    runner = DltPipelineRunner(project)
+    with patch("toml.load", side_effect=RuntimeError("inject [/x] bad")):
+        runner._inject_oauth_credentials("hubspot", {})
+    assert "inject [/x] bad" in out.getvalue()
