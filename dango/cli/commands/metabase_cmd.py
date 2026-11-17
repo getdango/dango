@@ -4,6 +4,7 @@ Metabase asset management commands (save, load, refresh).
 """
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.utils import safe_confirm
@@ -143,8 +144,10 @@ def metabase_save(ctx: click.Context, include_personal: bool, collections: str |
                 for error in result["errors"]:
                     console.print(f"  [red]•[/red] {error}")
 
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -304,8 +307,10 @@ def metabase_load(ctx: click.Context, overwrite: bool, dry_run: bool) -> None:
                 for error in result["errors"]:
                     console.print(f"  [red]•[/red] {error}")
 
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -428,7 +433,7 @@ def metabase_refresh(ctx: click.Context) -> None:
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

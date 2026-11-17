@@ -6,6 +6,7 @@ dbt model management commands (add, remove).
 import re
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 
@@ -55,7 +56,7 @@ def model_add(ctx: click.Context) -> None:
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -236,7 +237,7 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

@@ -120,6 +120,8 @@ def remote_upgrade(
 
     except SystemExit:
         raise
+    except click.Abort:
+        raise
     except Exception as exc:
         report.failure("Upgrade failed", exc)
         raise SystemExit(1) from exc

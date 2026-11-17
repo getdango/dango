@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.utils import safe_confirm
@@ -404,8 +405,10 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
             f"[dim]Total: {total_count} sources ({enabled_count} enabled, {total_count - enabled_count} disabled)[/dim]"
         )
 
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -563,7 +566,7 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -833,7 +836,7 @@ def source_inspect_state(ctx: click.Context, source_name: str) -> None:
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -1136,7 +1139,7 @@ def sync(
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

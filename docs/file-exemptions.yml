@@ -99,7 +99,7 @@ exemptions:
 
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
-    lines: 1395
+    lines: 1464
     category: exempt
     reason: "Platform lifecycle commands (start/stop/status) + port helpers. Extracted from cli/main.py by TASK-005. Further splitting would scatter tightly coupled startup/shutdown logic. R12-I2 added cloud systemd status check."
     review_by: "v1.1"
@@ -117,13 +117,13 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/oauth.py
-    lines: 940
+    lines: 960
     category: exempt
     reason: "OAuth authentication commands (10 subcommands). Renamed from auth.py by TASK-093. One command per provider — file grows linearly with providers."
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 1139
+    lines: 1149
     category: exempt
     reason: "Source management commands (add/list/remove/edit) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation. R12-G added source edit NAME arg, sync positional arg."
     review_by: "v1.1"
@@ -153,7 +153,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/remote_backup.py
-    lines: 805
+    lines: 862
     category: exempt
     reason: "R2-D10: Added --from-local flag + _backup_restore_from_local helper for restoring from local backup files."
     review_by: "v1.1"
@@ -184,7 +184,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/source_wizard.py
-    lines: 2421
+    lines: 2425
     category: exempt
     reason: "Interactive source configuration wizard. Sequential prompting logic doesn't benefit from splitting. P7-011 added metrics generation. P5c grew +529 lines (credential unification, resource selection, dedup collection). P8-001 added REST API wizard enhancements: headers, query params, endpoint testing, data_selector/primary_key suggestions (+267 lines). 1.0.8-OPS-3 added _print_git_warnings() (+~19 lines)."
     review_by: "v1.1"

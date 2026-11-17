@@ -4,6 +4,7 @@ Database management commands (db status, db clean) and project validation.
 """
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 
@@ -132,8 +133,10 @@ def db_status(ctx: click.Context) -> None:
         else:
             console.print("[green]✅ No orphaned tables found[/green]")
 
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -286,8 +289,10 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
             f"[green]✅ Removed {dropped_count}/{len(orphaned_tables)} orphaned table(s)[/green]"
         )
 
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -334,8 +339,10 @@ def validate(ctx: click.Context) -> None:
         raise click.Abort() from None
     except SystemExit:
         raise  # Re-raise SystemExit
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

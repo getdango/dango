@@ -6,6 +6,7 @@ dbt transformation commands (run, docs, generate).
 from typing import Any
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 
@@ -129,7 +130,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -228,7 +229,7 @@ def docs(ctx: click.Context) -> None:
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -364,8 +365,10 @@ def generate(ctx: click.Context, models: bool, generate_all: bool, force: bool) 
             console.print("  3. Run: [bold]dbt test[/bold]")
             console.print("  4. View docs: [bold]dbt docs generate && dbt docs serve[/bold]")
 
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

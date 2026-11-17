@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 from dango.logging import get_logger
@@ -1122,8 +1123,10 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
         )
         console.print(f"[red]Error:[/red]\n{msg}")
         raise click.Abort() from e
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -1448,8 +1451,10 @@ def status(ctx: click.Context) -> None:
         except Exception:  # noqa: BLE001
             logger.debug("version_check_failed", exc_info=True)
 
+    except click.Abort:
+        raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

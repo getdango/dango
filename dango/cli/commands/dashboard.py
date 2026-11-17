@@ -242,7 +242,7 @@ def dashboard_provision(
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"\n[red]Error:[/red] {e}")
+        console.print(f"\n[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

@@ -188,6 +188,8 @@ def oauth_list(ctx: click.Context) -> None:
         console.print("\n[dim]To re-authenticate: dango oauth <source_type>[/dim]")
         console.print("[dim]To remove: dango oauth remove <source_type>[/dim]\n")
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -268,6 +270,8 @@ def oauth_status(ctx: click.Context) -> None:
                     f"    [cyan]Re-authenticate: dango oauth refresh {cred.source_type}[/cyan]\n"
                 )
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -760,6 +764,8 @@ def oauth_check(ctx: click.Context) -> None:
 
         console.print("")
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode

@@ -443,6 +443,9 @@ class SourceWizard:
         except KeyboardInterrupt:
             console.print("\n\n[yellow]Wizard cancelled[/yellow]")
             return False
+        except click.Abort:
+            console.print("\n\n[yellow]Wizard cancelled[/yellow]")
+            return False
         except Exception as e:
             console.print(f"\n[red]❌ Error: {escape(str(e))}[/red]")
             return False
