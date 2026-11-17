@@ -186,6 +186,8 @@ def test_remote_auth_timeout_script_names_its_encoding(tmp_path: Path) -> None:
         env={**env, "PYTHONPATH": os.pathsep.join(sys.path)},
     )
 
-    text = project.read_bytes().decode("utf-8")
-    assert "café" in text
-    assert "session_max_days: 30" in text
+    import yaml
+
+    data = yaml.safe_load(project.read_bytes().decode("utf-8"))
+    assert data["project"]["name"] == "café"
+    assert data["auth"]["session_max_days"] == 30

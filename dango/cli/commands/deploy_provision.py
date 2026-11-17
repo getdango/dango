@@ -960,11 +960,11 @@ def _build_auth_timeout_script() -> str:
         "import yaml\n"
         "config_path = Path('.dango/project.yml')\n"
         "if config_path.exists():\n"
-        "    config_data = yaml.safe_load(config_path.read_text()) or {}\n"
+        "    config_data = yaml.safe_load(config_path.read_text(encoding='utf-8')) or {}\n"
         "    config_data.setdefault('auth', {})\n"
         "    config_data['auth']['session_max_days'] = 30\n"
         "    config_data['auth']['idle_timeout_minutes'] = 60\n"
-        "    config_path.write_text(yaml.dump(config_data, default_flow_style=False, sort_keys=False))\n"
+        "    config_path.write_text(yaml.dump(config_data, default_flow_style=False, sort_keys=False), encoding='utf-8')\n"
     )
 
 

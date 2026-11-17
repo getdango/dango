@@ -15,6 +15,18 @@ from dango.exceptions import ConfigError
 console = Console()
 
 
+def _not_toml_error(label: str, cause: Exception) -> ConfigError:
+    """Error for a .dlt TOML file with a syntax error (nothing is read or replaced)."""
+    return ConfigError(
+        f"{label} is not valid TOML ({cause}); fix it by hand (the file was left unchanged)",
+        user_message=format_structured_error(
+            what_failed=f"Cannot read {label}: the file is not valid TOML",
+            causes=[f"Syntax error: {cause}"],
+            suggested_fix="Fix the syntax error in your editor and try again",
+        ),
+    )
+
+
 def _not_utf8_error(label: str) -> ConfigError:
     """Error for a .dlt TOML file that is not valid UTF-8 (nothing is read or replaced)."""
     return ConfigError(
@@ -200,6 +212,8 @@ truncate_staging_dataset = true
         except UnicodeDecodeError as e:
             # Returning {} here would let a later save drop every other credential.
             raise _not_utf8_error(".dlt/secrets.toml") from e
+        except toml.TomlDecodeError as e:
+            raise _not_toml_error(".dlt/secrets.toml", e) from e
         except Exception as e:
             console.print(f"[yellow]Warning: Could not load .dlt/secrets.toml: {e}[/yellow]")
             return {}
@@ -221,6 +235,8 @@ truncate_staging_dataset = true
         except UnicodeDecodeError as e:
             # Returning {} here would let a later save drop every other credential.
             raise _not_utf8_error(".dlt/config.toml") from e
+        except toml.TomlDecodeError as e:
+            raise _not_toml_error(".dlt/config.toml", e) from e
         except Exception as e:
             console.print(f"[yellow]Warning: Could not load .dlt/config.toml: {e}[/yellow]")
             return {}
