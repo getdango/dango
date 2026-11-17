@@ -157,8 +157,8 @@ def _stop_marimo_process(pid: int, start_time: float | None) -> str:
     group is signalled only when the pid file recorded the process start
     time (the caller has verified it still matches), the pid leads its own
     group, and that group is not ours.  Otherwise (and always where there
-    are no process groups, as on Windows) the plain process-tree kill is used.  A pid we may not signal (EPERM) belongs to someone else:
-    ``foreign``.
+    are no process groups, as on Windows) the plain process-tree kill is used.
+    A pid we may not signal (EPERM) belongs to someone else: ``foreign``.
     """
     import signal
 

@@ -1,7 +1,6 @@
 """tests/unit/test_process_group.py
 
-dango.utils.process_group: process-group signalling and detach kwargs, on POSIX and with the Unix-only
-os/signal attributes removed (as on Windows).
+dango.utils.process_group: group signalling and detach kwargs on POSIX and without Unix-only attributes.
 """
 
 from __future__ import annotations

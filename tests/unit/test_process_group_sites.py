@@ -1,7 +1,6 @@
 """tests/unit/test_process_group_sites.py
 
-Call sites of the process-group helpers behave on simulated Windows (Unix-only os/signal attributes removed)
-and send the same signals as before on POSIX.
+Call sites of the process-group helpers: simulated Windows behaviour and unchanged POSIX signals.
 """
 
 from __future__ import annotations

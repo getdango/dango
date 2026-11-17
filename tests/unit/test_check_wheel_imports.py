@@ -270,7 +270,44 @@ def test_main_treats_server_only_failure_as_failure_on_linux(tmp_path: Path) -> 
     assert result.returncode == 1, result.stdout + result.stderr
 
 
-def test_main_platform_default_is_this_interpreters(tmp_path: Path) -> None:
-    _fake_dango(tmp_path)
-    result = _run_with("dango", tmp_path)
-    assert (result.returncode == 1) == sys.platform.startswith("linux"), result.stdout
+def _main_on(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, platform: str) -> int:
+    """Run main() in-process, as if on *platform*, over a package whose server-only module fails."""
+    root = tmp_path / "defpkg"
+    (root / "cloud").mkdir(parents=True)
+    (root / "__init__.py").write_text("")
+    (root / "cloud" / "__init__.py").write_text("")
+    (root / "cloud" / "svc.py").write_text("raise ImportError(\"No module named 'fcntl'\")\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(sys, "platform", platform)
+    argv = [
+        "check_wheel_imports.py",
+        "--package",
+        "defpkg",
+        "--server-only-prefix",
+        "defpkg.cloud.",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    try:
+        return int(_load_script().main())
+    finally:
+        for name in [m for m in sys.modules if m == "defpkg" or m.startswith("defpkg.")]:
+            del sys.modules[name]
+
+
+@pytest.mark.parametrize(("platform", "exit_code"), [("win32", 0), ("darwin", 0), ("linux", 1)])
+def test_main_platform_default_is_this_interpreters(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, platform: str, exit_code: int
+) -> None:
+    assert _main_on(monkeypatch, tmp_path, platform) == exit_code
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        AttributeError("module 'signal' has no attribute 'fork'"),
+        AttributeError("module 'os' has no attribute 'SIGKILL'"),
+        ImportError("cannot import name 'SIGKILL' from 'os'"),
+    ],
+)
+def test_server_only_unix_name_of_the_other_module_still_fails(exc: BaseException) -> None:
+    assert _classify("dango.runtime.isolated_run", exc) == "fail"

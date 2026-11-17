@@ -10,6 +10,7 @@ Shared utilities for process management, activity logging, sync history tracking
 |------|---------|----------------------|
 | `__init__.py` | Public exports from activity_log, sync_history, database, dbt_lock | Re-exports `log_activity`, `get_activity_log_file`, `save_sync_history_entry`, `load_sync_history`, `get_sync_history_file`, `ensure_dbt_schemas`, `DbtLock`, `DbtLockError`, `dbt_lock` |
 | `process.py` | Generic process utilities (shared by platform/ and cli/) | `is_process_running()`, `kill_process()` |
+| `process_group.py` | Process-group signalling and detach kwargs that work without Unix-only os/signal names (Windows falls back to the psutil tree kill) | `group_signal_available()`, `signal_group()`, `group_alive()`, `leads_own_group()`, `sigkill()`, `detach_kwargs()` |
 | `private_files.py` | Owner-only mode for an open file without requiring POSIX `os.fchmod` (no-op where `os.fchmod` is missing; on Windows mode bits are not enforced, so it adds no protection there) | `apply_private_mode()` |
 | `stdio.py` | Makes stdout/stderr tolerant of non-encodable text (called from the CLI group) | `ensure_safe_stdio()` |
 | `activity_log.py` | JSONL activity logging to `.dango/logs/activity.jsonl` | `log_activity()`, `get_activity_log_file()` |
