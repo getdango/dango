@@ -126,7 +126,9 @@ def _package(tmp_path: Path, name: str, module: str, body: str) -> None:
 
 def test_run_lists_server_only_unix_failure_without_failing(tmp_path: Path) -> None:
     _package(tmp_path, "srvpkg", "svc", "raise ImportError(\"No module named 'fcntl'\")\n")
-    result = _run_with("srvpkg", tmp_path, "--server-only-prefix", "srvpkg.svc")
+    result = _run_with(
+        "srvpkg", tmp_path, "--server-only-prefix", "srvpkg.svc", "--platform", "win32"
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "srvpkg.svc" in result.stdout
     assert "0 failures" in result.stdout
@@ -134,7 +136,9 @@ def test_run_lists_server_only_unix_failure_without_failing(tmp_path: Path) -> N
 
 def test_run_fails_on_unrelated_error_in_server_only_prefix(tmp_path: Path) -> None:
     _package(tmp_path, "srvpkg2", "svc", "import module_that_does_not_exist_xyz\n")
-    result = _run_with("srvpkg2", tmp_path, "--server-only-prefix", "srvpkg2.svc")
+    result = _run_with(
+        "srvpkg2", tmp_path, "--server-only-prefix", "srvpkg2.svc", "--platform", "win32"
+    )
     assert result.returncode == 1, result.stdout + result.stderr
     assert "srvpkg2.svc" in result.stdout
 
