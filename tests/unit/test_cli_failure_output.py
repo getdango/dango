@@ -6,6 +6,7 @@ CLI commands that abort on purpose must not print a blank "Error:" line before "
 from __future__ import annotations
 
 import re
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -14,6 +15,7 @@ from unittest.mock import MagicMock, patch
 import click
 import pytest
 from click.testing import CliRunner
+from rich.console import Console
 
 from dango.cli.commands.source import sync
 from tests.unit.test_cli_sync import _patch_sync_prereqs
@@ -66,7 +68,7 @@ def _invoke_sync(args: list[str], run_sync_mock: Any) -> Any:
 class TestSyncFailureOutput:
     def test_failed_source_is_named_with_reason(self) -> None:
         result = _invoke_sync(["--yes"], MagicMock(return_value=_failed_summary()))
-        assert result.exit_code != 0
+        assert result.exit_code == 1
         assert not _BLANK_ERROR.search(result.output), result.output
         assert "bad_src" in result.output
         assert "connection refused" in result.output
@@ -76,12 +78,12 @@ class TestSyncFailureOutput:
     def test_failure_reason_is_redacted(self) -> None:
         err = "GET https://api.example.com/x?api_key=SECRETVALUE123 failed"
         result = _invoke_sync(["--yes"], MagicMock(return_value=_failed_summary(err)))
-        assert result.exit_code != 0
+        assert result.exit_code == 1
         assert "SECRETVALUE123" not in result.output
 
     def test_failure_reason_markup_is_literal(self) -> None:
         result = _invoke_sync(["--yes"], MagicMock(return_value=_failed_summary("bad [/red] tag")))
-        assert result.exit_code != 0
+        assert result.exit_code == 1
         assert "bad [/red] tag" in result.output
 
     def test_success_unchanged(self) -> None:
@@ -92,7 +94,7 @@ class TestSyncFailureOutput:
 
     def test_real_exception_still_prints_message(self) -> None:
         result = _invoke_sync(["--yes"], MagicMock(side_effect=RuntimeError("disk exploded")))
-        assert result.exit_code != 0
+        assert result.exit_code == 1
         assert "Error: disk exploded" in result.output
 
     def test_keyboard_interrupt_unchanged(self) -> None:
@@ -111,7 +113,7 @@ class TestSyncFailureOutput:
     )
     def test_validation_aborts_have_no_blank_error(self, args: list[str], needle: str) -> None:
         result = _invoke_sync(args, MagicMock())
-        assert result.exit_code != 0
+        assert result.exit_code == 1
         assert needle in result.output.lower()
         assert not _BLANK_ERROR.search(result.output), result.output
 
@@ -132,7 +134,7 @@ class TestSyncFailureOutput:
         finally:
             for p in patches:
                 p.stop()
-        assert result.exit_code != 0
+        assert result.exit_code == 1
         assert not _BLANK_ERROR.search(result.output), result.output
 
 
@@ -146,7 +148,7 @@ class TestOtherAbortSites:
         from dango.cli.commands.transform import run
 
         result = _run_cli(run, [], tmp_path)
-        assert result.exit_code != 0
+        assert result.exit_code == 1
         assert "dbt directory not found" in result.output
         assert not _BLANK_ERROR.search(result.output), result.output
 
@@ -154,7 +156,7 @@ class TestOtherAbortSites:
         from dango.cli.commands.transform import docs
 
         result = _run_cli(docs, [], tmp_path)
-        assert result.exit_code != 0
+        assert result.exit_code == 1
         assert "dbt directory not found" in result.output
         assert not _BLANK_ERROR.search(result.output), result.output
 
@@ -163,14 +165,14 @@ class TestOtherAbortSites:
 
         with patch("dango.cli.model_wizard.add_model", return_value=None):
             result = _run_cli(model_add, [], tmp_path)
-        assert result.exit_code != 0
+        assert result.exit_code == 1
         assert not _BLANK_ERROR.search(result.output), result.output
 
     def test_rename_invalid_name(self, tmp_path: Path) -> None:
         from dango.cli.commands.project import rename
 
         result = _run_cli(rename, ["Bad_Name"], tmp_path)
-        assert result.exit_code != 0
+        assert result.exit_code == 1
         assert "Invalid project name" in result.output
         assert not _BLANK_ERROR.search(result.output), result.output
 
@@ -181,7 +183,7 @@ class TestOtherAbortSites:
         loader.return_value.validate_config.return_value = (False, ["bad key"])
         with patch("dango.config.ConfigLoader", loader):
             result = _run_cli(config_validate, [], tmp_path)
-        assert result.exit_code != 0
+        assert result.exit_code == 1
         assert "bad key" in result.output
         assert not _BLANK_ERROR.search(result.output), result.output
 
@@ -192,7 +194,7 @@ class TestOtherAbortSites:
         storage.return_value.get.return_value = None
         with patch("dango.oauth.storage.OAuthStorage", storage):
             result = _run_cli(oauth_remove, ["google_ads"], tmp_path)
-        assert result.exit_code != 0
+        assert result.exit_code == 1
         assert "not found" in result.output
         assert not _BLANK_ERROR.search(result.output), result.output
 
@@ -210,6 +212,96 @@ class TestOtherAbortSites:
             patch.object(oauth_mod, "_try_service_account_auth", return_value=False),
         ):
             result = _run_cli(getattr(oauth_mod, cmd_name), [], tmp_path)
-        assert result.exit_code != 0
+        assert result.exit_code == 1
         assert "Authentication failed" in result.output
+        assert not _BLANK_ERROR.search(result.output), result.output
+
+
+_MARKUP_MSG = "[/x] [red]boom"
+
+
+class TestHandlerMessageIsEscaped:
+    """Exception text containing Rich markup must print literally, not crash."""
+
+    def test_sync_real_exception_with_markup(self) -> None:
+        result = _invoke_sync(["--yes"], MagicMock(side_effect=RuntimeError(_MARKUP_MSG)))
+        assert result.exit_code == 1
+        assert "Error: [/x] [red]boom" in result.output
+        assert "MarkupError" not in result.output
+
+    def test_model_add_exception_with_markup(self, tmp_path: Path) -> None:
+        from dango.cli.commands.model import model_add
+
+        with patch("dango.cli.model_wizard.add_model", side_effect=RuntimeError(_MARKUP_MSG)):
+            result = _run_cli(model_add, [], tmp_path)
+        assert result.exit_code == 1
+        assert "Error: [/x] [red]boom" in result.output
+
+    def test_config_validate_exception_with_markup(self, tmp_path: Path) -> None:
+        from dango.cli.commands.config_cmd import config_validate
+
+        loader = MagicMock()
+        loader.return_value.validate_config.side_effect = RuntimeError(_MARKUP_MSG)
+        with patch("dango.config.ConfigLoader", loader):
+            result = _run_cli(config_validate, [], tmp_path)
+        assert result.exit_code == 1
+        assert "Error: [/x] [red]boom" in result.output
+
+
+class TestWizardDecline:
+    def test_declining_continue_cancels_without_error(self) -> None:
+        from dango.cli.source_wizard import SourceWizard
+
+        wizard = SourceWizard(Path("/tmp/fake"))
+        meta = {"display_name": "X", "category": "x"}
+        with (
+            patch.object(SourceWizard, "_print_git_warnings"),
+            patch.object(SourceWizard, "_show_source_info"),
+            patch.object(SourceWizard, "_get_source_name", return_value="my_src"),
+            patch.object(SourceWizard, "_select_source_flat", return_value="csv"),
+            patch.object(SourceWizard, "_handle_oauth_setup", return_value="skipped"),
+            patch("click.confirm", return_value=False),
+            patch("dango.cli.source_wizard.get_source_metadata", return_value=meta),
+        ):
+            out = StringIO()
+            with patch("dango.cli.source_wizard.console", Console(file=out, force_terminal=False)):
+                assert wizard.run() is False
+        text = out.getvalue()
+        assert "Wizard cancelled" in text
+        assert "Error" not in text
+
+
+class TestHelperAbortOutsideProject:
+    """require_project_context aborts after printing its own message; no blank Error: after it."""
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["status"],
+            ["info"],
+            ["source", "list"],
+            ["validate"],
+            ["config", "show"],
+            ["db", "status"],
+            ["oauth", "status"],
+            ["oauth", "list"],
+            ["stop"],
+        ],
+    )
+    def test_no_blank_error(
+        self, argv: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dango.cli.main import cli
+
+        home = tmp_path / "home"
+        work = tmp_path / "work"
+        home.mkdir()
+        work.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("USERPROFILE", str(home))
+        monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.fail.Keyring")
+        monkeypatch.chdir(work)
+        result = _plain(CliRunner().invoke(cli, argv))
+        assert result.exit_code == 1, result.output
+        assert "Not in a Dango project" in result.output
         assert not _BLANK_ERROR.search(result.output), result.output
