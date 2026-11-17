@@ -68,6 +68,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/telemetry.py` (~250 lines) | `telemetry` group (status, on, off) — unified write-through control for Dango, dbt, dlt, and Metabase telemetry | `telemetry`, `telemetry_status()`, `telemetry_on()`, `telemetry_off()` |
 | **Wizards** | | |
 | `init.py` (1585 lines) | Project initialization wizard, incl. first-run telemetry consent prompt | `ProjectInitializer` |
+| `init_rollback.py` (~125 lines) | Pre-init snapshot and created-only rollback for `dango init`: removes only paths this run created (names init writes, plus new content inside the pre-existing write directories) and restores small pre-existing files init rewrote (bytes and mode, up to `MAX_RESTORE_BYTES`); never follows symlinks | `take_snapshot()`, `rollback_to_snapshot()`, `InitSnapshot`, `WRITE_DIRS`, `INIT_FILES`, `MAX_RESTORE_BYTES` |
 | `wizard.py` (307 lines) | Interactive setup wizards | `ProjectWizard` |
 | `source_wizard.py` (2413 lines) | Source configuration wizard. `run()` calls `_print_git_warnings()` (1.0.8-OPS-3) right after the intro panel | `add_source()` |
 | `model_wizard.py` (510 lines) | dbt model creation wizard (template, collision check and `dbt parse` delegate to `transformation/model_service.py`). `run()` calls `_print_git_warnings()` (1.0.8-OPS-3) right after the intro banner | `add_model()` |
