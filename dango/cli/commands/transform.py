@@ -126,6 +126,8 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled[/yellow]")
         raise click.Abort() from None
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         from dango.exceptions import is_debug_mode
@@ -223,6 +225,8 @@ def docs(ctx: click.Context) -> None:
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled[/yellow]")
         raise click.Abort() from None
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         from dango.exceptions import is_debug_mode

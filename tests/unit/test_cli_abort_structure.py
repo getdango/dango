@@ -50,7 +50,7 @@ def find_swallowed_aborts(tree: ast.AST) -> list[int]:
                         swallowed = True
                         break
                 if swallowed:
-                    found.append(node.lineno)  # type: ignore[attr-defined]
+                    found.append(getattr(node, "lineno", 0))
                     break
         if isinstance(node, ast.Try):
             for child in node.body:

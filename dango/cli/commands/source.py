@@ -1128,8 +1128,13 @@ def sync(
 
         # Exit with error code if any sources failed
         if summary["failed_count"] > 0:
+            from ..sync_report import print_failed_sources
+
+            print_failed_sources(summary, project_root)
             raise click.Abort()
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         from dango.exceptions import is_debug_mode

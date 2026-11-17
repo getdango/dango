@@ -210,6 +210,8 @@ def rename(ctx: click.Context, new_name: str) -> None:
             console.print("[dim]Start the project to use the new URL:[/dim]")
             console.print("[dim]  dango start[/dim]")
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         from dango.exceptions import is_debug_mode

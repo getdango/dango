@@ -325,6 +325,8 @@ def oauth_remove(ctx: click.Context, source_type: str) -> None:
             console.print("\n[red]✗ Failed to remove OAuth credential[/red]\n")
             raise click.Abort()
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -398,6 +400,8 @@ def oauth_refresh(ctx: click.Context, source_type: str) -> None:
         console.print("\n[green]✓ OAuth credential refreshed successfully[/green]")
         console.print(f"[dim]  New credential: {new_oauth_name}[/dim]\n")
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -441,6 +445,8 @@ def oauth_facebook_ads(ctx: click.Context) -> None:
             console.print("[red]Authentication failed[/red]")
             raise click.Abort()
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -488,6 +494,8 @@ def oauth_google_sheets(ctx: click.Context) -> None:
             f"See: {escape('https://console.cloud.google.com/apis/credentials/consent')}[/dim]"
         )
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -535,6 +543,8 @@ def oauth_google_analytics(ctx: click.Context) -> None:
             f"See: {escape('https://console.cloud.google.com/apis/credentials/consent')}[/dim]"
         )
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -579,6 +589,8 @@ def oauth_google_ads(ctx: click.Context) -> None:
             f"See: {escape('https://console.cloud.google.com/apis/credentials/consent')}[/dim]"
         )
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
@@ -929,6 +941,8 @@ def oauth_setup(ctx: click.Context, provider: str) -> None:
     except KeyboardInterrupt:
         console.print("\n[yellow]Setup cancelled[/yellow]")
         raise click.Abort() from None
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode

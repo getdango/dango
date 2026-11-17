@@ -219,7 +219,8 @@ class SourceWizard:
                             "until you complete authentication.[/yellow]"
                         )
                         if not click.confirm("Continue setup anyway?", default=False):
-                            raise click.Abort()
+                            console.print("\n[yellow]Wizard cancelled[/yellow]")
+                            return False
 
                     state = "params"
 

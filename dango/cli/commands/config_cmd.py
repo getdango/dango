@@ -135,6 +135,8 @@ def config_validate(ctx: click.Context) -> None:
             console.print("[dim]Fix errors and run 'dango config validate' again[/dim]")
             raise click.Abort()
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         from dango.exceptions import is_debug_mode
