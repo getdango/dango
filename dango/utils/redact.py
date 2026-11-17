@@ -31,7 +31,7 @@ SECRET_KEY_RE = re.compile(
 # long runs of word characters: every ``_`` restarted a scan of the whole run.
 _SECRET_INLINE_RE = re.compile(
     r"(?i)((?:password|passwd|secret|token|api[_-]?key|private[_-]?key|authorization)[\w-]{0,64})"
-    r"([\"']?\s*[=:]\s*)((?:Bearer|Basic|Token)\s+\S+|\"[^\"]*\"|'[^']*'|[^\s,;&}]+)"
+    r"([\"']?\s*[=:]\s*)(?![\"']?-----BEGIN )((?:Bearer|Basic|Token)\s+\S+|\"[^\"]*\"|'[^']*'|[^\s,;&}]+)"
 )
 _URL_USERINFO_RE = re.compile(r"(://)[^/\s@]+@")
 _BEARER_RE = re.compile(r"(?i)\b(Bearer|Basic)(\s+)[A-Za-z0-9._~+/=-]{6,}")
@@ -57,10 +57,11 @@ _cache: dict[Path, tuple[tuple[int, int], frozenset[str]]] = {}
 
 def redact_patterns(text: str) -> str:
     """Mask secret-looking patterns in free text without knowing the secret values."""
-    # A key block goes first: the inline key=value pattern would otherwise mask only the
-    # ``-----BEGIN`` marker after ``private_key:`` and leave the key body readable.
-    text = _PEM_RE.sub(REDACTED, text)
+    # The inline pattern skips a value that starts a key block (lookahead), so the block is left
+    # whole for the PEM pass below. Running the PEM pass first would let a cut-off block (no END
+    # line) swallow a following ``api_key=`` line and hide its name from this pattern.
     text = _SECRET_INLINE_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}****", text)
+    text = _PEM_RE.sub(REDACTED, text)
     text = _AUTH_HEADER_RE.sub(r"\1****", text)
     text = _URL_USERINFO_RE.sub(rf"\1{REDACTED}@", text)
     text = _QUERY_PARAM_RE.sub(rf"\1{REDACTED}", text)
