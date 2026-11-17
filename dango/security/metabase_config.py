@@ -18,6 +18,7 @@ from uuid import uuid4
 import yaml
 
 from dango.security.metabase_credentials import MetabaseCredentialStore
+from dango.utils.private_files import apply_private_mode
 
 
 class MetabaseConfigurationError(RuntimeError):
@@ -132,7 +133,7 @@ def write_metabase_metadata(project_root: Path, metadata: dict[str, Any]) -> Non
     fd: int | None = None
     try:
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        os.fchmod(fd, 0o600)
+        apply_private_mode(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as metadata_file:
             fd = None
             yaml.safe_dump(metadata, metadata_file, default_flow_style=False, sort_keys=False)

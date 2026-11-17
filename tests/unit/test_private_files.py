@@ -97,6 +97,10 @@ class TestCallSitesWithoutFchmod:
         (project / ".dango" / "project.yml").write_text(
             yaml.safe_dump({"project": {"name": "T"}}), encoding="utf-8"
         )
+        (project / ".dango" / "metabase.yml").write_text(
+            yaml.safe_dump({"admin": {"email": "a@example.com", "password": "legacy-secret"}}),
+            encoding="utf-8",
+        )
         result = migration.prepare_metabase_credential_migration(project)
         assert result == {"version": 1, "status": "prepared"}
         state = project / ".dango" / "state" / "metabase_credential_migration.json"
@@ -122,7 +126,14 @@ class TestCallSitesWithoutFchmod:
         (project / ".dango").mkdir(parents=True)
         (project / ".dango" / "project.yml").write_text(
             yaml.safe_dump(
-                {"project": {"name": "T", "id": "11111111-2222-3333-4444-555555555555"}}
+                {
+                    "project": {
+                        "name": "T",
+                        "id": "11111111-2222-3333-4444-555555555555",
+                        "created_by": "t@example.com",
+                        "purpose": "test",
+                    }
+                }
             ),
             encoding="utf-8",
         )

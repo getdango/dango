@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import IO
 from urllib.parse import urlencode
 
+from dango.utils.private_files import apply_private_mode
+
 
 def token_file_path(project_root: Path) -> Path:
     """Path of the token file Marimo reads at startup."""
@@ -78,7 +80,7 @@ def open_private_log(path: Path) -> IO[str]:
     """Open *path* for writing as a fresh 0600 file (truncated, symlinks not followed)."""
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(path, flags, 0o600)
-    os.fchmod(fd, 0o600)  # an existing file keeps its old mode otherwise
+    apply_private_mode(fd, 0o600)  # an existing file keeps its old mode otherwise
     return os.fdopen(fd, "w")
 
 
