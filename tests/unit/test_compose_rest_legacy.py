@@ -100,6 +100,8 @@ def test_h2_size_runs_compose_exec_in_the_named_project(tmp_path: Path) -> None:
             {
                 "capture_output": True,
                 "text": True,
+                "encoding": "utf-8",
+                "errors": "replace",
                 "timeout": 5,
                 "cwd": tmp_path,
                 "env": {**os.environ, "COMPOSE_PROJECT_NAME": "dango-test"},

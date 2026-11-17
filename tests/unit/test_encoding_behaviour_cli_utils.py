@@ -39,7 +39,7 @@ def _spy(file, mode="r", buffering=-1, encoding=None, errors=None, newline=None,
 
 io.open = _spy
 builtins.open = _spy
-""".replace("__TEXT__", repr(TEXT))
+""".replace("__TEXT__", ascii(TEXT))
 
 
 def _run(body: str, tmp_path: Path) -> dict[str, Any]:
