@@ -39,6 +39,8 @@ def run_sync_command(project_root: Path) -> bool:
             capture_output=True,
             text=True,
             timeout=3600,  # 1 hour timeout
+            encoding="utf-8",
+            errors="replace",
         )
 
         if result.returncode == 0:
@@ -119,6 +121,8 @@ def run_dbt_command(project_root: Path, changed_files: list[Any] | None = None) 
             text=True,
             timeout=3600,  # 1 hour timeout
             env=_dbt_telemetry_env(),
+            encoding="utf-8",
+            errors="replace",
         )
 
         if result.returncode == 0:
@@ -157,6 +161,8 @@ def run_validate_command(project_root: Path) -> bool:
             capture_output=True,
             text=True,
             timeout=300,  # 5 minutes timeout
+            encoding="utf-8",
+            errors="replace",
         )
 
         if result.returncode == 0:

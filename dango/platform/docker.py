@@ -51,7 +51,7 @@ def render_docker_compose(project_root: Path, config: DangoConfig) -> None:
     )
 
     docker_compose_path = project_root / "docker-compose.yml"
-    with open(docker_compose_path, "w", encoding="utf-8") as f:
+    with open(docker_compose_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(content)
 
 
@@ -150,6 +150,8 @@ def _get_existing_container_working_dirs(compose_project_name: str) -> set[str]:
             capture_output=True,
             text=True,
             timeout=10,
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode != 0:
             return set()
@@ -299,6 +301,8 @@ class DockerManager:
                 capture_output=True,
                 text=True,
                 timeout=5,
+                encoding="utf-8",
+                errors="replace",
             )
             return result.returncode == 0 and bool(result.stdout.strip())
         except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -308,7 +312,12 @@ class DockerManager:
         """Check if Docker is available"""
         try:
             result = subprocess.run(
-                ["docker", "--version"], capture_output=True, text=True, timeout=5
+                ["docker", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                encoding="utf-8",
+                errors="replace",
             )
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -317,7 +326,14 @@ class DockerManager:
     def is_docker_daemon_running(self) -> bool:
         """Check if Docker daemon is running"""
         try:
-            result = subprocess.run(["docker", "ps"], capture_output=True, text=True, timeout=5)
+            result = subprocess.run(
+                ["docker", "ps"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                encoding="utf-8",
+                errors="replace",
+            )
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return False
@@ -327,14 +343,24 @@ class DockerManager:
         try:
             # Try docker compose (v2)
             result = subprocess.run(
-                ["docker", "compose", "version"], capture_output=True, text=True, timeout=5
+                ["docker", "compose", "version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                encoding="utf-8",
+                errors="replace",
             )
             if result.returncode == 0:
                 return True
 
             # Fall back to docker-compose (v1)
             result = subprocess.run(
-                ["docker-compose", "--version"], capture_output=True, text=True, timeout=5
+                ["docker-compose", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                encoding="utf-8",
+                errors="replace",
             )
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -345,7 +371,12 @@ class DockerManager:
         # Try docker compose (v2) first
         try:
             result = subprocess.run(
-                ["docker", "compose", "version"], capture_output=True, text=True, timeout=5
+                ["docker", "compose", "version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                encoding="utf-8",
+                errors="replace",
             )
             if result.returncode == 0:
                 return ["docker", "compose"]
@@ -588,6 +619,8 @@ class DockerManager:
                 capture_output=True,
                 text=True,
                 timeout=5,
+                encoding="utf-8",
+                errors="replace",
             )
             if result.returncode == 0 and result.stdout.strip():
                 console.print(
@@ -628,6 +661,8 @@ class DockerManager:
                     capture_output=True,
                     text=True,
                     timeout=10,
+                    encoding="utf-8",
+                    errors="replace",
                 )
             else:
                 # Find containers belonging to this project via compose project label
@@ -642,6 +677,8 @@ class DockerManager:
                     capture_output=True,
                     text=True,
                     timeout=10,
+                    encoding="utf-8",
+                    errors="replace",
                 )
 
             if result.returncode != 0:
@@ -659,7 +696,12 @@ class DockerManager:
             # Stop the containers
             console.print(f"Found {len(container_ids)} Dango container(s), stopping...")
             result = subprocess.run(
-                ["docker", "stop"] + container_ids, capture_output=True, text=True, timeout=60
+                ["docker", "stop"] + container_ids,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                encoding="utf-8",
+                errors="replace",
             )
 
             if result.returncode == 0:

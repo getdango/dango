@@ -112,7 +112,7 @@ def start_file_watcher(project_root: Path) -> int | None:
 
     try:
         # Open log file
-        log_handle = open(log_file, "w")  # noqa: SIM115
+        log_handle = open(log_file, "w", encoding="utf-8", newline="\n")  # noqa: SIM115
 
         # Get path to watcher_runner.py (in same directory as this file)
         watcher_runner = Path(__file__).parent / "watcher_runner.py"

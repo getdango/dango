@@ -297,7 +297,7 @@ def _add_pending_dbt_source(project_root: Path, source_name: str) -> None:
     """Atomically add a source to the pending dbt list."""
     path = project_root / _PENDING_DBT_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a+") as f:
+    with open(path, "a+", encoding="utf-8", newline="\n") as f:
         if sys.platform == "win32":
             f.seek(0)
             msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
@@ -320,7 +320,7 @@ def _consume_pending_dbt_sources(project_root: Path) -> list[str]:
     path = project_root / _PENDING_DBT_FILE
     if not path.exists():
         return []
-    with open(path, "r+") as f:
+    with open(path, "r+", encoding="utf-8", newline="\n") as f:
         if sys.platform == "win32":
             msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
         else:
@@ -1168,8 +1168,12 @@ def _write_script_logs(
         if len(stderr_str) > _MAX:
             stderr_str = stderr_str[:_MAX] + "\n\n[TRUNCATED at 1MB]"
 
-        (log_dir / "stdout.txt").write_text(stdout_str, encoding="utf-8", errors="replace")
-        (log_dir / "stderr.txt").write_text(stderr_str, encoding="utf-8", errors="replace")
+        (log_dir / "stdout.txt").write_text(
+            stdout_str, encoding="utf-8", errors="replace", newline="\n"
+        )
+        (log_dir / "stderr.txt").write_text(
+            stderr_str, encoding="utf-8", errors="replace", newline="\n"
+        )
 
         meta: dict[str, Any] = {
             "run_id": run_id,
@@ -1183,14 +1187,14 @@ def _write_script_logs(
             "error": error,
             **({"unisolated": True} if unisolated else {}),
         }
-        (log_dir / "meta.json").write_text(_json.dumps(meta))
+        (log_dir / "meta.json").write_text(_json.dumps(meta), encoding="utf-8", newline="\n")
 
         # Also append to .jsonl history so the scripts UI can show last_run.
         # Path mirrors _get_history_file() in dango.web.routes.scripts_helpers —
         # do not import from web routes to keep platform layer independent.
         safe_name = script_path.replace("/", "__").replace("\\", "__")
         history_file = project_root / ".dango" / "logs" / "scripts" / f"{safe_name}.jsonl"
-        with open(history_file, "a", encoding="utf-8") as _fh:
+        with open(history_file, "a", encoding="utf-8", newline="\n") as _fh:
             _fh.write(_json.dumps(meta) + "\n")
     except Exception:  # noqa: BLE001
         logger.debug("script_log_write_failed", script=script_path, exc_info=True)

@@ -23,7 +23,7 @@ def get_registered_domains(project_path: Path) -> frozenset[str]:
     Read-only: creates nothing. Missing or unreadable registry -> empty set.
     """
     try:
-        with open(routing_file_path()) as f:
+        with open(routing_file_path(), encoding="utf-8") as f:
             routing = json.load(f)
         target = project_path.resolve()
         return frozenset(

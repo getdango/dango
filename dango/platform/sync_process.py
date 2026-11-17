@@ -50,7 +50,7 @@ def read_sync_status(project_root: Path, sync_id: str | None = None) -> dict[str
     try:
         if not path.exists():
             return None
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             result: dict[str, Any] = json.load(f)
             return result
     except (json.JSONDecodeError, OSError):
@@ -151,7 +151,7 @@ def launch_sync_subprocess(
 
     log_handle = None
     try:
-        log_handle = open(log_path, "w")  # noqa: SIM115
+        log_handle = open(log_path, "w", encoding="utf-8", newline="\n")  # noqa: SIM115
 
         log_handle.write(f"# dango_version={dango.__version__}\n")
         process = subprocess.Popen(
@@ -417,7 +417,7 @@ def _read_log_tail(log_path: Path, max_lines: int = 50) -> str:
     try:
         if not log_path.exists():
             return ""
-        lines = log_path.read_text(errors="replace").splitlines()
+        lines = log_path.read_text(errors="replace", encoding="utf-8").splitlines()
         return "\n".join(lines[-max_lines:])
     except Exception:  # noqa: BLE001
         return ""
