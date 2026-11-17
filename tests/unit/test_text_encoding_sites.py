@@ -173,7 +173,7 @@ _LF_WRITERS = {
     "dango/cli/oauth.py": ["self.env_file"],
     "dango/cli/schema_manager.py": ["schema_path"],
     "dango/cli/source_wizard.py": ["template_path"],
-    "dango/config/credentials.py": ["gitignore_path", "secrets_file", "config_file"],
+    "dango/config/credentials.py": ["gitignore_path", "self.secrets_file", "self.config_file"],
     "dango/config/cloud_credentials.py": ["fd"],
     "dango/ingestion/sources/setup_lifecycle.py": ["config_toml"],
     "dango/ingestion/sources/setup_service.py": ["config_path", "secrets_path"],
@@ -184,9 +184,10 @@ _LF_WRITERS = {
 }
 
 
-def _lf_problems(rel: str, names: list[str]) -> tuple[int, list[str]]:
+def _lf_problems(rel: str, names: list[str]) -> tuple[set[str], list[str]]:
     tree = ast.parse((REPO_ROOT / rel).read_text(encoding="utf-8"))
-    checked, problems = 0, []
+    matched: set[str] = set()
+    problems: list[str] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -204,15 +205,16 @@ def _lf_problems(rel: str, names: list[str]) -> tuple[int, list[str]]:
             continue
         if target not in names:
             continue
-        checked += 1
+        matched.add(target)
         newline = next((kw.value for kw in node.keywords if kw.arg == "newline"), None)
         if not (isinstance(newline, ast.Constant) and newline.value == "\n"):
             problems.append(f"{rel}:{node.lineno} write of {target} without newline='\\n'")
-    return checked, problems
+    return matched, problems
 
 
 @pytest.mark.parametrize("rel", sorted(_LF_WRITERS))
 def test_generated_files_are_written_with_lf(rel: str) -> None:
-    checked, problems = _lf_problems(rel, _LF_WRITERS[rel])
-    assert checked > 0
+    matched, problems = _lf_problems(rel, _LF_WRITERS[rel])
+    # Every listed name must match at least one write, or a rename would pass vacuously.
+    assert matched == set(_LF_WRITERS[rel])
     assert problems == []
