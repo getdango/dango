@@ -105,7 +105,7 @@ def read_driver_version(plugins_dir: Path) -> str | None:
     """
     version_file = plugins_dir / DRIVER_VERSION_FILE
     try:
-        return version_file.read_text().strip() or None
+        return version_file.read_text(encoding="utf-8").strip() or None
     except OSError:
         return None
 
@@ -113,7 +113,7 @@ def read_driver_version(plugins_dir: Path) -> str | None:
 def write_driver_version(plugins_dir: Path, version: str) -> None:
     """Write *version* to the driver version tracking file in *plugins_dir*."""
     version_file = plugins_dir / DRIVER_VERSION_FILE
-    version_file.write_text(version + "\n")
+    version_file.write_text(version + "\n", encoding="utf-8")
 
 
 def verify_driver_jar(path: Path) -> bool:

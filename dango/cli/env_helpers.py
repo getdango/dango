@@ -32,7 +32,7 @@ def create_env_template(
 
     # Read existing content (or start with header for new file)
     if env_file.exists():
-        original_content = env_file.read_text()
+        original_content = env_file.read_text(encoding="utf-8")
         existing_lines = original_content.splitlines()
     else:
         original_content = ""
@@ -47,7 +47,7 @@ def create_env_template(
         backup_file = env_file.with_suffix(".env.backup")
         # Owner-only: the backup holds the previous .env credentials
         fd = os.open(backup_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(original_content)
         # O_CREAT mode is ignored when the file pre-existed with wider permissions
         os.chmod(backup_file, 0o600)
@@ -97,7 +97,7 @@ def create_env_template(
         try:
             # Write combined content to temp file, owner-only from creation: .env holds credentials
             fd = os.open(temp_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "w") as f:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
                 if existing_lines:
                     f.write("\n".join(existing_lines))
                 if new_content:
@@ -132,7 +132,7 @@ def validate_env_file(env_file: Path, required_vars: list[str]) -> tuple[bool, l
 
     # Parse .env file
     env_values = {}
-    for line in env_file.read_text().splitlines():
+    for line in env_file.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             key, value = line.split("=", 1)

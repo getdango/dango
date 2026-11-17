@@ -6,6 +6,8 @@ Registers all command modules from dango.cli.commands and provides the
 top-level ``cli`` group with version info and project-root discovery.
 """
 
+from typing import Any
+
 import click
 
 from dango import __version__
@@ -39,9 +41,19 @@ from dango.cli.commands.telemetry import telemetry
 from dango.cli.commands.transform import docs, generate, run
 from dango.cli.commands.upgrade import upgrade
 from dango.cli.commands.web import web
+from dango.utils.stdio import ensure_safe_stdio
 
 
-@click.group()
+class _StdioSafeGroup(click.Group):
+    """Top-level group that makes stdout/stderr safe before any output (incl. --help)."""
+
+    def main(self, *args: Any, **kwargs: Any) -> Any:
+        """Run the CLI after making stdout/stderr safe for non-encodable text."""
+        ensure_safe_stdio()
+        return super().main(*args, **kwargs)
+
+
+@click.group(cls=_StdioSafeGroup)
 @click.version_option(version=__version__, prog_name="dango")
 @click.pass_context
 def cli(ctx: click.Context) -> None:

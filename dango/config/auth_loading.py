@@ -77,7 +77,7 @@ def load_auth_config_safe(project_root: Path | None) -> AuthConfig | None:
         return _fallback()
 
     try:
-        data: Any = yaml.safe_load(project_file.read_text()) or {}
+        data: Any = yaml.safe_load(project_file.read_text(encoding="utf-8")) or {}
         if not isinstance(data, dict):
             raise ValueError("project.yml top level must be a mapping")
         return AuthConfig(**data.get("auth", {}))
