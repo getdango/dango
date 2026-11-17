@@ -15,6 +15,7 @@ from uuid import uuid4
 import keyring
 
 from dango.config import ConfigLoader
+from dango.utils.private_files import apply_private_mode
 
 _SERVICE_NAME = "dango-metabase"
 _LOCAL_SECRETS_DIR = Path.home() / ".dango" / "secrets" / "metabase"
@@ -199,7 +200,7 @@ class MetabaseCredentialStore:
         fd: int | None = None
         try:
             fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            os.fchmod(fd, 0o600)
+            apply_private_mode(fd, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as secret_file:
                 fd = None
                 secret_file.write(payload)

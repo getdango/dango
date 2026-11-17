@@ -19,11 +19,9 @@ from dango.platform.common.metabase_best_effort import (
     discard_pending_best_effort,
     log_best_effort_failure,
 )
-from dango.security.metabase_config import (
-    load_metabase_metadata,
-    write_metabase_metadata,
-)
+from dango.security.metabase_config import load_metabase_metadata, write_metabase_metadata
 from dango.security.metabase_credentials import MetabaseCredentialStore
+from dango.utils.private_files import apply_private_mode
 
 _STATE_VERSION = 1
 _STATE_FILENAME = "metabase_credential_migration.json"
@@ -390,7 +388,7 @@ def _write_state(project_root: Path, state: dict[str, object]) -> None:
     fd: int | None = None
     try:
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        os.fchmod(fd, 0o600)
+        apply_private_mode(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as state_file:
             fd = None
             json.dump(state, state_file, sort_keys=True)

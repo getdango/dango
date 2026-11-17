@@ -5,7 +5,8 @@ Symlink-safe file copying for notebook files.
 ``notebooks/`` can be writable by a lower-privileged user, so a path there may
 be a symlink planted to redirect a read or a write. These helpers never follow
 a symlink at the final path component, and optionally refuse symlinked
-directory components below a given root.
+directory components below a given root. On Windows ``O_NOFOLLOW`` is
+unavailable, so the ``lstat`` pre-check is the only symlink guard on the source side.
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ import os
 import shutil
 import stat
 from pathlib import Path
+
+from dango.utils.private_files import apply_private_mode
 
 DEFAULT_MODE = 0o644
 
@@ -73,7 +76,9 @@ def copy_regular_file(
         raise UnsafeFileError(errno.EPERM, "Source is not a regular file")
 
     try:
-        src_fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        src_fd = os.open(
+            src, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        )
     except OSError as exc:
         if exc.errno == errno.ELOOP:
             raise UnsafeFileError(errno.ELOOP, "Source is a symbolic link") from exc
@@ -81,12 +86,14 @@ def copy_regular_file(
     try:
         if not stat.S_ISREG(os.fstat(src_fd).st_mode):
             raise UnsafeFileError(errno.EPERM, "Source is not a regular file")
-        dst_fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
+        dst_fd = os.open(
+            dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), mode
+        )
         try:
             with os.fdopen(src_fd, "rb", closefd=False) as fsrc, os.fdopen(dst_fd, "wb") as fdst:
                 shutil.copyfileobj(fsrc, fdst)
                 fdst.flush()
-                os.fchmod(fdst.fileno(), mode)
+                apply_private_mode(fdst.fileno(), mode)
         except BaseException:
             with contextlib.suppress(OSError):
                 os.unlink(dst)

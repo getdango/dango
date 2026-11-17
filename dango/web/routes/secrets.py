@@ -23,6 +23,7 @@ from dango.auth.models import User
 from dango.auth.permissions import require_permission
 from dango.logging import get_logger
 from dango.utils.env_file import parse_env_file, serialize_env_file
+from dango.utils.private_files import apply_private_mode
 
 router = APIRouter(tags=["secrets"])
 logger = get_logger(__name__)
@@ -66,7 +67,7 @@ def _write_env_file(project_root: Path, env_vars: dict[str, str]) -> None:
     # Create with restrictive permissions to avoid TOCTOU window
     fd = os.open(str(env_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        os.fchmod(fd, 0o600)
+        apply_private_mode(fd, 0o600)
         os.write(fd, content.encode("utf-8"))
     finally:
         os.close(fd)
