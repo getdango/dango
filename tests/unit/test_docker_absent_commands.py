@@ -6,11 +6,9 @@ an OS-correct actionable failure where it is required.
 
 from __future__ import annotations
 
-import importlib.util
 import logging
 import re
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -19,6 +17,7 @@ import pytest
 from click.testing import CliRunner
 
 from dango.cli.main import cli
+from dango.utils import docker_hints
 from tests.factories.scaffold_project import build_fresh_project, working_copy
 
 pytestmark = pytest.mark.unit
@@ -40,10 +39,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.setenv("DANGO_TELEMETRY", "0")
-    if importlib.util.find_spec("dango.utils.docker_hints") is not None:
-        from dango.utils import docker_hints
-
-        monkeypatch.setitem(docker_hints._printed, "metabase", False)
+    monkeypatch.setitem(docker_hints._printed, "metabase", False)
 
 
 @pytest.fixture
@@ -198,7 +194,7 @@ def test_start_without_docker_names_the_right_product(
     expected: str,
     absent: str,
 ) -> None:
-    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(docker_hints, "_current_platform", lambda: platform)
     with patch("dango.platform.common.startup.ensure_duckdb_driver", MagicMock()):
         code, output = _invoke(["start", "--yes"])
     assert code == 1, output
@@ -212,7 +208,7 @@ def test_start_without_docker_names_the_right_product(
 def test_start_with_a_stopped_daemon_says_to_start_it(
     project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(docker_hints, "_current_platform", lambda: "linux")
     ok = subprocess.CompletedProcess(["docker", "--version"], 0, stdout="Docker 28", stderr="")
     down = subprocess.CompletedProcess(["docker", "ps"], 1, stdout="", stderr="Cannot connect")
 
@@ -238,7 +234,7 @@ def test_start_with_a_stopped_daemon_says_to_start_it(
 def test_stop_without_docker_fails_with_guidance_and_does_not_claim_success(
     project: Path, no_docker: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(docker_hints, "_current_platform", lambda: "win32")
     code, output = _invoke(["stop"])
     assert code == 1, output
     _assert_clean(output)
@@ -270,7 +266,7 @@ def test_web_service_probe_is_quiet_without_docker(
 def test_stop_all_without_docker_fails_with_guidance(
     project: Path, no_docker: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(docker_hints, "_current_platform", lambda: "linux")
     code, output = _invoke(["stop", "--all"])
     assert code == 1, output
     _assert_clean(output)

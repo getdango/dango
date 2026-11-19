@@ -19,6 +19,10 @@ _DESKTOP_PLATFORMS = ("darwin", "win32")
 _printed: dict[str, bool] = {"metabase": False}
 
 
+def _current_platform() -> str:
+    return sys.platform
+
+
 def docker_binary_present() -> bool:
     """True when a ``docker`` executable is on ``PATH`` (says nothing about the daemon)."""
     return shutil.which("docker") is not None
@@ -30,7 +34,7 @@ def docker_guidance_lines(*, binary_present: bool, platform: str | None = None) 
     macOS and Windows get Docker Desktop wording; every other platform gets Docker Engine
     wording. ``platform`` defaults to ``sys.platform``.
     """
-    current = platform if platform is not None else sys.platform
+    current = platform if platform is not None else _current_platform()
     if current in _DESKTOP_PLATFORMS:
         if not binary_present:
             return [
