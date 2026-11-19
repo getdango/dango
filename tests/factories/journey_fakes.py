@@ -6,7 +6,9 @@ Windows unit subset.
 """
 
 import os
+import random
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -234,6 +236,39 @@ def lines_of(result: subprocess.CompletedProcess[str], verdict: str) -> list[str
     return [ln for ln in result.stdout.splitlines() if ln.startswith(verdict + " ")]
 
 
+def allocate_scenario_ports(names: list[str], per_scenario: int = 5) -> dict[str, tuple[int, ...]]:
+    """Distinct loopback ports for every scenario, chosen in one place.
+
+    The ports are drawn at random below the operating systems' ephemeral ranges (a port inside
+    them can be taken by a probe's own outgoing connection, which then "connects" to itself and
+    looks like an open listener). Every candidate is bound while the set is built, so no two
+    scenarios share a port; the sockets are released together at the end.
+    """
+    wanted = len(names) * per_scenario
+    candidates = list(range(15000, 28000))
+    random.shuffle(candidates)
+    socks: list[socket.socket] = []
+    try:
+        for port in candidates:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                sock.bind(("127.0.0.1", port))
+            except OSError:
+                sock.close()
+                continue
+            socks.append(sock)
+            if len(socks) == wanted:
+                break
+        flat = [s.getsockname()[1] for s in socks]
+    finally:
+        for sock in socks:
+            sock.close()
+    assert len(flat) == wanted, "not enough free ports below the ephemeral range"
+    return {
+        name: tuple(flat[i * per_scenario : (i + 1) * per_scenario]) for i, name in enumerate(names)
+    }
+
+
 Outcome = tuple["subprocess.CompletedProcess[str]", Path]
 
 
@@ -250,8 +285,16 @@ def run_scenarios(
     """
     dirs = {name: tmp_path_factory.mktemp(name) for name in scenarios}
 
+    ports = allocate_scenario_ports(list(scenarios))
+
     def run(name: str) -> subprocess.CompletedProcess[str]:
-        return run_journey(dirs[name], **scenarios[name])
+        options = dict(scenarios[name])
+        options["extra"] = (
+            *options.get("extra", ()),
+            "--ports",
+            ",".join(str(p) for p in ports[name]),
+        )
+        return run_journey(dirs[name], **options)
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         results = list(pool.map(run, scenarios))

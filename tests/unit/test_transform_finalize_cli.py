@@ -14,6 +14,7 @@ import pytest
 from click.testing import CliRunner
 
 from dango.cli.commands.transform import run
+from tests.factories.scaffold_project import make_scaffold
 
 
 def _invoke(tmp_path: Path, returncode: int) -> tuple[object, MagicMock]:
@@ -56,6 +57,6 @@ def test_run_success_finalizes_and_exits_zero(tmp_path: Path) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _scaffold_not_under_test(monkeypatch: pytest.MonkeyPatch) -> None:
-    """These tests use a bare fake project; the scaffold check has its own tests."""
-    monkeypatch.setattr("dango.cli.scaffold.enforce_scaffold", lambda *args, **kwargs: None)
+def _project_scaffold(tmp_path: Path) -> None:
+    """The fake project is tmp_path: give it the files `start`/`sync`/`run` look for."""
+    make_scaffold(tmp_path)

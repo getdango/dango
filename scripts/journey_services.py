@@ -103,7 +103,7 @@ def _run_web_once(j: Journey, port: int, label: str, grace: float) -> str | None
 
 def web_step(j: Journey, grace: float) -> Step:
     """Start `dango web`, check it answers, stop it, then do it all again (restart check)."""
-    port = free_ports(1)[0]
+    port = j.fixed_ports[4] if len(j.fixed_ports) > 4 else free_ports(1)[0]
     for label in ("first start", "restart"):
         reason = _run_web_once(j, port, label, grace)
         if reason is not None:

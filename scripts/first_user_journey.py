@@ -104,7 +104,7 @@ def step_init(j: Journey) -> Step:
     for name in ("project.yml", "auth.yml"):
         if not (j.workdir / ".dango" / name).is_file():
             return failure("init", f".dango/{name} was not created", proc.output)
-    ports = [str(p) for p in free_ports(4)]
+    ports = [str(p) for p in (j.fixed_ports[:4] or free_ports(4))]
     set_ports = j.run(
         [j.python, "-c", _SET_PORTS, str(j.workdir / ".dango" / "project.yml"), *ports]
     )
@@ -261,6 +261,9 @@ def main() -> int:
     )
     parser.add_argument("--steps", help=argparse.SUPPRESS)  # comma separated subset (tests)
     parser.add_argument("--output-encoding", help=argparse.SUPPRESS)  # override (tests)
+    parser.add_argument(  # five comma separated ports: project (4) and web (1), for parallel tests
+        "--ports", type=lambda v: tuple(int(p) for p in v.split(",")), help=argparse.SUPPRESS
+    )
     parser.add_argument("--port-free-timeout", type=float, default=10, help=argparse.SUPPRESS)
     parser.add_argument("--up-timeout", type=float, default=60, help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -289,6 +292,7 @@ def main() -> int:
         port_free_timeout=args.port_free_timeout,
         up_timeout=args.up_timeout,
         output_encoding_override=args.output_encoding,
+        fixed_ports=args.ports or (),
     )
     args.log.parent.mkdir(parents=True, exist_ok=True)
     j.note(f"# first-user journey: dango={dango} python={python} workdir={args.workdir}")

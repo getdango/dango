@@ -16,6 +16,8 @@ from unittest.mock import MagicMock, patch
 import psutil
 import pytest
 
+from tests.factories.scaffold_project import make_scaffold
+
 pytestmark = pytest.mark.unit
 
 
@@ -208,6 +210,6 @@ def test_start_pid_file_kept_when_alive(
 
 
 @pytest.fixture(autouse=True)
-def _scaffold_not_under_test(monkeypatch: pytest.MonkeyPatch) -> None:
-    """These tests use a bare fake project; the scaffold check has its own tests."""
-    monkeypatch.setattr("dango.cli.scaffold.enforce_scaffold", lambda *args, **kwargs: None)
+def _project_scaffold(tmp_path: Path) -> None:
+    """The fake project is tmp_path: give it the files `start`/`sync`/`run` look for."""
+    make_scaffold(tmp_path)

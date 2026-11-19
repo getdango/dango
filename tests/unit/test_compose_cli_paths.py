@@ -67,9 +67,3 @@ class TestRepairAdminHelper:
         code, repair = self._invoke(tmp_path, helper=False)
         assert code != 0
         repair.assert_not_called()
-
-
-@pytest.fixture(autouse=True)
-def _scaffold_not_under_test(monkeypatch: pytest.MonkeyPatch) -> None:
-    """These tests use a bare fake project; the scaffold check has its own tests."""
-    monkeypatch.setattr("dango.cli.scaffold.enforce_scaffold", lambda *args, **kwargs: None)

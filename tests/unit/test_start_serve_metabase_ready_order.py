@@ -291,9 +291,3 @@ class TestStartDriverErrors:
         assert "Traceback" not in output
         assert "docker" not in events
         assert not isinstance(result.exception, OSError)
-
-
-@pytest.fixture(autouse=True)
-def _scaffold_not_under_test(monkeypatch: pytest.MonkeyPatch) -> None:
-    """These tests use a bare fake project; the scaffold check has its own tests."""
-    monkeypatch.setattr("dango.cli.scaffold.enforce_scaffold", lambda *args, **kwargs: None)

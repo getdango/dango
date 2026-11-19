@@ -12,6 +12,7 @@ from click.testing import CliRunner
 
 from dango.cli.commands.platform import start
 from dango.utils.process import PidRecord
+from tests.factories.scaffold_project import make_scaffold
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -109,7 +110,7 @@ class TestStartGuardRails:
         dango_dir.mkdir()
         (dango_dir / "sources.yml").write_text("sources: []")
         data_dir = tmp_path / "data"
-        data_dir.mkdir()
+        data_dir.mkdir(exist_ok=True)
         (data_dir / "warehouse.duckdb").touch()
 
         mock_loader = _make_config_loader()
@@ -265,6 +266,6 @@ class TestStartPortConflictProcessIdentity:
 
 
 @pytest.fixture(autouse=True)
-def _scaffold_not_under_test(monkeypatch: pytest.MonkeyPatch) -> None:
-    """These tests use a bare fake project; the scaffold check has its own tests."""
-    monkeypatch.setattr("dango.cli.scaffold.enforce_scaffold", lambda *args, **kwargs: None)
+def _project_scaffold(tmp_path: Path) -> None:
+    """The fake project is tmp_path: give it the files `start`/`sync`/`run` look for."""
+    make_scaffold(tmp_path)

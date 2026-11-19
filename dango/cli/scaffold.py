@@ -20,12 +20,20 @@ from dango.cli import console
 #             (`dango start --yes` or a yes at the prompt), and never over an existing file.
 #   render    rewritten from project.yml before every `dango start`: nothing to do, only reported.
 #   auto      an empty directory (or empty credential templates): recreated silently when missing.
+#   advise    only `dango validate` mentions it; no command needs it and Dango never recreates it.
+#   marker    the file that makes a folder a project: `require_project_context` handles it.
+#   optional  nothing needs it: the config loader treats a missing file as "no sources".
 REQUIRED = "required"
 RESTORE = "restore"
 RENDER = "render"
 AUTO = "auto"
+ADVISE = "advise"
+MARKER = "marker"
+OPTIONAL = "optional"
+_REGENERABLE = (RESTORE, RENDER, AUTO)
 
 _VCS_FIX = "Restore it from version control or a backup of the project."
+MACRO_PATH = "dbt/macros/get_custom_schema.sql"
 
 
 @dataclass(frozen=True)
@@ -40,11 +48,16 @@ class ScaffoldItem:
 
 
 # Every command named here also runs `require_project_context` first, which already needs
-# `.dango/project.yml` (listed with no commands for that reason; `validate` has its own row).
-# `.dango/sources.yml` has no commands either: the config loader treats it as optional.
+# `.dango/project.yml` (a marker, no commands; `validate` has its own row for it).
 SCAFFOLD_ITEMS: tuple[ScaffoldItem, ...] = (
-    ScaffoldItem(".dango/project.yml", "file", (), REQUIRED, _VCS_FIX),
-    ScaffoldItem(".dango/sources.yml", "file", (), REQUIRED, _VCS_FIX),
+    ScaffoldItem(".dango/project.yml", "file", (), MARKER, _VCS_FIX),
+    ScaffoldItem(
+        ".dango/sources.yml",
+        "file",
+        (),
+        OPTIONAL,
+        "It is optional: without it the project simply has no sources.",
+    ),
     ScaffoldItem(
         "docker-compose.yml",
         "file",
@@ -76,6 +89,15 @@ SCAFFOLD_ITEMS: tuple[ScaffoldItem, ...] = (
         ("start", "sync"),
         AUTO,
         "'dango start' and 'dango sync' recreate this empty directory.",
+    ),
+    ScaffoldItem(
+        MACRO_PATH,
+        "file",
+        ("validate",),
+        ADVISE,
+        "Without it dbt builds schemas named main_staging and main_marts instead of staging "
+        "and marts. Restore it from version control or a backup of the project; Dango does not "
+        "recreate it.",
     ),
     ScaffoldItem(
         ".dlt",
@@ -148,7 +170,9 @@ def check_scaffold(project_root: Path, for_command: str) -> ScaffoldReport:
             report.unreadable.append(ScaffoldProblem(item, text, False))
         else:
             report.missing.append(
-                ScaffoldProblem(item, f"{item.path}: missing. {item.fix}", item.action != REQUIRED)
+                ScaffoldProblem(
+                    item, f"{item.path}: missing. {item.fix}", item.action in _REGENERABLE
+                )
             )
     return report
 
@@ -173,23 +197,54 @@ def _write_template(project_root: Path, name: str) -> bool:
     return True
 
 
+class ScaffoldError(Exception):
+    """Recreating a missing scaffold path failed (read-only folder, permissions, ...)."""
+
+
 def restore_scaffold(project_root: Path, problems: list[ScaffoldProblem]) -> list[str]:
-    """Recreate the missing `restore` and `auto` items among `problems`; return one line each."""
+    """Recreate the missing `restore` and `auto` items among `problems`; return one line each.
+
+    Raises `ScaffoldError` naming the path and the reason when the file system refuses.
+    """
     done: list[str] = []
     for problem in problems:
         item = problem.item
-        if item.path in _TEMPLATE_FILES and item.action == RESTORE:
-            if _write_template(project_root, item.path):
-                done.append(f"Recreated {item.path}")
-        elif item.action == AUTO and not (project_root / item.path).exists():
-            if item.path == ".dlt":
-                from dango.config.credentials import init_dlt_directory
+        try:
+            if item.path in _TEMPLATE_FILES and item.action == RESTORE:
+                if _write_template(project_root, item.path):
+                    done.append(f"Recreated {item.path}")
+            elif item.action == AUTO and not (project_root / item.path).exists():
+                if item.path == ".dlt":
+                    from dango.config.credentials import init_dlt_directory
 
-                init_dlt_directory(project_root)
-            else:
-                (project_root / item.path).mkdir(parents=True, exist_ok=True)
-            done.append(f"Recreated {item.path}")
+                    init_dlt_directory(project_root)
+                else:
+                    (project_root / item.path).mkdir(parents=True, exist_ok=True)
+                done.append(f"Recreated {item.path}")
+        except OSError as exc:
+            raise ScaffoldError(
+                f"{item.path}: could not be recreated ({exc.strerror or type(exc).__name__}). "
+                "Check that the project folder is writable, then try again."
+            ) from exc
     return done
+
+
+def report_scaffold(project_root: Path, command: str) -> None:
+    """Print what `command` would find missing as a warning. Writes nothing, never aborts."""
+    report = check_scaffold(project_root, command)
+    problems = [*report.unreadable, *report.missing]
+    if not problems:
+        return
+    console.print(
+        f"[yellow]Warning:[/yellow] the project scaffold is incomplete for 'dango {command}':"
+    )
+    for problem in problems:
+        console.print(f"  - {escape(problem.message)}")
+
+
+def _fail(text: str) -> click.Abort:
+    console.print(f"[red]Error:[/red] {escape(text)}")
+    return click.Abort()
 
 
 def enforce_scaffold(project_root: Path, command: str, *, assume_yes: bool = False) -> None:
@@ -203,25 +258,32 @@ def enforce_scaffold(project_root: Path, command: str, *, assume_yes: bool = Fal
     blocking += [p for p in report.unreadable if p.item.action != REQUIRED]
     restorable = [p for p in report.missing if p.item.action == RESTORE]
 
-    if not blocking and restorable:
-        from dango.cli.utils import safe_confirm
+    try:
+        if not blocking and restorable:
+            from dango.cli.utils import safe_confirm
 
-        names = ", ".join(p.item.path for p in restorable)
-        if assume_yes or safe_confirm(
-            f"Recreate {names} from Dango's packaged templates?", default=False
-        ):
-            for line in restore_scaffold(project_root, restorable):
-                console.print(f"[dim]{escape(line)}[/dim]")
-            restorable = []
-    if blocking or restorable:
-        console.print(
-            f"[red]Error:[/red] this project is missing files that 'dango {command}' needs:"
-        )
-        for problem in (*blocking, *restorable):
-            console.print(f"  - {escape(problem.message)}")
-        raise click.Abort()
+            names = ", ".join(p.item.path for p in restorable)
+            if assume_yes:
+                agreed = True
+            else:
+                agreed = safe_confirm(
+                    f"Recreate {names} from Dango's packaged templates?", default=False
+                )
+                console.print()  # the prompt leaves the cursor on its own line only when answered
+            if agreed:
+                for line in restore_scaffold(project_root, restorable):
+                    console.print(f"[dim]{escape(line)}[/dim]")
+                restorable = []
+        if blocking or restorable:
+            console.print(
+                f"[red]Error:[/red] this project is missing files that 'dango {command}' needs:"
+            )
+            for problem in (*blocking, *restorable):
+                console.print(f"  - {escape(problem.message)}")
+            raise click.Abort()
 
-    for line in restore_scaffold(
-        project_root, [p for p in report.missing if p.item.action == AUTO]
-    ):
-        console.print(f"[dim]{escape(line)}[/dim]")
+        autos = [p for p in report.missing if p.item.action == AUTO]
+        for line in restore_scaffold(project_root, autos):
+            console.print(f"[dim]{escape(line)}[/dim]")
+    except ScaffoldError as exc:
+        raise _fail(str(exc)) from exc

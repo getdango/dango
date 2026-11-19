@@ -264,10 +264,13 @@ def test_sync_without_dbt_files_aborts_before_loading_anything(project: Path, na
     assert _tree(project) == before
 
 
-def test_sync_dry_run_also_reports_a_broken_scaffold(project: Path) -> None:
+def test_sync_dry_run_reports_a_broken_scaffold_without_failing(project: Path) -> None:
     (project / "dbt" / "profiles.yml").unlink()
     code, output = _sync("--dry-run")
-    _assert_clean_failure(code, output, "dbt/profiles.yml")
+    assert code == 0, output
+    assert "dbt/profiles.yml" in output
+    for text in RAW_TOOL_TEXT:
+        assert text not in output
 
 
 def test_sync_recreates_a_missing_data_directory_and_succeeds(project: Path) -> None:
@@ -348,6 +351,7 @@ def test_validate_healthy_project_only_gains_passing_scaffold_rows(project: Path
         "Scaffold: Dockerfile.metabase",
         "Scaffold: entrypoint.sh",
         "Scaffold: .dlt",
+        "Scaffold: dbt/macros/get_custom_schema.sql",
     }
     assert {v[0] for v in scaffold.values()} == {"pass"}
     with patch("dango.cli.scaffold.check_scaffold") as check:
@@ -462,7 +466,7 @@ def test_every_message_has_the_fix_and_is_ascii(project: Path) -> None:
             assert item.path in text
             assert text.isascii()
             assert any(w in text for w in ("dango start", "version control", "backup")), text
-            assert missing.regenerable == (item.action != "required")
+            assert missing.regenerable == (item.action in ("restore", "render", "auto"))
 
 
 def test_a_missing_regenerable_file_is_never_reported_as_blocking_for_validate(

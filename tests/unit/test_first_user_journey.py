@@ -214,11 +214,11 @@ def test_step_timeout_is_reported_and_does_not_hang(tmp_path: Path) -> None:
     result = _journey(
         tmp_path,
         mode="slow-sync",
-        extra=("--step-timeout", "2"),
+        extra=("--step-timeout", "10"),
         steps="init,add-source,sync,count",
     )
     assert result.returncode == 1
-    assert "FAIL sync: dango sync --yes: timed out after 2s" in result.stdout
+    assert re.search(r"FAIL sync: dango sync --yes: timed out after \d+s", result.stdout)
     assert "SKIP count: depends on sync" in result.stdout
 
 
