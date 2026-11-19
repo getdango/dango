@@ -82,8 +82,11 @@ def test_windows_prints_the_locked_launcher_note_before_pip(
 ) -> None:
     ok = subprocess.CompletedProcess(["pip"], 0, stdout="", stderr="")
     _, output, _ = _run(tmp_path, monkeypatch, "win32", ok)
-    assert "Access is denied" in output and "python -m pip" in output
-    assert output.index("python -m pip") < output.index("Installing getdango")
+    flat = "".join(output.split())
+    assert "Access is denied" in output
+    assert f"{sys.executable}-mpipinstallgetdango==99.0.0".replace(" ", "") in flat
+    assert "--upgrade" not in output
+    assert output.index("Access is denied") < output.index("Installing getdango")
 
 
 def test_other_platforms_do_not_get_the_windows_note(
@@ -101,8 +104,9 @@ def test_windows_access_failure_prints_manual_steps(
 ) -> None:
     code, output, _ = _run(tmp_path, monkeypatch, "win32", _failed(text))
     assert code == 1, output
+    flat = "".join(output.split())
     assert "dango stop" in output
-    assert "python -m pip install" in output and "getdango==99.0.0" in output
+    assert f"{sys.executable}-mpipinstallgetdango==99.0.0".replace(" ", "") in flat
     assert "Marimo" in output
     assert "dango start" in output
 
@@ -119,7 +123,7 @@ def test_posix_permission_failure_names_the_permission_problem(
         ),
     )
     assert code == 1, output
-    assert "permission" in output.lower()
+    assert "pip could not write" in output
     assert "Marimo" not in output
 
 

@@ -79,6 +79,25 @@ def test_text_detection_covers_pip_output() -> None:
     assert not is_certificate_error_text("")
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "WARNING: Retrying after connection broken by "
+        "'SSLError(SSLCertVerificationError('\"localhost\" certificate is not trusted'))'",
+        "pip._vendor.requests.exceptions.SSLError: Problem confirming the ssl certificate",
+        "Could not fetch URL: There was a problem confirming the ssl certificate",
+    ],
+)
+def test_text_detection_covers_truststore_shaped_pip_output(text: str) -> None:
+    from dango.utils.tls_errors import is_certificate_error_text
+
+    assert is_certificate_error_text(text)
+
+
+def test_guidance_mentions_the_system_trust_store_for_pip() -> None:
+    assert "trust store" in _guidance()
+
+
 def test_cyclic_exception_chain_terminates() -> None:
     from dango.utils.tls_errors import is_certificate_error
 
@@ -250,10 +269,25 @@ def test_dependency_install_other_failure_prints_nothing(
     assert capsys.readouterr().out == ""
 
 
-def _run_source_with_install_failure(tmp_path: Path, stderr: bytes) -> dict[str, object]:
+def _run_source_with_real_failing_pip(tmp_path: Path, stderr_text: str) -> dict[str, object]:
+    """Run the dependency install against a real child process that fails and writes stderr."""
+    import sys
     from types import SimpleNamespace
 
     from dango.ingestion.dlt_runner import DltPipelineRunner
+
+    script = f"import sys; sys.stderr.write({stderr_text!r}); sys.exit(1)"
+    real_run, real_check_call = subprocess.run, subprocess.check_call
+
+    def child(argv: Any) -> list[str]:
+        assert "pip" in argv
+        return [sys.executable, "-c", script]
+
+    def fake_run(argv: Any, *args: Any, **kwargs: Any) -> Any:
+        return real_run(child(argv), *args, **kwargs)
+
+    def fake_check_call(argv: Any, *args: Any, **kwargs: Any) -> Any:
+        return real_check_call(child(argv), *args, **kwargs)
 
     runner = DltPipelineRunner(tmp_path)
     source: Any = SimpleNamespace(
@@ -261,10 +295,8 @@ def _run_source_with_install_failure(tmp_path: Path, stderr: bytes) -> dict[str,
     )
     with (
         patch.object(runner, "_check_dependencies", return_value=(False, [{"pip": "new-pkg"}])),
-        patch(
-            "dango.ingestion.dlt_runner.subprocess.check_call",
-            side_effect=subprocess.CalledProcessError(1, "pip", stderr=stderr),
-        ),
+        patch("dango.ingestion.dlt_runner.subprocess.run", fake_run),
+        patch("dango.ingestion.dlt_runner.subprocess.check_call", fake_check_call),
         patch("dango.utils.activity_log.log_activity"),
     ):
         return runner.run_source(source)
@@ -273,7 +305,7 @@ def _run_source_with_install_failure(tmp_path: Path, stderr: bytes) -> dict[str,
 def test_source_sync_install_certificate_failure_prints_guidance(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    result = _run_source_with_install_failure(tmp_path, b"CERTIFICATE_VERIFY_FAILED")
+    result = _run_source_with_real_failing_pip(tmp_path, "ERROR: [SSL: CERTIFICATE_VERIFY_FAILED]")
     out = capsys.readouterr().out
     assert result["status"] == "failed"
     assert "REQUESTS_CA_BUNDLE" in out and "Traceback" not in out
@@ -282,6 +314,31 @@ def test_source_sync_install_certificate_failure_prints_guidance(
 def test_source_sync_install_other_failure_has_no_certificate_guidance(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    result = _run_source_with_install_failure(tmp_path, b"No matching distribution")
+    result = _run_source_with_real_failing_pip(tmp_path, "No matching distribution")
     assert result["status"] == "failed"
     assert "REQUESTS_CA_BUNDLE" not in capsys.readouterr().out
+
+
+def test_pypi_check_surfaces_a_certificate_hint_on_request(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import httpx
+
+    from dango.platform.cloud.server_status import check_latest_pypi_version
+
+    error = httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] self-signed certificate")
+    with patch("httpx.get", side_effect=error):
+        assert check_latest_pypi_version(certificate_hint=True) is None
+        assert "REQUESTS_CA_BUNDLE" in capsys.readouterr().out
+        assert check_latest_pypi_version() is None
+        assert capsys.readouterr().out == ""
+
+
+def test_pypi_check_stays_quiet_for_other_failures(capsys: pytest.CaptureFixture[str]) -> None:
+    import httpx
+
+    from dango.platform.cloud.server_status import check_latest_pypi_version
+
+    with patch("httpx.get", side_effect=httpx.ConnectError("name resolution failed")):
+        assert check_latest_pypi_version(certificate_hint=True) is None
+    assert capsys.readouterr().out == ""

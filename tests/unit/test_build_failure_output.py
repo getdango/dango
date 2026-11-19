@@ -100,3 +100,15 @@ def test_report_helper_limits_lines_and_flags_dns() -> None:
     assert not looks_like_dns_failure("permission denied")
     report = build_failure_report(None, "\n".join(str(i) for i in range(100)), max_lines=5)
     assert "99" in report and "94" not in report
+
+
+def test_stderr_error_survives_when_stdout_is_noisy(tmp_path: Path) -> None:
+    noise = "\n".join(f"#{i} stdout progress" for i in range(80))
+    out = _start(tmp_path, "ERROR: the real build failure\n", stdout=noise)
+    assert "ERROR: the real build failure" in out
+
+
+def test_very_long_lines_are_capped(tmp_path: Path) -> None:
+    out = _start(tmp_path, "x" * 5000 + "\nERROR: tail\n")
+    assert "ERROR: tail" in out
+    assert out.count("x") < 1000

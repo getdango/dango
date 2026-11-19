@@ -92,3 +92,38 @@ def test_metabase_note_prints_once_and_is_plain_ascii(monkeypatch: pytest.Monkey
     out = buf.getvalue()
     assert out.count("Metabase not refreshed: Docker is not available") == 1
     out.encode("cp1252")
+
+
+def test_linux_stopped_daemon_mentions_the_docker_group() -> None:
+    text = _text(True, "linux")
+    assert "usermod -aG docker" in text and "log out" in text
+
+
+@pytest.mark.parametrize("platform", ["darwin", "win32"])
+def test_missing_desktop_install_says_to_open_a_new_terminal(platform: str) -> None:
+    assert "new terminal" in _text(False, platform)
+
+
+def test_missing_linux_install_says_to_open_a_new_terminal() -> None:
+    assert "new terminal" in _text(False, "linux")
+
+
+def test_reachability_probe_tells_missing_from_stopped(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import subprocess
+    from unittest.mock import patch
+
+    from dango.utils.docker_hints import docker_state
+
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert docker_state() == "missing"
+    down = subprocess.CompletedProcess(["docker", "ps"], 1, stdout="", stderr="")
+    up = subprocess.CompletedProcess(["docker", "ps"], 0, stdout="", stderr="")
+    with patch("shutil.which", return_value="/usr/bin/docker"):
+        with patch("subprocess.run", return_value=down):
+            assert docker_state() == "stopped"
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("docker", 5)):
+            assert docker_state() == "stopped"
+        with patch("subprocess.run", return_value=up):
+            assert docker_state() == "running"

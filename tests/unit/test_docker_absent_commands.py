@@ -109,6 +109,7 @@ def test_sync_without_docker_prints_one_quiet_line(
     _assert_clean(output)
     assert output.count(_NOTE) == 1, output
     assert "Metabase not running" not in output
+    assert "Updating Metabase schema" not in output
     assert not [r for r in caplog.records if r.exc_info], "a traceback was logged"
 
 
@@ -205,41 +206,189 @@ def test_start_without_docker_names_the_right_product(
     assert "Docker daemon is not running" not in output
 
 
+class _StoppedDaemon:
+    """A docker binary on PATH whose daemon is down: --version works, everything else fails."""
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv: Any, *args: Any, **kwargs: Any) -> Any:
+        self.calls.append([str(a) for a in argv])
+        if list(argv[:2]) == ["docker", "--version"]:
+            return subprocess.CompletedProcess(argv, 0, stdout="Docker 28", stderr="")
+        return subprocess.CompletedProcess(
+            argv, 1, stdout="", stderr="Cannot connect to the Docker daemon at unix:///x.sock"
+        )
+
+    def __enter__(self) -> _StoppedDaemon:
+        self._patches = [
+            patch("subprocess.run", self),
+            patch("shutil.which", return_value="/usr/bin/docker"),
+            patch("dango.platform.common.startup.ensure_duckdb_driver", MagicMock()),
+        ]
+        for p in self._patches:
+            p.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        for p in self._patches:
+            p.stop()
+
+
 def test_start_with_a_stopped_daemon_says_to_start_it(
     project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(docker_hints, "_current_platform", lambda: "linux")
-    ok = subprocess.CompletedProcess(["docker", "--version"], 0, stdout="Docker 28", stderr="")
-    down = subprocess.CompletedProcess(["docker", "ps"], 1, stdout="", stderr="Cannot connect")
-
-    def run(argv: Any, *args: Any, **kwargs: Any) -> Any:
-        if list(argv[:2]) == ["docker", "--version"]:
-            return ok
-        if list(argv[:2]) == ["docker", "ps"]:
-            return down
-        return subprocess.CompletedProcess(argv, 1, stdout="", stderr="")
-
-    with (
-        patch("dango.platform.common.startup.ensure_duckdb_driver", MagicMock()),
-        patch("subprocess.run", run),
-        patch("shutil.which", return_value="/usr/bin/docker"),
-    ):
+    with _StoppedDaemon() as daemon:
         code, output = _invoke(["start", "--yes"])
     assert code == 1, output
     assert "systemctl start docker" in output
     assert "Docker Desktop" not in output
     assert "not installed" not in output
+    assert "Stopping Dango services" not in output
+    assert "Failed to stop services" not in output
+    assert "Cannot connect" not in output
+    assert not [c for c in daemon.calls if "compose" in c or "docker-compose" in c[0]]
 
 
-def test_stop_without_docker_fails_with_guidance_and_does_not_claim_success(
-    project: Path, no_docker: None, monkeypatch: pytest.MonkeyPatch
+def test_stop_without_docker_stops_local_services_and_exits_0(
+    project: Path, no_docker: None
 ) -> None:
-    monkeypatch.setattr(docker_hints, "_current_platform", lambda: "win32")
     code, output = _invoke(["stop"])
-    assert code == 1, output
+    assert code == 0, output
     _assert_clean(output)
-    assert "Docker Desktop" in output
-    assert "All services stopped" not in output
+    assert "Docker is not available" in output
+    assert "Install" not in output and "Docker Desktop is not installed" not in output
+    assert "Error" not in output
+
+
+def test_stop_with_a_stopped_daemon_exits_0_like_a_missing_docker(
+    project: Path, no_docker: None
+) -> None:
+    missing_code, _ = _invoke(["stop"])
+    with _StoppedDaemon():
+        code, output = _invoke(["stop"])
+    assert code == missing_code == 0, output
+    assert "Docker is not running" in output
+    assert "Failed to stop services" not in output and "Cannot connect" not in output
+    assert "Error" not in output
+
+
+def test_stop_marks_the_project_stopped_when_docker_is_missing(
+    project: Path, no_docker: None
+) -> None:
+    network = MagicMock()
+    network.return_value.get_project_info.return_value = {"status": "running", "domain": "x"}
+    with patch("dango.platform.network.NetworkConfig", network):
+        code, output = _invoke(["stop"])
+    assert code == 0, output
+    network.return_value.update_project_status.assert_called_once()
+
+
+def test_stop_fails_when_docker_is_reachable_and_stopping_fails(project: Path) -> None:
+    from dango.platform.docker import DockerManager
+
+    with (
+        patch("shutil.which", return_value="/usr/bin/docker"),
+        patch.object(DockerManager, "is_docker_daemon_running", return_value=True),
+        patch.object(DockerManager, "stop_services", return_value=False),
+    ):
+        code, output = _invoke(["stop"])
+    assert code == 1, output
+
+
+def test_stop_all_without_docker_or_with_a_stopped_daemon_exits_0(
+    project: Path, no_docker: None
+) -> None:
+    code, output = _invoke(["stop", "--all"])
+    assert code == 0, output
+    _assert_clean(output)
+    assert "Docker is not available" in output and "nothing was stopped" in output
+    assert "Stopped all Dango containers" not in output
+    with _StoppedDaemon():
+        code, output = _invoke(["stop", "--all"])
+    assert code == 0, output
+    assert "Docker is not running" in output
+    assert "Could not list Docker containers" not in output
+    assert "Stopped all Dango containers" not in output
+
+
+def test_stop_all_fails_when_docker_is_reachable_and_stopping_fails(project: Path) -> None:
+    from dango.platform.docker import DockerManager
+
+    with (
+        patch("shutil.which", return_value="/usr/bin/docker"),
+        patch.object(DockerManager, "is_docker_daemon_running", return_value=True),
+        patch.object(DockerManager, "stop_all_dango_containers", return_value=False),
+    ):
+        code, output = _invoke(["stop", "--all"])
+    assert code == 1, output
+    assert "Stopped all Dango containers" not in output
+
+
+def test_stop_services_without_docker_says_it_did_not_check(
+    tmp_path: Path, no_docker: None
+) -> None:
+    from dango.platform.docker import DockerManager
+
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    manager = DockerManager(tmp_path)
+    with patch("dango.platform.docker.console") as console:
+        assert manager.stop_services() is True
+    printed = " ".join(str(c.args[0]) for c in console.print.call_args_list)
+    assert "Docker services were not checked" in printed
+    assert "no Docker services to stop" not in printed
+
+
+def test_refresh_with_a_hung_daemon_is_quiet(
+    project: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import sys
+
+    from dango.visualization.metabase import refresh_metabase_connection
+
+    real_run = subprocess.run
+
+    def hung(argv: Any, *args: Any, **kwargs: Any) -> Any:
+        kwargs["timeout"] = 0.5
+        return real_run([sys.executable, "-c", "import time; time.sleep(30)"], *args, **kwargs)
+
+    with patch("subprocess.run", hung), caplog.at_level(logging.DEBUG):
+        ok, err, _ = refresh_metabase_connection(project)
+    assert ok is False and err == "Docker is not available"
+    assert not [r for r in caplog.records if r.exc_info]
+
+
+def test_status_and_stop_tolerate_a_home_without_dango_dir(
+    project: Path, no_docker: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "missing" / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "missing" / "home"))
+    for argv in (["status"], ["stop"]):
+        code, output = _invoke(argv)
+        assert code == 0, output
+        assert "Errno 2" not in output
+
+
+def test_docker_audit_says_docker_is_not_available(project: Path, no_docker: None) -> None:
+    code, output = _invoke(["docker-audit"])
+    assert code == 0, output
+    assert "Docker is not available" in output
+    assert "No dango-* Docker resources found" not in output
+
+
+def test_docker_audit_with_a_stopped_daemon_says_so(project: Path) -> None:
+    with _StoppedDaemon():
+        code, output = _invoke(["docker-audit"])
+    assert code == 0, output
+    assert "Docker is not running" in output
+    assert "No dango-* Docker resources found" not in output
+
+
+def test_cleanup_docker_says_volumes_were_not_checked(project: Path, no_docker: None) -> None:
+    code, output = _invoke(["cleanup", "--docker", "--dry-run"])
+    assert code == 0, output
+    assert "Docker is not available" in output and "not checked" in output
 
 
 def test_docker_manager_probes_tolerate_any_oserror(tmp_path: Path) -> None:
@@ -261,14 +410,3 @@ def test_web_service_probe_is_quiet_without_docker(
     with caplog.at_level(logging.DEBUG):
         assert check_service_via_docker("metabase") == "unknown"
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
-
-
-def test_stop_all_without_docker_fails_with_guidance(
-    project: Path, no_docker: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(docker_hints, "_current_platform", lambda: "linux")
-    code, output = _invoke(["stop", "--all"])
-    assert code == 1, output
-    _assert_clean(output)
-    assert "Docker Engine" in output
-    assert "Stopped all Dango containers" not in output
