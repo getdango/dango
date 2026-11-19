@@ -253,10 +253,11 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
                     else "they hold Metabase dashboards, questions and users"
                 )
                 console.print(
-                    f"[yellow]Kept Docker volume(s) declared by this project ({why}):[/yellow]"
+                    f"[yellow]Kept Docker volume(s) declared by this project ({why}); "
+                    "'dango cleanup' never removes them:[/yellow]"
                 )
                 for vol in kept_volumes:
-                    console.print(f"  {escape(vol)}  (remove deliberately: docker volume rm {vol})")
+                    console.print(f"  {escape(vol)}")
                 console.print()
 
         log_total = sum(size for _, size in log_archives)

@@ -60,8 +60,8 @@ def test_a_declared_volume_is_kept_and_named(tmp_path: Path, args: list[str]) ->
     result = _cleanup(tmp_path, [declared], args, removed, input="y\n")
     assert removed == []
     out = _out(result)
-    assert declared in out
-    assert f"docker volume rm {declared}" in out
+    assert declared in out and "never removes them" in out
+    assert "docker volume rm" not in out  # Dango never advises deleting Metabase data
 
 
 @pytest.mark.unit
