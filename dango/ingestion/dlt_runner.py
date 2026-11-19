@@ -232,6 +232,14 @@ def _dlt_pipelines_dir() -> Path:
     return Path(get_dlt_pipelines_dir())
 
 
+def _checked_pipeline_dir(pipeline_name: str) -> Path:
+    """Working dir of *pipeline_name*; ``ValueError`` if it is not a single path component."""
+    from dango.utils.safe_names import contained_child, reject_backup_shaped_name
+
+    reject_backup_shaped_name(pipeline_name, "pipeline name")
+    return contained_child(_dlt_pipelines_dir(), pipeline_name, "pipeline name")
+
+
 def _package_sort_key(package_dir: Path) -> tuple[float, str]:
     """Order load package directories oldest to newest (load ids are unix timestamps)."""
     try:
@@ -1382,7 +1390,12 @@ class DltPipelineRunner:
                     pipeline.drop()
                 except Exception as e:
                     console.print(f"  ⚠️  Could not drop pipeline state: {self._rich_err(e)}")
-                self._clear_local_pipeline_cache(pipeline_name)
+                try:
+                    self._clear_local_pipeline_cache(pipeline_name)
+                except RuntimeError:
+                    # Stop before anything loads; put the state back as it was.
+                    self._restore_dlt_state(state_backup)
+                    raise
                 # Re-create the pipeline object: the one above was constructed
                 # against the on-disk working directory we just deleted, and dlt's
                 # Pipeline does not lazily recreate that directory before
@@ -1848,7 +1861,12 @@ class DltPipelineRunner:
                 # NOTE: this method's pipeline is always named `source_name` (see
                 # dlt.pipeline(pipeline_name=source_name, ...) above) — unlike
                 # _run_dlt_native_source, there is no separate pipeline_name override.
-                self._clear_local_pipeline_cache(source_name)
+                try:
+                    self._clear_local_pipeline_cache(source_name)
+                except RuntimeError:
+                    # Stop before anything loads; put the state back as it was.
+                    self._restore_dlt_state(state_backup)
+                    raise
                 # Re-create the pipeline object: the one above was constructed
                 # against the on-disk working directory we just deleted, and dlt's
                 # Pipeline does not lazily recreate that directory before
@@ -3187,7 +3205,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
         # f"{staging_dataset_name}_staging", not documented anywhere).
         staging_internal_dataset = f"{staging_dataset_name}_staging"
 
-        def _cleanup_staging(staging_pipeline_obj: Any = None) -> None:
+        def _cleanup_staging(staging_pipeline_obj: Any = None, *, strict: bool = False) -> None:
             """Drop both staging schemas (the intentional one and dlt's own internal
             merge-staging artifact), drop the staging pipeline object (if one has
             been created yet), and clear the staging pipeline's local working
@@ -3224,11 +3242,12 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 console.print(
                     f"  ⚠️  Could not clean up full-refresh staging schema: {self._rich_err(e)}"
                 )
-            self._clear_local_pipeline_cache(staging_pipeline_name)
+            self._clear_local_pipeline_cache(staging_pipeline_name, strict=strict)
 
         # Always start from a guaranteed-clean slate -- see docstring for the verified
-        # stale-leftover-contamination failure mode this prevents.
-        _cleanup_staging()
+        # stale-leftover-contamination failure mode this prevents. Strict: if the old
+        # staging cache cannot be removed, stop before loading anything.
+        _cleanup_staging(strict=True)
 
         console.print("  🔄 Full refresh: staging reload before swapping into destination")
         _enable_load_package_cleanup()
@@ -3400,7 +3419,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
         """
         import shutil
 
-        pipeline_state_dir = _dlt_pipelines_dir() / pipeline_name
+        pipeline_state_dir = _checked_pipeline_dir(pipeline_name)
 
         if not pipeline_state_dir.exists():
             # No state to backup (first run)
@@ -3432,7 +3451,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
             console.print(f"  [dim]⚠️  Could not backup state: {self._rich_err(e)}[/dim]")
             return None
 
-    def _clear_local_pipeline_cache(self, pipeline_name: str) -> None:
+    def _clear_local_pipeline_cache(self, pipeline_name: str, *, strict: bool = True) -> None:
         """Ensure the local dlt pipeline working directory is actually gone after
         a full refresh. pipeline.drop() is expected to clear this, but its
         failure is caught and only logged elsewhere in this file — a full
@@ -3440,15 +3459,18 @@ Need help? Visit: https://github.com/getdango/dango/issues
         state still present, since that state is independent of the destination
         schema drop and can survive it.
 
-        pipeline_name is always sourced from trusted config (config.pipeline_name
-        or source_name in _run_dlt_native_source; source_name directly in
-        _run_dlt_source) — never raw/unsanitized external input. See
-        _backup_dlt_state above, which already performs filesystem operations
+        With ``strict`` (the default, used before a full refresh loads anything) a
+        failed removal raises ``RuntimeError`` so the refresh stops with nothing
+        replaced. ``strict=False`` is for cleanup after a run: it only warns.
+
+        pipeline_name must be a single path component (checked by
+        ``_checked_pipeline_dir``; ``ValueError`` otherwise). See
+        _backup_dlt_state above, which performs filesystem operations
         (shutil.copytree) on this exact path with these exact inputs.
         """
         import shutil
 
-        pipeline_state_dir = _dlt_pipelines_dir() / pipeline_name
+        pipeline_state_dir = _checked_pipeline_dir(pipeline_name)
 
         if not pipeline_state_dir.exists():
             return
@@ -3459,6 +3481,12 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 f"  [dim]🗑️  Cleared local pipeline cache ({pipeline_state_dir.name})[/dim]"
             )
         except Exception as e:
+            if strict:
+                raise RuntimeError(
+                    f"Could not clear the local pipeline cache for '{pipeline_name}': "
+                    f"{self._rich_err(e)}. The full refresh was stopped before loading; "
+                    "close anything using that directory and run it again."
+                ) from e
             console.print(f"  ⚠️  Could not clear local pipeline cache: {self._rich_err(e)}")
 
     def _restore_dlt_state(self, backup_dir: Path | None):
@@ -3474,10 +3502,18 @@ Need help? Visit: https://github.com/getdango/dango/issues
             console.print("  [dim]ℹ️  No state backup to restore[/dim]")
             return
 
-        # Extract pipeline name from backup directory name
-        # Format: {pipeline_name}_backup_{timestamp}
-        backup_name = backup_dir.name
-        pipeline_name = "_".join(backup_name.split("_backup_")[0].split("_"))
+        # Backup dirs are named {pipeline_name}_backup_{YYYYMMDD}_{HHMMSS} (see
+        # _backup_dlt_state). The fixed-format suffix is stripped from the END, so a
+        # pipeline whose own name contains "_backup_" restores into itself.
+        import re
+
+        named = re.fullmatch(r"(.+)_backup_\d{8}_\d{6}", backup_dir.name)
+        if named is None:
+            console.print(
+                f"  [yellow]⚠️  Not a Dango state backup, nothing restored: {backup_dir}[/yellow]"
+            )
+            return
+        pipeline_name = named.group(1)
 
         # Determine original state location
         pipeline_state_dir = backup_dir.parent / pipeline_name

@@ -364,6 +364,17 @@ class DltNativeConfig(BaseModel):
         default=None, description="Custom dataset name (defaults to source name)"
     )
 
+    @field_validator("pipeline_name")
+    @classmethod
+    def validate_pipeline_name(cls, v: str | None) -> str | None:
+        """The pipeline name becomes a directory name: it must be a single path component."""
+        if v:
+            from dango.utils.safe_names import contained_child, reject_backup_shaped_name
+
+            contained_child(Path("."), v, "pipeline_name")
+            reject_backup_shaped_name(v, "pipeline_name")
+        return v
+
 
 class DataSource(BaseModel):
     """Data source definition"""
@@ -425,7 +436,9 @@ class DataSource(BaseModel):
             raise ValueError(
                 f"Source name '{v}' is invalid. Use only lowercase letters, numbers, and underscores (no hyphens)."
             )
-        return v.lower()  # Also enforce lowercase
+        from dango.utils.safe_names import reject_backup_shaped_name
+
+        return reject_backup_shaped_name(v.lower(), "source name")  # Also enforce lowercase
 
 
 class SourcesConfig(BaseModel):

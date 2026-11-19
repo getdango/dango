@@ -115,19 +115,16 @@ def _get_analyzer() -> Any | None:
 
         try:
             whl_name = _SPACY_MODEL_URL.rsplit("/", 1)[-1]
-            whl_path = os.path.join(tempfile.gettempdir(), whl_name)
-            try:
+            # A private directory (mode 0700) removed afterwards, also on failure: nothing
+            # at a predictable path in the shared temp dir is ever read, written or deleted.
+            with tempfile.TemporaryDirectory(prefix="dango-spacy-") as private_dir:
+                whl_path = os.path.join(private_dir, whl_name)
                 urllib.request.urlretrieve(_SPACY_MODEL_URL, whl_path)
                 subprocess.check_call(
                     [sys.executable, "-m", "pip", "install", whl_path],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
-            finally:
-                try:
-                    os.unlink(whl_path)
-                except OSError:  # noqa: BLE001
-                    pass
         except Exception:
             _analyzer_init_failed = True
             logger.warning(

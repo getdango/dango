@@ -123,8 +123,13 @@ def _pre_upgrade_safety_copy(project_root: Path) -> Path:
     except BaseException:
         shutil.rmtree(dest, ignore_errors=True)
         raise
-    copies = sorted(p for p in backups.glob("pre-upgrade-*") if p.is_dir())
-    for old in copies[:-_SAFETY_COPIES_KEPT]:
+    # Only generated names (timestamp, optional random suffix) are ever pruned, never a
+    # directory the user made, and the copy just made is never pruned.
+    generated = re.compile(r"pre-upgrade-\d{8}T\d{6}Z(-[0-9a-f]{6})?")
+    copies = sorted(
+        p for p in backups.iterdir() if p.is_dir() and p != dest and generated.fullmatch(p.name)
+    )
+    for old in copies[: max(0, len(copies) - (_SAFETY_COPIES_KEPT - 1))]:
         shutil.rmtree(old, ignore_errors=True)
     return dest
 
@@ -135,7 +140,7 @@ def _validate_version(version_str: str) -> None:
     Raises:
         click.BadParameter: If the version string is invalid.
     """
-    if not re.match(r"^\d+\.\d+\.\d+$", version_str):
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version_str):
         raise click.BadParameter(
             f"Invalid version: {version_str!r}. Expected format: X.Y.Z (e.g. 1.2.3)"
         )

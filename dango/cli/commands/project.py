@@ -82,7 +82,7 @@ def rename(ctx: click.Context, new_name: str) -> None:
         project_root = require_project_context(ctx)
 
         # Validate new name
-        if not re.match(r"^[a-z0-9\-]+$", new_name):
+        if not re.fullmatch(r"[a-z0-9\-]+", new_name):
             console.print("[red]Error:[/red] Invalid project name")
             console.print("Project names must contain only lowercase letters, numbers, and hyphens")
             console.print("Example: my-analytics, client-reports, team-metrics")

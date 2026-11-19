@@ -76,8 +76,8 @@ class TestClearLocalPipelineCache:
 
     @patch("dango.ingestion.dlt_runner.console")
     def test_swallows_rmtree_exception(self, mock_console, tmp_path, monkeypatch):
-        """If rmtree itself fails, log it (matches pipeline.drop()'s existing
-        catch-and-log convention) rather than crashing the sync."""
+        """With strict=False (cleanup after a run) a failing rmtree is logged, not raised;
+        the default strict call used before a full refresh raises instead."""
         fake_home = tmp_path / "home"
         pipeline_dir = fake_home / ".dlt" / "pipelines" / "locked_pipeline"
         pipeline_dir.mkdir(parents=True)
@@ -85,7 +85,7 @@ class TestClearLocalPipelineCache:
 
         runner = self._make_runner()
         with patch("shutil.rmtree", side_effect=OSError("simulated: file in use")):
-            runner._clear_local_pipeline_cache("locked_pipeline")  # no raise
+            runner._clear_local_pipeline_cache("locked_pipeline", strict=False)  # no raise
 
         assert mock_console.print.called
 

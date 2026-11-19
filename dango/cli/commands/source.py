@@ -502,7 +502,20 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
             )
         for warning in result.warnings:
             if not warning.startswith("Warehouse data is not deleted"):
-                console.print(f"[yellow]⚠️  {warning}[/yellow]")
+                console.print(f"[yellow]⚠️  {escape(warning)}[/yellow]")
+        if result.files_failed:
+            console.print(
+                f"[red]Source '{escape(source_name)}' was removed from sources.yml, but "
+                f"{len(result.files_failed)} staging file(s) could not be removed: "
+                f"{escape(', '.join(result.files_failed))}.[/red]"
+            )
+            console.print("[dim]Delete them manually, then run 'dango run'.[/dim]")
+            if result.env_vars_matching:
+                console.print(
+                    "[dim]These variables in .env were not touched; remove them by hand if "
+                    f"unwanted: {escape(', '.join(result.env_vars_matching))}[/dim]"
+                )
+            raise click.Abort()
 
         # Regenerate dbt docs to reflect source removal
         console.print("[dim]Regenerating dbt documentation...[/dim]")

@@ -5242,7 +5242,7 @@
       "test_name": "blacklist"
     },
     {
-      "code": "119             try:\n120                 urllib.request.urlretrieve(_SPACY_MODEL_URL, whl_path)\n121                 subprocess.check_call(\n",
+      "code": "121                 whl_path = os.path.join(private_dir, whl_name)\n122                 urllib.request.urlretrieve(_SPACY_MODEL_URL, whl_path)\n123                 subprocess.check_call(\n",
       "col_offset": 16,
       "end_col_offset": 70,
       "filename": "dango/governance/pii_detector.py",
@@ -5253,9 +5253,9 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
-      "line_number": 120,
+      "line_number": 122,
       "line_range": [
-        120
+        122
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
       "test_id": "B310",
