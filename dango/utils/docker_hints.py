@@ -16,7 +16,7 @@ DOCKER_UNAVAILABLE_ERROR = "Docker is not available"
 METABASE_SKIPPED_TEXT = "Metabase not refreshed: Docker is not available"
 
 _DESKTOP_PLATFORMS = ("darwin", "win32")
-_metabase_note_printed = False
+_printed: dict[str, bool] = {"metabase": False}
 
 
 def docker_binary_present() -> bool:
@@ -66,8 +66,7 @@ class DockerNotAvailableError(RuntimeError):
 
 def note_metabase_skipped(console: Any) -> None:
     """Print the one-line note that Metabase was not refreshed (once per process)."""
-    global _metabase_note_printed  # noqa: PLW0603
-    if _metabase_note_printed:
+    if _printed["metabase"]:
         return
-    _metabase_note_printed = True
+    _printed["metabase"] = True
     console.print(f"[dim]{METABASE_SKIPPED_TEXT}[/dim]")

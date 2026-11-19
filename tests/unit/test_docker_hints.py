@@ -84,7 +84,7 @@ def test_metabase_note_prints_once_and_is_plain_ascii(monkeypatch: pytest.Monkey
 
     from dango.utils import docker_hints
 
-    monkeypatch.setattr(docker_hints, "_metabase_note_printed", False)
+    monkeypatch.setitem(docker_hints._printed, "metabase", False)
     buf = StringIO()
     console = Console(file=buf, width=120, force_terminal=False)
     docker_hints.note_metabase_skipped(console)

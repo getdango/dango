@@ -43,7 +43,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     if importlib.util.find_spec("dango.utils.docker_hints") is not None:
         from dango.utils import docker_hints
 
-        monkeypatch.setattr(docker_hints, "_metabase_note_printed", False)
+        monkeypatch.setitem(docker_hints._printed, "metabase", False)
 
 
 @pytest.fixture
