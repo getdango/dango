@@ -101,8 +101,8 @@ def safe_confirm(
     Uses ``click.prompt`` under the hood so the prompt is explicit and
     unambiguous in non-interactive / CI environments.
 
-    When stdin is not a TTY the *default* value is returned without
-    prompting (prevents hangs in non-interactive contexts).
+    The prompt is always shown. When no input can be read (stdin closed or at end of
+    file, as in CI) the *default* value is returned, so a non-interactive run never hangs.
 
     Args:
         text: The confirmation question to display.

@@ -16,6 +16,8 @@ from unittest.mock import MagicMock, patch
 import psutil
 import pytest
 
+from tests.factories.scaffold_project import make_scaffold
+
 pytestmark = pytest.mark.unit
 
 
@@ -205,3 +207,9 @@ def test_start_pid_file_kept_when_alive(
     remove = _invoke_start(monkeypatch, tmp_path, 4242, alive=True)
     remove.assert_not_called()
     assert windows_like_kill == []
+
+
+@pytest.fixture(autouse=True)
+def _project_scaffold(tmp_path: Path) -> None:
+    """The fake project is tmp_path: give it the files `start`/`sync`/`run` look for."""
+    make_scaffold(tmp_path)

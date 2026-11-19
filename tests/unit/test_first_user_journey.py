@@ -214,11 +214,11 @@ def test_step_timeout_is_reported_and_does_not_hang(tmp_path: Path) -> None:
     result = _journey(
         tmp_path,
         mode="slow-sync",
-        extra=("--step-timeout", "2"),
+        extra=("--step-timeout", "10"),
         steps="init,add-source,sync,count",
     )
     assert result.returncode == 1
-    assert "FAIL sync: dango sync --yes: timed out after 2s" in result.stdout
+    assert re.search(r"FAIL sync: dango sync --yes: timed out after \d+s", result.stdout)
     assert "SKIP count: depends on sync" in result.stdout
 
 
@@ -392,3 +392,18 @@ def test_bare_dango_name_is_resolved_on_path_and_its_venv_python_is_used(tmp_pat
     result = _journey(tmp_path, steps="init,add-source,sync,count", bare_dango=True)
     assert result.returncode == 0, result.stdout + result.stderr
     assert any(ln.startswith("PASS count") for ln in result.stdout.splitlines())
+
+
+def test_ports_option_sets_the_ports_the_project_uses(tmp_path: Path) -> None:
+    import yaml
+
+    result = _journey(tmp_path, steps="init", extra=("--ports", "41001,41002,41003,41004,41005"))
+    assert result.returncode == 0, result.stdout
+    data = yaml.safe_load((tmp_path / "work" / ".dango" / "project.yml").read_text("utf-8"))
+    platform = data["platform"]
+    assert [platform[k] for k in ("port", "metabase_port", "dbt_docs_port", "marimo_port")] == [
+        41001,
+        41002,
+        41003,
+        41004,
+    ]

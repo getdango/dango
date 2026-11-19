@@ -91,6 +91,7 @@ class Journey:
     port_free_timeout: float = 10
     up_timeout: float = 60
     output_encoding_override: str | None = None
+    fixed_ports: tuple[int, ...] = ()  # tests: 4 project ports, then the web port
     counted: tuple[str, int] | None = None  # (schema.table, rows) seen by the count step
     results: dict[str, Step] = field(default_factory=dict)
     started: float = field(default_factory=time.monotonic)

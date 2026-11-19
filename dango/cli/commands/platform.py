@@ -207,6 +207,7 @@ def start(ctx: click.Context, yes: bool) -> None:
     )
 
     from ..helpers.process_manager import start_fastapi_server
+    from ..scaffold import enforce_scaffold
     from ..utils import check_v01x_project, require_project_context
 
     check_v01x_project()
@@ -216,6 +217,7 @@ def start(ctx: click.Context, yes: bool) -> None:
 
     try:
         project_root = require_project_context(ctx)
+        enforce_scaffold(project_root, "start", assume_yes=yes)
 
         # Detect stale PID file from a previous crash
         from ..helpers.process_manager import read_pid_file, remove_pid_file

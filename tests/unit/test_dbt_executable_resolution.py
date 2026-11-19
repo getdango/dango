@@ -64,6 +64,8 @@ class TestCallSitesUseResolvedDbt:
 
         project = tmp_path / "proj"
         (project / "dbt").mkdir(parents=True)
+        for scaffold_file in ("dbt_project.yml", "profiles.yml"):
+            (project / "dbt" / scaffold_file).write_text("", encoding="utf-8")
         calls: list[list[str]] = []
 
         def fake_run(cmd: list[str], *a: object, **k: object) -> SimpleNamespace:
@@ -106,6 +108,8 @@ class TestCallSitesUseResolvedDbt:
 
         project = tmp_path / "proj"
         (project / "dbt").mkdir(parents=True)
+        for scaffold_file in ("dbt_project.yml", "profiles.yml"):
+            (project / "dbt" / scaffold_file).write_text("", encoding="utf-8")
         calls: list[list[str]] = []
 
         def fake_run(cmd: list[str], *a: object, **k: object) -> SimpleNamespace:

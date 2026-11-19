@@ -14,6 +14,7 @@ import pytest
 from click.testing import CliRunner
 
 from dango.cli.commands.transform import run
+from tests.factories.scaffold_project import make_scaffold
 
 
 def _invoke(tmp_path: Path, returncode: int) -> tuple[object, MagicMock]:
@@ -53,3 +54,9 @@ def test_run_success_finalizes_and_exits_zero(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output  # type: ignore[attr-defined]
     fin.assert_called_once_with(tmp_path, success=True)
     assert "Updating schema.yml files" in result.output  # type: ignore[attr-defined]
+
+
+@pytest.fixture(autouse=True)
+def _project_scaffold(tmp_path: Path) -> None:
+    """The fake project is tmp_path: give it the files `start`/`sync`/`run` look for."""
+    make_scaffold(tmp_path)

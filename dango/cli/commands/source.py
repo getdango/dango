@@ -916,6 +916,7 @@ def sync(
     from dango.config import get_config
     from dango.ingestion import run_sync
 
+    from ..scaffold import enforce_scaffold, report_scaffold
     from ..utils import check_v01x_project, require_project_context
 
     check_v01x_project()
@@ -967,6 +968,11 @@ def sync(
         if start_date_obj and end_date_obj and start_date_obj >= end_date_obj:
             console.print("[red]Error:[/red] --since must be before --until.")
             raise click.Abort()
+
+        if dry_run:
+            report_scaffold(project_root, "sync")  # a dry run changes nothing and never fails here
+        else:
+            enforce_scaffold(project_root, "sync")
 
         # Load configuration (before lock — needed for source resolution + first-sync check)
         config = get_config(project_root)
@@ -1053,7 +1059,7 @@ def sync(
             for src in sources_to_sync:
                 console.print(f"  • {src.name} ({src.type.value})")
                 if src.type.value == "csv":
-                    console.print(f"    Path: {src.csv.file_path if src.csv else 'N/A'}")
+                    console.print(f"    Path: {src.csv.directory if src.csv else 'N/A'}")
                 elif src.type.value == "dlt_native":
                     console.print(
                         f"    Module: {src.dlt_native.source_module if src.dlt_native else 'N/A'}"

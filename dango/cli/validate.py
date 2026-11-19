@@ -94,7 +94,8 @@ class ProjectValidator:
         if display:
             console.print("[bold cyan]🔍 Validating Dango Project[/bold cyan]\n")
 
-        # Run all checks
+        # Run all checks (scaffold first: later checks may create what it looks for)
+        self._check_scaffold()
         self._check_project_structure()
         self._check_config_files()
         self._check_data_sources()
@@ -433,6 +434,19 @@ class ProjectValidator:
                 )
             )
 
+    def _check_scaffold(self):
+        """Rows for the scaffold files init writes that no other check covers"""
+        from dango.cli import scaffold
+
+        report = scaffold.check_scaffold(self.project_root, "validate")
+        problems = {p.item.path: ("warn", p.message) for p in report.missing}
+        problems.update({p.item.path: ("fail", p.message) for p in report.unreadable})
+        for item in scaffold.SCAFFOLD_ITEMS:
+            if "validate" not in item.commands or item.action == scaffold.REQUIRED:
+                continue
+            status, message = problems.get(item.path, ("pass", ""))
+            self.results.append(ValidationResult(f"Scaffold: {item.path}", status, message))
+
     def _check_dbt_setup(self):
         """Check if dbt is properly configured"""
         # Check dbt_project.yml
@@ -478,6 +492,16 @@ class ProjectValidator:
         dbt_dir = self.project_root / "dbt"
 
         if not dbt_dir.exists():
+            return
+
+        if not (dbt_dir / "dbt_project.yml").is_file() or not (dbt_dir / "profiles.yml").is_file():
+            self.results.append(
+                ValidationResult(
+                    "dbt: Model validation",
+                    "fail",
+                    "Skipped: dbt project files are missing (see the checks above).",
+                )
+            )
             return
 
         try:

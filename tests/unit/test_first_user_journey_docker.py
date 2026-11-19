@@ -192,3 +192,13 @@ def test_undecodable_docker_output_does_not_abort_the_cleanup(runs: dict[str, Ou
     assert "abc123def456" in _read(state / "docker-rm.txt")
     # The container removal printed bytes that are not UTF-8; the volume removal still ran.
     assert _read(state / "volumes.txt").strip() == ""
+
+
+def test_scenarios_never_share_a_port() -> None:
+    from tests.factories.journey_fakes import allocate_scenario_ports
+
+    names = [f"s{i}" for i in range(40)]
+    ports = allocate_scenario_ports(names)
+    flat = [p for name in names for p in ports[name]]
+    assert all(len(ports[name]) == 5 for name in names)
+    assert len(flat) == len(set(flat)) == 200

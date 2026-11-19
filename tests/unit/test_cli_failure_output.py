@@ -394,3 +394,9 @@ class TestRemoteUpgradeExit:
         assert "Could not determine latest version" in result.output
         assert "Upgrade failed" not in result.output
         ssh.disconnect.assert_called_once()
+
+
+@pytest.fixture(autouse=True)
+def _scaffold_not_under_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use a bare fake project; the scaffold check has its own tests."""
+    monkeypatch.setattr("dango.cli.scaffold.enforce_scaffold", lambda *args, **kwargs: None)
