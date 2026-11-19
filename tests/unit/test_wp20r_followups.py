@@ -150,7 +150,7 @@ def test_source_remove_cli_does_not_claim_success_when_a_file_stays(
     with patch.object(Path, "unlink", _failing_unlink("sources_orders.yml")):
         result = CliRunner().invoke(cli, ["source", "remove", "orders", "--yes"])
 
-    out = _strip(result.output)
+    out = " ".join(_strip(result.output).split())
     assert "removed successfully" not in out
     assert "sources_orders.yml" in out and "could not be removed" in out
     assert result.exit_code != 0

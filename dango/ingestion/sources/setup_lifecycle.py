@@ -64,6 +64,7 @@ class SourceRemovalResult:
     source_type: str
     status: str  # "removed" | "dry_run"
     files_removed: list[str] = field(default_factory=list)  # project-relative
+    files_failed: list[str] = field(default_factory=list)  # project-relative, not deleted
     config_toml_section_removed: bool = False
     downstream_models: list[str] = field(default_factory=list)  # "layer.name"
     env_vars_matching: list[str] = field(default_factory=list)  # names only, never values
@@ -468,7 +469,13 @@ def remove_source(
     )
     if not dry_run:
         for path in staging_files:
-            path.unlink()
+            rel = str(path.relative_to(project_root))
+            try:
+                path.unlink()
+            except OSError as exc:
+                result.files_removed.remove(rel)
+                result.files_failed.append(rel)
+                result.warnings.append(f"Could not remove {rel}: {exc}")
         if result.monitors_removed:
             try:
                 from dango.analysis.config import load_monitors_config, save_monitors_config

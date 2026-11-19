@@ -136,7 +136,7 @@ def _validate_version(version_str: str) -> None:
     Raises:
         click.BadParameter: If the version string is invalid.
     """
-    if not re.match(r"^\d+\.\d+\.\d+$", version_str):
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version_str):
         raise click.BadParameter(
             f"Invalid version: {version_str!r}. Expected format: X.Y.Z (e.g. 1.2.3)"
         )
