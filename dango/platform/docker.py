@@ -502,7 +502,7 @@ class DockerManager:
                 )
                 console.print(f"[red]Error:[/red]\n{msg}")
                 report = build_failure_report(
-                    self.project_root, "\n".join(filter(None, [result.stderr, result.stdout]))
+                    self.project_root, "\n".join(filter(None, [result.stdout, result.stderr]))
                 )
                 if report:
                     console.print(f"\n{report}")
@@ -573,10 +573,8 @@ class DockerManager:
             return True  # Nothing to stop
 
         if not helper and not docker_binary_present():
-            # Without Docker no container can be running: say so once and let callers carry on.
-            console.print(
-                "[dim]Docker is not available; there are no Docker services to stop.[/dim]"
-            )
+            # Without Docker nothing could be checked: say so once and let callers carry on.
+            console.print("[dim]Docker is not available; Docker services were not checked.[/dim]")
             return True
 
         console.print("Stopping Dango services...")

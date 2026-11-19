@@ -15,6 +15,7 @@ from rich.markup import escape
 from dango.utils.redact import redact_project_text
 
 DEFAULT_MAX_LINES = 30
+MAX_LINE_CHARS = 500
 
 _DNS_RE = re.compile(
     r"temporary failure in name resolution|could not resolve|no such host|dial tcp: lookup",
@@ -42,7 +43,10 @@ def build_failure_report(
     """Last *max_lines* lines of *output*, redacted and escaped, plus the DNS hint when it applies."""
     redacted = redact_project_text(project_root, output)
     lines = [line for line in redacted.splitlines() if line.strip()]
-    tail = lines[-max_lines:]
+    tail = [
+        line if len(line) <= MAX_LINE_CHARS else f"{line[:MAX_LINE_CHARS]}... [cut]"
+        for line in lines[-max_lines:]
+    ]
     parts: list[str] = []
     if tail:
         parts.append(f"Last {len(tail)} line(s) of build output:")

@@ -53,7 +53,7 @@ def get_latest_version_cached(project_root: Path) -> str | None:
     # Fetch from PyPI
     from dango.platform.cloud.server_status import check_latest_pypi_version
 
-    latest = check_latest_pypi_version()
+    latest = check_latest_pypi_version(certificate_hint=True)
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(
@@ -80,6 +80,11 @@ def _is_access_error(text: str) -> bool:
     return any(marker in lowered for marker in _ACCESS_MARKERS)
 
 
+def _pip_command(target_version: str) -> str:
+    """The pip command for Dango's own interpreter (not whichever ``python`` is first on PATH)."""
+    return f'"{sys.executable}" -m pip install getdango=={target_version}'
+
+
 def _print_access_guidance(target_version: str) -> None:
     """Manual steps after pip could not write files (a locked ``dango.exe`` on Windows)."""
     if sys.platform == "win32":
@@ -89,7 +94,7 @@ def _print_access_guidance(target_version: str) -> None:
             "  1. Run [cyan]dango stop[/cyan] and close other dango, Marimo and web windows."
         )
         console.print("  2. Open a new terminal and run:")
-        console.print(f"     [cyan]python -m pip install getdango=={target_version}[/cyan]")
+        console.print(f"     [cyan]{escape(_pip_command(target_version))}[/cyan]")
         console.print("  3. Run [cyan]dango start[/cyan] (it applies any pending migrations).")
     else:
         console.print()
@@ -299,7 +304,7 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
     if sys.platform == "win32":
         console.print(
             "[dim]Windows: if pip reports 'Access is denied', close other dango windows and "
-            "run 'python -m pip install --upgrade getdango' from a new terminal.[/dim]"
+            f"run '{escape(_pip_command(target_version))}' from a new terminal.[/dim]"
         )
     console.print(f"[bold]Installing getdango=={target_version}...[/bold]")
 

@@ -8,6 +8,7 @@ Level 0 module: standard library and ``rich.markup`` only. Runs on Windows, macO
 from __future__ import annotations
 
 import shutil
+import subprocess
 import sys
 from typing import Any
 
@@ -28,6 +29,35 @@ def docker_binary_present() -> bool:
     return shutil.which("docker") is not None
 
 
+def docker_state() -> str:
+    """ "missing" (no binary), "stopped" (daemon unreachable or hung) or "running"."""
+    if not docker_binary_present():
+        return "missing"
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-q"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except subprocess.TimeoutExpired:
+        return "stopped"
+    except OSError:
+        return "missing"
+    return "running" if result.returncode == 0 else "stopped"
+
+
+def docker_unreachable_note(state: str, consequence: str) -> str | None:
+    """One dim line for a missing or stopped Docker (``state`` from ``docker_state``), else None."""
+    if state == "missing":
+        return f"[dim]Docker is not available, so {consequence}.[/dim]"
+    if state == "stopped":
+        return f"[dim]Docker is not running, so {consequence}.[/dim]"
+    return None
+
+
 def docker_guidance_lines(*, binary_present: bool, platform: str | None = None) -> list[str]:
     """Plain, ASCII guidance for a missing (``binary_present`` False) or stopped Docker.
 
@@ -40,6 +70,7 @@ def docker_guidance_lines(*, binary_present: bool, platform: str | None = None) 
             return [
                 "Docker Desktop is not installed (no 'docker' command was found).",
                 "Install Docker Desktop from https://docs.docker.com/desktop/ and start it.",
+                "If you just installed it, open a new terminal so the 'docker' command is found.",
             ]
         return [
             "Docker Desktop is not running.",
@@ -49,10 +80,13 @@ def docker_guidance_lines(*, binary_present: bool, platform: str | None = None) 
         return [
             "Docker Engine is not installed (no 'docker' command was found).",
             "Install Docker Engine and the compose plugin: https://docs.docker.com/engine/install/",
+            "If you just installed it, open a new terminal so the 'docker' command is found.",
         ]
     return [
         "The Docker daemon is not running (or this user cannot reach it).",
         "Start it with: sudo systemctl start docker",
+        "If it is running, add your user to the docker group: sudo usermod -aG docker $USER",
+        "(then log out and back in).",
     ]
 
 
@@ -66,6 +100,11 @@ class DockerNotAvailableError(RuntimeError):
         else:
             message = "Docker is not installed or not on PATH"
         super().__init__(message)
+
+
+def metabase_skip_reported() -> bool:
+    """True once ``note_metabase_skipped`` has printed in this process."""
+    return _printed["metabase"]
 
 
 def note_metabase_skipped(console: Any) -> None:

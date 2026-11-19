@@ -16,7 +16,11 @@ from dango.config.helpers import (
     check_unreferenced_custom_sources,
     format_unreferenced_sources_warning,
 )
-from dango.utils.docker_hints import DOCKER_UNAVAILABLE_ERROR, note_metabase_skipped
+from dango.utils.docker_hints import (
+    DOCKER_UNAVAILABLE_ERROR,
+    metabase_skip_reported,
+    note_metabase_skipped,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -1117,7 +1121,7 @@ def sync(
         # _load_with_lock() already stopped/started Metabase around the write phase;
         # on local (the common case), stop_metabase_for_writes() is a documented no-op,
         # so Metabase's DuckDB connection is NOT guaranteed fresh here without this call.
-        if summary["failed_count"] == 0:
+        if summary["failed_count"] == 0 and not metabase_skip_reported():
             console.print()
             console.print("[dim]Updating Metabase schema...[/dim]")
             from dango.visualization.metabase import (

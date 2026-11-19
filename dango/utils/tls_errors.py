@@ -20,6 +20,8 @@ _MARKERS = (
     "self signed certificate",
     "unable to get local issuer certificate",
     "unable to get issuer certificate",
+    "sslcertverificationerror",
+    "problem confirming the ssl certificate",
 )
 _MAX_DEPTH = 8
 
@@ -63,7 +65,8 @@ def certificate_guidance_lines() -> list[str]:
         "Ask your IT team for the organisation's root certificate (a .pem or .crt file), then:",
         "  - set SSL_CERT_FILE to that file (used by Python's ssl module and pip), and",
         "    REQUESTS_CA_BUNDLE to the same file (used by requests); or",
-        "  - for pip only: pip install --cert <file> <package>",
+        "  - for pip only: pip install --cert <file> <package>, or ask IT to add the",
+        "    certificate to the system trust store (recent pip versions use it)",
         "Then run the command again. Certificate checks stay on.",
     ]
 

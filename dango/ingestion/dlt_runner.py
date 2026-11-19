@@ -519,11 +519,18 @@ class DltPipelineRunner:
             console.print(f"[dim]Installing automatically: {install_cmd}[/dim]")
 
             try:
-                subprocess.check_call(
+                install = subprocess.run(
                     [sys.executable, "-m", "pip", "install", *pip_packages],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
                 )
+                if install.returncode != 0:
+                    raise subprocess.CalledProcessError(
+                        install.returncode, install.args, stderr=install.stderr
+                    )
                 console.print(f"[green]✓ Installed: {', '.join(pip_packages)}[/green]")
                 # Re-check deps after install
                 deps_ok, _ = self._check_dependencies(source_type.value)

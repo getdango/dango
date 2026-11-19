@@ -84,7 +84,7 @@ def test_windows_prints_the_locked_launcher_note_before_pip(
     _, output, _ = _run(tmp_path, monkeypatch, "win32", ok)
     flat = "".join(output.split())
     assert "Access is denied" in output
-    assert f"{sys.executable}-mpipinstallgetdango==99.0.0".replace(" ", "") in flat
+    assert "".join(f'"{sys.executable}" -m pip install getdango==99.0.0'.split()) in flat
     assert "--upgrade" not in output
     assert output.index("Access is denied") < output.index("Installing getdango")
 
@@ -106,7 +106,7 @@ def test_windows_access_failure_prints_manual_steps(
     assert code == 1, output
     flat = "".join(output.split())
     assert "dango stop" in output
-    assert f"{sys.executable}-mpipinstallgetdango==99.0.0".replace(" ", "") in flat
+    assert "".join(f'"{sys.executable}" -m pip install getdango==99.0.0'.split()) in flat
     assert "Marimo" in output
     assert "dango start" in output
 

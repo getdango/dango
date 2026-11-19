@@ -1078,9 +1078,13 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
     if stop_all:
         # Create a dummy manager just to call the global cleanup method
         manager = DockerManager(Path.cwd())
-        if not compose_exec.uses_helper() and not docker_binary_present():
-            _abort_docker_unavailable()
-        manager.stop_all_dango_containers(all_projects=True)
+        note = _docker_not_reachable_note(manager, compose_exec.uses_helper(), nothing_stopped=True)
+        if note:
+            console.print(note)
+            console.print()
+            return
+        if not manager.stop_all_dango_containers(all_projects=True):
+            raise click.Abort()
         console.print()
         console.print("[green]✅ Stopped all Dango containers[/green]")
         console.print()
@@ -1125,14 +1129,14 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
 
         # Stop Docker services
         manager = DockerManager(project_root)
-        if not compose_exec.uses_helper() and not docker_binary_present():
-            console.print("Local services (web, watcher, Marimo) were stopped.")
-            _abort_docker_unavailable()
-        docker_success = manager.stop_services()
-        if not docker_success:
+        note = _docker_not_reachable_note(manager, compose_exec.uses_helper())
+        if note:
+            console.print(note)
+        elif not manager.stop_services():
             console.print(
                 "[yellow]Warning:[/yellow] Some Docker services may not have stopped cleanly"
             )
+            raise click.Abort()
 
         # Update project status in routing registry
         net_config = NetworkConfig()
@@ -1166,12 +1170,18 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
         raise click.Abort() from e
 
 
-def _abort_docker_unavailable() -> None:
-    """Print OS-correct guidance for a missing Docker and abort (Docker was not checked)."""
-    console.print("[red]Error:[/red] Docker is not available, so Docker services were not checked.")
-    for line in docker_guidance_lines(binary_present=docker_binary_present()):
-        console.print(f"  {escape(line)}")
-    raise click.Abort()
+def _docker_not_reachable_note(
+    manager: Any, helper: bool, nothing_stopped: bool = False
+) -> str | None:
+    """One dim line when Docker is missing or its daemon is down (nothing to stop), else None."""
+    if helper:
+        return None
+    if not docker_binary_present():
+        tail = "nothing was stopped" if nothing_stopped else "Docker services were not checked"
+        return f"[dim]Docker is not available (no 'docker' command found), so {tail}.[/dim]"
+    if not manager.is_docker_daemon_running():
+        return "[dim]Docker is not running, so no Dango containers are running.[/dim]"
+    return None
 
 
 def _find_mcp_server_process(project_root: Path) -> int | None:

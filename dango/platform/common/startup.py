@@ -130,15 +130,14 @@ def start_docker_services(project_root: Path) -> None:
 
     # Pre-flight: Docker must be installed before anything is stopped or started (on a server the
     # account cannot ask Docker; the helper reports its own failures)
-    if not helper and not manager.is_docker_available():
-        raise DockerNotAvailableError(binary_present=docker_binary_present())
+    if not helper:
+        if not manager.is_docker_available():
+            raise DockerNotAvailableError(binary_present=docker_binary_present())
+        if not manager.is_docker_daemon_running():
+            raise DockerNotAvailableError(binary_present=True)
 
     # Stop any existing services to free ports and clean up zombie containers
     manager.stop_services()
-
-    # Pre-flight: Docker daemon must be running
-    if not helper and not manager.is_docker_daemon_running():
-        raise DockerNotAvailableError(binary_present=True)
 
     # Pre-flight: Required Docker ports must be free.
     # Read the project's actual configured ports rather than hardcoding the

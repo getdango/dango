@@ -2094,8 +2094,8 @@ def refresh_metabase_connection(
                     encoding="utf-8",
                     errors="replace",
                 )
-            except OSError:
-                # No docker binary: nothing to refresh, and nothing worth a stack trace.
+            except (OSError, subprocess.TimeoutExpired):
+                # No docker binary, or a daemon that is hung or still starting: nothing to refresh, and nothing worth a stack trace.
                 return (False, DOCKER_UNAVAILABLE_ERROR, None)
             if check_result.returncode != 0:  # daemon stopped or unreachable
                 return (False, DOCKER_UNAVAILABLE_ERROR, None)
