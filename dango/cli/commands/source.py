@@ -916,6 +916,7 @@ def sync(
     from dango.config import get_config
     from dango.ingestion import run_sync
 
+    from ..scaffold import enforce_scaffold
     from ..utils import check_v01x_project, require_project_context
 
     check_v01x_project()
@@ -967,6 +968,8 @@ def sync(
         if start_date_obj and end_date_obj and start_date_obj >= end_date_obj:
             console.print("[red]Error:[/red] --since must be before --until.")
             raise click.Abort()
+
+        enforce_scaffold(project_root, "sync")
 
         # Load configuration (before lock — needed for source resolution + first-sync check)
         config = get_config(project_root)

@@ -39,6 +39,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
     from dango.transformation.build_finalize import finalize_dbt_build
     from dango.utils import DbtLock, DbtLockError
 
+    from ..scaffold import enforce_scaffold
     from ..utils import require_project_context
 
     lock = None
@@ -50,6 +51,8 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
             console.print("[red]Error:[/red] dbt directory not found")
             console.print(f"[dim]Expected: {dbt_dir}[/dim]")
             raise click.Abort()
+
+        enforce_scaffold(project_root, "run")
 
         # Build dbt command
         cmd = [

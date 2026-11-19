@@ -138,3 +138,9 @@ def test_local_start_and_cloud_serve_print_the_permanent_message(
     assert result.exit_code == 0, result.output
     assert "could not sign in" in output
     assert "will retry" not in output
+
+
+@pytest.fixture(autouse=True)
+def _scaffold_not_under_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use a bare fake project; the scaffold check has its own tests."""
+    monkeypatch.setattr("dango.cli.scaffold.enforce_scaffold", lambda *args, **kwargs: None)

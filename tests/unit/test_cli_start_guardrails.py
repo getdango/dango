@@ -262,3 +262,9 @@ class TestStartPortConflictProcessIdentity:
         plain = _ANSI_RE.sub("", result.output)
         assert "different project" in plain.lower()
         assert "PID 1234" in plain
+
+
+@pytest.fixture(autouse=True)
+def _scaffold_not_under_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use a bare fake project; the scaffold check has its own tests."""
+    monkeypatch.setattr("dango.cli.scaffold.enforce_scaffold", lambda *args, **kwargs: None)

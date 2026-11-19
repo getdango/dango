@@ -53,3 +53,9 @@ def test_run_success_finalizes_and_exits_zero(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output  # type: ignore[attr-defined]
     fin.assert_called_once_with(tmp_path, success=True)
     assert "Updating schema.yml files" in result.output  # type: ignore[attr-defined]
+
+
+@pytest.fixture(autouse=True)
+def _scaffold_not_under_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use a bare fake project; the scaffold check has its own tests."""
+    monkeypatch.setattr("dango.cli.scaffold.enforce_scaffold", lambda *args, **kwargs: None)

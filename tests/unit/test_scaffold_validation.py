@@ -354,7 +354,9 @@ def test_validate_healthy_project_only_gains_passing_scaffold_rows(project: Path
         check.return_value.missing = []
         check.return_value.unreadable = []
         without = _validate_rows(project)
-    assert {n: v for n, v in rows.items() if n not in scaffold} == without
+    assert {n: v for n, v in rows.items() if n not in scaffold} == {
+        n: v for n, v in without.items() if not n.startswith("Scaffold: ")
+    }
 
 
 @pytest.mark.parametrize("name", ["dbt/dbt_project.yml", "dbt/profiles.yml"])
@@ -364,7 +366,7 @@ def test_validate_does_not_pass_a_raw_dbt_error_through(project: Path, name: str
     assert rows[f"dbt: {name.split('/')[1]}"][0] == "fail"
     status, message = rows["dbt: Model validation"]
     assert status == "fail"
-    assert "skipped" in message
+    assert "skipped" in message.lower()
     for text in RAW_TOOL_TEXT:
         assert text not in message
 

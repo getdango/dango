@@ -239,3 +239,9 @@ def test_cloud_runner_restores_project_root_environment(
             assert "DANGO_PROJECT_ROOT" not in os.environ
         else:
             assert os.environ["DANGO_PROJECT_ROOT"] == original_project_root
+
+
+@pytest.fixture(autouse=True)
+def _scaffold_not_under_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use a bare fake project; the scaffold check has its own tests."""
+    monkeypatch.setattr("dango.cli.scaffold.enforce_scaffold", lambda *args, **kwargs: None)
