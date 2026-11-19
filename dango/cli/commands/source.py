@@ -16,6 +16,7 @@ from dango.config.helpers import (
     check_unreferenced_custom_sources,
     format_unreferenced_sources_warning,
 )
+from dango.utils.docker_hints import DOCKER_UNAVAILABLE_ERROR, note_metabase_skipped
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -1125,7 +1126,9 @@ def sync(
             )
 
             mb_ok, _mb_err, mb_session_id = refresh_metabase_connection(project_root)
-            if mb_ok and sync_metabase_schema(project_root, existing_session_id=mb_session_id):
+            if _mb_err == DOCKER_UNAVAILABLE_ERROR:
+                note_metabase_skipped(console)
+            elif mb_ok and sync_metabase_schema(project_root, existing_session_id=mb_session_id):
                 console.print("[green]✓[/green] Metabase schema updated")
             else:
                 # Silent skip if Metabase isn't configured or running

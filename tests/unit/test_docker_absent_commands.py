@@ -25,7 +25,7 @@ pytestmark = pytest.mark.unit
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _NOTE = "Metabase not refreshed: Docker is not available"
-_LEAKS = ("Traceback", "FileNotFoundError", "Errno 2", "No such file", "docker-compose")
+_LEAKS = ("Traceback", "FileNotFoundError", "Errno 2", "No such file", "'docker-compose'")
 
 
 @pytest.fixture(scope="module")
@@ -265,3 +265,14 @@ def test_web_service_probe_is_quiet_without_docker(
     with caplog.at_level(logging.DEBUG):
         assert check_service_via_docker("metabase") == "unknown"
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+def test_stop_all_without_docker_fails_with_guidance(
+    project: Path, no_docker: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    code, output = _invoke(["stop", "--all"])
+    assert code == 1, output
+    _assert_clean(output)
+    assert "Docker Engine" in output
+    assert "Stopped all Dango containers" not in output

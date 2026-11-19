@@ -11,6 +11,7 @@ import sys
 import urllib.error
 from io import StringIO
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -247,3 +248,40 @@ def test_dependency_install_other_failure_prints_nothing(
     error = subprocess.CalledProcessError(1, ["pip"], stderr=b"No matching distribution")
     assert print_guidance_for_install_failure(error) is False
     assert capsys.readouterr().out == ""
+
+
+def _run_source_with_install_failure(tmp_path: Path, stderr: bytes) -> dict[str, object]:
+    from types import SimpleNamespace
+
+    from dango.ingestion.dlt_runner import DltPipelineRunner
+
+    runner = DltPipelineRunner(tmp_path)
+    source: Any = SimpleNamespace(
+        name="s", type=SimpleNamespace(value="x"), empty_sync_policy="block"
+    )
+    with (
+        patch.object(runner, "_check_dependencies", return_value=(False, [{"pip": "new-pkg"}])),
+        patch(
+            "dango.ingestion.dlt_runner.subprocess.check_call",
+            side_effect=subprocess.CalledProcessError(1, "pip", stderr=stderr),
+        ),
+        patch("dango.utils.activity_log.log_activity"),
+    ):
+        return runner.run_source(source)
+
+
+def test_source_sync_install_certificate_failure_prints_guidance(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    result = _run_source_with_install_failure(tmp_path, b"CERTIFICATE_VERIFY_FAILED")
+    out = capsys.readouterr().out
+    assert result["status"] == "failed"
+    assert "REQUESTS_CA_BUNDLE" in out and "Traceback" not in out
+
+
+def test_source_sync_install_other_failure_has_no_certificate_guidance(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    result = _run_source_with_install_failure(tmp_path, b"No matching distribution")
+    assert result["status"] == "failed"
+    assert "REQUESTS_CA_BUNDLE" not in capsys.readouterr().out

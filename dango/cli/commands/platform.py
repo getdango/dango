@@ -11,6 +11,11 @@ from rich.markup import escape
 
 from dango.cli import console
 from dango.logging import get_logger
+from dango.utils.docker_hints import (
+    DockerNotAvailableError,
+    docker_binary_present,
+    docker_guidance_lines,
+)
 
 logger = get_logger(__name__)
 
@@ -568,13 +573,23 @@ def start(ctx: click.Context, yes: bool) -> None:
                 console.print(f"[green]✓[/green] DuckDB driver ready ({driver_size_mb}MB)")
                 console.print()
         except RuntimeError as e:
-            from dango.utils.driver import DriverFilesystemError, DriverIntegrityError
+            from dango.utils.driver import (
+                DriverCertificateError,
+                DriverFilesystemError,
+                DriverIntegrityError,
+            )
+            from dango.utils.tls_errors import print_certificate_guidance
 
             if isinstance(e, DriverIntegrityError):
                 console.print("[red]❌ DuckDB driver integrity verification failed[/red]")
             elif isinstance(e, DriverFilesystemError):
                 console.print("[red]❌ Could not write the DuckDB driver locally[/red]")
                 console.print(f"  {escape(str(e))}")
+            elif isinstance(e, DriverCertificateError):
+                console.print(
+                    "[red]❌ DuckDB driver download failed certificate verification[/red]"
+                )
+                print_certificate_guidance(console)
             else:
                 console.print("[red]❌ Failed to download DuckDB driver[/red]")
             console.print()
@@ -583,6 +598,8 @@ def start(ctx: click.Context, yes: bool) -> None:
             console.print("[bold]To fix:[/bold]")
             if isinstance(e, DriverFilesystemError):
                 console.print("  1. Check that metabase-plugins/ is writable by your user")
+            elif isinstance(e, DriverCertificateError):
+                console.print("  1. Follow the certificate guidance above")
             else:
                 console.print("  1. Check your internet connection")
             console.print("  2. Try running '[cyan]dango start[/cyan]' again")
@@ -599,15 +616,21 @@ def start(ctx: click.Context, yes: bool) -> None:
             console.print("[green]✓[/green] Docker services started")
         except RuntimeError as e:
             err_msg = str(e)
-            if "Docker daemon is not running" in err_msg:
-                console.print("[red]❌ Error: Docker daemon is not running[/red]")
+            if isinstance(e, DockerNotAvailableError) or "Docker daemon is not running" in err_msg:
+                binary_present = (
+                    e.binary_present if isinstance(e, DockerNotAvailableError) else True
+                )
+                console.print(
+                    "[red]❌ Error: Docker is not available[/red]"
+                    if not binary_present
+                    else "[red]❌ Error: Docker daemon is not running[/red]"
+                )
                 console.print()
                 console.print("Dango requires Docker to run Metabase and other services.")
                 console.print()
-                console.print("[bold]Please start Docker Desktop first:[/bold]")
-                console.print("  1. Open Docker Desktop application")
-                console.print("  2. Wait for it to fully start (whale icon in menu bar)")
-                console.print("  3. Run '[cyan]dango start[/cyan]' again")
+                for line in docker_guidance_lines(binary_present=binary_present):
+                    console.print(f"  {escape(line)}")
+                console.print("  Then run '[cyan]dango start[/cyan]' again.")
             elif "ports are still in use" in err_msg:
                 console.print("[red]❌ Error: Required ports are still in use[/red]")
                 console.print()
@@ -1042,7 +1065,7 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
 
     from dango.config import ConfigLoader
     from dango.exceptions import DockerIdentityCollisionError, format_structured_error
-    from dango.platform import DockerManager
+    from dango.platform import DockerManager, compose_exec
     from dango.platform.network import NetworkConfig
 
     from ..helpers.process_manager import stop_fastapi_server
@@ -1055,6 +1078,8 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
     if stop_all:
         # Create a dummy manager just to call the global cleanup method
         manager = DockerManager(Path.cwd())
+        if not compose_exec.uses_helper() and not docker_binary_present():
+            _abort_docker_unavailable()
         manager.stop_all_dango_containers(all_projects=True)
         console.print()
         console.print("[green]✅ Stopped all Dango containers[/green]")
@@ -1100,6 +1125,9 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
 
         # Stop Docker services
         manager = DockerManager(project_root)
+        if not compose_exec.uses_helper() and not docker_binary_present():
+            console.print("Local services (web, watcher, Marimo) were stopped.")
+            _abort_docker_unavailable()
         docker_success = manager.stop_services()
         if not docker_success:
             console.print(
@@ -1136,6 +1164,14 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
 
             console.print(traceback.format_exc())
         raise click.Abort() from e
+
+
+def _abort_docker_unavailable() -> None:
+    """Print OS-correct guidance for a missing Docker and abort (Docker was not checked)."""
+    console.print("[red]Error:[/red] Docker is not available, so Docker services were not checked.")
+    for line in docker_guidance_lines(binary_present=docker_binary_present()):
+        console.print(f"  {escape(line)}")
+    raise click.Abort()
 
 
 def _find_mcp_server_process(project_root: Path) -> int | None:

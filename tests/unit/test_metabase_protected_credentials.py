@@ -161,7 +161,7 @@ class TestProtectedCredentialsForVisualizationReaders:
         login_response = MagicMock(status_code=200)
         login_response.json.return_value = {"id": "protected-session"}
         session.post.return_value = login_response
-        running = MagicMock(stdout="dango-test-metabase-1\n")
+        running = MagicMock(returncode=0, stdout="dango-test-metabase-1\n")
         restarted = MagicMock(returncode=0, stderr="")
 
         with (
@@ -189,7 +189,7 @@ class TestProtectedCredentialsForVisualizationReaders:
 
         _write_metadata(tmp_path)
         session = MagicMock()
-        running = MagicMock(stdout="dango-test-metabase-1\n")
+        running = MagicMock(returncode=0, stdout="dango-test-metabase-1\n")
         restarted = MagicMock(returncode=0, stderr="")
 
         with (

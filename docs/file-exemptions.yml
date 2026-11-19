@@ -18,7 +18,7 @@ exemptions:
 
   # --- Post-TASK-085 split results (from web/app.py 3032 → web/routes/) ---
   - file: dango/web/helpers.py
-    lines: 1153
+    lines: 1168
     category: exempt
     reason: "Shared helper functions for web routes. Consolidates DuckDB queries, config loading, service health checks, and log management. Extracted from web/app.py by TASK-085. R12-G added sync mode from history, increased history limit."
     review_by: "v1.1"
@@ -99,13 +99,13 @@ exemptions:
 
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
-    lines: 1466
+    lines: 1498
     category: exempt
     reason: "Platform lifecycle commands (start/stop/status) + port helpers. Extracted from cli/main.py by TASK-005. Further splitting would scatter tightly coupled startup/shutdown logic. R12-I2 added cloud systemd status check."
     review_by: "v1.1"
 
   - file: dango/platform/docker.py
-    lines: 611
+    lines: 888
     category: exempt
     reason: "P0-3: Added all_projects parameter and conditional docker ps filtering for project-scoped container cleanup (+26 lines). 1.0.8-Q8: Added the project-identity collision guard (_get_existing_container_working_dirs(), DockerManager._assert_no_identity_collision(), called at the start of start_services()/stop_services()) plus honest stop-reporting re-verification after `docker compose down` — release-blocking fix for a real incident (BUGS-FOUND.md 2026-09-09) where an unstable path-hash compose project name led to a real project's Metabase data being destroyed. This logic must live alongside the Docker subprocess calls it guards, not in a new file."
     review_by: "v1.1"
@@ -123,7 +123,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 1169
+    lines: 1172
     category: exempt
     reason: "Source management commands (add/list/remove/edit) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation. R12-G added source edit NAME arg, sync positional arg."
     review_by: "v1.1"
@@ -172,7 +172,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/ingestion/dlt_runner.py
-    lines: 4013
+    lines: 4018
     category: exempt
     reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage. Post-sync hook dispatch added in P7-000. P5c grew +480 lines (credential unification, resource selection, local_files routing). P8-001 added headers/data_selector/params passthrough (+8 lines). R9-I added skip_sync_notification param + sync_result passthrough to post_sync hooks. R10-F3 added _get_source_total_rows + rewrote anomaly check to use DB totals (BUG-182). R10-S added progress_callback parameter (+12 lines). R12-F added DuckDB lock error detection in _analyze_error (+30 lines). M2-final: CSV 0-row sync detection (+22 lines each in _run_csv_source and _run_local_files_source)."
     review_by: "v1.1"
@@ -190,7 +190,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/visualization/metabase.py
-    lines: 2152
+    lines: 2244
     category: exempt
     reason: "Metabase REST API wrapper. Methods map 1:1 to API endpoints — splitting would scatter related operations. R12-I1 added cloud timeout + poll logging. 1.0.8-W added Site URL handling (_should_apply_local_site_url, _apply_metabase_site_url_catchup)."
     review_by: "v1.1"
@@ -202,7 +202,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/init.py
-    lines: 1663
+    lines: 1668
     category: exempt
     reason: "Project initialization wizard. Sequential setup flow — splitting adds indirection without benefit. P7-014 added COMPATIBILITY.md + SCALABILITY.md generation (+133 lines). P7-011 added metrics config generation. P8-003 added CI workflow generation. P8-round2 added ICU extension install, auth YAML write, password auto-gen. 1.0.8-C added first-run telemetry consent prompt (+89 lines total, incl. a closed-stdin safety fix and replacing the isatty() gate with a direct prompt helper that correctly honours piped answers)."
     review_by: "v1.1"
@@ -451,7 +451,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/governance/pii_detector.py
-    lines: 629
+    lines: 633
     category: exempt
     reason: "BUG-027/BUG-133/BUG-139/BUG-185: grew to 626 lines adding spaCy fallback, PERSON threshold, intl phone recognizer, PII override application, and structured data heuristic. Single-responsibility module, not worth splitting."
     review_by: "v1.1"

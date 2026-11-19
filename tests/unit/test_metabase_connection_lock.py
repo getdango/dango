@@ -74,7 +74,10 @@ def _refresh(root: Path, runs: int = 1) -> list[tuple[bool, str | None, str | No
             patch("dango.platform.docker.DockerManager") as docker_manager,
             patch(
                 "dango.visualization.metabase.subprocess.run",
-                side_effect=[MagicMock(stdout="dango-test-metabase-1\n"), MagicMock(returncode=0)],
+                side_effect=[
+                    MagicMock(returncode=0, stdout="dango-test-metabase-1\n"),
+                    MagicMock(returncode=0),
+                ],
             ),
             patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=True),
             patch("dango.visualization.metabase._apply_metabase_site_url_catchup"),
