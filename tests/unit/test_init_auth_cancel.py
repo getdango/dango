@@ -56,6 +56,18 @@ def _run_init(project: Path, typed: str = "", args: tuple[str, ...] = ()) -> tup
     return result.exit_code, " ".join(_ANSI.sub("", result.output).split())
 
 
+def _raw_init(project: Path, typed: str = "") -> tuple[int, str]:
+    result = CliRunner().invoke(init, [str(project)], input=typed)
+    return result.exit_code, _ANSI.sub("", result.output)
+
+
+def _assert_clean_lines(raw: str) -> None:
+    """No `Error:` prefix on its own line or in front of a progress line."""
+    for line in raw.splitlines():
+        assert line.strip() != "Error:", raw
+    assert "Error:   Rolling back" not in raw, raw
+
+
 def _assert_cancelled_and_rolled_back(project: Path, before: set[str], code: int, out: str) -> None:
     assert code == 1, out
     assert "Initialization cancelled by user" in out
@@ -121,3 +133,49 @@ def test_skip_wizard_never_prompts_and_still_creates_auth(tmp_path: Path) -> Non
     assert code == 0, output
     assert "Auth setup" not in output
     assert (project / ".dango" / "auth.db").exists()
+
+
+def test_cancel_output_has_no_blank_error_lines(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+
+    code, raw = _raw_init(project)
+
+    assert code == 1, raw
+    _assert_clean_lines(raw)
+    assert raw.count("Initialization cancelled by user") == 1
+    assert raw.count("Rolling back...") == 1
+
+
+def test_unexpected_error_output_names_the_reason(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+
+    with patch.object(ProjectInitializer, "_setup_auth", side_effect=ValueError("kaboom")):
+        code, raw = _raw_init(project)
+
+    assert code == 1, raw
+    _assert_clean_lines(raw)
+    assert "Unexpected error during initialization: kaboom" in raw
+    assert raw.count("Rolling back...") == 1
+
+
+def test_dbt_docs_failure_output_has_no_blank_error_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _project(tmp_path)
+    monkeypatch.setattr(ProjectInitializer, "_generate_dbt_docs", lambda self: False)
+
+    code, raw = _raw_init(project)
+
+    assert code == 1, raw
+    _assert_clean_lines(raw)
+    assert raw.count("Initialization failed") == 1
+
+
+def test_auth_failure_text_with_markup_is_shown_literally(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+
+    with patch("dango.auth.database.create_user", side_effect=RuntimeError("[/x] boom")):
+        code, output = _run_init(project, TYPED_EMAIL)
+
+    assert code == 0, output
+    assert "Auth setup failed: [/x] boom" in output
