@@ -345,7 +345,7 @@ class TestMoreEscapedMessages:
             result = _plain(
                 CliRunner().invoke(source_edit, [], obj={"project_root": str(tmp_path)})
             )
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == 1, result.output
         assert "Invalid YAML" in result.output
         assert "[/data]" in result.output
         assert "Changes NOT saved" in result.output

@@ -53,13 +53,13 @@ class TestSourceEdit:
     def test_no_project_root(self) -> None:
         runner = CliRunner()
         result = runner.invoke(source_edit, obj={"project_root": None})
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "Not in a dango project" in result.output
 
     def test_no_sources_file(self, tmp_path: pytest.TempPathFactory) -> None:
         runner = CliRunner()
         result = runner.invoke(source_edit, obj={"project_root": str(tmp_path)})
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "No sources.yml found" in result.output
 
     def test_no_editor_shows_path(self, tmp_path: pytest.TempPathFactory) -> None:
@@ -143,7 +143,7 @@ class TestSourceEdit:
             patch.dict("os.environ", {"EDITOR": "vim"}),
         ):
             result = runner.invoke(source_edit, obj={"project_root": str(tmp_path)})
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "Invalid YAML" in result.output
         assert "Changes NOT saved" in result.output
         assert sources_file.read_text() == original

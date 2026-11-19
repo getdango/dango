@@ -879,7 +879,7 @@ def schedule_add(ctx: click.Context) -> None:
                 console.print("[red]Please select at least one source.[/red]")
         if not sources:
             console.print("[red]Error:[/red] Sync schedules require at least one source.")
-            return
+            raise click.Abort()
     elif sched_type == "script":
         # Discover .py files in scripts/ directory (reuses shared discovery)
         from dango.web.routes.scripts_helpers import _discover_scripts
@@ -914,7 +914,7 @@ def schedule_add(ctx: click.Context) -> None:
                 script_full = scripts_dir_path / script_name
                 if script_full.exists():
                     console.print(f"[red]scripts/{script_name} already exists.[/red]")
-                    return
+                    raise click.Abort()
                 script_full.write_text(
                     _SCRIPT_TEMPLATE.format(script_name=Path(script_name).stem),
                     encoding="utf-8",
@@ -926,7 +926,7 @@ def schedule_add(ctx: click.Context) -> None:
                 console.print(
                     "[red]No Python scripts found in scripts/ directory.[/red] Add a .py file first."
                 )
-                return
+                raise click.Abort()
         else:
             answers = inquirer.prompt(
                 [

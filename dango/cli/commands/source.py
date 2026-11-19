@@ -109,7 +109,7 @@ def source_add(ctx: click.Context) -> None:
     project_root = ctx.obj.get("project_root")
     if not project_root:
         console.print("[red]❌ Not in a dango project directory[/red]")
-        return
+        raise click.Abort()
 
     # Run wizard
     success = add_source(project_root)
@@ -138,26 +138,27 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
     project_root = ctx.obj.get("project_root")
     if not project_root:
         console.print("[red]Not in a dango project directory[/red]")
-        return
+        raise click.Abort()
 
     sources_file = Path(project_root) / ".dango" / "sources.yml"
     if not sources_file.exists():
         console.print("[red]No sources.yml found[/red]")
         console.print("[dim]Run 'dango source add' first[/dim]")
-        return
+        raise click.Abort()
 
     # If a name is given, validate it exists
     if name:
+        source_names: list[str] | None = None
         try:
             data = yaml.safe_load(sources_file.read_text(encoding="utf-8")) or {}
             source_names = [s.get("name") for s in data.get("sources", []) if s.get("name")]
-            if name not in source_names:
-                console.print(f"[red]Error:[/red] Source '{name}' not found")
-                if source_names:
-                    console.print(f"[dim]Available sources: {', '.join(source_names)}[/dim]")
-                return
         except Exception:
             pass  # Fall through to editor
+        if source_names is not None and name not in source_names:
+            console.print(f"[red]Error:[/red] Source '{name}' not found")
+            if source_names:
+                console.print(f"[dim]Available sources: {', '.join(source_names)}[/dim]")
+            raise click.Abort()
 
     import os
 
@@ -200,7 +201,7 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
     except yaml.YAMLError as e:
         console.print(f"[red]Invalid YAML:[/red] {escape(str(e))}")
         console.print("[yellow]Changes NOT saved.[/yellow]")
-        return
+        raise click.Abort() from e
 
     sources_file.write_text(edited, encoding="utf-8", newline="\n")
     console.print("[green]sources.yml updated[/green]")

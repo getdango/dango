@@ -323,6 +323,6 @@ def handle_validation_result(
 
     else:  # Cancel
         console.print("\n[red]Source setup cancelled[/red]")
-        console.print("The source config was saved but is incomplete.")
-        console.print("To remove it, edit .dango/sources.yml\n")
+        console.print("The source was not added to .dango/sources.yml.")
+        console.print("Your .env file was kept; to retry, run: [bold]dango source add[/bold]\n")
         return False

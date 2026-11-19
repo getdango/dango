@@ -123,7 +123,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 1149
+    lines: 1150
     category: exempt
     reason: "Source management commands (add/list/remove/edit) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation. R12-G added source edit NAME arg, sync positional arg."
     review_by: "v1.1"
@@ -141,7 +141,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/schedule.py
-    lines: 1162
+    lines: 1166
     category: exempt
     reason: "R6F: Schedule wizard expanded with time customization (BUG-039), per-schedule status (BUG-041), type labels (BUG-037), auto-select (BUG-038), webhook check (BUG-040). R12-G added wizard name validation loop, checkbox hint. R12-N2 added sync_only option. S3-FUP-A: +138 lines (776→914) from S2/S3 schedule additions. 1.0.7-12: Added weekdays + selectdays frequency options + schedule reload command (+131 lines, 914→1045). Sequential wizard flow doesn't benefit from splitting."
     review_by: "v1.1"
@@ -202,7 +202,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/init.py
-    lines: 1661
+    lines: 1663
     category: exempt
     reason: "Project initialization wizard. Sequential setup flow — splitting adds indirection without benefit. P7-014 added COMPATIBILITY.md + SCALABILITY.md generation (+133 lines). P7-011 added metrics config generation. P8-003 added CI workflow generation. P8-round2 added ICU extension install, auth YAML write, password auto-gen. 1.0.8-C added first-run telemetry consent prompt (+89 lines total, incl. a closed-stdin safety fix and replacing the isatty() gate with a direct prompt helper that correctly honours piped answers)."
     review_by: "v1.1"

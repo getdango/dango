@@ -6,6 +6,7 @@ Handles creation of new Dango projects.
 import re
 from pathlib import Path
 
+import click
 from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
@@ -111,9 +112,9 @@ class ProjectInitializer:
             if not docs_success:
                 # dbt docs is critical - rollback initialization
                 print_error("✗ dbt docs generation is required for Dango to work correctly")
-                print_error("  Rolling back initialization...")
+                console.print("[red]  Rolling back initialization...[/red]")
                 self._rollback_initialization()
-                print_error("\n❌ Initialization failed")
+                console.print("\n[red]❌ Initialization failed[/red]")
                 console.print("\n[yellow]To fix:[/yellow]")
                 console.print("  1. Install dbt-duckdb: pip install dbt-duckdb")
                 console.print("  2. Verify dbt works: dbt --version")
@@ -126,17 +127,19 @@ class ProjectInitializer:
             if not auth_success:
                 warnings.append("Auth setup skipped (run 'dango auth enable' to set up later)")
 
-        except KeyboardInterrupt:
-            # User cancelled - rollback
-            print_error("\n\n✗ Initialization cancelled by user")
-            print_error("  Rolling back...")
+        except (KeyboardInterrupt, click.Abort):
+            # User cancelled (Ctrl+C or EOF at an admin prompt; click raises Abort) - rollback
+            console.print("\n\n[red]✗ Initialization cancelled by user[/red]")
+            console.print("[red]  Rolling back...[/red]")
             self._rollback_initialization()
             raise SystemExit(1) from None
 
         except Exception as e:
             # Unexpected error - rollback
-            print_error(f"\n\n✗ Unexpected error during initialization: {escape(str(e))}")
-            print_error("  Rolling back...")
+            console.print(
+                f"\n\n[red]✗ Unexpected error during initialization: {escape(str(e))}[/red]"
+            )
+            console.print("[red]  Rolling back...[/red]")
             self._rollback_initialization()
             raise
 
@@ -1309,8 +1312,6 @@ on-run-end:
         import os
         import re
 
-        import click
-
         from dango.auth.admin import (
             SKIP_WIZARD_DEFAULT_ADMIN_EMAIL,
             ensure_admin,
@@ -1434,8 +1435,11 @@ on-run-end:
             console.print()
             return True
 
+        except click.Abort:
+            # Ctrl+C / EOF at an admin prompt is a cancel, not an auth failure
+            raise
         except Exception as e:
-            print_error(f"Auth setup failed: {escape(str(e))}")
+            print_error(f"Auth setup failed: {escape(str(e) or type(e).__name__)}")
             console.print("  [yellow]You can set up auth later with:[/yellow] dango auth enable")
             return False
 
@@ -1620,8 +1624,6 @@ def _ask_telemetry_consent() -> bool | None:
     Returns:
         True or False for a real answer, None if none could be obtained.
     """
-    import click
-
     text = (
         "Dango can send anonymous usage data, and the tools it uses report their own telemetry:\n"
         "  - Dango: an install ping and a periodic heartbeat (version, OS, configured "

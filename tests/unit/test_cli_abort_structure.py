@@ -31,10 +31,6 @@ ABORT_SOURCES = frozenset({"click.confirm", "click.prompt", "ctx.exit"})
 # (file relative to dango/cli, enclosing function) -> why a swallowed Abort there is intended.
 ALLOWED: dict[tuple[str, str], str] = {
     ("init.py", "_ask_telemetry_consent"): "an aborted consent prompt means no answer",
-    (
-        "init.py",
-        "_setup_auth",
-    ): "interactive auth-setup prompts; cancel handling is reviewed separately",
 }
 
 
