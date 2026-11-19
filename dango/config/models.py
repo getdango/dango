@@ -364,6 +364,16 @@ class DltNativeConfig(BaseModel):
         default=None, description="Custom dataset name (defaults to source name)"
     )
 
+    @field_validator("pipeline_name")
+    @classmethod
+    def validate_pipeline_name(cls, v: str | None) -> str | None:
+        """The pipeline name becomes a directory name; refuse anything but a plain name."""
+        if v:
+            from dango.utils.safe_names import validate_plain_name
+
+            validate_plain_name(v, "pipeline_name")
+        return v
+
 
 class DataSource(BaseModel):
     """Data source definition"""

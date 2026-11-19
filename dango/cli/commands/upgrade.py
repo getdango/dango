@@ -123,8 +123,9 @@ def _pre_upgrade_safety_copy(project_root: Path) -> Path:
     except BaseException:
         shutil.rmtree(dest, ignore_errors=True)
         raise
-    copies = sorted(p for p in backups.glob("pre-upgrade-*") if p.is_dir())
-    for old in copies[:-_SAFETY_COPIES_KEPT]:
+    # The copy just made is never pruned, whatever its name sorts like (clock changes).
+    copies = sorted(p for p in backups.glob("pre-upgrade-*") if p.is_dir() and p != dest)
+    for old in copies[: -(_SAFETY_COPIES_KEPT - 1)]:
         shutil.rmtree(old, ignore_errors=True)
     return dest
 

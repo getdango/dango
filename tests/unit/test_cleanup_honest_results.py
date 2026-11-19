@@ -63,10 +63,10 @@ def test_failed_log_archive_removal_is_not_reported_as_success(tmp_path: Path) -
     stuck = _old_archive(logs, "audit.20200101.jsonl.gz")
     real_unlink = Path.unlink
 
-    def fake_unlink(self: Path, *args: object, **kwargs: object) -> None:
+    def fake_unlink(self: Path, missing_ok: bool = False) -> None:
         if self == stuck:
             raise PermissionError("in use")
-        real_unlink(self, *args, **kwargs)  # type: ignore[arg-type]
+        real_unlink(self, missing_ok=missing_ok)
 
     with patch.object(Path, "unlink", fake_unlink):
         result = _invoke(tmp_path, ["--yes", "--logs-only"])

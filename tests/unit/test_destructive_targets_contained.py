@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -87,7 +88,7 @@ def _nginx(tmp_path: Path) -> tuple[NginxManager, Path]:
     config = SimpleNamespace(
         sites_dir=sites, shared_nginx_dir=tmp_path / "shared", logs_dir=tmp_path / "logs"
     )
-    return NginxManager(config), sites  # type: ignore[arg-type]
+    return NginxManager(cast(Any, config)), sites
 
 
 @pytest.mark.unit

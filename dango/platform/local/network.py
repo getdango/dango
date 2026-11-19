@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from dango.utils.process import pid_alive
+from dango.utils.safe_names import contained_child
 
 
 def _run_text(argv: list[str], *, check: bool = False) -> subprocess.CompletedProcess[str]:
@@ -262,16 +263,20 @@ server {{
         with open(self.nginx_conf, "w", encoding="utf-8", newline="\n") as f:
             f.write(config)
 
+    def _site_conf(self, project_name: str) -> Path:
+        """Site config path for *project_name*, always directly inside ``sites_dir``."""
+        return contained_child(self.config.sites_dir, f"{project_name}.conf", "project name")
+
     def write_project_config(self, project_name: str, domain: str, backend_port: int) -> None:
         """Write project-specific nginx site config"""
         config = self.generate_project_config(project_name, domain, backend_port)
-        site_conf = self.config.sites_dir / f"{project_name}.conf"
+        site_conf = self._site_conf(project_name)
         with open(site_conf, "w", encoding="utf-8", newline="\n") as f:
             f.write(config)
 
     def remove_project_config(self, project_name: str) -> None:
         """Remove project nginx site config"""
-        site_conf = self.config.sites_dir / f"{project_name}.conf"
+        site_conf = self._site_conf(project_name)
         if site_conf.exists():
             site_conf.unlink()
 

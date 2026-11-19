@@ -129,8 +129,12 @@ def _collect_pycache(project_root: Path) -> list[tuple[Path, int]]:
     return results
 
 
-def _collect_docker_volumes() -> list[str]:
+def _collect_docker_volumes(compose_project: str | None = None) -> list[str]:
     """Find dangling Docker volumes.
+
+    Args:
+        compose_project: When given, only this project's volumes (Compose names them
+            ``<project>_<volume>``) are returned; volumes of other applications never are.
 
     Returns:
         List of volume names. Empty if Docker is not available.
@@ -148,7 +152,10 @@ def _collect_docker_volumes() -> list[str]:
         )
         if result.returncode != 0:
             return []
-        return [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
+        names = [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
+        if compose_project is not None:
+            names = [n for n in names if n.startswith(f"{compose_project}_")]
+        return names
     except FileNotFoundError:
         return []
     except subprocess.TimeoutExpired:
@@ -159,7 +166,7 @@ def _collect_docker_volumes() -> list[str]:
 @click.option("--dry-run", is_flag=True, help="Show what would be deleted without deleting.")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
 @click.option("--logs-only", is_flag=True, help="Only clean log archives, skip dbt/cache.")
-@click.option("--docker", is_flag=True, help="Also prune dangling Docker volumes.")
+@click.option("--docker", is_flag=True, help="Also remove this project's dangling Docker volumes.")
 @click.pass_context
 def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docker: bool) -> None:
     """Remove old log archives, dbt artifacts, and Python cache.
@@ -170,7 +177,7 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
       - Compressed log archives older than 90 days (.jsonl.gz)
       - dbt build artifacts (dbt/target/, dbt/logs/)
       - Python bytecode cache (__pycache__/ directories)
-      - Dangling Docker volumes (with --docker)
+      - This project's dangling Docker volumes (with --docker)
 
     Examples:
 
@@ -184,7 +191,7 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
     import shutil
 
     from dango.utils.db_health import get_disk_usage_summary
-    from dango.utils.log_rotation import cleanup_old_archives, get_log_disk_usage
+    from dango.utils.log_rotation import get_log_disk_usage
 
     from ..utils import require_project_context
 
@@ -210,7 +217,9 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
 
         docker_volumes: list[str] = []
         if docker:
-            docker_volumes = _collect_docker_volumes()
+            from dango.platform.docker import get_compose_project_name
+
+            docker_volumes = _collect_docker_volumes(get_compose_project_name(project_root))
 
         log_total = sum(size for _, size in log_archives)
         dbt_total = sum(size for _, size in dbt_artifacts)
@@ -245,10 +254,12 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
             table.add_row("Python cache", str(len(pycache_dirs)), _format_size(cache_total))
         if docker_volumes:
             table.add_row(
-                "Docker volumes (dangling)",
+                "Docker volumes (this project, dangling)",
                 str(len(docker_volumes)),
                 "[dim]varies[/dim]",
             )
+            for vol in docker_volumes:
+                table.add_row(f"  {escape(vol)}", "", "")
 
         table.add_section()
         table.add_row("[bold]Total[/bold]", "", f"[bold]{_format_size(grand_total)}[/bold]")
@@ -287,17 +298,29 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
         # --- Perform cleanup ---
         freed = 0
 
-        # Log archives
+        failures = 0
+
+        # Log archives: exactly the ones listed above, each result reported
         if log_archives:
-            log_size_before = get_log_disk_usage(log_dir)["total_bytes"]
-            cleanup_old_archives(log_dir, "*.jsonl.gz", max_age_days)
-            log_size_after = get_log_disk_usage(log_dir)["total_bytes"]
-            log_freed = max(0, log_size_before - log_size_after)
+            log_freed = 0
+            log_removed = 0
+            for archive, size in log_archives:
+                try:
+                    archive.unlink(missing_ok=True)
+                    log_freed += size
+                    log_removed += 1
+                except OSError as e:
+                    failures += 1
+                    console.print(
+                        f"[red]\u2717[/red] Failed to remove {escape(archive.name)}: "
+                        f"{escape(str(e))}"
+                    )
             freed += log_freed
-            console.print(
-                f"[green]\u2713[/green] Removed {len(log_archives)} log archive(s)"
-                f" ({_format_size(log_freed)})"
-            )
+            if log_removed:
+                console.print(
+                    f"[green]\u2713[/green] Removed {log_removed} log archive(s)"
+                    f" ({_format_size(log_freed)})"
+                )
 
         # dbt artifacts
         for path, size in dbt_artifacts:
@@ -309,6 +332,7 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
                     f" ({_format_size(size)})"
                 )
             except OSError as e:
+                failures += 1
                 console.print(
                     f"[red]\u2717[/red] Failed to remove {path.relative_to(project_root)}/: {escape(str(e))}"
                 )
@@ -324,8 +348,11 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
                 shutil.rmtree(path)
                 cache_freed += size
                 cache_removed += 1
-            except OSError:
-                continue
+            except OSError as e:
+                failures += 1
+                console.print(
+                    f"[red]\u2717[/red] Failed to remove {path.relative_to(project_root)}/: {escape(str(e))}"
+                )
 
         freed += cache_freed
         if cache_removed:
@@ -356,6 +383,7 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
             if removed:
                 console.print(f"[green]\u2713[/green] Removed {removed} dangling Docker volume(s)")
             if removed < len(docker_volumes):
+                failures += len(docker_volumes) - removed
                 console.print(
                     f"[yellow]![/yellow] {len(docker_volumes) - removed} volume(s)"
                     " could not be removed"
@@ -377,6 +405,9 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
         )
         console.print()
         console.print(f"[green]Freed {_format_size(freed)}.[/green]")
+        if failures:
+            console.print(f"[red]{failures} item(s) could not be removed (see above).[/red]")
+            raise click.Abort()
 
     except click.Abort:
         raise

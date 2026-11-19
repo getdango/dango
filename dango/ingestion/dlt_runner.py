@@ -232,6 +232,15 @@ def _dlt_pipelines_dir() -> Path:
     return Path(get_dlt_pipelines_dir())
 
 
+def _checked_pipeline_dir(pipeline_name: str) -> Path:
+    """Working dir of *pipeline_name*; ``ValueError`` if the name could leave the pipelines dir."""
+    from dango.utils.safe_names import contained_child, validate_plain_name
+
+    return contained_child(
+        _dlt_pipelines_dir(), validate_plain_name(pipeline_name, "pipeline name")
+    )
+
+
 def _package_sort_key(package_dir: Path) -> tuple[float, str]:
     """Order load package directories oldest to newest (load ids are unix timestamps)."""
     try:
@@ -3400,7 +3409,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
         """
         import shutil
 
-        pipeline_state_dir = _dlt_pipelines_dir() / pipeline_name
+        pipeline_state_dir = _checked_pipeline_dir(pipeline_name)
 
         if not pipeline_state_dir.exists():
             # No state to backup (first run)
@@ -3448,7 +3457,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
         """
         import shutil
 
-        pipeline_state_dir = _dlt_pipelines_dir() / pipeline_name
+        pipeline_state_dir = _checked_pipeline_dir(pipeline_name)
 
         if not pipeline_state_dir.exists():
             return

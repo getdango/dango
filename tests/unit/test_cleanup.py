@@ -368,7 +368,7 @@ class TestCleanupCommand:
         assert "Cancelled" in _strip(result.output)
 
     def test_dbt_removal_failure_reported(self, tmp_path: Path) -> None:
-        """OSError during dbt rmtree is reported but doesn't abort."""
+        """OSError during dbt rmtree is reported and makes the command exit non-zero."""
         dbt_dir = tmp_path / "dbt" / "target"
         runner = CliRunner()
 
@@ -384,7 +384,7 @@ class TestCleanupCommand:
         ):
             result = runner.invoke(cleanup, ["--yes"], obj={"project_root": str(tmp_path)})
 
-        assert result.exit_code == 0
+        assert result.exit_code != 0
         out = _strip(result.output)
         assert "Failed to remove" in out
 
