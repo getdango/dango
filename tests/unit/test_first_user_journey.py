@@ -392,3 +392,18 @@ def test_bare_dango_name_is_resolved_on_path_and_its_venv_python_is_used(tmp_pat
     result = _journey(tmp_path, steps="init,add-source,sync,count", bare_dango=True)
     assert result.returncode == 0, result.stdout + result.stderr
     assert any(ln.startswith("PASS count") for ln in result.stdout.splitlines())
+
+
+def test_ports_option_sets_the_ports_the_project_uses(tmp_path: Path) -> None:
+    import yaml
+
+    result = _journey(tmp_path, steps="init", extra=("--ports", "41001,41002,41003,41004,41005"))
+    assert result.returncode == 0, result.stdout
+    data = yaml.safe_load((tmp_path / "work" / ".dango" / "project.yml").read_text("utf-8"))
+    platform = data["platform"]
+    assert [platform[k] for k in ("port", "metabase_port", "dbt_docs_port", "marimo_port")] == [
+        41001,
+        41002,
+        41003,
+        41004,
+    ]
