@@ -251,3 +251,14 @@ def current_compose_project() -> str | None:
         return get_compose_project_name(find_project_root())
     except Exception:
         return None
+
+
+def class_for_missing_dir(project_id: str | None, volumes: list[str]) -> str:
+    """Classification of a docker group whose working directory is gone.
+
+    A group that owns a ``*_metabase-data`` volume (labelled with a project id, unlabelled or
+    with labels that could not be read) may be a project that moved, so it is never safe to
+    clean; only a group with no such volume is "orphaned".
+    """
+    holds_data = project_id is not None or any(v.endswith("_metabase-data") for v in volumes)
+    return "needs_attention" if holds_data else "orphaned"

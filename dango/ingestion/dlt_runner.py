@@ -234,8 +234,9 @@ def _dlt_pipelines_dir() -> Path:
 
 def _checked_pipeline_dir(pipeline_name: str) -> Path:
     """Working dir of *pipeline_name*; ``ValueError`` if it is not a single path component."""
-    from dango.utils.safe_names import contained_child
+    from dango.utils.safe_names import contained_child, reject_backup_shaped_name
 
+    reject_backup_shaped_name(pipeline_name, "pipeline name")
     return contained_child(_dlt_pipelines_dir(), pipeline_name, "pipeline name")
 
 

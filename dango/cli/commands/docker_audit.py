@@ -36,7 +36,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from dango.cli import console
-from dango.cli.utils import current_compose_project, safe_confirm
+from dango.cli.utils import class_for_missing_dir, current_compose_project, safe_confirm
 
 # Docker Compose's default naming conventions (live-verified against Docker
 # 28.5.1 / Compose v2.40.2 with a scratch compose project — see PR
@@ -251,8 +251,8 @@ def _build_groups(current_project: str | None = None) -> list[ResourceGroup]:
       - The ``current_project`` group is always "live": its id survives a directory move.
       - Containers exist with exactly one working_dir value:
           - that directory no longer exists on disk -> "orphaned" (safe to
-            offer for cleanup), or "needs_attention" if a volume carries a
-            ``com.dango.project_id`` label (a real project's data)
+            offer for cleanup), or "needs_attention" if the group owns a
+            ``*_metabase-data`` volume, labelled or not (a real project's data)
           - that directory exists on disk -> "live" (a real project;
             display only, never offer to remove it)
     """
@@ -301,9 +301,7 @@ def _build_groups(current_project: str | None = None) -> list[ResourceGroup]:
         else:
             working_dir = g.working_dirs[0]
             gone = not Path(working_dir).exists()
-            g.classification = (
-                ("needs_attention" if g.project_id else "orphaned") if gone else "live"
-            )
+            g.classification = class_for_missing_dir(g.project_id, g.volumes) if gone else "live"
 
     return sorted(groups.values(), key=lambda g: g.project)
 
@@ -400,7 +398,7 @@ def docker_audit(yes: bool, dry_run: bool) -> None:
     than guessing from names or hashes.
 
     \b
-      - Orphaned:        working directory gone and no project-id label — safe to clean.
+      - Orphaned:        working directory gone and no Metabase volume — safe to clean.
       - Needs attention: ambiguous (no container to verify against, or
                           conflicting working_dir labels under one project
                           name) — never auto-cleaned, investigate manually.

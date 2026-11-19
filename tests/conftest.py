@@ -91,6 +91,26 @@ def _isolate_home(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.
     monkeypatch.delenv("DIGITALOCEAN_TOKEN", raising=False)  # no test may reach the DO API
 
 
+@pytest.fixture
+def fresh_dlt_runtime(monkeypatch: pytest.MonkeyPatch):
+    """Give a test the dlt runtime of a fresh process: no run context, telemetry not started.
+
+    dlt initialises its runtime (and starts telemetry) once per process, when the run context
+    is first created, so a test that asserts the runtime starts during a sync only sees that
+    when no earlier test in the same process has already created the context.
+    """
+    from dlt.common.configuration.container import Container
+    from dlt.common.configuration.specs.pluggable_run_context import PluggableRunContext
+    from dlt.common.runtime import anon_tracker, telemetry
+
+    telemetry.stop_telemetry()
+    container = Container()
+    if PluggableRunContext in container:
+        del container[PluggableRunContext]
+    monkeypatch.setattr(anon_tracker, "_ANON_TRACKER_ENDPOINT", None)
+    yield
+
+
 def pytest_sessionstart(session):
     logger = logging.getLogger("pytest.session")
     logger.info("=" * 60)

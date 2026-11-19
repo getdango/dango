@@ -258,6 +258,7 @@ class TestLiveEgressDetection:
         )
         assert result["failed_sources"] == [], f"sync failed: {result['failed_sources']}"
 
+    @pytest.mark.usefixtures("fresh_dlt_runtime")
     def test_dlt_native_source_sync_initializes_telemetry_and_opt_out_suppresses_it(
         self,
         tmp_path: Path,

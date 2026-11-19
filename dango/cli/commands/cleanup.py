@@ -246,18 +246,20 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
             # are never removed here; only leftovers it does not declare.
             kept_volumes = found if declared is None else [v for v in found if v in declared]
             docker_volumes = [v for v in found if v not in kept_volumes]
-            if kept_volumes:
-                why = (
-                    "its docker-compose.yml could not be read"
-                    if declared is None
-                    else "they hold Metabase dashboards, questions and users"
-                )
+            if kept_volumes and declared is None:
                 console.print(
-                    f"[yellow]Kept Docker volume(s) declared by this project ({why}); "
-                    "'dango cleanup' never removes them:[/yellow]"
+                    "[yellow]docker-compose.yml could not be read, so every Docker volume of "
+                    "this project was kept (nothing removed):[/yellow]"
                 )
-                for vol in kept_volumes:
-                    console.print(f"  {escape(vol)}")
+            elif kept_volumes:
+                console.print(
+                    "[yellow]Kept Docker volume(s) declared by this project (they hold "
+                    "Metabase dashboards, questions and users); 'dango cleanup' never "
+                    "removes them:[/yellow]"
+                )
+            for vol in kept_volumes:
+                console.print(f"  {escape(vol)}")
+            if kept_volumes:
                 console.print()
 
         log_total = sum(size for _, size in log_archives)
