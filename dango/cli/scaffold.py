@@ -160,9 +160,14 @@ def check_scaffold(project_root: Path, for_command: str) -> ScaffoldReport:
 
 def _write_template(project_root: Path, name: str) -> bool:
     """Write the packaged template `name` exactly as `dango init` does; never over a file."""
-    from jinja2 import Environment, PackageLoader
+    from jinja2 import Environment, PackageLoader, select_autoescape
 
-    content = Environment(loader=PackageLoader("dango", "templates")).get_template(name).render()
+    # Autoescape is on for HTML only: these two templates are a Dockerfile and a shell script
+    # and must come out exactly as `dango init` writes them.
+    env = Environment(
+        loader=PackageLoader("dango", "templates"), autoescape=select_autoescape(["html"])
+    )
+    content = env.get_template(name).render()
     try:
         with open(project_root / name, "x", encoding="utf-8", newline="\n") as handle:
             handle.write(content)
