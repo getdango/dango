@@ -205,3 +205,9 @@ def test_start_pid_file_kept_when_alive(
     remove = _invoke_start(monkeypatch, tmp_path, 4242, alive=True)
     remove.assert_not_called()
     assert windows_like_kill == []
+
+
+@pytest.fixture(autouse=True)
+def _scaffold_not_under_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use a bare fake project; the scaffold check has its own tests."""
+    monkeypatch.setattr("dango.cli.scaffold.enforce_scaffold", lambda *args, **kwargs: None)

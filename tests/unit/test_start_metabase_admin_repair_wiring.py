@@ -109,3 +109,9 @@ def test_serve_never_calls_repair(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     repair.assert_not_called()
     assert "could not sign in to its Metabase admin account" in _plain(result.output)
+
+
+@pytest.fixture(autouse=True)
+def _scaffold_not_under_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests use a bare fake project; the scaffold check has its own tests."""
+    monkeypatch.setattr("dango.cli.scaffold.enforce_scaffold", lambda *args, **kwargs: None)

@@ -39,16 +39,11 @@ class ScaffoldItem:
     fix: str
 
 
-# Every command named here also runs `require_project_context` first. `.dango/sources.yml` is
-# listed with no commands: the config loader treats it as optional (no file = no sources).
+# Every command named here also runs `require_project_context` first, which already needs
+# `.dango/project.yml` (listed with no commands for that reason; `validate` has its own row).
+# `.dango/sources.yml` has no commands either: the config loader treats it as optional.
 SCAFFOLD_ITEMS: tuple[ScaffoldItem, ...] = (
-    ScaffoldItem(
-        ".dango/project.yml",
-        "file",
-        ("start", "sync", "run", "validate", "web"),
-        REQUIRED,
-        _VCS_FIX,
-    ),
+    ScaffoldItem(".dango/project.yml", "file", (), REQUIRED, _VCS_FIX),
     ScaffoldItem(".dango/sources.yml", "file", (), REQUIRED, _VCS_FIX),
     ScaffoldItem(
         "docker-compose.yml",
