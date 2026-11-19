@@ -1,8 +1,6 @@
 """tests/unit/test_wp20r_followups.py
 
-Private download path for the spaCy wheel, names that reject a trailing newline, honest
-`source remove` when a staging file cannot be deleted, and `cleanup --docker` removing exactly
-the volumes it listed.
+Private spaCy download path, newline-safe names, honest `source remove`, exact `cleanup --docker` removal.
 """
 
 from __future__ import annotations
@@ -159,8 +157,11 @@ def test_source_remove_cli_does_not_claim_success_when_a_file_stays(
 
 @pytest.mark.unit
 def test_docker_cleanup_removes_exactly_the_volumes_it_listed(tmp_path: Path) -> None:
+    (tmp_path / "docker-compose.yml").write_text(
+        "services: {}\nvolumes:\n  metabase-data: {}\n", encoding="utf-8"
+    )
     prefix = get_compose_project_name(tmp_path)
-    listed = f"{prefix}_metabase-data"
+    listed = f"{prefix}_old-cache"
     appeared_later = f"{prefix}_appeared-after-confirmation"
     ls_calls: list[int] = []
     removed: list[str] = []

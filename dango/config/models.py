@@ -367,11 +367,11 @@ class DltNativeConfig(BaseModel):
     @field_validator("pipeline_name")
     @classmethod
     def validate_pipeline_name(cls, v: str | None) -> str | None:
-        """The pipeline name becomes a directory name; refuse anything but a plain name."""
+        """The pipeline name becomes a directory name: it must be a single path component."""
         if v:
-            from dango.utils.safe_names import validate_plain_name
+            from dango.utils.safe_names import contained_child
 
-            validate_plain_name(v, "pipeline_name")
+            contained_child(Path("."), v, "pipeline_name")
         return v
 
 

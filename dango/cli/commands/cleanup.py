@@ -162,11 +162,29 @@ def _collect_docker_volumes(compose_project: str | None = None) -> list[str]:
         return []
 
 
+def _declared_volumes(project_root: Path, compose_project: str) -> set[str] | None:
+    """Volume names the project's ``docker-compose.yml`` declares (``None`` if unreadable)."""
+    import yaml
+
+    try:
+        data = yaml.safe_load((project_root / "docker-compose.yml").read_text(encoding="utf-8"))
+        volumes = data.get("volumes") or {}
+        return {
+            (spec.get("name") if isinstance(spec, dict) and spec.get("name") else None)
+            or f"{compose_project}_{key}"
+            for key, spec in volumes.items()
+        }
+    except (OSError, yaml.YAMLError, AttributeError, TypeError):
+        return None
+
+
 @click.command("cleanup")
 @click.option("--dry-run", is_flag=True, help="Show what would be deleted without deleting.")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
 @click.option("--logs-only", is_flag=True, help="Only clean log archives, skip dbt/cache.")
-@click.option("--docker", is_flag=True, help="Also remove this project's dangling Docker volumes.")
+@click.option(
+    "--docker", is_flag=True, help="Also remove this project's undeclared dangling Docker volumes."
+)
 @click.pass_context
 def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docker: bool) -> None:
     """Remove old log archives, dbt artifacts, and Python cache.
@@ -177,7 +195,8 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
       - Compressed log archives older than 90 days (.jsonl.gz)
       - dbt build artifacts (dbt/target/, dbt/logs/)
       - Python bytecode cache (__pycache__/ directories)
-      - This project's dangling Docker volumes (with --docker)
+      - This project's dangling Docker volumes that its docker-compose.yml does not
+        declare (with --docker); declared volumes such as Metabase data are kept
 
     Examples:
 
@@ -186,7 +205,7 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
       dango cleanup --dry-run    Show what would be deleted
       dango cleanup --yes        Clean without confirmation
       dango cleanup --logs-only  Only clean old log archives
-      dango cleanup --docker     Also prune dangling Docker volumes
+      dango cleanup --docker     Also remove this project's undeclared dangling volumes
     """
     import shutil
 
@@ -216,10 +235,29 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
             pycache_dirs = _collect_pycache(project_root)
 
         docker_volumes: list[str] = []
+        kept_volumes: list[str] = []
         if docker:
             from dango.platform.docker import get_compose_project_name
 
-            docker_volumes = _collect_docker_volumes(get_compose_project_name(project_root))
+            compose_project = get_compose_project_name(project_root)
+            found = _collect_docker_volumes(compose_project)
+            declared = _declared_volumes(project_root, compose_project)
+            # Volumes the compose file declares (Metabase dashboards, questions, users)
+            # are never removed here; only leftovers it does not declare.
+            kept_volumes = found if declared is None else [v for v in found if v in declared]
+            docker_volumes = [v for v in found if v not in kept_volumes]
+            if kept_volumes:
+                why = (
+                    "its docker-compose.yml could not be read"
+                    if declared is None
+                    else "they hold Metabase dashboards, questions and users"
+                )
+                console.print(
+                    f"[yellow]Kept Docker volume(s) declared by this project ({why}):[/yellow]"
+                )
+                for vol in kept_volumes:
+                    console.print(f"  {escape(vol)}  (remove deliberately: docker volume rm {vol})")
+                console.print()
 
         log_total = sum(size for _, size in log_archives)
         dbt_total = sum(size for _, size in dbt_artifacts)
@@ -291,7 +329,10 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
 
         # --- Confirmation ---
         if not yes:
-            if not safe_confirm(f"Delete {_format_size(grand_total)} of files?"):
+            what = f"{_format_size(grand_total)} of files"
+            if docker_volumes:
+                what += f" and {len(docker_volumes)} Docker volume(s): {', '.join(docker_volumes)}"
+            if not safe_confirm(f"Delete {what}?"):
                 console.print("[yellow]Cancelled.[/yellow]")
                 return
 

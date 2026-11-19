@@ -455,6 +455,7 @@ class TestCleanupDockerFlag:
     def test_docker_flag_prunes(self, tmp_path: Path) -> None:
         """--docker flag collects and prunes dangling volumes."""
         runner = CliRunner()
+        (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
 
         log_side = [_log_usage(5000), _log_usage(0)] + [_log_usage(0)] * 5
 

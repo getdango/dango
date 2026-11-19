@@ -1,7 +1,6 @@
 """tests/unit/test_destructive_targets_contained.py
 
-Cleanup targets built from a configured name stay inside the directory they belong to, and
-retention never deletes the copy the current run just made.
+Cleanup targets built from a configured name stay inside their directory; retention keeps the new copy.
 """
 
 from __future__ import annotations

@@ -123,9 +123,13 @@ def _pre_upgrade_safety_copy(project_root: Path) -> Path:
     except BaseException:
         shutil.rmtree(dest, ignore_errors=True)
         raise
-    # The copy just made is never pruned, whatever its name sorts like (clock changes).
-    copies = sorted(p for p in backups.glob("pre-upgrade-*") if p.is_dir() and p != dest)
-    for old in copies[: -(_SAFETY_COPIES_KEPT - 1)]:
+    # Only generated names (timestamp, optional random suffix) are ever pruned, never a
+    # directory the user made, and the copy just made is never pruned.
+    generated = re.compile(r"pre-upgrade-\d{8}T\d{6}Z(-[0-9a-f]{6})?")
+    copies = sorted(
+        p for p in backups.iterdir() if p.is_dir() and p != dest and generated.fullmatch(p.name)
+    )
+    for old in copies[: max(0, len(copies) - (_SAFETY_COPIES_KEPT - 1))]:
         shutil.rmtree(old, ignore_errors=True)
     return dest
 

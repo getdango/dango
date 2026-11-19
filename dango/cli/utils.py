@@ -241,3 +241,13 @@ def check_git_branch_warning(project_root: Path | None = None) -> None:
             )
         )
         console.print()
+
+
+def current_compose_project() -> str | None:
+    """Compose project name of the project the CLI runs in, or ``None`` outside a project."""
+    try:
+        from dango.platform.docker import get_compose_project_name
+
+        return get_compose_project_name(find_project_root())
+    except Exception:
+        return None

@@ -125,7 +125,7 @@ def _audit(tmp_path: Path, project: str, project_id: str | None, current: Path |
             "subprocess.run",
             side_effect=_audit_docker(line, f"{project}_metabase-data", project_id),
         ),
-        patch("dango.config.helpers.find_project_root", finder),
+        patch("dango.cli.utils.find_project_root", finder),
     ):
         return CliRunner().invoke(docker_audit, ["--dry-run"])
 
@@ -133,7 +133,7 @@ def _audit(tmp_path: Path, project: str, project_id: str | None, current: Path |
 @pytest.mark.unit
 def test_the_current_projects_own_group_is_never_orphaned(tmp_path: Path) -> None:
     project = get_compose_project_name(tmp_path)
-    result = _audit(tmp_path, project, "684805db", tmp_path)
+    result = _audit(tmp_path, project, None, tmp_path)
     out = _out(result)
     assert "Orphaned" not in out
     assert "orphaned" not in out.lower().replace("no unambiguously orphaned", "")
@@ -144,4 +144,4 @@ def test_a_volume_carrying_a_project_id_is_never_safe_to_clean(tmp_path: Path) -
     result = _audit(tmp_path, "dango-aaaa1111", "aaaa1111deadbeef", None)
     out = _out(result)
     assert "Orphaned" not in out
-    assert "Needs attention" in out
+    assert "1 group(s) need attention" in out

@@ -510,6 +510,11 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
                 f"{escape(', '.join(result.files_failed))}.[/red]"
             )
             console.print("[dim]Delete them manually, then run 'dango run'.[/dim]")
+            if result.env_vars_matching:
+                console.print(
+                    "[dim]These variables in .env were not touched; remove them by hand if "
+                    f"unwanted: {escape(', '.join(result.env_vars_matching))}[/dim]"
+                )
             raise click.Abort()
 
         # Regenerate dbt docs to reflect source removal

@@ -1,7 +1,6 @@
 """tests/unit/test_cleanup_honest_results.py
 
-`dango cleanup` deletes only what it listed, reports each failure, exits non-zero when
-something the user asked to remove stayed, and never touches Docker volumes of other projects.
+`dango cleanup` deletes only what it listed, reports failures and exits non-zero when something stayed.
 """
 
 from __future__ import annotations
@@ -119,7 +118,10 @@ def _docker_run(volumes: list[str], removed: list[str]):
 
 @pytest.mark.unit
 def test_docker_flag_never_removes_another_projects_volumes(tmp_path: Path) -> None:
-    mine = f"{get_compose_project_name(tmp_path)}_metabase-data"
+    (tmp_path / "docker-compose.yml").write_text(
+        "services: {}\nvolumes:\n  metabase-data: {}\n", encoding="utf-8"
+    )
+    mine = f"{get_compose_project_name(tmp_path)}_old-cache"
     foreign = "customer_app_pgdata"
     removed: list[str] = []
 
@@ -132,7 +134,10 @@ def test_docker_flag_never_removes_another_projects_volumes(tmp_path: Path) -> N
 
 @pytest.mark.unit
 def test_docker_volume_names_are_shown_before_confirmation(tmp_path: Path) -> None:
-    mine = f"{get_compose_project_name(tmp_path)}_metabase-data"
+    (tmp_path / "docker-compose.yml").write_text(
+        "services: {}\nvolumes:\n  metabase-data: {}\n", encoding="utf-8"
+    )
+    mine = f"{get_compose_project_name(tmp_path)}_old-cache"
     removed: list[str] = []
 
     with (

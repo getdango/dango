@@ -62,7 +62,7 @@ class SourceRemovalResult:
 
     source_name: str
     source_type: str
-    status: str  # "removed" | "dry_run"
+    status: str  # "removed" | "dry_run" | "partial" (a staging file stayed)
     files_removed: list[str] = field(default_factory=list)  # project-relative
     files_failed: list[str] = field(default_factory=list)  # project-relative, not deleted
     config_toml_section_removed: bool = False
@@ -476,6 +476,7 @@ def remove_source(
                 result.files_removed.remove(rel)
                 result.files_failed.append(rel)
                 result.warnings.append(f"Could not remove {rel}: {exc}")
+                result.status = "partial"
         if result.monitors_removed:
             try:
                 from dango.analysis.config import load_monitors_config, save_monitors_config

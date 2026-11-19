@@ -129,3 +129,39 @@ def test_cleanup_after_a_run_still_only_warns(tmp_path: Path) -> None:
     ):
         _runner()._clear_local_pipeline_cache("orders", strict=False)
     assert console.print.called
+
+
+@pytest.mark.unit
+def test_full_refresh_stops_before_loading_when_the_cache_cannot_be_cleared(
+    tmp_path: Path,
+) -> None:
+    pipelines = tmp_path / "pipelines"
+    _state(pipelines, "test_pipeline", "stale")
+    runner = _runner()
+    runner.project_root = tmp_path
+    runner.duckdb_path = tmp_path / "data" / "warehouse.duckdb"
+    runner.duckdb_path.parent.mkdir(parents=True)
+    runner._current_oauth_warning = None
+    runner._detect_write_disposition = MagicMock(return_value=True)  # replace mode
+    runner._run_extract_with_retry = MagicMock()
+    runner._extract_load_stats = MagicMock()
+    config = MagicMock()
+    config.name = "test_source"
+    config.type.value = "dlt_native"
+    config.dlt_native.source_module = "test_module"
+    config.dlt_native.source_function = "test_func"
+    config.dlt_native.pipeline_name = "test_pipeline"
+    config.dlt_native.dataset_name = "raw_test"
+    config.dlt_native.source_args = {}
+    with (
+        patch(_PIPELINES, return_value=pipelines),
+        patch("shutil.rmtree", side_effect=OSError("file in use")),
+        patch("dango.ingestion.dlt_runner.console"),
+        patch("dango.ingestion.dlt_runner.dlt"),
+        patch("dango.ingestion.dlt_runner.importlib"),
+        patch("os.chdir"),
+        patch("os.getcwd", return_value="/tmp"),
+        pytest.raises(RuntimeError, match="stopped before loading"),
+    ):
+        runner._run_dlt_native_source(config, full_refresh=True)
+    runner._run_extract_with_retry.assert_not_called()

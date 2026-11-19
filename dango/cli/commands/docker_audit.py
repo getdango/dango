@@ -36,7 +36,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from dango.cli import console
-from dango.cli.utils import safe_confirm
+from dango.cli.utils import current_compose_project, safe_confirm
 
 # Docker Compose's default naming conventions (live-verified against Docker
 # 28.5.1 / Compose v2.40.2 with a scratch compose project — see PR
@@ -234,7 +234,7 @@ def _project_from_resource_name(name: str) -> str | None:
     return None
 
 
-def _build_groups() -> list[ResourceGroup]:
+def _build_groups(current_project: str | None = None) -> list[ResourceGroup]:
     """Collect every dango-* Docker resource machine-wide, grouped by
     compose project name, and classify each group.
 
@@ -248,9 +248,11 @@ def _build_groups() -> list[ResourceGroup]:
         an identity collision (two different directories' containers
         sharing one Compose project name at different points in time)
         -> "needs_attention".
+      - The ``current_project`` group is always "live": its id survives a directory move.
       - Containers exist with exactly one working_dir value:
           - that directory no longer exists on disk -> "orphaned" (safe to
-            offer for cleanup)
+            offer for cleanup), or "needs_attention" if a volume carries a
+            ``com.dango.project_id`` label (a real project's data)
           - that directory exists on disk -> "live" (a real project;
             display only, never offer to remove it)
     """
@@ -290,13 +292,18 @@ def _build_groups() -> list[ResourceGroup]:
             _get(project).images.append(i)
 
     for g in groups.values():
-        if not g.containers:
+        if current_project is not None and g.project == current_project:
+            g.classification = "live"
+        elif not g.containers:
             g.classification = "needs_attention"
         elif len(g.working_dirs) > 1:
             g.classification = "needs_attention"
         else:
             working_dir = g.working_dirs[0]
-            g.classification = "orphaned" if not Path(working_dir).exists() else "live"
+            gone = not Path(working_dir).exists()
+            g.classification = (
+                ("needs_attention" if g.project_id else "orphaned") if gone else "live"
+            )
 
     return sorted(groups.values(), key=lambda g: g.project)
 
@@ -393,7 +400,7 @@ def docker_audit(yes: bool, dry_run: bool) -> None:
     than guessing from names or hashes.
 
     \b
-      - Orphaned:        working directory no longer exists — safe to clean.
+      - Orphaned:        working directory gone and no project-id label — safe to clean.
       - Needs attention: ambiguous (no container to verify against, or
                           conflicting working_dir labels under one project
                           name) — never auto-cleaned, investigate manually.
@@ -412,7 +419,7 @@ def docker_audit(yes: bool, dry_run: bool) -> None:
     """
     console.print("🍡 [bold]Docker resource audit[/bold]\n")
 
-    groups = _build_groups()
+    groups = _build_groups(current_compose_project())
     if not groups:
         console.print("[green]No dango-* Docker resources found on this machine.[/green]")
         return

@@ -338,6 +338,14 @@ def remove_source(source_name: str, dry_run: bool = False, force: bool = False) 
     except Exception as e:  # noqa: BLE001
         return {"error": f"remove_source failed: {type(e).__name__}: {e}"}
     result = dataclasses.asdict(r)
+    if r.files_failed:
+        failed = [w for w in r.warnings if w.startswith("Could not remove ")]
+        result["error"] = (
+            "Source removed from sources.yml, but staging files could not be deleted: "
+            + "; ".join(failed)
+        )
+        result["errors"] = failed
+        return _with_git_warning(result, project_root)
     return result if dry_run else _with_git_warning(result, project_root)
 
 
