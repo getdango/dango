@@ -112,9 +112,9 @@ class ProjectInitializer:
             if not docs_success:
                 # dbt docs is critical - rollback initialization
                 print_error("✗ dbt docs generation is required for Dango to work correctly")
-                print_error("  Rolling back initialization...")
+                console.print("[red]  Rolling back initialization...[/red]")
                 self._rollback_initialization()
-                print_error("\n❌ Initialization failed")
+                console.print("\n[red]❌ Initialization failed[/red]")
                 console.print("\n[yellow]To fix:[/yellow]")
                 console.print("  1. Install dbt-duckdb: pip install dbt-duckdb")
                 console.print("  2. Verify dbt works: dbt --version")
@@ -129,15 +129,17 @@ class ProjectInitializer:
 
         except (KeyboardInterrupt, click.Abort):
             # User cancelled (Ctrl+C or EOF at an admin prompt; click raises Abort) - rollback
-            print_error("\n\n✗ Initialization cancelled by user")
-            print_error("  Rolling back...")
+            console.print("\n\n[red]✗ Initialization cancelled by user[/red]")
+            console.print("[red]  Rolling back...[/red]")
             self._rollback_initialization()
             raise SystemExit(1) from None
 
         except Exception as e:
             # Unexpected error - rollback
-            print_error(f"\n\n✗ Unexpected error during initialization: {escape(str(e))}")
-            print_error("  Rolling back...")
+            console.print(
+                f"\n\n[red]✗ Unexpected error during initialization: {escape(str(e))}[/red]"
+            )
+            console.print("[red]  Rolling back...[/red]")
             self._rollback_initialization()
             raise
 

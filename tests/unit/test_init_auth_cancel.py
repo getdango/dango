@@ -142,6 +142,7 @@ def test_cancel_output_has_no_blank_error_lines(tmp_path: Path) -> None:
 
     assert code == 1, raw
     _assert_clean_lines(raw)
+    assert "Error:" not in raw, raw  # a cancel is not an error (the prompt text precedes it)
     assert raw.count("Initialization cancelled by user") == 1
     assert raw.count("Rolling back...") == 1
 
