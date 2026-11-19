@@ -474,3 +474,17 @@ def test_a_missing_regenerable_file_is_never_reported_as_blocking_for_validate(
     report = check_scaffold(project, "validate")
     assert [m.regenerable for m in report.missing] == [True]
     assert report.unreadable == []
+
+
+@pytest.mark.parametrize("name", ["Dockerfile.metabase", "entrypoint.sh"])
+def test_restore_never_overwrites_a_file_that_appeared_after_the_check(
+    project: Path, name: str
+) -> None:
+    from dango.cli.scaffold import ScaffoldProblem, restore_scaffold
+
+    item = next(i for i in _items() if i.path == name)
+    mine = b"# written between the check and the restore\n"
+    (project / name).write_bytes(mine)
+    lines = restore_scaffold(project, [ScaffoldProblem(item, "x", True)])
+    assert (project / name).read_bytes() == mine
+    assert lines == []
