@@ -247,8 +247,16 @@ class ConfigLoader:
 
     def _parse_platform_settings(self, data: dict) -> PlatformSettings:
         """Validate the ``platform:`` section of project.yml data."""
+        section = data.get("platform")
+        if section is None:
+            section = {}
+        if not isinstance(section, dict):
+            raise ConfigValidationError(
+                f"Invalid platform configuration in {self.project_file}: the 'platform' section "
+                f"must be a mapping of settings (for example 'port: 8800'), got {section!r}"
+            )
         try:
-            return PlatformSettings(**(data.get("platform") or {}))
+            return PlatformSettings(**section)
         except ValidationError as e:
             raise ConfigValidationError(
                 f"Invalid platform configuration in {self.project_file}:\n{e}"

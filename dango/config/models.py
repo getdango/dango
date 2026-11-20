@@ -527,9 +527,16 @@ class PlatformSettings(BaseModel):
     @classmethod
     def _validate_min_free_disk_gb(cls, value: object) -> float:
         """Accept a finite number of GB that is 0 or more; reject anything else, naming the key."""
+        candidate = value
+        if isinstance(candidate, str):
+            # Like the other platform keys: accept "2" and exponent forms PyYAML leaves as text
+            try:
+                candidate = float(candidate.strip())
+            except ValueError:
+                candidate = None
         number = (
-            float(value)
-            if isinstance(value, (int, float)) and not isinstance(value, bool)
+            float(candidate)
+            if isinstance(candidate, (int, float)) and not isinstance(candidate, bool)
             else None
         )
         if number is None or not math.isfinite(number) or number < 0:

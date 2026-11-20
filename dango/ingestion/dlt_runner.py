@@ -29,7 +29,7 @@ from dango.config.models import (
     PlatformSettings,
     SourceType,
 )
-from dango.exceptions import ConfigNotFoundError, ConfigValidationError, SyncTimeoutError
+from dango.exceptions import ConfigError, ConfigNotFoundError, SyncTimeoutError
 from dango.ingestion.csv_loader import CSVLoader, check_duplicate_filenames
 from dango.ingestion.sources.registry import get_source_metadata
 from dango.utils.docker_hints import DOCKER_UNAVAILABLE_ERROR, note_metabase_skipped
@@ -341,7 +341,7 @@ class DltPipelineRunner:
         """Minimum free GB from ``platform.min_free_disk_gb`` (default when project.yml is absent).
 
         Raises:
-            ConfigValidationError: If the setting (or another platform setting) is invalid.
+            ConfigError: If project.yml is unreadable or a platform setting is invalid.
         """
         try:
             return ConfigLoader(self.project_root).load_platform_settings().min_free_disk_gb
@@ -598,7 +598,7 @@ class DltPipelineRunner:
         # Check disk space before starting sync (minimum from platform.min_free_disk_gb)
         try:
             check_disk_space(self.project_root, min_free_gb=self._min_free_disk_gb())
-        except (DiskSpaceError, ConfigValidationError) as e:
+        except (DiskSpaceError, ConfigError) as e:
             error_message = str(e)
             console.print(f"[red]❌ {self._rich_err(error_message)}[/red]")
 

@@ -4,6 +4,7 @@ DuckDB Health Monitoring and Disk Space Utilities.
 """
 
 import logging
+import math
 import shutil
 import subprocess
 import time
@@ -48,14 +49,14 @@ def check_disk_space(project_root: Path, min_free_gb: float = 5) -> bool:
         # Critical: Less than minimum required
         if free_gb < min_free_gb:
             raise DiskSpaceError(
-                f"Insufficient disk space: {free_gb:.1f}GB free "
+                f"Insufficient disk space: {math.floor(free_gb * 100) / 100:.2f}GB free "
                 f"(minimum {min_free_gb:g}GB required). The minimum is a safety margin for "
                 "the DuckDB file plus dlt staging; change it with "
                 "`platform.min_free_disk_gb` in .dango/project.yml (0 disables the check)."
             )
 
-        # Warning: Less than 10GB (could become critical during sync)
-        if free_gb < 10:
+        # Warning: less than twice the minimum (10GB with the default 5GB minimum)
+        if free_gb < 2 * min_free_gb:
             console.print(f"[yellow]⚠️  Low disk space: {free_gb:.1f}GB free[/yellow]")
             console.print("[yellow]   Consider freeing up space before large syncs[/yellow]")
 

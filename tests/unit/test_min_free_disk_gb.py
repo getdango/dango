@@ -191,7 +191,7 @@ class TestCheckDiskSpace:
 
     @pytest.mark.parametrize(
         ("free_gb", "minimum", "shown_free"),
-        [(0.47, 0.5, "0.47"), (0.96, 1, "0.96"), (4.999, 5, "4.99")],
+        [(0.475, 0.5, "0.47"), (0.965, 1, "0.96"), (4.999, 5, "4.99")],
     )
     def test_free_figure_is_rounded_down_so_the_message_never_contradicts_itself(
         self, free_gb: float, minimum: float, shown_free: str
