@@ -351,3 +351,31 @@ def test_spec_allow_list_is_the_same_in_both_installers() -> None:
     assert sh_class and ps_class
     assert sh_class.group(1) == ps_class.group(1)
     assert " " in sh_class.group(1)
+
+
+@pytest.mark.parametrize(
+    ("typed", "cleaned"),
+    [
+        ("My Analytics!", "my-analytics"),
+        ("a  b", "a--b"),
+        ("DATA_Team 2", "datateam-2"),
+        ("!!!", ""),
+    ],
+)
+def test_project_name_cleanup_is_the_interactive_rule(
+    tmp_path: Path, typed: str, cleaned: str
+) -> None:
+    run = run_installer(
+        tmp_path, {"TYPED": typed}, snippet='echo "[$(sanitize_project_name "$TYPED")]"'
+    )
+    assert run.proc.returncode == 0, run.output
+    assert f"[{cleaned}]" in run.proc.stdout
+
+
+def test_the_interactive_path_still_cleans_the_name_after_the_existence_check() -> None:
+    start = TEXT.index("# Handle install_and_project mode")
+    block = TEXT[start : TEXT.index('print_step "Creating project directory', start)]
+    check = block.index('if [ -d "$PROJECT_DIR" ]')
+    cleanup = block.index("# Sanitize: lowercase, spaces")
+    assert check < cleanup  # the interactive ordering is unchanged
+    assert 'PROJECT_DIR=$(sanitize_project_name "$PROJECT_DIR")' in block[cleanup:]
