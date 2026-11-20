@@ -148,8 +148,10 @@ class TestCheckDiskSpace:
             _db_health.check_disk_space(Path("."), min_free_gb=0.5)
 
     def test_zero_disables_the_check(self) -> None:
-        with _disk(0):
+        with _disk(0) as usage, patch.object(_db_health.console, "print") as printed:
             assert _db_health.check_disk_space(Path("."), min_free_gb=0) is True
+        usage.assert_not_called()
+        printed.assert_not_called()
 
     def test_default_minimum_is_five_and_message_names_the_key(self) -> None:
         with _disk(3), pytest.raises(DiskSpaceError, match="platform.min_free_disk_gb") as exc:

@@ -23,11 +23,13 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.markup import escape
 
+from dango.config.loader import ConfigLoader
 from dango.config.models import (
     DataSource,
+    PlatformSettings,
     SourceType,
 )
-from dango.exceptions import SyncTimeoutError
+from dango.exceptions import ConfigNotFoundError, ConfigValidationError, SyncTimeoutError
 from dango.ingestion.csv_loader import CSVLoader, check_duplicate_filenames
 from dango.ingestion.sources.registry import get_source_metadata
 from dango.utils.docker_hints import DOCKER_UNAVAILABLE_ERROR, note_metabase_skipped
@@ -335,6 +337,17 @@ class DltPipelineRunner:
         # Load credentials with priority: .dlt/ > .env
         self._load_credentials()
 
+    def _min_free_disk_gb(self) -> float:
+        """Minimum free GB from ``platform.min_free_disk_gb`` (default when project.yml is absent).
+
+        Raises:
+            ConfigValidationError: If the setting (or another platform setting) is invalid.
+        """
+        try:
+            return ConfigLoader(self.project_root).load_platform_settings().min_free_disk_gb
+        except ConfigNotFoundError:
+            return PlatformSettings().min_free_disk_gb
+
     def _rich_err(self, error: object) -> str:
         """Redacted, Rich-escaped error text for ``console.print`` (tolerates a bare instance)."""
         return rich_error_text(getattr(self, "project_root", None), error)
@@ -582,10 +595,10 @@ class DltPipelineRunner:
                     "rows_loaded": 0,
                 }
 
-        # Check disk space before starting sync
+        # Check disk space before starting sync (minimum from platform.min_free_disk_gb)
         try:
-            check_disk_space(self.project_root, min_free_gb=5)
-        except DiskSpaceError as e:
+            check_disk_space(self.project_root, min_free_gb=self._min_free_disk_gb())
+        except (DiskSpaceError, ConfigValidationError) as e:
             error_message = str(e)
             console.print(f"[red]❌ {self._rich_err(error_message)}[/red]")
 

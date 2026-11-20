@@ -3,6 +3,7 @@
 Pydantic models for configuration validation.
 """
 
+import math
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -511,6 +512,32 @@ class PlatformSettings(BaseModel):
         default=None,
         description="Number of uvicorn workers for dango serve (default: 1 for both local and cloud)",
     )
+
+    # Minimum free disk space a sync needs before it starts
+    min_free_disk_gb: float = Field(
+        default=5.0,
+        description=(
+            "Minimum free disk space in GB required before a sync starts. A safety margin "
+            "for the DuckDB file plus dlt staging. 0 disables the check; fractions such as "
+            "0.5 are allowed."
+        ),
+    )
+
+    @field_validator("min_free_disk_gb", mode="before")
+    @classmethod
+    def _validate_min_free_disk_gb(cls, value: object) -> float:
+        """Accept a finite number of GB that is 0 or more; reject anything else, naming the key."""
+        number = (
+            float(value)
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+            else None
+        )
+        if number is None or not math.isfinite(number) or number < 0:
+            raise ValueError(
+                "platform.min_free_disk_gb must be a number of GB that is 0 or more "
+                f"(0 disables the check, 0.5 is allowed); got {value!r}"
+            )
+        return number
 
 
 class RateLimitGroupConfig(BaseModel):
