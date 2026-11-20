@@ -144,6 +144,7 @@ def run_journey(
     relative: bool = False,
     seed: dict[str, str] | None = None,
     bare_dango: bool = False,
+    no_dango: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run the journey script against a fake dango (and, with docker=True, a fake docker)."""
     exe = dango or make_fake_exe(tmp_path / "fakebin", "dango", FAKE_DANGO)
@@ -175,9 +176,8 @@ def run_journey(
     argv = [
         sys.executable,
         str(SCRIPT),
-        "--dango",
-        "dango" if bare_dango else shown(exe),
-        *([] if bare_dango else ["--python", shown(fake_python)]),
+        *([] if no_dango else ["--dango", "dango" if bare_dango else shown(exe)]),
+        *([] if bare_dango or no_dango else ["--python", shown(fake_python)]),
         "--workdir",
         shown(tmp_path / "work"),
         "--log",
