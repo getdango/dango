@@ -221,6 +221,21 @@ jobs:
           python -m build --wheel --outdir dist
           ls dist
 
+      # Syntax check of the PowerShell scripts the installer journey and a person on a real
+      # Windows device run. install.ps1 has no BOM, so the text is read as UTF-8, the way the
+      # documented one-liner runs it.
+      - name: Parse the PowerShell scripts
+        if: ${{ matrix.os == 'windows-latest' && !cancelled() }}
+        shell: powershell
+        run: |
+          foreach ($f in 'scripts/first_user_journey.ps1', 'install.ps1') {
+            $text = [System.IO.File]::ReadAllText((Resolve-Path $f).Path, [System.Text.Encoding]::UTF8)
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$errors)
+            if ($errors) { $errors | ForEach-Object { "$f : $_" }; exit 1 }
+            "parsed $f"
+          }
+
       - name: First-user journey through the installer
         id: journey
         if: ${{ !cancelled() }}

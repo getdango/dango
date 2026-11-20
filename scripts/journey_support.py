@@ -152,7 +152,7 @@ class Journey:
         The timeout is capped by what is left of the total budget, except for cleanup commands
         (ignore_budget=True) that must still run once the budget is spent. `cwd` replaces the
         workdir, `env_extra` adds to the journey environment and `env_remove` drops variables from
-        it (the installer step uses all three).
+        it (by name, ignoring case: Windows upper-cases environment names) (the installer step uses all three).
         """
         limit = timeout if timeout is not None else self.step_timeout
         if ignore_budget:
@@ -170,7 +170,7 @@ class Journey:
                 env={
                     k: v
                     for k, v in {**self.env(), **(env_extra or {})}.items()
-                    if k not in env_remove
+                    if k.upper() not in {n.upper() for n in env_remove}
                 },
                 capture_output=True,
                 text=True,

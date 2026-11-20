@@ -116,6 +116,7 @@ def test_windows_installer_job_parses_both_powershell_scripts() -> None:
     job = workflow[workflow.index("\n  installer:") :]
     step = job[job.index("Parse the PowerShell scripts") :].split("\n      - name:")[0]
     assert "windows-latest" in step
-    assert "Language.Parser" in step and "ParseFile" in step
+    # install.ps1 has no BOM, so it is parsed from its UTF-8 text (as the one-liner runs it).
+    assert "Language.Parser" in step and "ParseInput" in step and "UTF8" in step
     assert "scripts/first_user_journey.ps1" in step and "install.ps1" in step
     assert "exit 1" in step

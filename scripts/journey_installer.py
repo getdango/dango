@@ -65,26 +65,28 @@ def _same_file(url: str, spec: str) -> bool:
     return recorded == os.path.normcase(os.path.realpath(spec))
 
 
-def check_installed_from(spec: str, info: dict[str, object]) -> str | None:
-    """Why the installed getdango does not come from `spec`, or None when it does (or cannot be told).
+def check_installed_from(spec: str, info: dict[str, object]) -> tuple[str | None, bool]:
+    """(why the installed getdango does not come from `spec` or None, whether the source was checked).
 
     A `name==version` spec is checked by version; a wheel or sdist path by the file URL pip
-    recorded in direct_url.json; a URL by that recorded URL. Other specs (a bare name) are not
-    verifiable and pass.
+    recorded in direct_url.json; a URL by that recorded URL. Other specs (a bare name, a range)
+    are not verifiable: no problem is reported and the second value is False.
     """
     direct = info.get("direct_url")
     url = str(direct.get("url", "")) if isinstance(direct, dict) else ""
     if "==" in spec and "://" not in spec and not spec.lower().endswith(_DIST_SUFFIXES):
         wanted = spec.split("==", 1)[1].strip()
         if info.get("version") != wanted:
-            return f"installed version is {info.get('version')}, wanted {wanted}"
+            return f"installed version is {info.get('version')}, wanted {wanted}", True
     elif "://" in spec:
         if not url or url.split("#")[0] not in spec:
-            return f"pip recorded {url or 'no source URL (not a direct install)'}"
+            return f"pip recorded {url or 'no source URL (not a direct install)'}", True
     elif os.path.exists(spec) or spec.lower().endswith(_DIST_SUFFIXES):
         if not _same_file(url, spec):
-            return f"pip recorded {url or 'no source URL (not a direct install)'}"
-    return None
+            return f"pip recorded {url or 'no source URL (not a direct install)'}", True
+    else:
+        return None, False
+    return None, True
 
 
 def step_installer(
@@ -123,7 +125,8 @@ def step_installer(
         info = None
     if not isinstance(info, dict):
         return failure("installer", "could not read the installed getdango's metadata", dist.output)
-    problem = check_installed_from(spec, info)
+    problem, verified = check_installed_from(spec, info)
     if problem:
         return failure("installer", f"installed getdango does not come from {spec}: {problem}")
-    return Step("installer", "PASS", f"installed getdango {info.get('version')} from {spec}")
+    note = "" if verified else " (source not verified)"
+    return Step("installer", "PASS", f"installed getdango {info.get('version')} from {spec}{note}")
