@@ -167,6 +167,8 @@ def test_powershell_installer_runs_as_utf8_text_like_the_documented_one_liner(
     assert "-ExecutionPolicy" not in argv
     command = argv[argv.index("-Command") + 1]
     assert "ReadAllText" in command and "UTF8" in command and "install.ps1" in command
+    # the installer's own exit code, not just "the last command succeeded"
+    assert command.endswith("exit $LASTEXITCODE")
     assert journey_installer.installer_command(Path("/co/install.sh")) == ["bash", "/co/install.sh"]
 
 

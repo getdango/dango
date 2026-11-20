@@ -241,19 +241,37 @@ jobs:
           ls dist
 
       # Syntax check of the PowerShell scripts the installer journey and a person on a real
-      # Windows device run. install.ps1 has no BOM, so the text is read as UTF-8, the way the
-      # documented one-liner runs it.
+      # Windows device run. Each file is parsed twice: as `powershell -File` reads it (a file
+      # without a BOM is read in the default code page, so non-ASCII text breaks Windows
+      # PowerShell 5.1) and as the documented one-liner runs it (its UTF-8 text through iex).
       - name: Parse the PowerShell scripts
         if: ${{ matrix.os == 'windows-latest' && !cancelled() }}
         shell: powershell
         run: |
           foreach ($f in 'scripts/first_user_journey.ps1', 'install.ps1') {
-            $text = [System.IO.File]::ReadAllText((Resolve-Path $f).Path, [System.Text.Encoding]::UTF8)
+            $path = (Resolve-Path $f).Path
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$errors)
+            if ($errors) { $errors | ForEach-Object { "$f (as -File) : $_" }; exit 1 }
+            $text = [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8)
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$errors)
-            if ($errors) { $errors | ForEach-Object { "$f : $_" }; exit 1 }
+            if ($errors) { $errors | ForEach-Object { "$f (as UTF-8 text) : $_" }; exit 1 }
             "parsed $f"
           }
+
+      # A stopped installer must hand back its exit code from a script file, and must NOT end the
+      # PowerShell session when the text runs through iex (exit would close the person's window).
+      - name: Installer stop behaviour (exit code, window stays open)
+        if: ${{ matrix.os == 'windows-latest' && !cancelled() }}
+        shell: powershell
+        run: |
+          $env:DANGO_INSTALL_SPEC = '-bad'
+          powershell -NoProfile -File install.ps1
+          if ($LASTEXITCODE -ne 1) { "as -File: expected exit code 1, got $LASTEXITCODE"; exit 1 }
+          $out = powershell -NoProfile -Command 'iex ([System.IO.File]::ReadAllText((Resolve-Path install.ps1).Path, [System.Text.Encoding]::UTF8)); Write-Output session-still-open:$LASTEXITCODE'
+          $out
+          if (-not ($out -match 'session-still-open:1')) { "as iex: the session ended or lost the exit code"; exit 1 }
 
       - name: First-user journey through the installer
         id: journey
@@ -289,3 +307,49 @@ jobs:
             echo "- build wheel: ${{ steps.build.outcome }}"
             echo "- installer journey: ${{ steps.journey.outcome }}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # The installer in clean Linux containers, as a first user on those systems would run it: the
+  # checkout's install.sh installs the wheel built here, non-interactively, and the dango it put in
+  # its virtual environment starts. Ubuntu 22.04 ships Python 3.10, so it gets the 3.11 packages
+  # from its own repositories first.
+  installer-containers:
+    name: Installer in a ${{ matrix.image }} container
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: ubuntu:22.04
+            packages: python3.11 python3.11-venv
+          - image: debian:12
+            packages: python3 python3-venv
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel --outdir dist
+          ls dist
+
+      - name: Run the installer in the container
+        env:
+          IMAGE: ${{ matrix.image }}
+          PACKAGES: ${{ matrix.packages }}
+        run: |
+          docker run --rm -v "$PWD":/repo:ro -v "$PWD/dist":/dist:ro \
+            -e PACKAGES -e DEBIAN_FRONTEND=noninteractive "$IMAGE" bash -c '
+              set -e
+              apt-get update -qq
+              apt-get install -y -qq $PACKAGES > /dev/null
+              mkdir /work && cd /work
+              DANGO_INSTALL_SPEC="$(ls /dist/*.whl)" DANGO_INSTALL_NONINTERACTIVE=1 \
+                DANGO_INSTALL_DOCKER_CONTINUE=y DANGO_INSTALL_MODE=1 DANGO_INSTALL_SETUP=1 \
+                bash /repo/install.sh
+              /work/venv/bin/dango --version
+            '

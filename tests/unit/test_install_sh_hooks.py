@@ -372,10 +372,10 @@ def test_project_name_cleanup_is_the_interactive_rule(
     assert f"[{cleaned}]" in run.proc.stdout
 
 
-def test_the_interactive_path_still_cleans_the_name_after_the_existence_check() -> None:
+def test_the_interactive_path_cleans_the_name_before_the_existence_check() -> None:
     start = TEXT.index("# Handle install_and_project mode")
     block = TEXT[start : TEXT.index('print_step "Creating project directory', start)]
+    cleanup = block.index('PROJECT_DIR=$(sanitize_project_name "$PROJECT_DIR")')
     check = block.index('if [ -d "$PROJECT_DIR" ]')
-    cleanup = block.index("# Sanitize: lowercase, spaces")
-    assert check < cleanup  # the interactive ordering is unchanged
-    assert 'PROJECT_DIR=$(sanitize_project_name "$PROJECT_DIR")' in block[cleanup:]
+    assert cleanup < check  # `My Proj` is checked as `my-proj`
+    assert block.count("sanitize_project_name") == 1

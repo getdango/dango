@@ -144,12 +144,73 @@ run_dango_init() {
     fi
 }
 
+# Platform family for install hints: macos, debian (Debian, Ubuntu and derivatives), fedora (Fedora,
+# RHEL and derivatives) or other.
+detect_distro_family() {
+    if [ "$(uname -s)" = "Darwin" ]; then
+        echo "macos"
+        return
+    fi
+    local id="" like=""
+    if [ -r /etc/os-release ]; then
+        id=$(. /etc/os-release; echo "${ID:-}")
+        like=$(. /etc/os-release; echo "${ID_LIKE:-}")
+    fi
+    case " $id $like " in
+        *" debian "*|*" ubuntu "*) echo "debian" ;;
+        *" fedora "*|*" rhel "*|*" centos "*) echo "fedora" ;;
+        *) echo "other" ;;
+    esac
+}
+
+# How to get a supported Python (3.11-3.13) on this platform family.
+python_install_hint() {
+    case "$1" in
+        macos)
+            echo "  macOS:   brew install python@3.12"
+            ;;
+        debian)
+            echo "  Debian / Ubuntu 24.04: sudo apt install python3 python3-venv python3-pip"
+            echo "           (Debian 12 has Python 3.11; Ubuntu 24.04 has Python 3.12)"
+            echo "  Ubuntu 22.04: its Python 3.10 is too old and Python 3.12 is not in its default"
+            echo "           repositories. Install Python 3.12 from python.org, with pyenv or uv,"
+            echo "           or from the deadsnakes PPA (sudo add-apt-repository ppa:deadsnakes/ppa)"
+            ;;
+        fedora)
+            echo "  Fedora:  sudo dnf install python3.13"
+            ;;
+        *)
+            echo "  Install Python 3.12 from https://www.python.org/downloads/ or with your package manager"
+            ;;
+    esac
+}
+
+# The command that adds the missing venv module for python command $2 on family $1.
+venv_install_hint() {
+    local family=$1 py=${2:-python3} pkg="python3-venv"
+    case "$family" in
+        debian)
+            case "$py" in
+                python3.[0-9]*) pkg="${py}-venv" ;;
+            esac
+            echo "  sudo apt install $pkg"
+            ;;
+        fedora)
+            echo "  sudo dnf install python3"
+            ;;
+        *)
+            echo "  Install the venv module for $py with your package manager (check it with: $py -m venv <folder>)"
+            ;;
+    esac
+}
+
 # Function to check Python version
 check_python() {
     print_step "Checking Python version..."
 
     # Try multiple Python commands in order of preference
     PYTHON_CMD=""
+    unsupported=""
     for cmd in python3.13 python3.12 python3.11 python3 python; do
         if command -v $cmd &> /dev/null; then
             # Check if this version meets requirements
@@ -164,6 +225,9 @@ check_python() {
                     PYTHON_VERSION="$version"
                     break
                 fi
+                if [ -z "$unsupported" ]; then
+                    unsupported="$version ($cmd)"
+                fi
             fi
         fi
     done
@@ -172,11 +236,13 @@ check_python() {
     if [ -z "$PYTHON_CMD" ]; then
         print_error "Python 3.11-3.13 not found"
         echo
+        if [ -n "$unsupported" ]; then
+            echo "Found Python $unsupported, but Dango needs 3.11-3.13."
+        fi
         echo "Dango requires Python 3.11-3.13 (3.12 recommended)"
         echo
         echo "Install options:"
-        echo "  macOS:   brew install python@3.12"
-        echo "  Ubuntu:  sudo apt install python3.12"
+        python_install_hint "$(detect_distro_family)"
         echo
         exit 1
     fi
@@ -373,10 +439,26 @@ prompt_venv_location() {
 
 # Function to create virtual environment
 create_venv() {
-    local venv_path=$1
+    local venv_path=$1 existed=false
+    if [ -e "$venv_path" ]; then
+        existed=true
+    fi
     print_step "Creating virtual environment at $venv_path..."
 
-    $PYTHON_CMD -m venv "$venv_path"
+    if ! $PYTHON_CMD -m venv "$venv_path"; then
+        # Remove only what this run started to create, so the next attempt starts clean
+        if [ "$existed" = false ] && [ -n "$venv_path" ]; then
+            rm -rf "$venv_path"
+        fi
+        echo
+        print_error "Failed to create virtual environment"
+        echo
+        echo "Python could not create the environment at $venv_path. Install what is missing,"
+        echo "then run this installer again:"
+        venv_install_hint "$(detect_distro_family)" "$PYTHON_CMD"
+        echo
+        exit 1
+    fi
     print_success "Virtual environment created"
     echo
 }
@@ -459,19 +541,108 @@ detect_shell_config() {
     fi
 }
 
+# True when the chosen Python runs inside a virtual environment
+python_in_virtualenv() {
+    [ "$($PYTHON_CMD -c 'import sys; print(int(sys.prefix != getattr(sys, "base_prefix", sys.prefix)))' 2>/dev/null)" = "1" ]
+}
+
+# True when the operating system marks the chosen Python as externally managed (PEP 668)
+python_externally_managed() {
+    [ "$($PYTHON_CMD -c 'import os, sysconfig; print(int(os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED"))))' 2>/dev/null)" = "1" ]
+}
+
+# Stop with advice when a per-user package install cannot work here (it would otherwise fail later,
+# or silently, with a message about the network)
+check_global_install_possible() {
+    if python_in_virtualenv; then
+        print_error "Cannot install globally from inside an active virtual environment"
+        echo
+        echo "pip's --user option does not work in a virtual environment."
+        echo "Run 'deactivate', then run this installer again, or choose option [1]"
+        echo "(virtual environment) to keep Dango in its own environment."
+        exit 1
+    fi
+
+    if python_externally_managed; then
+        print_error "This Python is managed by your operating system"
+        echo
+        echo "Your system's Python refuses global pip installs (PEP 668), so a global"
+        echo "install would fail. Run this installer again and choose option [1] (virtual"
+        echo "environment), or install Dango with pipx:"
+        echo "  pipx install getdango"
+        exit 1
+    fi
+
+    if ! $PYTHON_CMD -m pip --version &> /dev/null; then
+        print_error "pip is not available for $PYTHON_CMD"
+        echo
+        # The distribution packages below are pip for the default python3 only
+        case "$PYTHON_CMD:$(detect_distro_family)" in
+            python3:debian) echo "Install it with:  sudo apt install python3-pip" ;;
+            python3:fedora) echo "Install it with:  sudo dnf install python3-pip" ;;
+            *) echo "Install it with:  $PYTHON_CMD -m ensurepip --user" ;;
+        esac
+        echo "Or run this installer again and choose option [1] (virtual environment)."
+        exit 1
+    fi
+}
+
 # Function to check for package conflicts before global install
 check_conflicts() {
     print_step "Checking for potential package conflicts..."
     echo
 
-    # Run dry-run to see what will be installed/upgraded
-    dry_run_output=$($PYTHON_CMD -m pip install --dry-run --user "$(dango_pip_spec)" 2>&1)
+    # Run dry-run to see what will be installed (pip prints "Would install name-version ...",
+    # for upgrades as well as new packages)
+    local dry_run_output
+    if ! dry_run_output=$($PYTHON_CMD -m pip install --dry-run --user "$(dango_pip_spec)" 2>&1); then
+        print_error "Could not check for package conflicts"
+        echo
+        echo "$dry_run_output" | tail -n 15
+        echo
+        echo "The installation would fail the same way. Fix the error above, or run this"
+        echo "installer again and choose option [1] (virtual environment)."
+        exit 1
+    fi
 
-    # Check if any packages will be upgraded
-    if echo "$dry_run_output" | grep -q "Would upgrade"; then
+    local would tok name old_version new_version upgrades=""
+    local -a names=()
+    would=$(echo "$dry_run_output" | grep '^Would install ' | tail -n 1 | sed 's/^Would install //')
+    for tok in $would; do
+        names+=("${tok%-*}")
+    done
+
+    # An upgrade is a package that is already installed at a different version than pip would install
+    if [ ${#names[@]} -gt 0 ]; then
+        local installed
+        installed=$($PYTHON_CMD -c 'import importlib.metadata as m, sys
+for n in sys.argv[1:]:
+    try:
+        print(n, m.version(n))
+    except m.PackageNotFoundError:
+        pass' "${names[@]}" 2>/dev/null) || installed=""
+        # $installed is "name version" pairs, one per line
+        set -- $installed
+        while [ $# -ge 2 ]; do
+            name=$1
+            old_version=$2
+            shift 2
+            for tok in $would; do
+                if [ "${tok%-*}" = "$name" ]; then
+                    new_version=${tok##*-}
+                    # Upgrading Dango itself is the point of the install, not a conflict
+                    if [ "$new_version" != "$old_version" ] && [ "$(echo "$name" | tr '[:upper:]' '[:lower:]')" != "getdango" ]; then
+                        upgrades="${upgrades}  • ${name}: ${old_version} → ${new_version}"$'\n'
+                    fi
+                fi
+            done
+        done
+    fi
+
+    if [ -n "$upgrades" ]; then
         print_warning "The following packages will be upgraded:"
         echo
-        echo "$dry_run_output" | grep "Would upgrade" | sed 's/Would upgrade: /  • /' | sed 's/ to / → /'
+        printf '%s' "$upgrades"
         echo
         print_warning "This may affect other Python applications on your computer."
         echo
@@ -495,6 +666,9 @@ check_conflicts() {
 
 # Function to install Dango globally
 install_dango_global() {
+    # Stop early, with advice, where a global install cannot work
+    check_global_install_possible
+
     # Check for conflicts first
     check_conflicts
 
@@ -591,6 +765,19 @@ install_dango_global() {
     fi
 }
 
+# Where to look when `dango init` fails
+print_init_log_hint() {
+    echo "More detail: the output above and, if it was created, $PROJECT_DIR/.dango/logs/dango.log"
+    echo "Get help: https://github.com/getdango/dango/issues"
+}
+
+# Printed when a global install worked but 'dango' is not on PATH in this terminal
+print_global_not_on_path() {
+    local what=$1
+    print_warning "Dango is installed, but 'dango' is not on your PATH yet${what}"
+    echo
+}
+
 # Function to initialize new project
 init_project() {
     local venv_path=$1
@@ -604,9 +791,13 @@ init_project() {
     else
         print_error "Failed to initialize project"
         echo
-        echo "You can try initializing manually later:"
-        echo "  source $venv_path/bin/activate"
-        echo "  dango init"
+        echo "Dango is installed, but 'dango init' did not finish. Fix the error shown above,"
+        echo "then run it again:"
+        echo -e "  ${YELLOW}cd $PROJECT_DIR${NC}"
+        echo -e "  ${YELLOW}source $venv_path/bin/activate${NC}"
+        echo -e "  ${YELLOW}dango init${NC}"
+        echo
+        print_init_log_hint
         exit 1
     fi
 }
@@ -764,7 +955,18 @@ main() {
                     echo
                 else
                     # Global install only
-                    install_dango_global
+                    if ! install_dango_global; then
+                        # pip succeeded; only this terminal cannot find the command yet
+                        print_global_not_on_path ""
+                        echo "To create your first project, run Dango by its full path:"
+                        echo -e "  ${YELLOW}$USER_BIN_DIR/dango init my-project${NC}"
+                        echo
+                        echo "Or make 'dango' available in this terminal first:"
+                        echo -e "  ${YELLOW}export PATH=\"$USER_BIN_DIR:\$PATH\"${NC}"
+                        echo "and add that line to $(detect_shell_config) to keep it."
+                        echo
+                        exit 0
+                    fi
 
                     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
                     echo -e "${GREEN}Installation complete!${NC}"
@@ -815,19 +1017,20 @@ main() {
                 echo -n "Enter project directory name (e.g., my-analytics): "
                 read_answer PROJECT_DIR DANGO_INSTALL_PROJECT_NAME "" '.'
 
-                # Non-interactive: clean the name as below first, so it is checked as it is used
-                if [ "${DANGO_INSTALL_NONINTERACTIVE:-}" = "1" ]; then
-                    typed_name=$PROJECT_DIR
-                    PROJECT_DIR=$(sanitize_project_name "$PROJECT_DIR")
-                    name_ok='^[a-z0-9][a-z0-9-]*$'
-                    if ! [[ "$PROJECT_DIR" =~ $name_ok ]]; then
-                        print_error "DANGO_INSTALL_PROJECT_NAME='$typed_name' is not usable as a project directory name (after cleanup: lowercase letters, digits and dashes, starting with a letter or digit)" >&2
-                        exit 1
+                # Clean the name first (lowercase, spaces to dashes, other characters dropped), so
+                # every check below sees the folder name that would be created
+                typed_name=$PROJECT_DIR
+                PROJECT_DIR=$(sanitize_project_name "$PROJECT_DIR")
+                name_ok='^[a-z0-9][a-z0-9-]*$'
+                if ! [[ "$PROJECT_DIR" =~ $name_ok ]]; then
+                    fail_if_noninteractive "DANGO_INSTALL_PROJECT_NAME='$typed_name' is not usable as a project directory name (after cleanup: lowercase letters, digits and dashes, starting with a letter or digit)"
+                    if [ -z "$typed_name" ]; then
+                        print_error "Project name cannot be empty"
+                    elif [ -z "$PROJECT_DIR" ]; then
+                        print_error "Project name cannot be empty (only letters, digits, spaces and dashes are kept)"
+                    else
+                        print_error "Project name must start with a letter or digit"
                     fi
-                fi
-
-                if [ -z "$PROJECT_DIR" ]; then
-                    print_error "Project name cannot be empty"
                     echo
                     continue
                 fi
@@ -844,9 +1047,6 @@ main() {
                 # Valid input, break the loop
                 break
             done
-
-            # Sanitize: lowercase, spaces → dashes, remove special chars
-            PROJECT_DIR=$(sanitize_project_name "$PROJECT_DIR")
 
             echo
             print_step "Creating project directory: $PROJECT_DIR"
@@ -875,14 +1075,14 @@ main() {
             else
                 # Global install
                 if ! install_dango_global; then
-                    print_error "Global installation failed"
-                    echo
-                    echo "Please restart your terminal (close and reopen), or run:"
-                    echo -e "  ${YELLOW}source $(detect_shell_config)${NC}"
-                    echo
-                    echo "Then navigate to your project:"
+                    print_global_not_on_path ", so the project was not initialised"
+                    echo "To finish setting up the project, run:"
                     echo -e "  ${YELLOW}cd $PROJECT_DIR${NC}"
-                    echo -e "  ${YELLOW}dango init${NC}"
+                    echo -e "  ${YELLOW}$USER_BIN_DIR/dango init${NC}"
+                    echo
+                    echo "Or make 'dango' available in this terminal first, then run 'dango init':"
+                    echo -e "  ${YELLOW}export PATH=\"$USER_BIN_DIR:\$PATH\"${NC}"
+                    echo
                     exit 1
                 fi
 
@@ -898,9 +1098,12 @@ main() {
                 else
                     print_error "Failed to initialize project"
                     echo
-                    echo "You can try initializing manually later:"
+                    echo "Dango is installed, but 'dango init' did not finish. Fix the error shown above,"
+                    echo "then run it again:"
                     echo -e "  ${YELLOW}cd $PROJECT_DIR${NC}"
                     echo -e "  ${YELLOW}dango init${NC}"
+                    echo
+                    print_init_log_hint
                     exit 1
                 fi
             fi

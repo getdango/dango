@@ -132,6 +132,8 @@ def test_global_install_inside_a_virtual_environment_stops_with_advice() -> None
     assert "inside an active virtual environment" in func
     assert "deactivate" in func
     assert func.index("base_prefix") < func.index("pip install --user")
+    guard = func[func.index('if ($inVenv -eq "1") {') :].split("\n    }\n")[0]
+    assert "Stop-Installer 1" in guard  # the guard stops the run, it does not just warn
 
 
 # --- 11, 12. clear next steps -----------------------------------------------------------------
@@ -147,7 +149,7 @@ def test_failed_init_prints_what_to_run_and_where_the_log_is() -> None:
 def test_dango_not_on_path_prints_the_full_command_for_both_global_flows() -> None:
     assert "Dango is installed, but 'dango' is not on your PATH yet" in CODE
     assert "the project was not initialised" in CODE
-    assert CODE.count('& "$script:DangoExe"') >= 2
+    assert CODE.count("$script:DangoExe") >= 4  # set once, shown in both global flows
 
 
 def test_venv_instructions_do_not_claim_the_environment_is_active() -> None:
@@ -155,3 +157,24 @@ def test_venv_instructions_do_not_claim_the_environment_is_active() -> None:
     assert "activated and ready" not in func
     assert "(Get-Location).Path" in func
     assert "Activate.ps1" in func
+
+
+# --- the Windows installer job proves the stop behaviour; a Linux leg runs the installer ----------
+
+
+def test_windows_job_runs_the_installer_stop_behaviour_both_ways() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "platform-smoke.yml").read_text(encoding="utf-8")
+    job = workflow[workflow.index("\n  installer:") : workflow.index("\n  installer-containers:")]
+    step = job[job.index("Installer stop behaviour") :].split("\n      - name:")[0]
+    assert "windows-latest" in step
+    assert "-File install.ps1" in step and "iex" in step and "session-still-open" in step
+
+
+def test_linux_container_leg_runs_install_sh_in_ubuntu_22_04_and_debian_12() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "platform-smoke.yml").read_text(encoding="utf-8")
+    job = workflow[workflow.index("\n  installer-containers:") :]
+    assert "ubuntu:22.04" in job and "debian:12" in job
+    assert "DANGO_INSTALL_SPEC" in job and "DANGO_INSTALL_NONINTERACTIVE=1" in job
+    assert "/repo:ro" in job and "/dist:ro" in job  # read-only mounts of the checkout and wheel
+    assert "docker run --rm" in job  # nothing is left behind
+    assert "continue-on-error" not in job

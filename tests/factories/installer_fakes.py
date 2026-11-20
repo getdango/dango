@@ -22,7 +22,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 INSTALL_SH = ROOT / "install.sh"
 BASH = "/bin/bash"  # the installer's shebang interpreter (bash 3.2 on macOS)
-TOOLS = ("cut", "tr", "grep", "sed", "uname", "mkdir", "basename", "cat", "sort", "env")
+TOOLS = (
+    "cut",
+    "tr",
+    "grep",
+    "sed",
+    "uname",
+    "mkdir",
+    "basename",
+    "cat",
+    "sort",
+    "env",
+    "tail",
+    "rm",
+)
 
 _FAKE_PYTHON = """#!{python}
 import json, os, pathlib, sys

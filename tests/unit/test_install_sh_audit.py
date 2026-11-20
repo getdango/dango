@@ -115,6 +115,16 @@ def test_global_install_without_pip_names_the_package(tmp_path: Path) -> None:
     assert _user_pip_installs(run) == []
 
 
+def test_pip_hint_for_a_versioned_python_is_ensurepip_not_the_default_package(
+    tmp_path: Path,
+) -> None:
+    snippet = "detect_distro_family() { echo fedora; }; PYTHON_CMD=python3.13; install_dango_global"
+    run = run_installer(tmp_path, {}, snippet=snippet)
+    assert run.proc.returncode != 0
+    assert "python3.13 -m ensurepip --user" in run.output
+    assert "dnf install python3-pip" not in run.output
+
+
 def test_a_failed_conflict_check_is_not_silent(tmp_path: Path) -> None:
     snippet = "python3() { return 1; }; PYTHON_CMD=python3; check_conflicts"
     run = run_installer(tmp_path, base_env(**GLOBAL), snippet=snippet)
@@ -168,6 +178,14 @@ def test_too_old_python_is_named_and_the_hint_matches_the_distro(tmp_path: Path)
     run = run_installer(tmp_path, base_env(FAKE_PY_VERSION="3.10"))
     assert run.proc.returncode != 0
     assert "Found Python 3.10" in run.output
+
+
+def test_missing_python_prints_the_hint_for_the_detected_system(tmp_path: Path) -> None:
+    snippet = "detect_distro_family() { echo fedora; }; check_python"
+    run = run_installer(tmp_path, {"FAKE_PY_VERSION": "3.10"}, snippet=snippet)
+    assert run.proc.returncode != 0
+    assert "sudo dnf install python3.13" in run.output
+    assert "brew install" not in run.output
 
 
 @pytest.mark.parametrize(
