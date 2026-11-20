@@ -13,13 +13,19 @@ from dango.cli import console
 @click.pass_context
 def doctor(ctx: click.Context) -> None:
     """Check credential health for all configured sources."""
+    from rich.markup import escape
     from rich.table import Table
 
     from dango.cli.utils import require_project_context
+    from dango.exceptions import ConfigError
     from dango.ingestion.credential_health import get_cached_credential_health
 
     project_root = require_project_context(ctx)
-    results = get_cached_credential_health(project_root)
+    try:
+        results = get_cached_credential_health(project_root)
+    except ConfigError as e:
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
+        raise click.Abort() from e
 
     if not results:
         console.print("\n[dim]No sources configured.[/dim]\n")

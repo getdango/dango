@@ -14,7 +14,13 @@ from pydantic import ValidationError
 from dango.exceptions import format_structured_error
 
 from .exceptions import ConfigError, ConfigNotFoundError, ConfigValidationError
-from .models import CloudConfig, DangoConfig, ProjectContext, SourcesConfig
+from .models import (
+    CloudConfig,
+    DangoConfig,
+    PlatformSettings,
+    ProjectContext,
+    SourcesConfig,
+)
 
 if TYPE_CHECKING:
     from .schedules import SchedulesConfig
@@ -239,6 +245,37 @@ class ConfigLoader:
 
         return load_schedules_config(self.project_root)
 
+    def _parse_platform_settings(self, data: dict) -> PlatformSettings:
+        """Validate the ``platform:`` section of project.yml data."""
+        section = data.get("platform")
+        if section is None:
+            section = {}
+        if not isinstance(section, dict):
+            raise ConfigValidationError(
+                f"Invalid platform configuration in {self.project_file}: the 'platform' section "
+                f"must be a mapping of settings (for example 'port: 8800'), got {section!r}"
+            )
+        try:
+            return PlatformSettings(**section)
+        except ValidationError as e:
+            raise ConfigValidationError(
+                f"Invalid platform configuration in {self.project_file}:\n{e}"
+            ) from e
+
+    def load_platform_settings(self) -> PlatformSettings:
+        """
+        Load only the ``platform:`` section of project.yml.
+
+        Unlike ``load_config()`` this does not read sources.yml, so a caller that
+        needs one platform setting (for example the sync preflight) is not
+        affected by problems elsewhere in the configuration.
+
+        Raises:
+            ConfigNotFoundError: If project.yml doesn't exist
+            ConfigValidationError: If a platform setting is invalid
+        """
+        return self._parse_platform_settings(self.load_yaml(self.project_file))
+
     def load_config(self) -> DangoConfig:
         """
         Load complete Dango configuration.
@@ -255,9 +292,9 @@ class ConfigLoader:
 
         # Load platform, auth, and api settings from project.yml
         data = self.load_yaml(self.project_file)
-        from dango.config.models import ApiConfig, AuthConfig, PlatformSettings
+        from dango.config.models import ApiConfig, AuthConfig
 
-        platform = PlatformSettings(**data.get("platform", {}))
+        platform = self._parse_platform_settings(data)
         auth = AuthConfig(**data.get("auth", {}))
         api = ApiConfig(**data.get("api", {}))
 
