@@ -263,6 +263,8 @@ elif cmd == "stop":
     print("fake platform stopped")
     if injected("FAKE_FAIL", "stop", nth):
         sys.exit(1)
+elif cmd == "--version":
+    print("dango, version 1.0.15")
 else:
     print("unknown command", cmd, file=sys.stderr)
     sys.exit(2)

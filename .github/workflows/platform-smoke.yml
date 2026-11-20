@@ -21,6 +21,7 @@ on:
       - scripts/first_user_journey.ps1
       - scripts/journey_support.py
       - scripts/journey_services.py
+      - scripts/journey_installer.py
       - pyproject.toml
       - install.ps1
       - install.sh
@@ -178,4 +179,79 @@ jobs:
             echo "- init (cp1252): ${{ steps.init_cp1252.outcome }}"
             echo "- unit subset: ${{ steps.unit.outcome }}"
             echo "- first-user journey: ${{ steps.journey.outcome }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The same first-user journey, started the way a real first user starts: the checkout's
+  # install.sh (install.ps1 on Windows) installs the wheel built here, non-interactively
+  # (DANGO_INSTALL_SPEC + DANGO_INSTALL_NONINTERACTIVE), into a clean folder; every later step
+  # then uses the dango that installer put in its venv. A separate job so it runs in parallel and
+  # keeps its own 30-minute worst case.
+  installer:
+    name: Installer journey (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    # Worst case: setup + wheel build (~5 min) + journey budget (15 min, the installer step
+    # included) + cleanup after the budget (~5 min) = ~25 min.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            python-version: "3.12"
+          - os: macos-latest # Apple Silicon (arm64)
+            python-version: "3.12"
+          - os: macos-15-intel # Intel (x64)
+            python-version: "3.12"
+          - os: ubuntu-24.04
+            python-version: "3.12"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Build wheel
+        id: build
+        run: |
+          python -m pip install build
+          python -m build --wheel --outdir dist
+          ls dist
+
+      - name: First-user journey through the installer
+        id: journey
+        if: ${{ !cancelled() }}
+        run: |
+          set +e
+          python scripts/first_user_journey.py --installer --spec "$(ls dist/*.whl)" \
+            --workdir "$RUNNER_TEMP/journey" --log "$RUNNER_TEMP/journey.log" \
+            --isolate-keyring --budget 900 | tee "$RUNNER_TEMP/journey.out"
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            echo "::group::Journey log (first 200 lines)"
+            head -n 200 "$RUNNER_TEMP/journey.log"
+            echo "::endgroup::"
+          fi
+          {
+            echo "### Installer journey (${{ matrix.os }})"
+            echo '```'
+            grep -E '^(PASS|FAIL|SKIP) ' "$RUNNER_TEMP/journey.out"
+            echo '```'
+            echo "Log tail:"
+            echo '```'
+            tail -n 40 "$RUNNER_TEMP/journey.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+      - name: Result summary
+        if: always()
+        run: |
+          {
+            echo "### Installer smoke: ${{ matrix.os }}"
+            echo "- build wheel: ${{ steps.build.outcome }}"
+            echo "- installer journey: ${{ steps.journey.outcome }}"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -8,6 +8,7 @@ installed (not a dango the harness built). A fake installer stands in for instal
 from __future__ import annotations
 
 import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -149,3 +150,22 @@ def test_default_journey_has_no_installer_step(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     assert "installer" not in result.stdout
     assert not (tmp_path / "work-installer").exists()
+
+
+def test_powershell_installer_runs_as_utf8_text_like_the_documented_one_liner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "scripts"))
+    sys.modules.pop("journey_installer", None)
+    import journey_installer
+
+    argv = journey_installer.installer_command(Path("C:/co/install.ps1"))
+    # install.ps1 is UTF-8 without a BOM: `powershell -File` reads it as ANSI and cannot parse
+    # it, while `irm ... | iex` (what users run) decodes the text as UTF-8.
+    assert "-File" not in argv
+    # A process-level -ExecutionPolicy overrides the user-level policy the installer sets, so
+    # Set-ExecutionPolicy fails; users running the one-liner pass no such option.
+    assert "-ExecutionPolicy" not in argv
+    command = argv[argv.index("-Command") + 1]
+    assert "ReadAllText" in command and "UTF8" in command and "install.ps1" in command
+    assert journey_installer.installer_command(Path("/co/install.sh")) == ["bash", "/co/install.sh"]

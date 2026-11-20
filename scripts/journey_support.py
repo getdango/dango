@@ -139,12 +139,18 @@ class Journey:
             fh.write(line + "\n")
 
     def run(
-        self, argv: list[str], timeout: float | None = None, ignore_budget: bool = False
+        self,
+        argv: list[str],
+        timeout: float | None = None,
+        ignore_budget: bool = False,
+        cwd: Path | None = None,
+        env_extra: dict[str, str] | None = None,
     ) -> Proc:
         """Run a command in the workdir, append command, exit code and output to the log.
 
         The timeout is capped by what is left of the total budget, except for cleanup commands
-        (ignore_budget=True) that must still run once the budget is spent.
+        (ignore_budget=True) that must still run once the budget is spent. `cwd` replaces the
+        workdir and `env_extra` adds to the journey environment (the installer step uses both).
         """
         limit = timeout if timeout is not None else self.step_timeout
         if ignore_budget:
@@ -158,8 +164,8 @@ class Journey:
         try:
             proc = subprocess.run(
                 argv,
-                cwd=self.workdir,
-                env=self.env(),
+                cwd=cwd or self.workdir,
+                env={**self.env(), **(env_extra or {})},
                 capture_output=True,
                 text=True,
                 encoding=self.output_encoding(),

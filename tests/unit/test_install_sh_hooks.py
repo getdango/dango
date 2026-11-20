@@ -281,15 +281,16 @@ def test_noninteractive_project_name_that_exists_fails_instead_of_looping(
 
 # --- every prompt has a hook --------------------------------------------------------------------
 
-HELPER = re.compile(r"^read_answer\(\) \{\n.*?^\}\n", re.S | re.M)
+HELPER = re.compile(r"^(read_answer|run_dango_init)\(\) \{\n.*?^\}\n", re.S | re.M)
 
 
 def _outside_helper() -> str:
-    assert HELPER.search(TEXT), "install.sh must define a read_answer helper"
-    return HELPER.sub("", TEXT)
+    assert "read_answer() {" in TEXT, "install.sh must define a read_answer helper"
+    code = "\n".join(ln for ln in TEXT.splitlines() if not ln.lstrip().startswith("#"))
+    return HELPER.sub("", code + "\n")
 
 
-def test_no_prompt_reads_the_terminal_outside_the_helper() -> None:
+def test_no_prompt_reads_the_terminal_outside_the_helpers() -> None:
     rest = _outside_helper()
     assert "/dev/tty" not in rest
     assert not re.search(r"^\s*read\s", rest, re.M)

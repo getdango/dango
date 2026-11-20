@@ -2,8 +2,10 @@
 
 Walk a first-user Dango session in a fresh work directory and print PASS/FAIL/SKIP per step:
 init, add-source, sync, count, dbt, web (start, stop, restart), second-sync, and, only with
---with-docker, docker (start, status, stop). Used by the platform-smoke workflow and by a person
-on a real machine (scripts/first_user_journey.ps1). Standard library only.
+--with-docker, docker (start, status, stop). With --installer the journey first runs the
+checkout's install.sh / install.ps1 with the built wheel and continues with the dango it
+installed. Used by the platform-smoke workflow and by a person on a real machine
+(scripts/first_user_journey.ps1). Standard library only.
 """
 
 import argparse
@@ -13,6 +15,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from journey_installer import DEFAULT_INSTALLER_TIMEOUT_SECONDS, step_installer
 from journey_services import docker_step, web_step
 from journey_support import (
     DEFAULT_BUDGET_SECONDS,
@@ -228,15 +231,58 @@ def _absolute_if_path(value: str) -> str:
     return shutil.which(value) or value
 
 
+def _absolute_spec(value: str) -> str:
+    """Absolute path when `value` names an existing file, else the spec unchanged."""
+    return os.path.abspath(value) if os.path.exists(value) else value
+
+
+def _checked_paths(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Make the path arguments absolute and reject conflicting or missing options."""
+    if args.installer:
+        if not args.spec:
+            parser.error("--installer requires --spec (a built wheel path or a pip spec)")
+        if args.dango or args.python:
+            parser.error("--installer runs the dango the installer installs; drop --dango/--python")
+        args.spec = _absolute_spec(args.spec)
+    else:
+        if not args.dango:
+            parser.error("--dango is required unless --installer is given")
+        if args.spec:
+            parser.error("--spec is only used with --installer")
+    # Children run with cwd=workdir, so every path must be absolute before they start.
+    args.workdir = args.workdir.absolute()
+    args.log = args.log.absolute()
+    args.dango = _absolute_if_path(args.dango) if args.dango else None
+    args.python = _absolute_if_path(args.python) if args.python else None
+    args.installer_script = args.installer_script.absolute() if args.installer_script else None
+    args.installer_dir = args.workdir.with_name(args.workdir.name + "-installer")
+    folders = [("--workdir", args.workdir)]
+    if args.installer:
+        folders.append(("the installer directory", args.installer_dir))
+    for label, folder in folders:
+        if folder.exists() and (not folder.is_dir() or any(folder.iterdir())):
+            parser.error(safe(f"{label} {folder} is not empty; use a new or empty directory"))
+
+
 def main() -> int:
     """Parse arguments, run the steps in order and report; returns the exit code."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dango", required=True, help="path to the dango executable")
+    parser.add_argument("--dango", help="path to the dango executable (not with --installer)")
     parser.add_argument(
         "--workdir", required=True, type=Path, help="new or empty directory for the project"
     )
     parser.add_argument("--log", required=True, type=Path, help="log file (appended, UTF-8)")
     parser.add_argument("--with-docker", action="store_true", help="also run the docker step")
+    parser.add_argument(
+        "--installer",
+        action="store_true",
+        help="first run install.sh / install.ps1 non-interactively (needs --spec), then use its dango",
+    )
+    parser.add_argument("--spec", help="with --installer: built wheel path or pip spec to install")
+    parser.add_argument(
+        "--installer-timeout", type=float, default=DEFAULT_INSTALLER_TIMEOUT_SECONDS
+    )
+    parser.add_argument("--installer-script", type=Path, help=argparse.SUPPRESS)  # tests
     parser.add_argument("--step-timeout", type=float, default=DEFAULT_STEP_TIMEOUT_SECONDS)
     parser.add_argument(
         "--isolate-keyring", action="store_true", help="use the fail keyring backend"
@@ -267,20 +313,15 @@ def main() -> int:
     parser.add_argument("--port-free-timeout", type=float, default=10, help=argparse.SUPPRESS)
     parser.add_argument("--up-timeout", type=float, default=60, help=argparse.SUPPRESS)
     args = parser.parse_args()
-    # Children run with cwd=workdir, so every path must be absolute before they start.
-    args.workdir = args.workdir.absolute()
-    args.log = args.log.absolute()
-    args.dango = _absolute_if_path(args.dango)
-    args.python = _absolute_if_path(args.python) if args.python else None
-    if args.workdir.exists() and (not args.workdir.is_dir() or any(args.workdir.iterdir())):
-        parser.error(safe(f"--workdir {args.workdir} is not empty; use a new or empty directory"))
+    _checked_paths(parser, args)
 
-    dango = Path(args.dango)
-    python = args.python or str(
-        dango.parent / ("python.exe" if sys.platform == "win32" else "python")
+    # With --installer the installer step sets both, from the venv it creates.
+    dango = Path(args.dango) if args.dango else None
+    python = args.python or (
+        str(dango.parent / ("python.exe" if sys.platform == "win32" else "python")) if dango else ""
     )
     j = Journey(
-        str(dango),
+        args.dango or "",
         python,
         args.workdir,
         args.log,
@@ -295,8 +336,12 @@ def main() -> int:
         fixed_ports=args.ports or (),
     )
     args.log.parent.mkdir(parents=True, exist_ok=True)
-    j.note(f"# first-user journey: dango={dango} python={python} workdir={args.workdir}")
+    j.note(
+        f"# first-user journey: dango={dango or '(from the installer)'} python={python or '(from the installer)'}"
+        f" workdir={args.workdir}"
+    )
 
+    depends = {**DEPENDS, "init": ["installer"]} if args.installer else DEPENDS
     steps: list[tuple[str, Callable[[Journey], Step]]] = [
         ("init", step_init),
         ("add-source", step_add_source),
@@ -306,6 +351,16 @@ def main() -> int:
         ("web", lambda jj: web_step(jj, args.stop_grace)),
         ("second-sync", step_second_sync),
     ]
+    if args.installer:
+        steps.insert(
+            0,
+            (
+                "installer",
+                lambda jj: step_installer(
+                    jj, args.spec, args.installer_dir, args.installer_script, args.installer_timeout
+                ),
+            ),
+        )
     if args.with_docker:
         steps.append(("docker", docker_step))
     selected = set(args.steps.split(",")) if args.steps else None
@@ -316,7 +371,7 @@ def main() -> int:
         missing = next(
             (
                 d
-                for d in DEPENDS.get(name, [])
+                for d in depends.get(name, [])
                 if d not in j.results or j.results[d].status != "PASS"
             ),
             None,

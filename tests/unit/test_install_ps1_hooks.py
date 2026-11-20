@@ -35,7 +35,8 @@ HELPER = re.compile(r"^function Read-Answer \{\n.*?^\}\n", re.S | re.M)
 
 def _outside_helper() -> str:
     assert HELPER.search(TEXT), "install.ps1 must define a Read-Answer helper"
-    return HELPER.sub("", TEXT)
+    code = "\n".join(ln for ln in LINES if not ln.lstrip().startswith("#"))
+    return HELPER.sub("", code + "\n")
 
 
 def test_no_prompt_uses_read_host_outside_the_helper() -> None:
