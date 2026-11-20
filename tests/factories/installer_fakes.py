@@ -35,6 +35,7 @@ TOOLS = (
     "env",
     "tail",
     "rm",
+    "ln",
 )
 
 _FAKE_PYTHON = """#!{python}
@@ -67,6 +68,12 @@ elif args[:2] == ["-m", "venv"]:
         sys.exit(1)
     (target / "bin").mkdir(parents=True, exist_ok=True)
     (target / "bin" / "activate").write_text("", encoding="utf-8")
+elif args[:3] == ["-m", "pip", "install"] and env.get("FAKE_PIP_FAIL"):
+    # FAKE_PIP_FAIL=pip fails the pip upgrade; FAKE_PIP_FAIL=dango fails the --upgrade of Dango
+    is_pip_upgrade = args[3:5] == ["--upgrade", "pip"]
+    if (env["FAKE_PIP_FAIL"] == "pip") == is_pip_upgrade and "--upgrade" in args:
+        print("WARNING: Retrying (Retry(total=4)) after connection broken", file=sys.stderr)
+        sys.exit(1)
 elif args[:3] == ["-m", "pip", "--version"]:
     if env.get("FAKE_NO_PIP"):
         print("/usr/bin/python3: No module named pip", file=sys.stderr)
@@ -75,6 +82,11 @@ elif args[:3] == ["-m", "pip", "--version"]:
 elif args[:2] == ["-m", "site"]:
     print(env["FAKE_USER_BASE"])
 elif "--dry-run" in args:
+    if env.get("FAKE_PIP_NO_DRYRUN"):
+        # pip older than 22.2 has no --dry-run
+        print("Usage:\\n  pip install [options] <requirement specifier> ...", file=sys.stderr)
+        print("no such option: --dry-run", file=sys.stderr)
+        sys.exit(2)
     if env.get("FAKE_DRY_RUN_OUTPUT"):
         print(env["FAKE_DRY_RUN_OUTPUT"])
     elif env.get("FAKE_WOULD_UPGRADE"):
