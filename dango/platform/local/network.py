@@ -42,7 +42,7 @@ class NetworkConfig:
         self.logs_dir = self.shared_nginx_dir / "logs"
 
         # Ensure directories exist
-        self.dango_home.mkdir(exist_ok=True)
+        self.dango_home.mkdir(parents=True, exist_ok=True)
         self.shared_nginx_dir.mkdir(exist_ok=True)
         self.sites_dir.mkdir(exist_ok=True)
         self.logs_dir.mkdir(exist_ok=True)

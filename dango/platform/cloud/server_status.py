@@ -388,12 +388,15 @@ def _get_sync_history(ssh: Any) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def check_latest_pypi_version(*, include_pre: bool = False) -> str | None:
+def check_latest_pypi_version(
+    *, include_pre: bool = False, certificate_hint: bool = False
+) -> str | None:
     """Check the latest ``getdango`` version on PyPI.
 
     Args:
         include_pre: If ``True``, include pre-release versions (alpha, beta, rc).
             When ``False`` (default), returns the latest stable version only.
+        certificate_hint: Print guidance when the failure is a certificate error.
 
     Returns the version string (e.g. ``"1.0.0"``) or ``None`` on any failure
     (network error, timeout, unexpected response format).
@@ -421,8 +424,12 @@ def check_latest_pypi_version(*, include_pre: bool = False) -> str | None:
                 # Fall through to stable version if no releases found
             version: str | None = data.get("info", {}).get("version")
             return version
-    except Exception:  # noqa: BLE001 — intentionally broad for resilience
-        pass
+    except Exception as exc:  # noqa: BLE001 — intentionally broad for resilience
+        if certificate_hint:
+            from dango.utils.tls_errors import is_certificate_error, print_certificate_guidance
+
+            if is_certificate_error(exc):
+                print_certificate_guidance()
     return None
 
 

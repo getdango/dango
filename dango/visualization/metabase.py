@@ -17,6 +17,7 @@ import yaml
 
 from dango.security.metabase_config import load_metabase_admin_credentials, write_metabase_metadata
 from dango.security.metabase_credentials import MetabaseCredentialStore
+from dango.utils.docker_hints import DOCKER_UNAVAILABLE_ERROR
 from dango.visualization.metabase_connection_lock import apply_lock_catchup, locked_duckdb_details
 
 logger = logging.getLogger(__name__)
@@ -2077,14 +2078,27 @@ def refresh_metabase_connection(
                 ServiceStatus.UNHEALTHY,
             )
         else:
-            check_result = subprocess.run(
-                ["docker", "ps", "--filter", f"name={container_name}", "--format", "{{.Names}}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                encoding="utf-8",
-                errors="replace",
-            )
+            try:
+                check_result = subprocess.run(
+                    [
+                        "docker",
+                        "ps",
+                        "--filter",
+                        f"name={container_name}",
+                        "--format",
+                        "{{.Names}}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                # No docker binary, or a daemon that is hung or still starting: nothing to refresh, and nothing worth a stack trace.
+                return (False, DOCKER_UNAVAILABLE_ERROR, None)
+            if check_result.returncode != 0:  # daemon stopped or unreachable
+                return (False, DOCKER_UNAVAILABLE_ERROR, None)
             running = container_name in check_result.stdout
 
         if not running:

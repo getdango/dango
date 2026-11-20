@@ -9,6 +9,7 @@ import click
 from rich.markup import escape
 
 from dango.cli import console
+from dango.utils.docker_hints import note_metabase_skipped
 
 
 @click.command(
@@ -124,6 +125,8 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
             console.print("[green]✓ Metabase connection refreshed[/green]")
             if post["metabase_schema_synced"]:
                 console.print("[green]✓ Metabase schema synced[/green]")
+        elif post.get("metabase_docker_unavailable"):
+            note_metabase_skipped(console)
         else:
             console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")
 

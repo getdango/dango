@@ -712,6 +712,8 @@ def check_service_via_docker(service_name: str) -> str:
                 return "stopped"
         else:
             return "not_found"
+    except FileNotFoundError:
+        return "unknown"  # no docker binary: nothing to report, and nothing worth an error line
     except Exception as e:
         logger.error(f"Error checking service {service_name}: {e}")
         return "unknown"

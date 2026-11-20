@@ -37,6 +37,7 @@ from rich.table import Table
 
 from dango.cli import console
 from dango.cli.utils import class_for_missing_dir, current_compose_project, safe_confirm
+from dango.utils.docker_hints import docker_state, docker_unreachable_note
 
 # Docker Compose's default naming conventions (live-verified against Docker
 # 28.5.1 / Compose v2.40.2 with a scratch compose project — see PR
@@ -419,7 +420,8 @@ def docker_audit(yes: bool, dry_run: bool) -> None:
 
     groups = _build_groups(current_compose_project())
     if not groups:
-        console.print("[green]No dango-* Docker resources found on this machine.[/green]")
+        note = docker_unreachable_note(docker_state(), "nothing was checked")
+        console.print(note or "[green]No dango-* Docker resources found on this machine.[/green]")
         return
 
     table = Table(title="Dango Docker resources", show_header=True, header_style="bold cyan")

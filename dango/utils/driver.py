@@ -21,6 +21,8 @@ from http.client import HTTPMessage
 from pathlib import Path
 from typing import IO
 
+from dango.utils.tls_errors import is_certificate_error
+
 DRIVER_VERSION_FILE = ".driver-version"
 """Filename written to ``metabase-plugins/`` after a successful driver download."""
 
@@ -57,6 +59,10 @@ class DriverIntegrityError(RuntimeError):
 
 class DriverDownloadError(RuntimeError):
     """Driver could not be fetched (network or read failure) after bounded attempts."""
+
+
+class DriverCertificateError(DriverDownloadError):
+    """Driver download failed certificate verification (often a TLS-inspecting proxy)."""
 
 
 class DriverFilesystemError(RuntimeError):
@@ -198,7 +204,8 @@ def download_verified_driver(
 
     Raises:
         DriverIntegrityError: The last failed attempt returned wrong bytes.
-        DriverDownloadError: The last failed attempt was a network/read failure.
+        DriverDownloadError: The last failed attempt was a network/read failure
+            (``DriverCertificateError`` when it failed certificate verification).
         DriverFilesystemError: The plugins directory or marker could not be written.
     """
     try:
@@ -236,6 +243,11 @@ def download_verified_driver(
         raise DriverIntegrityError(
             "DuckDB driver integrity verification failed: the downloaded file did not match "
             f"the pinned checksum after {_DOWNLOAD_ATTEMPTS} attempts."
+        ) from None
+    if last_error is not None and is_certificate_error(last_error):
+        raise DriverCertificateError(
+            "DuckDB driver download failed certificate verification (a corporate firewall or "
+            "proxy may be inspecting HTTPS traffic)."
         ) from None
     raise DriverDownloadError(
         f"Failed to download DuckDB driver after {_DOWNLOAD_ATTEMPTS} attempts. "

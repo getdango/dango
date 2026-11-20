@@ -125,13 +125,17 @@ def _get_analyzer() -> Any | None:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
-        except Exception:
+        except Exception as exc:
             _analyzer_init_failed = True
             logger.warning(
                 "pii_spacy_download_failed",
                 model=_SPACY_MODEL,
                 hint="Install manually: python -m spacy download en_core_web_sm",
             )
+            from dango.utils.tls_errors import is_certificate_error, print_certificate_guidance
+
+            if is_certificate_error(exc):
+                print_certificate_guidance()
             return None
 
     # Suppress verbose Presidio + spaCy loggers during init (use alias to

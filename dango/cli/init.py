@@ -1042,11 +1042,13 @@ custom_sources/
         )
 
         from dango.utils.driver import (
+            DriverCertificateError,
             DriverFilesystemError,
             DriverIntegrityError,
             download_verified_driver,
             reuse_verified_driver,
         )
+        from dango.utils.tls_errors import print_certificate_guidance
 
         try:
             reused = reuse_verified_driver(plugins_dir)
@@ -1076,6 +1078,9 @@ custom_sources/
                     print_error("✗ DuckDB driver integrity verification failed")
                 elif isinstance(exc, DriverFilesystemError):
                     print_error("✗ DuckDB driver could not be written locally")
+                elif isinstance(exc, DriverCertificateError):
+                    print_error("✗ DuckDB driver download failed certificate verification")
+                    print_certificate_guidance(console)
                 else:
                     print_error("✗ Failed to download DuckDB driver (network issue)")
                 console.print(

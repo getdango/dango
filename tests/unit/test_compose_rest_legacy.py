@@ -52,7 +52,7 @@ def test_refresh_uses_docker_ps_then_docker_restart(tmp_path: Path) -> None:
     root = tmp_path / "p"
     (root / ".dango").mkdir(parents=True)
     name = "dango-test-metabase-1"
-    ran = [MagicMock(stdout=f"{name}\n"), MagicMock(returncode=0, stderr="")]
+    ran = [MagicMock(returncode=0, stdout=f"{name}\n"), MagicMock(returncode=0, stderr="")]
     with (
         patch("dango.platform.docker.get_compose_project_name", return_value="dango-test"),
         patch.object(mb.subprocess, "run", side_effect=ran) as run,

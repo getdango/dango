@@ -12,6 +12,7 @@ from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.utils import safe_confirm
+from dango.utils.docker_hints import docker_state, docker_unreachable_note
 
 
 def _format_size(size_bytes: int) -> str:
@@ -240,6 +241,9 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
             from dango.platform.docker import get_compose_project_name
 
             compose_project = get_compose_project_name(project_root)
+            note = docker_unreachable_note(docker_state(), "Docker volumes were not checked")
+            if note:
+                console.print(note)
             found = _collect_docker_volumes(compose_project)
             declared = _declared_volumes(project_root, compose_project)
             # Volumes the compose file declares (Metabase dashboards, questions, users)

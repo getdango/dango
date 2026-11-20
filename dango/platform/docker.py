@@ -10,11 +10,15 @@ from enum import Enum
 from pathlib import Path
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from dango.config.models import DangoConfig
 from dango.exceptions import DockerIdentityCollisionError, format_structured_error
 from dango.platform import compose_exec
+from dango.utils.build_output import build_failure_report
+from dango.utils.docker_hints import docker_binary_present, docker_guidance_lines
+from dango.utils.error_text import rich_error_text
 
 console = Console()
 
@@ -156,7 +160,7 @@ def _get_existing_container_working_dirs(compose_project_name: str) -> set[str]:
         if result.returncode != 0:
             return set()
         return {line.strip() for line in result.stdout.splitlines() if line.strip()}
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except (subprocess.TimeoutExpired, OSError):
         return set()
 
 
@@ -305,7 +309,7 @@ class DockerManager:
                 errors="replace",
             )
             return result.returncode == 0 and bool(result.stdout.strip())
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.TimeoutExpired, OSError):
             return False
 
     def is_docker_available(self) -> bool:
@@ -320,7 +324,7 @@ class DockerManager:
                 errors="replace",
             )
             return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.TimeoutExpired, OSError):
             return False
 
     def is_docker_daemon_running(self) -> bool:
@@ -335,7 +339,7 @@ class DockerManager:
                 errors="replace",
             )
             return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.TimeoutExpired, OSError):
             return False
 
     def is_compose_available(self) -> bool:
@@ -363,7 +367,7 @@ class DockerManager:
                 errors="replace",
             )
             return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.TimeoutExpired, OSError):
             return False
 
     def get_compose_command(self) -> list[str]:
@@ -380,7 +384,7 @@ class DockerManager:
             )
             if result.returncode == 0:
                 return ["docker", "compose"]
-        except (subprocess.TimeoutExpired, FileNotFoundError):  # noqa: BLE001
+        except (subprocess.TimeoutExpired, OSError):
             pass
 
         # Fall back to docker-compose (v1)
@@ -418,16 +422,13 @@ class DockerManager:
             return False
 
         if not helper and not self.is_docker_available():
+            binary_present = docker_binary_present()
             msg = format_structured_error(
                 what_failed="Docker is not available",
-                causes=[
-                    "Docker Desktop not installed",
-                    "Docker daemon not running",
-                    "Docker CLI not in system PATH",
-                ],
-                suggested_fix="Install Docker from https://docs.docker.com/get-docker/ and ensure the daemon is running",
+                causes=docker_guidance_lines(binary_present=binary_present),
+                suggested_fix="Install or start Docker as described above, then run 'dango start' again",
             )
-            console.print(f"[red]Error:[/red]\n{msg}")
+            console.print(f"[red]Error:[/red]\n{escape(msg)}")
             return False
 
         if not helper and not self.is_compose_available():
@@ -450,7 +451,7 @@ class DockerManager:
         try:
             first_run = not self._metabase_image_exists()
         except compose_exec.ComposeInterrupted as e:
-            console.print(f"[red]Error:[/red] {e}")
+            console.print(f"[red]Error:[/red] {escape(str(e))}")
             return False
         if first_run:
             console.print(
@@ -500,8 +501,11 @@ class DockerManager:
                     suggested_fix=fix,
                 )
                 console.print(f"[red]Error:[/red]\n{msg}")
-                if result.stderr:
-                    console.print(f"\nFull output:\n{result.stderr}")
+                report = build_failure_report(
+                    self.project_root, "\n".join(filter(None, [result.stdout, result.stderr]))
+                )
+                if report:
+                    console.print(f"\n{report}")
                 return False
 
         except subprocess.TimeoutExpired as exc:
@@ -533,12 +537,16 @@ class DockerManager:
             )
             console.print(f"[red]Error:[/red]\n{msg}")
             if partial_stdout:
-                console.print(f"\nPartial output before timeout:\n{partial_stdout}")
+                console.print(
+                    f"\nPartial output before timeout:\n{rich_error_text(self.project_root, partial_stdout)}"
+                )
             if partial_stderr:
-                console.print(f"\nPartial error output before timeout:\n{partial_stderr}")
+                console.print(
+                    f"\nPartial error output before timeout:\n{rich_error_text(self.project_root, partial_stderr)}"
+                )
             return False
         except Exception as e:
-            console.print(f"[red]Error:[/red] {e}")
+            console.print(f"[red]Error:[/red] {escape(str(e))}")
             return False
 
     def stop_services(self) -> bool:
@@ -563,6 +571,11 @@ class DockerManager:
         if not helper and not self.compose_file.exists():
             console.print("[yellow]Warning:[/yellow] docker-compose.yml not found")
             return True  # Nothing to stop
+
+        if not helper and not docker_binary_present():
+            # Without Docker nothing could be checked: say so once and let callers carry on.
+            console.print("[dim]Docker is not available; Docker services were not checked.[/dim]")
+            return True
 
         console.print("Stopping Dango services...")
 
@@ -601,14 +614,14 @@ class DockerManager:
                 return True
             else:
                 console.print("[red]Error:[/red] Failed to stop services")
-                console.print(result.stderr)
+                console.print(escape(result.stderr or ""))
                 return False
 
         except subprocess.TimeoutExpired:
             console.print("[red]Error:[/red] Timeout stopping services")
             return False
         except Exception as e:
-            console.print(f"[red]Error:[/red] {e}")
+            console.print(f"[red]Error:[/red] {escape(str(e))}")
             return False
 
     def _warn_orphaned_containers(self) -> None:

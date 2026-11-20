@@ -16,6 +16,8 @@ from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.utils import safe_confirm
+from dango.utils.redact import redact_patterns
+from dango.utils.tls_errors import is_certificate_error_text, print_certificate_guidance
 
 _VERSION_CACHE_TTL = 86400  # 24 hours in seconds
 _NEGATIVE_CACHE_TTL = 300  # 5 minutes — avoid hammering a down PyPI
@@ -51,7 +53,7 @@ def get_latest_version_cached(project_root: Path) -> str | None:
     # Fetch from PyPI
     from dango.platform.cloud.server_status import check_latest_pypi_version
 
-    latest = check_latest_pypi_version()
+    latest = check_latest_pypi_version(certificate_hint=True)
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(
@@ -67,6 +69,42 @@ def get_latest_version_cached(project_root: Path) -> str | None:
     except OSError:
         pass  # Non-critical — can't write cache
     return latest
+
+
+_ACCESS_MARKERS = ("winerror 5", "winerror 32", "access is denied", "errno 13", "permission denied")
+
+
+def _is_access_error(text: str) -> bool:
+    """True when pip's output reports a permission or locked-file failure."""
+    lowered = text.lower()
+    return any(marker in lowered for marker in _ACCESS_MARKERS)
+
+
+def _pip_command(target_version: str) -> str:
+    """The pip command for Dango's own interpreter (not whichever ``python`` is first on PATH)."""
+    return f'"{sys.executable}" -m pip install getdango=={target_version}'
+
+
+def _print_access_guidance(target_version: str) -> None:
+    """Manual steps after pip could not write files (a locked ``dango.exe`` on Windows)."""
+    if sys.platform == "win32":
+        console.print()
+        console.print("[bold]The running dango.exe cannot be replaced while it is in use.[/bold]")
+        console.print(
+            "  1. Run [cyan]dango stop[/cyan] and close other dango, Marimo and web windows."
+        )
+        console.print("  2. Open a new terminal and run:")
+        console.print(f"     [cyan]{escape(_pip_command(target_version))}[/cyan]")
+        console.print("  3. Run [cyan]dango start[/cyan] (it applies any pending migrations).")
+    else:
+        console.print()
+        console.print(
+            "[bold]pip could not write to this Python environment (permission problem).[/bold]"
+        )
+        console.print(
+            "  Use the virtual environment Dango was installed in, or fix the permissions, "
+            "then run the upgrade again."
+        )
 
 
 #: Pre-upgrade safety copies kept in ``.dango/backups/`` (oldest removed first).
@@ -263,6 +301,11 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
 
     # Run pip install
     console.print()
+    if sys.platform == "win32":
+        console.print(
+            "[dim]Windows: if pip reports 'Access is denied', close other dango windows and "
+            f"run '{escape(_pip_command(target_version))}' from a new terminal.[/dim]"
+        )
     console.print(f"[bold]Installing getdango=={target_version}...[/bold]")
 
     try:
@@ -280,10 +323,14 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
 
     if pip_result.returncode != 0:
         console.print("[red]Error:[/red] pip install failed.")
-        stderr = pip_result.stderr.strip()
+        stderr = redact_patterns(pip_result.stderr.strip())
         if stderr:
             for line in stderr.splitlines()[-5:]:
-                console.print(f"  [dim]{line}[/dim]")
+                console.print(f"  [dim]{escape(line)}[/dim]")
+        if is_certificate_error_text(stderr):
+            print_certificate_guidance(console)
+        elif _is_access_error(stderr):
+            _print_access_guidance(target_version)
         raise SystemExit(1)
 
     console.print(f"  [green]Installed getdango=={target_version}[/green]")

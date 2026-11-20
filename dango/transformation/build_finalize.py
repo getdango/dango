@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from dango.logging import get_logger
+from dango.utils.docker_hints import DOCKER_UNAVAILABLE_ERROR
 
 logger = get_logger(__name__)
 
@@ -157,6 +158,8 @@ def finalize_dbt_build(
                 )
             else:
                 out["metabase"] = "not_running"
+                if _mb_err == DOCKER_UNAVAILABLE_ERROR:
+                    out["metabase_docker_unavailable"] = True
         except Exception:  # noqa: BLE001
             logger.warning("metabase_refresh_failed", exc_info=True)
             out["metabase"] = "skipped"

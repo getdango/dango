@@ -139,7 +139,7 @@ def remote_status(ctx: click.Context) -> None:
     finally:
         ssh.disconnect()
 
-    latest_version = check_latest_pypi_version()
+    latest_version = check_latest_pypi_version(certificate_hint=True)
 
     # --- Server info ---
     server_lines = [

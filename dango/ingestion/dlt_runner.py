@@ -30,7 +30,9 @@ from dango.config.models import (
 from dango.exceptions import SyncTimeoutError
 from dango.ingestion.csv_loader import CSVLoader, check_duplicate_filenames
 from dango.ingestion.sources.registry import get_source_metadata
+from dango.utils.docker_hints import DOCKER_UNAVAILABLE_ERROR, note_metabase_skipped
 from dango.utils.error_text import redacted_error_text, rich_error_text
+from dango.utils.tls_errors import print_guidance_for_install_failure
 
 if TYPE_CHECKING:
     import duckdb
@@ -517,11 +519,18 @@ class DltPipelineRunner:
             console.print(f"[dim]Installing automatically: {install_cmd}[/dim]")
 
             try:
-                subprocess.check_call(
+                install = subprocess.run(
                     [sys.executable, "-m", "pip", "install", *pip_packages],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
                 )
+                if install.returncode != 0:
+                    raise subprocess.CalledProcessError(
+                        install.returncode, install.args, stderr=install.stderr
+                    )
                 console.print(f"[green]✓ Installed: {', '.join(pip_packages)}[/green]")
                 # Re-check deps after install
                 deps_ok, _ = self._check_dependencies(source_type.value)
@@ -551,9 +560,10 @@ class DltPipelineRunner:
                         "error": error_message,
                         "rows_loaded": 0,
                     }
-            except subprocess.CalledProcessError:
+            except subprocess.CalledProcessError as install_error:
                 error_message = f"Missing required dependencies: {', '.join(pip_packages)}"
                 console.print(f"\n[red]❌ Auto-install failed: {error_message}[/red]")
+                print_guidance_for_install_failure(install_error)
                 console.print("\n[bold]To fix manually, run:[/bold]")
                 console.print("  [cyan]pip install -r requirements.txt[/cyan]")
                 console.print(f"\nThen retry: [cyan]dango sync {source_name}[/cyan]\n")
@@ -3921,7 +3931,9 @@ def run_sync(
                 )
 
                 mb_ok, _mb_err, mb_session_id = refresh_metabase_connection(project_root)
-                if mb_ok:
+                if _mb_err == DOCKER_UNAVAILABLE_ERROR:
+                    note_metabase_skipped(console)
+                elif mb_ok:
                     console.print("[green]✓ Metabase connection refreshed[/green]")
 
                     # Sync schema metadata to ensure all tables are discovered

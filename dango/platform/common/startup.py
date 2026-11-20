@@ -123,17 +123,21 @@ def start_docker_services(project_root: Path) -> None:
             below). Never raised for Docker connectivity issues alone.
     """
     from dango.platform import DockerManager, compose_exec
+    from dango.utils.docker_hints import DockerNotAvailableError, docker_binary_present
 
     manager = DockerManager(project_root)
     helper = compose_exec.uses_helper()
 
+    # Pre-flight: Docker must be installed before anything is stopped or started (on a server the
+    # account cannot ask Docker; the helper reports its own failures)
+    if not helper:
+        if not manager.is_docker_available():
+            raise DockerNotAvailableError(binary_present=docker_binary_present())
+        if not manager.is_docker_daemon_running():
+            raise DockerNotAvailableError(binary_present=True)
+
     # Stop any existing services to free ports and clean up zombie containers
     manager.stop_services()
-
-    # Pre-flight: Docker daemon must be running (on a server the account cannot ask Docker;
-    # the helper reports its own failures)
-    if not helper and not manager.is_docker_daemon_running():
-        raise RuntimeError("Docker daemon is not running. Start Docker Desktop and try again.")
 
     # Pre-flight: Required Docker ports must be free.
     # Read the project's actual configured ports rather than hardcoding the
