@@ -23,12 +23,12 @@ _SEE_ALSO = re.compile(r"See also \S+")
 _PID = re.compile(r"\(PID (\d+)\)")
 # Windows wording when DuckDB can ask the OS which processes hold the file (Restart Manager):
 # "File is already open in" and then one "<process> (PID n)" line per holder (possibly none).
-# Written from DuckDB's source, not yet confirmed on Windows: scripts/check_duckdb_lock_text.py
-# prints the real message on every platform-smoke leg.
+# Seen on windows-latest (DuckDB 1.5.6) together with the wording below, in one message:
+# scripts/check_duckdb_lock_text.py prints the real message on every platform-smoke leg.
 _ALREADY_OPEN = re.compile(
     r"(?:IO Error: )?File is already open in[ \t]*(?:\r?\n[^\n]*?\(PID \d+\))*"
 )
-# The Windows fallback wording when that lookup is unavailable.
+# The other Windows wording (the OS refusal text); DuckDB may give it alone or before the above.
 _WINDOWS = re.compile(
     r'(?:IO Error: )?Cannot open file "[^"\n]*\.duckdb(?:\.wal)?": The process cannot access '
     r"the file because it is being used by another process\.?"
@@ -75,7 +75,16 @@ def _segments(text: str) -> list[tuple[int, int, int | None]]:
     for match in _WINDOWS.finditer(text):
         if not any(s <= match.start() < e for s, e, _ in found):
             found.append((match.start(), match.end(), None))
-    return sorted(found)
+    merged: list[tuple[int, int, int | None]] = []
+    for start, end, pid in sorted(found):
+        # DuckDB on Windows gives two wordings in one message: join passages that are only
+        # whitespace apart, so the whole message is replaced once (and the PID is kept).
+        if merged and not text[merged[-1][1] : start].strip():
+            prev_start, _prev_end, prev_pid = merged[-1]
+            merged[-1] = (prev_start, max(end, merged[-1][1]), pid if pid is not None else prev_pid)
+        else:
+            merged.append((start, end, pid))
+    return merged
 
 
 def is_lock_error_text(text: str) -> bool:
