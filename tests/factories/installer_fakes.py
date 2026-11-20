@@ -7,10 +7,15 @@ python invocation, so tests can assert what the installer would have run. POSIX-
 from __future__ import annotations
 
 import json
+import os
+import pty
+import select
 import shutil
+import signal
 import stat
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,17 +28,45 @@ _FAKE_PYTHON = """#!{python}
 import json, os, pathlib, sys
 
 args = sys.argv[1:]
-with open(os.environ["FAKE_RECORD"], "a", encoding="utf-8") as fh:
+env = os.environ
+with open(env["FAKE_RECORD"], "a", encoding="utf-8") as fh:
     fh.write(json.dumps(args) + "\\n")
+code = args[1] if args[:1] == ["-c"] and len(args) > 1 else ""
 if args[:1] == ["-c"]:
-    print("3.12")
+    if "base_prefix" in code:
+        print(env.get("FAKE_IN_VENV", "0"))
+    elif "EXTERNALLY-MANAGED" in code:
+        print(env.get("FAKE_EXTERNALLY_MANAGED", "0"))
+    elif "importlib.metadata" in code:
+        have = env.get("FAKE_INSTALLED") or ("somepkg=1.0" if env.get("FAKE_WOULD_UPGRADE") else "")
+        installed = dict(p.split("=") for p in have.split(";") if p)
+        for name in args[2:]:
+            if name in installed:
+                print(name, installed[name])
+    else:
+        print(env.get("FAKE_PY_VERSION", "3.12"))
 elif args[:2] == ["-m", "venv"]:
-    (pathlib.Path(args[2]) / "bin").mkdir(parents=True, exist_ok=True)
-    (pathlib.Path(args[2]) / "bin" / "activate").write_text("", encoding="utf-8")
+    target = pathlib.Path(args[2])
+    if env.get("FAKE_VENV_FAIL"):
+        target.mkdir(parents=True, exist_ok=True)
+        print("The virtual environment was not created successfully because ensurepip is not "
+              "available.", file=sys.stderr)
+        sys.exit(1)
+    (target / "bin").mkdir(parents=True, exist_ok=True)
+    (target / "bin" / "activate").write_text("", encoding="utf-8")
+elif args[:3] == ["-m", "pip", "--version"]:
+    if env.get("FAKE_NO_PIP"):
+        print("/usr/bin/python3: No module named pip", file=sys.stderr)
+        sys.exit(1)
+    print("pip 24.0")
 elif args[:2] == ["-m", "site"]:
-    print(os.environ["FAKE_USER_BASE"])
-elif "--dry-run" in args and os.environ.get("FAKE_WOULD_UPGRADE"):
-    print("Would upgrade: somepkg 1.0 to 2.0")
+    print(env["FAKE_USER_BASE"])
+elif "--dry-run" in args:
+    if env.get("FAKE_DRY_RUN_OUTPUT"):
+        print(env["FAKE_DRY_RUN_OUTPUT"])
+    elif env.get("FAKE_WOULD_UPGRADE"):
+        # pip never prints "Would upgrade": an upgrade is "Would install <new version>"
+        print("Would install somepkg-2.0 getdango-1.0.15")
 sys.exit(0)
 """
 
@@ -45,6 +78,9 @@ with open(os.environ["FAKE_RECORD"], "a", encoding="utf-8") as fh:
     fh.write(json.dumps(["dango", *args]) + "\\n")
 if args[:1] == ["--version"]:
     print("dango, version 1.0.15")
+if args[:1] == ["init"] and os.environ.get("FAKE_DANGO_INIT_FAIL"):
+    print("Error: could not write .dango/project.yml", file=sys.stderr)
+    sys.exit(3)
 sys.exit(0)
 """
 
@@ -100,6 +136,37 @@ def make_bin(base: Path, dango_on_path: bool = True) -> tuple[Path, Path]:
     return bindir, user_base
 
 
+def _run_on_terminal(
+    argv: list[str], cwd: Path, env: dict[str, str], typed: str, timeout: float
+) -> subprocess.CompletedProcess[str]:
+    """Run `argv` with a real controlling terminal; `typed` is what the person types."""
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.chdir(cwd)
+        os.execve(argv[0], argv, env)
+    os.write(fd, typed.encode("utf-8"))
+    chunks: list[bytes] = []
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0 or not select.select([fd], [], [], left)[0]:
+                os.kill(pid, signal.SIGKILL)
+                raise subprocess.TimeoutExpired(argv, timeout)
+            try:
+                data = os.read(fd, 4096)
+            except OSError:  # the child closed the terminal
+                break
+            if not data:
+                break
+            chunks.append(data)
+    finally:
+        os.close(fd)
+        _, status = os.waitpid(pid, 0)
+    out = b"".join(chunks).decode("utf-8", "replace").replace("\r\n", "\n")
+    return subprocess.CompletedProcess(argv, os.waitstatus_to_exitcode(status), out, "")
+
+
 def run_installer(
     base: Path,
     env: dict[str, str],
@@ -108,11 +175,13 @@ def run_installer(
     seed_project: str = "",
     snippet: str = "",
     existing_dirs: tuple[str, ...] = (),
+    typed: str | None = None,
     timeout: float = 60,
 ) -> InstallRun:
     """Run install.sh (or, with `snippet`, a bash snippet after sourcing it) with no terminal.
 
     seed_project: "" (new project), "venv" (existing project with a venv) or "novenv".
+    typed: when given, run on a real terminal and type these lines (interactive mode).
     """
     bindir, user_base = make_bin(base, dango_on_path)
     cwd = base / "proj"
@@ -140,6 +209,9 @@ def run_installer(
     if snippet:
         full_env["DANGO_INSTALL_SOURCED"] = "1"
         argv = [BASH, "-c", f'source "{INSTALL_SH}"; PYTHON_CMD=python3; {snippet}']
+    if typed is not None:
+        proc = _run_on_terminal(argv, cwd, full_env, typed, timeout)
+        return InstallRun(proc, record, cwd, home, user_base / "bin")
     proc = subprocess.run(
         argv,
         cwd=cwd,
