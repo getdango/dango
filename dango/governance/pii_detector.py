@@ -87,6 +87,19 @@ def _register_intl_phone_recognizer(analyzer: Any) -> None:
     analyzer.registry.add_recognizer(intl_phone)
 
 
+def _report_unavailable(reason: str, exc: BaseException | None = None) -> None:
+    """Say once, plainly, that the PII scan is skipped; the raw error goes to the debug log."""
+    from dango.utils.spacy_model import print_spacy_unavailable
+
+    logger.debug("pii_scan_unavailable", reason=reason, exc_info=exc)
+    print_spacy_unavailable(reason)
+    if exc is not None:
+        from dango.utils.tls_errors import is_certificate_error, print_certificate_guidance
+
+        if is_certificate_error(exc):
+            print_certificate_guidance()
+
+
 def _get_analyzer() -> Any | None:
     """Return a cached Presidio ``AnalyzerEngine``, downloading spaCy model if needed.
 
@@ -99,10 +112,14 @@ def _get_analyzer() -> Any | None:
     if _analyzer_init_failed:
         return None
 
-    import spacy  # lazy import
-
     try:
+        import spacy  # lazy import
+
         spacy.load(_SPACY_MODEL)
+    except ImportError as exc:
+        _analyzer_init_failed = True
+        _report_unavailable("spaCy is not installed", exc)
+        return None
     except OSError:
         # Download .whl to temp file then pip install locally.
         # spacy.cli.download() is NOT used — it calls sys.exit() internally,
@@ -127,15 +144,7 @@ def _get_analyzer() -> Any | None:
                 )
         except Exception as exc:
             _analyzer_init_failed = True
-            logger.warning(
-                "pii_spacy_download_failed",
-                model=_SPACY_MODEL,
-                hint="Install manually: python -m spacy download en_core_web_sm",
-            )
-            from dango.utils.tls_errors import is_certificate_error, print_certificate_guidance
-
-            if is_certificate_error(exc):
-                print_certificate_guidance()
+            _report_unavailable("it could not be downloaded and installed", exc)
             return None
 
     # Suppress verbose Presidio + spaCy loggers during init (use alias to
@@ -177,9 +186,9 @@ def _get_analyzer() -> Any | None:
         )
         _analyzer = AnalyzerEngine(nlp_engine=provider.create_engine())
         _register_intl_phone_recognizer(_analyzer)
-    except Exception:
+    except Exception as exc:
         _analyzer_init_failed = True
-        logger.warning("pii_analyzer_init_failed", exc_info=True)
+        _report_unavailable("the PII engine could not start", exc)
         return None
     finally:
         root_logger.setLevel(saved_root_level)

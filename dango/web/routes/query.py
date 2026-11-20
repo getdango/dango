@@ -31,6 +31,7 @@ from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
 from dango.logging import get_logger
+from dango.utils.duckdb_lock_text import describe_error, is_duckdb_lock_error
 from dango.web.helpers import get_duckdb_path
 
 logger = get_logger(__name__)
@@ -317,12 +318,14 @@ async def execute_query(
         )
     except duckdb.Error as exc:
         logger.warning("query_execution_failed", error_type=type(exc).__name__)
+        message = (
+            describe_error(exc)
+            if is_duckdb_lock_error(exc)
+            else f"Query execution failed: {type(exc).__name__}"
+        )
         return JSONResponse(
             status_code=400,
-            content={
-                "error_code": "DANGO-Q005",
-                "message": f"Query execution failed: {type(exc).__name__}",
-            },
+            content={"error_code": "DANGO-Q005", "message": message},
         )
     except Exception:
         logger.error("query_unexpected_error", exc_info=True)

@@ -21,6 +21,7 @@ from dango.utils.docker_hints import (
     metabase_skip_reported,
     note_metabase_skipped,
 )
+from dango.utils.error_text import rich_error_text
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -754,8 +755,8 @@ def source_inspect_state(ctx: click.Context, source_name: str) -> None:
                 conn = _connect_readonly_with_retry(duckdb_path)
             except duckdb.IOException as lock_err:
                 state_error = (
-                    f"Could not open the warehouse read-only (write lock busy): {lock_err}. "
-                    "Try again in a moment — a sync or the web server may be writing right now."
+                    "Could not open the warehouse read-only: "
+                    f"{rich_error_text(project_root, lock_err)}"
                 )
 
             if conn is not None:

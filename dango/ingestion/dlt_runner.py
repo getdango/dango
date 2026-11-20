@@ -33,6 +33,7 @@ from dango.exceptions import ConfigError, ConfigNotFoundError, SyncTimeoutError
 from dango.ingestion.csv_loader import CSVLoader, check_duplicate_filenames
 from dango.ingestion.sources.registry import get_source_metadata
 from dango.utils.docker_hints import DOCKER_UNAVAILABLE_ERROR, note_metabase_skipped
+from dango.utils.duckdb_lock_text import rewrite_lock_text
 from dango.utils.error_text import redacted_error_text, rich_error_text
 from dango.utils.tls_errors import print_guidance_for_install_failure
 
@@ -822,8 +823,7 @@ class DltPipelineRunner:
 
         except Exception as e:
             # Get user-friendly error message
-            friendly_error = self._analyze_error(e, source_name)
-            console.print(f"[red]{escape(friendly_error)}[/red]")
+            self._print_friendly_error(e, source_name)
 
             # Log error
             duration = (datetime.now(tz=timezone.utc) - start_time).total_seconds()
@@ -2773,6 +2773,11 @@ class DltPipelineRunner:
                 return {"level": "warning", "message": msg, "total_row_count": total_rows}
 
         return None
+
+    def _print_friendly_error(self, error: Exception, source_name: str) -> None:
+        """Print the guidance for *error*; DuckDB's raw lock text is replaced by a plain message."""
+        friendly_error = self._analyze_error(error, source_name)
+        console.print(f"[red]{escape(rewrite_lock_text(friendly_error))}[/red]")
 
     def _analyze_error(self, error: Exception, source_name: str) -> str:
         """

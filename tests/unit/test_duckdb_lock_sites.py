@@ -125,6 +125,23 @@ class TestSyncSites:
         assert "Failed to check DuckDB health:" in shown
         _assert_friendly(shown)
 
+    def test_failure_guidance_block_is_friendly(self, real_text: str, tmp_path: Path) -> None:
+        from io import StringIO
+
+        from rich.console import Console
+
+        from dango.ingestion import dlt_runner
+
+        runner = object.__new__(dlt_runner.DltPipelineRunner)
+        runner.project_root = tmp_path
+        buf = StringIO()
+        with patch.object(dlt_runner, "console", Console(file=buf, width=300)):
+            runner._print_friendly_error(Exception(real_text), "my_source")
+        output = buf.getvalue()
+        assert "DuckDB Lock Error" in output  # the existing causes / how-to-fix guidance stays
+        assert "Possible causes" in output
+        _assert_friendly(output)
+
     def test_sync_summary_is_friendly(self, real_text: str, tmp_path: Path) -> None:
         from io import StringIO
 

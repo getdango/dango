@@ -705,7 +705,8 @@ Latest 2 versions of:
 The `en_core_web_sm` language model is required for PII scanning (data governance).
 
 - **Automatic:** Downloaded on first governance scan
-- **Manual:** `python -m spacy download en_core_web_sm`
+- **Manual** (if the download fails, e.g. offline or behind a proxy; run it with the Python that runs Dango): `python -m spacy download en_core_web_sm`
+- Without the model only the PII scan is skipped; everything else works
 
 ## Upgrade Notes
 

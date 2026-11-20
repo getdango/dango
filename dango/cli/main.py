@@ -9,6 +9,7 @@ top-level ``cli`` group with version info and project-root discovery.
 from typing import Any
 
 import click
+from rich.markup import escape
 
 from dango import __version__
 from dango.cli.commands.analyze import analyze, monitor
@@ -51,6 +52,26 @@ class _StdioSafeGroup(click.Group):
         """Run the CLI after making stdout/stderr safe for non-encodable text."""
         ensure_safe_stdio()
         return super().main(*args, **kwargs)
+
+    def invoke(self, ctx: click.Context) -> Any:
+        """Run the command; a DuckDB lock conflict nobody handled becomes a plain message (exit 1)."""
+        try:
+            return super().invoke(ctx)
+        except Exception as exc:
+            from dango.exceptions import is_debug_mode
+            from dango.utils.duckdb_lock_text import describe_error, is_duckdb_lock_error
+
+            if (
+                isinstance(exc, (click.ClickException, click.Abort, click.exceptions.Exit))
+                or is_debug_mode()
+                or not is_duckdb_lock_error(exc)
+            ):
+                raise
+            from dango.cli import console
+
+            project_root = (ctx.obj or {}).get("project_root")
+            console.print(f"[red]Error:[/red] {escape(describe_error(exc, project_root))}")
+            ctx.exit(1)
 
 
 @click.group(cls=_StdioSafeGroup)

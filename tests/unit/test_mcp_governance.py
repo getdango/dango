@@ -162,7 +162,8 @@ class TestPiiTools:
     ) -> None:
         monkeypatch.setattr("dango.governance.pii_detector._get_analyzer", lambda: None)
         out = mcp_governance.scan_pii("test_source")
-        assert out == {"error": "PII scanning unavailable: spaCy model could not be loaded"}
+        assert out["error"].startswith("PII scanning unavailable")
+        assert "-m spacy download en_core_web_sm" in out["error"]
         assert len(get_pii_findings(project)) == 1  # cache untouched
 
     def test_scan_pii_typo_table_leaves_cache_intact(

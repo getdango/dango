@@ -13,6 +13,7 @@ from typing import Any
 
 from dango.cli.commands.mcp_helpers import _get_project_root
 from dango.cli.commands.mcp_server import mcp
+from dango.utils.duckdb_lock_text import describe_error, is_duckdb_lock_error
 from dango.utils.redact import SECRET_KEY_RE, load_secret_values, redact_text
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -275,6 +276,8 @@ _BUSY = "Warehouse is busy (a sync or dbt build is writing); retry shortly"
 
 
 def _warehouse_error(e: Exception) -> dict[str, Any]:
+    if is_duckdb_lock_error(e):
+        return {"error": describe_error(e)}
     text = str(e)
     if "lock" in text.lower() or "already open" in text.lower():
         return {"error": _BUSY}

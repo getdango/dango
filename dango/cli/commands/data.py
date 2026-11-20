@@ -7,6 +7,7 @@ import click
 from rich.markup import escape
 
 from dango.cli import console
+from dango.utils.error_text import rich_error_text
 
 
 @click.group()
@@ -136,7 +137,9 @@ def db_status(ctx: click.Context) -> None:
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {escape(str(e))}")
+        console.print(
+            f"[red]Error:[/red] {rich_error_text((ctx.obj or {}).get('project_root'), e)}"
+        )
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -292,7 +295,9 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {escape(str(e))}")
+        console.print(
+            f"[red]Error:[/red] {rich_error_text((ctx.obj or {}).get('project_root'), e)}"
+        )
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -342,7 +347,9 @@ def validate(ctx: click.Context) -> None:
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"[red]Error:[/red] {escape(str(e))}")
+        console.print(
+            f"[red]Error:[/red] {rich_error_text((ctx.obj or {}).get('project_root'), e)}"
+        )
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
