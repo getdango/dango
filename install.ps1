@@ -87,10 +87,34 @@ function Stop-Installer {
 function Complete-Installer {
     param([int]$Code)
 
-    if ($PSCommandPath) {
+    # A PowerShell started for one command (powershell -Command "irm ... | iex", or
+    # -EncodedCommand) ends with that command anyway, so it can pass the exit code on to
+    # whatever started it. -NoExit keeps the window open, so it is not one of those.
+    $oneShot = $false
+    $keepOpen = $false
+    foreach ($arg in @([Environment]::GetCommandLineArgs() | Select-Object -Skip 1)) {
+        if ($arg -match '^[-/]c(o(m(m(a(n(d)?)?)?)?)?)?$' -or $arg -match '^[-/]e(c|n(c(o(d(e(d(c(o(m(m(a(n(d)?)?)?)?)?)?)?)?)?)?)?)?)?$') {
+            $oneShot = $true
+        }
+        if ($arg -match '^[-/]noe(x(i(t)?)?)?$') {
+            $keepOpen = $true
+        }
+    }
+    if ($keepOpen) {
+        $oneShot = $false
+    }
+
+    if ($PSCommandPath -or $oneShot) {
         exit $Code
     }
     $global:LASTEXITCODE = $Code
+}
+
+# True for the policies under which a local script such as Activate.ps1 can run
+function Test-ScriptPolicyAllows {
+    param([string]$Policy)
+
+    return ($Policy -eq "RemoteSigned" -or $Policy -eq "Unrestricted" -or $Policy -eq "Bypass")
 }
 
 # Validate DANGO_INSTALL_SPEC (one plain token, checked before anything runs) and resolve the
@@ -153,9 +177,26 @@ function Test-ExecutionPolicy {
     $policy = Get-ExecutionPolicy
 
     # If policy allows scripts, we're good
-    if ($policy -eq "RemoteSigned" -or $policy -eq "Unrestricted" -or $policy -eq "Bypass") {
+    if (Test-ScriptPolicyAllows $policy) {
         Write-Success "Execution policy is already set: $policy"
         Write-Host ""
+
+        # Allowed for this window only (for example powershell -ExecutionPolicy Bypass)? Then a new
+        # window cannot run the venv's Activate.ps1 until the policy is set for the user.
+        if (Test-ScriptPolicyAllows (Get-ExecutionPolicy -Scope Process)) {
+            $saved = Get-ExecutionPolicy -Scope CurrentUser
+            if ($saved -eq "Undefined") {
+                $saved = Get-ExecutionPolicy -Scope LocalMachine
+            }
+            if (-not (Test-ScriptPolicyAllows $saved)) {
+                Write-Warning-Message "Scripts are allowed in this PowerShell window only"
+                Write-Host ""
+                Write-Host "A new PowerShell window will not be able to run Activate.ps1 (the command that"
+                Write-Host "switches to Dango's virtual environment) until you run, once:"
+                Write-Host "  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser" -ForegroundColor Yellow
+                Write-Host ""
+            }
+        }
         return
     }
 
@@ -181,13 +222,23 @@ function Test-ExecutionPolicy {
             Write-Host ""
         }
         catch {
-            if ("$_" -match 'overridden') {
-                # The CurrentUser policy was written, but a more specific scope keeps its own
-                Write-Warning-Message "Your user setting was saved, but another policy overrides it (effective policy: $(Get-ExecutionPolicy))"
+            if ($_.FullyQualifiedErrorId -like 'ExecutionPolicyOverride*') {
+                # The CurrentUser policy was written, but a more specific scope keeps its own.
+                # That is fine only when the policy now in force lets scripts run.
+                $now = Get-ExecutionPolicy
+                if (Test-ScriptPolicyAllows $now) {
+                    Write-Warning-Message "Your user setting was saved, but another policy overrides it (in force: $now)"
+                    Write-Host ""
+                    return
+                }
+                Write-Error-Message "Script execution is blocked by a policy set for this computer or this session (in force: $now)"
                 Write-Host ""
-                Write-Host "Continuing. If a later step is blocked by the policy, see: Get-ExecutionPolicy -List"
+                Write-Host "A policy from your organization, or a PowerShell started with -ExecutionPolicy,"
+                Write-Host "overrides your user setting. See each level with: Get-ExecutionPolicy -List"
+                Write-Host "Ask your administrator to allow scripts, or start PowerShell with"
+                Write-Host "-ExecutionPolicy Bypass for this run, then run this installer again."
                 Write-Host ""
-                return
+                Stop-Installer 1
             }
             Write-Error-Message "Failed to update execution policy: $_"
             Write-Host ""

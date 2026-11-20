@@ -23,21 +23,36 @@ def _user_installs(run_calls: list[list[str]]) -> list[list[str]]:
     return [c for c in run_calls if c[:4] == ["-m", "pip", "install", "--user"]]
 
 
-# --- pip advice that works on Debian and Ubuntu (ensurepip is in the venv package) ---------------
+# --- every upgraded package is listed, not just the first ------------------------------------------
 
 
-def test_pip_hint_for_a_versioned_python_on_debian_names_the_venv_package(tmp_path: Path) -> None:
+def test_every_upgraded_package_is_listed(tmp_path: Path) -> None:
+    env = base_env(
+        **GLOBAL,
+        FAKE_DRY_RUN_OUTPUT="Would install somepkg-2.0 other-3.1 fresh-1.0 getdango-1.0.15",
+        FAKE_INSTALLED="somepkg=1.0;other=3.0",
+    )
+    run = run_installer(tmp_path, env)
+    assert "DANGO_INSTALL_CONFLICTS_CONTINUE" in run.output
+    assert "somepkg: 1.0" in run.output and "other: 3.0" in run.output
+    assert "fresh" not in run.output.replace("(non-interactive)", "")
+
+
+# --- pip advice that works on Debian and Ubuntu (ensurepip is disabled there) --------------------
+
+
+def test_pip_hint_for_a_versioned_python_on_debian_is_the_distro_package(tmp_path: Path) -> None:
     snippet = "detect_distro_family() { echo debian; }; PYTHON_CMD=python3.11; install_dango_global"
     run = run_installer(tmp_path, {}, snippet=snippet)
     assert run.proc.returncode != 0
-    assert "sudo apt install python3.11-venv" in run.output  # ships ensurepip
-    assert "python3.11 -m ensurepip --user" in run.output
+    assert "sudo apt install python3-pip" in run.output
+    assert "ensurepip" not in run.output  # ensurepip is disabled for the system Python there
 
 
-# --- a pip too old for --dry-run: skip the check, do not claim the install would fail -------------
+# --- a pip too old for --dry-run: go on without the check, do not claim the install would fail -------------
 
 
-def test_pip_too_old_for_dry_run_skips_the_conflict_check(tmp_path: Path) -> None:
+def test_pip_too_old_for_dry_run_goes_on_without_the_conflict_check(tmp_path: Path) -> None:
     run = run_installer(tmp_path, base_env(**GLOBAL, FAKE_PIP_NO_DRYRUN="1"))
     assert run.proc.returncode == 0, run.output
     assert "too old" in run.output and "22.2" in run.output

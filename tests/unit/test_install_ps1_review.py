@@ -40,6 +40,7 @@ def test_override_continues_only_after_rechecking_the_effective_policy() -> None
     catch = func[func.index("catch {") :]
     override = catch[catch.index("ExecutionPolicyOverride") :]
     assert override.index("Get-ExecutionPolicy") < override.index("return")
+    assert re.search(r"if \(Test-ScriptPolicyAllows \$now\) \{[^}]*return", override)
     assert "Stop-Installer 1" in override  # still blocked: stop with a message of its own
     assert "blocked" in override
 
@@ -62,7 +63,9 @@ def test_one_shot_command_hosts_exit_with_the_code_but_interactive_windows_do_no
     assert "NoExit" in func or "noe" in func  # -NoExit keeps the window, so it must not exit
     exit_line = re.search(r"if \(([^\n]*)\) \{\n\s+exit \$Code", func)
     assert exit_line, func
-    assert "$PSCommandPath" in exit_line.group(1)
+    assert "$PSCommandPath" in exit_line.group(1) and "$oneShot" in exit_line.group(1)
+    # -NoExit wins over -Command
+    assert re.search(r"if \(\$keepOpen\) \{\n\s+\$oneShot = \$false", func), func
 
 
 def test_windows_job_checks_both_the_one_shot_and_the_interactive_form() -> None:

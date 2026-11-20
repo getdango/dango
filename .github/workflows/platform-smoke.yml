@@ -260,8 +260,10 @@ jobs:
             "parsed $f"
           }
 
-      # A stopped installer must hand back its exit code from a script file, and must NOT end the
-      # PowerShell session when the text runs through iex (exit would close the person's window).
+      # A stopped installer must hand back its exit code from a script file and from a one-shot
+      # `powershell -Command`, and must NOT end an interactive PowerShell session when the text runs
+      # through iex (exit would close the person's window). -NoExit stands in for the interactive
+      # window here.
       - name: Installer stop behaviour (exit code, window stays open)
         if: ${{ matrix.os == 'windows-latest' && !cancelled() }}
         shell: powershell
@@ -269,9 +271,11 @@ jobs:
           $env:DANGO_INSTALL_SPEC = '-bad'
           powershell -NoProfile -File install.ps1
           if ($LASTEXITCODE -ne 1) { "as -File: expected exit code 1, got $LASTEXITCODE"; exit 1 }
-          $out = powershell -NoProfile -Command 'iex ([System.IO.File]::ReadAllText((Resolve-Path install.ps1).Path, [System.Text.Encoding]::UTF8)); Write-Output session-still-open:$LASTEXITCODE'
+          powershell -NoProfile -Command 'iex ([System.IO.File]::ReadAllText((Resolve-Path install.ps1).Path, [System.Text.Encoding]::UTF8))'
+          if ($LASTEXITCODE -ne 1) { "as a one-shot -Command: expected exit code 1, got $LASTEXITCODE"; exit 1 }
+          $out = powershell -NoProfile -NoExit -Command 'iex ([System.IO.File]::ReadAllText((Resolve-Path install.ps1).Path, [System.Text.Encoding]::UTF8)); Write-Output session-still-open:$LASTEXITCODE; exit 0'
           $out
-          if (-not ($out -match 'session-still-open:1')) { "as iex: the session ended or lost the exit code"; exit 1 }
+          if (-not ($out -match 'session-still-open:1')) { "as an interactive iex: the session ended or lost the exit code"; exit 1 }
 
       - name: First-user journey through the installer
         id: journey

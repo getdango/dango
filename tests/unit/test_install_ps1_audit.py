@@ -58,15 +58,15 @@ def test_windows_job_parses_the_files_the_way_powershell_file_reads_them() -> No
 def test_execution_policy_decision_uses_the_effective_policy() -> None:
     func = _function("Test-ExecutionPolicy")
     assert re.search(r"\$policy = Get-ExecutionPolicy\s*$", func, re.M), func
-    assert "-Scope CurrentUser" not in func.split("Set-ExecutionPolicy")[0]
+    assert "$policy = Get-ExecutionPolicy -Scope" not in func
 
 
 def test_a_policy_overridden_by_a_more_specific_scope_is_not_fatal() -> None:
     func = _function("Test-ExecutionPolicy")
     catch = func[func.index("catch {") :]
-    assert "overridden" in catch
+    assert "ExecutionPolicyOverride" in catch
     assert "Stop-Installer" in catch  # still stops for a real failure
-    assert catch.index("overridden") < catch.index("Stop-Installer")
+    assert catch.index("ExecutionPolicyOverride") < catch.index("Stop-Installer")
 
 
 # --- 9. no `exit` that closes the user's window under irm | iex ----------------------------------
