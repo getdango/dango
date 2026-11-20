@@ -764,11 +764,14 @@ class ProjectValidator:
                     )
 
             except Exception as e:
-                self.results.append(
-                    ValidationResult(
-                        "Database: DuckDB", "fail", f"Cannot open database: {str(e)[:100]}"
-                    )
+                from dango.utils.duckdb_lock_text import describe_error, is_duckdb_lock_error
+
+                detail = (
+                    describe_error(e, self.project_root)
+                    if is_duckdb_lock_error(e)
+                    else f"Cannot open database: {str(e)[:100]}"
                 )
+                self.results.append(ValidationResult("Database: DuckDB", "fail", detail))
         else:
             self.results.append(
                 ValidationResult(

@@ -38,6 +38,7 @@ from dango.cli.commands.mcp_helpers import (
     _infer_layer,
     _validate_select_only,
 )
+from dango.utils.duckdb_lock_text import describe_error
 
 mcp = FastMCP(
     "dango",
@@ -162,7 +163,7 @@ def get_catalog(source_filter: str | None = None) -> dict[str, Any]:
 
         return {"tables_by_schema": catalog, "total": sum(len(v) for v in catalog.values())}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": describe_error(e, project_root)}
 
 
 @mcp.tool()
@@ -328,7 +329,7 @@ async def query(sql: str, row_limit: int = 500) -> dict[str, Any]:
     try:
         conn = await asyncio.to_thread(_connect_readonly_with_retry, db_path)
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": describe_error(e, project_root)}
 
     # asyncio.to_thread cannot forcibly stop a worker thread once it has
     # started executing — a plain asyncio.wait_for() around it only stops

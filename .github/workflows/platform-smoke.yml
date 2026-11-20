@@ -16,6 +16,7 @@ on:
     paths:
       - .github/workflows/platform-smoke.yml
       - scripts/check_wheel_imports.py
+      - scripts/check_duckdb_lock_text.py
       - scripts/platform_smoke_init.py
       - scripts/first_user_journey.py
       - scripts/first_user_journey.ps1
@@ -103,6 +104,23 @@ jobs:
           cd "$RUNNER_TEMP"
           "$FRESH_PY" "$GITHUB_WORKSPACE/scripts/check_wheel_imports.py"
 
+      # Holds a DuckDB file in a second process and prints DuckDB's real lock message on this
+      # platform, then checks that Dango's recogniser matches it (the Windows wording is the point).
+      - name: DuckDB lock message (real two-process check)
+        id: lock_text
+        if: ${{ !cancelled() }}
+        run: |
+          cd "$RUNNER_TEMP"
+          "$FRESH_PY" "$GITHUB_WORKSPACE/scripts/check_duckdb_lock_text.py" | tee "$RUNNER_TEMP/lock_text.out"
+          rc=${PIPESTATUS[0]}
+          {
+            echo "### DuckDB lock message (${{ matrix.os }})"
+            echo '```'
+            cat "$RUNNER_TEMP/lock_text.out"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
       - name: dango init --skip-wizard (UTF-8)
         id: init_utf8
         if: ${{ !cancelled() }}
@@ -175,6 +193,7 @@ jobs:
             echo "- install wheel + pip check: ${{ steps.install.outcome }}"
             echo "- dango --version: ${{ steps.version.outcome }}"
             echo "- import every module: ${{ steps.imports.outcome }}"
+            echo "- DuckDB lock message: ${{ steps.lock_text.outcome }}"
             echo "- init (UTF-8): ${{ steps.init_utf8.outcome }}"
             echo "- init (cp1252): ${{ steps.init_cp1252.outcome }}"
             echo "- unit subset: ${{ steps.unit.outcome }}"

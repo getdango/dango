@@ -17,6 +17,7 @@ from dango.cli.commands.mcp_helpers import (
     _git_warnings,
 )
 from dango.cli.commands.mcp_server import mcp
+from dango.utils.duckdb_lock_text import describe_error
 
 # Copied verbatim from validate.py _check_description_completeness (a local tuple there).
 _TODO_PATTERNS = ("# TODO", "TODO:", "todo:", "Add description", "add description")
@@ -236,7 +237,7 @@ def get_table_schema(table_name: str, schema: str | None = None) -> dict[str, An
             )
         return response
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": describe_error(e, project_root)}
 
 
 @mcp.tool()

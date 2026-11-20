@@ -10,6 +10,7 @@ from typing import Any
 
 from dango.cli.commands.mcp_helpers import _get_project_root, _git_warnings
 from dango.cli.commands.mcp_server import mcp
+from dango.utils.duckdb_lock_text import describe_error
 
 _MAX_ROWS = 500
 
@@ -178,7 +179,12 @@ def scan_pii(source: str, table_name: str | None = None) -> dict[str, Any]:
                 return {"error": f"Table '{table_name}' not found in raw_{source}"}
             discovered = [table_name]
         if pii_detector._get_analyzer() is None:
-            return {"error": "PII scanning unavailable: spaCy model could not be loaded"}
+            from dango.utils.spacy_model import spacy_install_command
+
+            return {
+                "error": "PII scanning unavailable: the spaCy model en_core_web_sm is missing. "
+                f"Install it with: {spacy_install_command()}"
+            }
         findings: list[dict[str, Any]] = []
         counts: dict[str, int] = {}
         for t in discovered:
@@ -187,7 +193,7 @@ def scan_pii(source: str, table_name: str | None = None) -> dict[str, Any]:
             findings.extend(found)
         return {"tables": counts, "findings": findings}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": describe_error(e, project_root)}
 
 
 @mcp.tool()
