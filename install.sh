@@ -5,6 +5,40 @@ set -e
 # Version: see getdango on PyPI
 # Purpose: Install Dango with per-project virtual environment
 # Platform: macOS / Linux / Windows
+#
+# Test hooks (opt-in; with none of these set the installer behaves exactly as before):
+#
+#   DANGO_INSTALL_SPEC             pip argument that replaces "getdango" in every Dango pip
+#                                  install (a wheel path, "getdango==1.0.15", ...). One pip
+#                                  argument of letters, digits, spaces and . _ / : @ + = ~ , \ -
+#                                  (no shell metacharacters or newlines, no leading "-", no
+#                                  leading or trailing space); it is validated, always quoted
+#                                  and never evaluated.
+#   DANGO_INSTALL_NONINTERACTIVE   1 = read every answer from the variables below instead of
+#                                  /dev/tty. A prompt whose variable is unset (and that has no
+#                                  default) stops the installer with that variable's name; an
+#                                  invalid value does the same. Never prompts, never guesses.
+#
+# Answer variables (used only when DANGO_INSTALL_NONINTERACTIVE=1):
+#
+#   DANGO_INSTALL_DOCKER_CONTINUE    y|n  continue when Docker is missing or not running (required)
+#   DANGO_INSTALL_MODE               1|2  1 = virtual environment, 2 = global (required)
+#   DANGO_INSTALL_SETUP              1|2  1 = install only, 2 = install + new project (required)
+#   DANGO_INSTALL_VENV_LOCATION      1|2  1 = default location, 2 = custom (default 1)
+#   DANGO_INSTALL_VENV_PATH          path of the custom virtual environment (required when
+#                                    DANGO_INSTALL_VENV_LOCATION=2)
+#   DANGO_INSTALL_CONFLICTS_CONTINUE y|n  continue a global install that would upgrade other
+#                                    packages (required when that happens)
+#   DANGO_INSTALL_ADD_TO_PATH        y|n  add the user bin directory to the shell config (default n)
+#   DANGO_INSTALL_PROJECT_NAME       new project directory name (required for SETUP=2). It is
+#                                    cleaned as when typed (lowercase, spaces to dashes, other
+#                                    characters dropped) and must then match ^[a-z0-9][a-z0-9-]*$
+#                                    and not already exist as a directory
+#   DANGO_INSTALL_EXISTING_ACTION    i|u|c  install, upgrade or cancel, for an existing project
+#                                    with a venv (required)
+#   DANGO_INSTALL_CREATE_VENV        y|n  create the missing venv of an existing project (default y)
+#
+# `dango init` runs as `dango init --skip-wizard` in non-interactive mode.
 
 # Color codes for output
 RED='\033[0;31m'
@@ -41,6 +75,73 @@ print_info() {
 
 print_step() {
     echo -e "${CYAN}▶${NC} $1"
+}
+
+# The pip argument for every Dango install: DANGO_INSTALL_SPEC, or "getdango" when unset.
+dango_pip_spec() {
+    echo "${DANGO_INSTALL_SPEC:-getdango}"
+}
+
+# Reject a DANGO_INSTALL_SPEC that is not a single plain token (checked before anything runs).
+validate_install_spec() {
+    local spec="${DANGO_INSTALL_SPEC:-}"
+    local allowed='^[A-Za-z0-9._/:@+=~, \\-]+$'
+    if [ -z "$spec" ]; then
+        return 0
+    fi
+    if [[ "$spec" == -* || "$spec" == " "* || "$spec" == *" " ]] || ! [[ "$spec" =~ $allowed ]]; then
+        print_error "DANGO_INSTALL_SPEC must be one pip argument of letters, digits, spaces and . _ / : @ + = ~ , \\ - (no leading dash or edge spaces); got: $spec" >&2
+        exit 1
+    fi
+}
+
+# Project directory name from what was typed: lowercase, spaces to dashes, other characters dropped.
+sanitize_project_name() {
+    echo "$1" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-'
+}
+
+# Stop with a message naming the variable when a non-interactive run cannot continue.
+fail_if_noninteractive() {
+    if [ "${DANGO_INSTALL_NONINTERACTIVE:-}" = "1" ]; then
+        print_error "$1" >&2
+        exit 1
+    fi
+}
+
+# read_answer <result_var> <ANSWER_ENV_VAR> <default> <pattern>
+# Interactive: read one line from the terminal into <result_var>. Non-interactive
+# (DANGO_INSTALL_NONINTERACTIVE=1): take it from <ANSWER_ENV_VAR>, else <default> ("" = none), and
+# stop naming the variable when there is no answer or it does not match <pattern>.
+# This is the only place install.sh reads from /dev/tty.
+read_answer() {
+    local __var=$1 __env=$2 __default=${3-} __pattern=${4-} __value
+    if [ "${DANGO_INSTALL_NONINTERACTIVE:-}" != "1" ]; then
+        read -r "$__var" < /dev/tty
+        return
+    fi
+    __value="${!__env:-}"
+    if [ -z "$__value" ]; then
+        __value=$__default
+    fi
+    if [ -z "$__value" ]; then
+        print_error "Non-interactive install: set $__env (no answer given, no default)" >&2
+        exit 1
+    fi
+    if [ -n "$__pattern" ] && ! [[ "$__value" =~ $__pattern ]]; then
+        print_error "Non-interactive install: $__env='$__value' is not valid (expected $__pattern)" >&2
+        exit 1
+    fi
+    echo "(non-interactive) $__env=$__value" >&2
+    printf -v "$__var" '%s' "$__value"
+}
+
+# Run `dango init`: the wizard on the terminal, or --skip-wizard when non-interactive.
+run_dango_init() {
+    if [ "${DANGO_INSTALL_NONINTERACTIVE:-}" = "1" ]; then
+        dango init --skip-wizard < /dev/null
+    else
+        dango init < /dev/tty
+    fi
 }
 
 # Function to check Python version
@@ -97,7 +198,7 @@ check_docker() {
         echo "  Linux:   https://docs.docker.com/engine/install/"
         echo
         echo -n "Continue without Docker? (y/N): "
-        read -r response < /dev/tty
+        read_answer response DANGO_INSTALL_DOCKER_CONTINUE "" '^[YyNn]$'
         if [[ ! "$response" =~ ^[Yy]$ ]]; then
             print_info "Installation cancelled"
             echo
@@ -118,7 +219,7 @@ check_docker() {
         echo
         echo "Or continue without Docker (Metabase won't work):"
         echo -n "Continue? (y/N): "
-        read -r response < /dev/tty
+        read_answer response DANGO_INSTALL_DOCKER_CONTINUE "" '^[YyNn]$'
         if [[ ! "$response" =~ ^[Yy]$ ]]; then
             print_info "Installation cancelled"
             echo
@@ -175,7 +276,7 @@ prompt_install_mode() {
     echo -n "Choose [1] or [2]: " >&2
 
     while true; do
-        read -r choice < /dev/tty
+        read_answer choice DANGO_INSTALL_MODE "" '^[12]$'
 
         case $choice in
             1)
@@ -207,7 +308,7 @@ prompt_setup_mode() {
     echo -n "Choose [1] or [2]: " >&2
 
     while true; do
-        read -r choice < /dev/tty
+        read_answer choice DANGO_INSTALL_SETUP "" '^[12]$'
 
         case $choice in
             1)
@@ -242,7 +343,7 @@ prompt_venv_location() {
     echo -n "Choose [1] or [2]: " >&2
 
     while true; do
-        read -r choice < /dev/tty
+        read_answer choice DANGO_INSTALL_VENV_LOCATION 1 '^[12]$'
 
         case $choice in
             1)
@@ -252,7 +353,7 @@ prompt_venv_location() {
             2)
                 while true; do
                     echo -n "Enter path for virtual environment: " >&2
-                    read -r custom_path < /dev/tty
+                    read_answer custom_path DANGO_INSTALL_VENV_PATH "" '.'
                     if [ -z "$custom_path" ]; then
                         print_error "Path cannot be empty" >&2
                         continue
@@ -289,7 +390,7 @@ install_dango() {
     source "$venv_path/bin/activate"
     $PYTHON_CMD -m pip install --upgrade pip -q
 
-    if ! $PYTHON_CMD -m pip install getdango; then
+    if ! $PYTHON_CMD -m pip install "$(dango_pip_spec)"; then
         print_error "Failed to install Dango"
         echo
         echo "Possible causes:"
@@ -314,7 +415,7 @@ upgrade_dango() {
     print_step "Upgrading Dango..."
 
     source "$venv_path/bin/activate"
-    $PYTHON_CMD -m pip install --upgrade getdango -q
+    $PYTHON_CMD -m pip install --upgrade "$(dango_pip_spec)" -q
 
     DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9]*' || echo "unknown")
 
@@ -364,7 +465,7 @@ check_conflicts() {
     echo
 
     # Run dry-run to see what will be installed/upgraded
-    dry_run_output=$($PYTHON_CMD -m pip install --dry-run --user getdango 2>&1)
+    dry_run_output=$($PYTHON_CMD -m pip install --dry-run --user "$(dango_pip_spec)" 2>&1)
 
     # Check if any packages will be upgraded
     if echo "$dry_run_output" | grep -q "Would upgrade"; then
@@ -376,7 +477,7 @@ check_conflicts() {
         echo
         echo "Do you want to continue? This could break other tools."
         echo -n "[y/N]: "
-        read -r response < /dev/tty
+        read_answer response DANGO_INSTALL_CONFLICTS_CONTINUE "" '^[YyNn]$'
 
         if [[ ! "$response" =~ ^[Yy]$ ]]; then
             print_info "Installation cancelled"
@@ -400,7 +501,7 @@ install_dango_global() {
     print_step "Installing Dango globally..."
     echo
 
-    if ! $PYTHON_CMD -m pip install --user getdango; then
+    if ! $PYTHON_CMD -m pip install --user "$(dango_pip_spec)"; then
         print_error "Failed to install Dango"
         echo
         echo "Possible causes:"
@@ -444,7 +545,7 @@ install_dango_global() {
         echo -e "This line should be added to: ${CYAN}$SHELL_CONFIG${NC}"
         echo
         echo -n "Would you like me to add it automatically? [y/N]: " >&2
-        read -r response < /dev/tty
+        read_answer response DANGO_INSTALL_ADD_TO_PATH n '^[YyNn]$'
 
         if [[ "$response" =~ ^[Yy]$ ]]; then
             # Check if already in config file (avoid duplicates)
@@ -497,7 +598,7 @@ init_project() {
     echo
 
     source "$venv_path/bin/activate"
-    if dango init < /dev/tty; then
+    if run_dango_init; then
         print_success "Project initialized"
         echo
     else
@@ -613,6 +714,9 @@ print_global_success() {
 main() {
     print_header
 
+    # Opt-in test hook: refuse a malformed DANGO_INSTALL_SPEC before anything runs
+    validate_install_spec
+
     # Check prerequisites
     check_python
     check_docker
@@ -709,7 +813,18 @@ main() {
             # Get project directory name
             while true; do
                 echo -n "Enter project directory name (e.g., my-analytics): "
-                read -r PROJECT_DIR < /dev/tty
+                read_answer PROJECT_DIR DANGO_INSTALL_PROJECT_NAME "" '.'
+
+                # Non-interactive: clean the name as below first, so it is checked as it is used
+                if [ "${DANGO_INSTALL_NONINTERACTIVE:-}" = "1" ]; then
+                    typed_name=$PROJECT_DIR
+                    PROJECT_DIR=$(sanitize_project_name "$PROJECT_DIR")
+                    name_ok='^[a-z0-9][a-z0-9-]*$'
+                    if ! [[ "$PROJECT_DIR" =~ $name_ok ]]; then
+                        print_error "DANGO_INSTALL_PROJECT_NAME='$typed_name' is not usable as a project directory name (after cleanup: lowercase letters, digits and dashes, starting with a letter or digit)" >&2
+                        exit 1
+                    fi
+                fi
 
                 if [ -z "$PROJECT_DIR" ]; then
                     print_error "Project name cannot be empty"
@@ -719,6 +834,7 @@ main() {
 
                 # Check if directory exists
                 if [ -d "$PROJECT_DIR" ]; then
+                    fail_if_noninteractive "DANGO_INSTALL_PROJECT_NAME='$PROJECT_DIR' already exists as a directory"
                     print_error "Directory '$PROJECT_DIR' already exists"
                     echo "Please choose a different name."
                     echo
@@ -730,7 +846,7 @@ main() {
             done
 
             # Sanitize: lowercase, spaces → dashes, remove special chars
-            PROJECT_DIR=$(echo "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-')
+            PROJECT_DIR=$(sanitize_project_name "$PROJECT_DIR")
 
             echo
             print_step "Creating project directory: $PROJECT_DIR"
@@ -773,7 +889,7 @@ main() {
                 # Initialize project (no venv needed)
                 print_step "Initializing Dango project..."
                 echo
-                if dango init < /dev/tty; then
+                if run_dango_init; then
                     print_success "Project initialized"
                     echo
 
@@ -802,7 +918,7 @@ main() {
             echo "  [c] Cancel"
             echo
             echo -n "Choice: "
-            read -r action < /dev/tty
+            read_answer action DANGO_INSTALL_EXISTING_ACTION "" '^[iIuUcC]$'
 
             case $action in
                 i|I)
@@ -831,7 +947,7 @@ main() {
             echo "This project needs a virtual environment for Dango."
             echo
             echo -n "Create virtual environment now? [Y/n]: "
-            read -r response < /dev/tty
+            read_answer response DANGO_INSTALL_CREATE_VENV y '^[YyNn]$'
 
             if [[ "$response" =~ ^[Nn]$ ]]; then
                 print_info "Cancelled"

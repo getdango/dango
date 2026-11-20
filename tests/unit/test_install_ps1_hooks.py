@@ -1,0 +1,122 @@
+"""tests/unit/test_install_ps1_hooks.py
+
+install.ps1 test hooks, checked structurally on any OS (PowerShell is not run here; the Windows
+platform-smoke job runs the real script): the spec override at every pip install, and every
+Read-Host prompt routed through the non-interactive Read-Answer helper.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.unit
+
+ROOT = Path(__file__).resolve().parents[2]
+TEXT = (ROOT / "install.ps1").read_text(encoding="utf-8")
+LINES = TEXT.splitlines()
+
+# The nine Read-Host prompts of the original script, by answer variable (Docker is asked twice).
+EXPECTED_SITES = [
+    "DANGO_INSTALL_ALLOW_EXECUTION_POLICY",
+    "DANGO_INSTALL_DOCKER_CONTINUE",
+    "DANGO_INSTALL_DOCKER_CONTINUE",
+    "DANGO_INSTALL_MODE",
+    "DANGO_INSTALL_SETUP",
+    "DANGO_INSTALL_ADD_TO_PATH",
+    "DANGO_INSTALL_PROJECT_NAME",
+    "DANGO_INSTALL_EXISTING_ACTION",
+    "DANGO_INSTALL_CREATE_VENV",
+]
+HELPER = re.compile(r"^function Read-Answer \{\n.*?^\}\n", re.S | re.M)
+
+
+def _outside_helper() -> str:
+    assert HELPER.search(TEXT), "install.ps1 must define a Read-Answer helper"
+    code = "\n".join(ln for ln in LINES if not ln.lstrip().startswith("#"))
+    return HELPER.sub("", code + "\n")
+
+
+def test_no_prompt_uses_read_host_outside_the_helper() -> None:
+    assert "Read-Host" not in _outside_helper()
+
+
+def test_every_original_prompt_is_routed_through_read_answer() -> None:
+    names = re.findall(r"Read-Answer\s+-Name\s+'(DANGO_INSTALL_\w+)'", _outside_helper())
+    assert sorted(names) == sorted(EXPECTED_SITES)
+
+
+def test_every_answer_variable_is_documented_in_the_header() -> None:
+    header = "\n".join(LINES[:70])
+    names = set(re.findall(r"Read-Answer\s+-Name\s+'(DANGO_INSTALL_\w+)'", TEXT))
+    for name in names | {"DANGO_INSTALL_SPEC", "DANGO_INSTALL_NONINTERACTIVE"}:
+        assert name in header, name
+
+
+def test_the_helper_reads_the_noninteractive_switch_and_fails_naming_the_variable() -> None:
+    body = HELPER.search(TEXT)
+    assert body is not None
+    text = body.group(0)
+    assert "DANGO_INSTALL_NONINTERACTIVE" in text
+    assert "exit 1" in text
+    assert "Read-Host" in text
+
+
+def test_every_dango_pip_install_uses_the_spec() -> None:
+    sites = [
+        ln
+        for ln in LINES
+        if "pip install" in ln
+        and not ln.lstrip().startswith(("Write-Host", "#"))
+        and "--upgrade pip" not in ln
+    ]
+    assert len(sites) == 3, sites
+    for line in sites:
+        assert "$script:DangoSpec" in line, line
+        assert not re.search(r"\bgetdango\b", line), line
+
+
+def test_spec_is_validated_before_anything_runs() -> None:
+    assert "function Test-InstallSpec" in TEXT
+    main = TEXT[TEXT.index("function Main {") :]
+    assert main.index("Test-InstallSpec") < main.index("Test-ExecutionPolicy")
+
+
+def test_noninteractive_project_init_skips_the_wizard() -> None:
+    init = TEXT[TEXT.index("function Initialize-Project") :].split("\n}\n")[0]
+    assert "--skip-wizard" in init
+    assert "DANGO_INSTALL_NONINTERACTIVE" in init
+
+
+def test_every_answer_pattern_anchors_the_end_with_backslash_z() -> None:
+    patterns = re.findall(r"Read-Answer\s+-Name\s+'\w+'.*?-Pattern\s+'([^']*)'", TEXT)
+    assert len(patterns) >= 9
+    for pattern in patterns:
+        assert pattern == "." or pattern.endswith("\\z"), pattern
+
+
+def test_noninteractive_project_name_is_cleaned_then_checked_without_looping() -> None:
+    text = TEXT[TEXT.index("$projectDir = Read-Answer") :]
+    block = text[: text.index("Test-Path $projectDir")]
+    assert "DANGO_INSTALL_NONINTERACTIVE" in block
+    assert "'^[a-z0-9][a-z0-9-]*\\z'" in block
+    assert block.index("-replace") < block.index("Stop-IfNonInteractive")
+    assert "[a-z0-9][a-z0-9-]*" in "\n".join(LINES[:70])
+
+
+def test_spec_check_refuses_leading_and_trailing_spaces() -> None:
+    check = TEXT[TEXT.index("function Test-InstallSpec") :].split("\n}\n")[0]
+    assert 'StartsWith(" ")' in check and 'EndsWith(" ")' in check and 'StartsWith("-")' in check
+
+
+def test_windows_installer_job_parses_both_powershell_scripts() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "platform-smoke.yml").read_text(encoding="utf-8")
+    job = workflow[workflow.index("\n  installer:") :]
+    step = job[job.index("Parse the PowerShell scripts") :].split("\n      - name:")[0]
+    assert "windows-latest" in step
+    # install.ps1 has no BOM, so it is parsed from its UTF-8 text (as the one-liner runs it).
+    assert "Language.Parser" in step and "ParseInput" in step and "UTF8" in step
+    assert "scripts/first_user_journey.ps1" in step and "install.ps1" in step
+    assert "exit 1" in step
