@@ -298,6 +298,10 @@ class TestDbtRunAndDocs:
         from tests.factories.scaffold_project import build_fresh_project, working_copy
 
         root = working_copy(build_fresh_project(tmp_path_factory), tmp_path)
+        # dbt opens the warehouse only when it has something to build
+        model = root / "dbt" / "models" / "staging" / "stg_probe.sql"
+        model.parent.mkdir(parents=True, exist_ok=True)
+        model.write_text("select 1 as id\n", encoding="utf-8")
         monkeypatch.chdir(root)
         monkeypatch.setenv("COLUMNS", "300")
         monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.fail.Keyring")
@@ -393,5 +397,8 @@ class TestRealLockScript:
         )
         text = workflow.read_text(encoding="utf-8")
         smoke_job = text.split("\n  installer:", 1)[0]
-        assert "scripts/check_duckdb_lock_text.py" in smoke_job
-        assert "continue-on-error" not in smoke_job
+        step = smoke_job.split("- name: DuckDB lock message", 1)[1].split("      - name:", 1)[0]
+        assert "scripts/check_duckdb_lock_text.py" in step
+        assert "matrix.os" in smoke_job  # the job runs on every matrix leg, Windows included
+        assert "continue-on-error" not in step
+        assert "!cancelled()" in step

@@ -64,7 +64,7 @@ class _StdioSafeGroup(click.Group):
             if (
                 isinstance(exc, (click.ClickException, click.Abort, click.exceptions.Exit))
                 or is_debug_mode()
-                or not is_duckdb_lock_error(exc)
+                or not is_duckdb_lock_error(exc, follow_context=False)
             ):
                 raise
             from dango.cli import console

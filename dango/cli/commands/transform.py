@@ -9,6 +9,7 @@ import click
 from rich.markup import escape
 
 from dango.cli import console
+from dango.utils.dbt_log_lock import lock_message_since, log_size
 from dango.utils.docker_hints import note_metabase_skipped
 
 
@@ -93,6 +94,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
         _metabase_was_stopped = stop_metabase_for_writes(project_root)
         try:
             # Run dbt command from dbt directory for correct path resolution
+            log_offset = log_size(dbt_dir)
             result = subprocess.run(cmd, cwd=str(dbt_dir), env=_dbt_telemetry_env())
         finally:
             if _metabase_was_stopped:
@@ -116,6 +118,8 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
 
         if not build_ok:
             console.print(f"\n[red]dbt build failed with exit code {result.returncode}[/red]")
+            if busy := lock_message_since(dbt_dir, log_offset):
+                console.print(f"[yellow]{escape(busy)}[/yellow]")
             raise click.Abort()
 
         # Metabase is restarted after the dbt write phase, so it's available
@@ -195,12 +199,15 @@ def docs(ctx: click.Context) -> None:
         ]
 
         # Run dbt command from dbt directory for correct path resolution
+        log_offset = log_size(dbt_dir)
         result = subprocess.run(cmd, cwd=str(dbt_dir), env=_dbt_telemetry_env())
 
         if result.returncode != 0:
             console.print(
                 f"\n[red]dbt docs generate failed with exit code {result.returncode}[/red]"
             )
+            if busy := lock_message_since(dbt_dir, log_offset):
+                console.print(f"[yellow]{escape(busy)}[/yellow]")
             raise click.Abort()
 
         console.print()

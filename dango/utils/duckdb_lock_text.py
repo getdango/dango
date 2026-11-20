@@ -21,7 +21,14 @@ _UNIX_START = re.compile(r'(?:IO Error: )?Could not set lock on file "[^"\n]*"')
 _CONFLICT = ": Conflicting lock is held in "
 _SEE_ALSO = re.compile(r"See also \S+")
 _PID = re.compile(r"\(PID (\d+)\)")
-# The Windows wording for a warehouse file that another process holds (not reproduced on Windows).
+# Windows wording when DuckDB can ask the OS which processes hold the file (Restart Manager):
+# "File is already open in" and then one "<process> (PID n)" line per holder (possibly none).
+# Written from DuckDB's source, not yet confirmed on Windows: scripts/check_duckdb_lock_text.py
+# prints the real message on every platform-smoke leg.
+_ALREADY_OPEN = re.compile(
+    r"(?:IO Error: )?File is already open in[ \t]*(?:\r?\n[^\n]*?\(PID \d+\))*"
+)
+# The Windows fallback wording when that lookup is unavailable.
 _WINDOWS = re.compile(
     r'(?:IO Error: )?Cannot open file "[^"\n]*\.duckdb(?:\.wal)?": The process cannot access '
     r"the file because it is being used by another process\.?"
@@ -61,6 +68,10 @@ def _segments(text: str) -> list[tuple[int, int, int | None]]:
                 end = see.end()
         found.append((match.start(), end, pid))
         pos = end
+    for match in _ALREADY_OPEN.finditer(text):
+        if not any(s <= match.start() < e for s, e, _ in found):
+            pids = _PID.findall(match.group(0))
+            found.append((match.start(), match.end(), int(pids[-1]) if pids else None))
     for match in _WINDOWS.finditer(text):
         if not any(s <= match.start() < e for s, e, _ in found):
             found.append((match.start(), match.end(), None))
@@ -70,6 +81,16 @@ def _segments(text: str) -> list[tuple[int, int, int | None]]:
 def is_lock_error_text(text: str) -> bool:
     """True when *text* contains DuckDB's lock-conflict wording."""
     return bool(_segments(text))
+
+
+def lock_message_from_text(text: str) -> str | None:
+    """The plain message for the first lock passage in *text* (e.g. a log excerpt), else None."""
+    segments = _segments(text)
+    if not segments:
+        return None
+    start, end, pid = segments[0]
+    logger.debug("duckdb_lock_error_raw: %s", text[start:end])
+    return lock_message(pid)
 
 
 def rewrite_lock_text(text: str) -> str:
@@ -91,16 +112,21 @@ def rewrite_lock_text(text: str) -> str:
     return "".join(out)
 
 
-def _children(exc: BaseException) -> list[BaseException]:
+def _children(exc: BaseException, follow_context: bool = True) -> list[BaseException]:
     found: list[BaseException] = []
-    for candidate in (exc.__cause__, exc.__context__, *exc.args):
+    context = exc.__context__ if follow_context else None
+    for candidate in (exc.__cause__, context, *exc.args):
         if isinstance(candidate, BaseException):
             found.append(candidate)
     return found
 
 
-def is_duckdb_lock_error(error: object) -> bool:
-    """True when *error*, or an exception it wraps, is DuckDB's lock-conflict error."""
+def is_duckdb_lock_error(error: object, *, follow_context: bool = True) -> bool:
+    """True when *error*, or an exception it wraps, is DuckDB's lock-conflict error.
+
+    With ``follow_context=False`` an exception raised while another was being handled
+    (implicit ``__context__``) is not looked through, only ``raise ... from`` causes and args.
+    """
     if not isinstance(error, BaseException):
         return is_lock_error_text(str(error))
     seen: set[int] = set()
@@ -112,7 +138,7 @@ def is_duckdb_lock_error(error: object) -> bool:
         seen.add(id(current))
         if is_lock_error_text(str(current)):
             return True
-        stack.extend((child, depth + 1) for child in _children(current))
+        stack.extend((child, depth + 1) for child in _children(current, follow_context))
     return False
 
 

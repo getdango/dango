@@ -21,6 +21,7 @@ from dango.utils.docker_hints import (
     metabase_skip_reported,
     note_metabase_skipped,
 )
+from dango.utils.duckdb_lock_text import is_duckdb_lock_error
 from dango.utils.error_text import rich_error_text
 
 if TYPE_CHECKING:
@@ -269,6 +270,7 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
         # 2. _dango_file_metadata table in main schema (for CSV sources)
         last_sync_times: dict[str, datetime] = {}
         row_counts: dict[str, int] = {}
+        warehouse_busy = False
         duckdb_path = project_root / "data" / "warehouse.duckdb"
         if duckdb_path.exists():
             try:
@@ -343,9 +345,10 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
                             pass
                 finally:
                     conn.close()
-            except Exception:
+            except Exception as exc:
                 # If we can't read metadata, just skip - last_sync will show "never"
-                pass
+                # (or "busy" when another Dango process holds the warehouse)
+                warehouse_busy = is_duckdb_lock_error(exc)
 
         # Build sync mode lookup from registry capabilities
         from dango.ingestion.sources.registry import get_source_capabilities
@@ -395,6 +398,8 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
                     last_sync = f"{diff.days}d ago"
                 else:
                     last_sync = last_sync_dt.strftime("%Y-%m-%d")
+            elif warehouse_busy:
+                last_sync = "[yellow]busy[/yellow]"
             else:
                 last_sync = "[dim]never[/dim]"
 
@@ -404,6 +409,11 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
 
         console.print(table)
         console.print()
+        if warehouse_busy:
+            console.print(
+                "[dim]Last Sync and Rows are unavailable while another Dango process is using "
+                "the warehouse.[/dim]"
+            )
 
         # Summary
         enabled_count = sum(1 for s in config.sources.sources if s.enabled)
