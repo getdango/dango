@@ -46,3 +46,10 @@ def test_previous_policy_is_restored_in_a_finally_block_when_it_changed() -> Non
 def test_the_policy_change_is_logged() -> None:
     final = TEXT[TEXT.index("finally {") :]
     assert re.search(r"Log .*execution policy", final, re.IGNORECASE)
+
+
+def test_the_restore_sets_the_current_user_scope_only() -> None:
+    final = TEXT[TEXT.index("finally {") :]
+    call = next(ln for ln in final.splitlines() if "Set-ExecutionPolicy" in ln)
+    assert "-Scope CurrentUser" in call
+    assert "LocalMachine" not in final and "Process" not in call

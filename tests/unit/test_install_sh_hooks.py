@@ -131,7 +131,7 @@ def test_spec_with_spaces_or_metacharacters_is_rejected(tmp_path: Path, spec: st
         "C:\\Users\\John Smith\\dist\\getdango-1.0.15-py3-none-any.whl",
     ],
 )
-def test_plain_single_token_specs_are_accepted(tmp_path: Path, spec: str) -> None:
+def test_single_argument_specs_are_accepted(tmp_path: Path, spec: str) -> None:
     run = run_installer(tmp_path, base_env(DANGO_INSTALL_SPEC=spec))
     assert run.proc.returncode == 0, run.output
     assert ["-m", "pip", "install", spec] in run.pip_installs()

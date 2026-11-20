@@ -104,3 +104,18 @@ def test_noninteractive_project_name_is_cleaned_then_checked_without_looping() -
     assert "'^[a-z0-9][a-z0-9-]*\\z'" in block
     assert block.index("-replace") < block.index("Stop-IfNonInteractive")
     assert "[a-z0-9][a-z0-9-]*" in "\n".join(LINES[:70])
+
+
+def test_spec_check_refuses_leading_and_trailing_spaces() -> None:
+    check = TEXT[TEXT.index("function Test-InstallSpec") :].split("\n}\n")[0]
+    assert 'StartsWith(" ")' in check and 'EndsWith(" ")' in check and 'StartsWith("-")' in check
+
+
+def test_windows_installer_job_parses_both_powershell_scripts() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "platform-smoke.yml").read_text(encoding="utf-8")
+    job = workflow[workflow.index("\n  installer:") :]
+    step = job[job.index("Parse the PowerShell scripts") :].split("\n      - name:")[0]
+    assert "windows-latest" in step
+    assert "Language.Parser" in step and "ParseFile" in step
+    assert "scripts/first_user_journey.ps1" in step and "install.ps1" in step
+    assert "exit 1" in step

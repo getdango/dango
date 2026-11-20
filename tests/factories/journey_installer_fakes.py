@@ -14,7 +14,8 @@ FAKE_INSTALLER = r"""#!/bin/bash
 set -e
 env | grep '^DANGO_INSTALL_' | sort > install-env.txt
 pwd > install-cwd.txt
-echo "PSExecutionPolicyPreference=${PSExecutionPolicyPreference-<unset>}" > install-ps-policy.txt
+# Any spelling of the variable counts: Windows reports environment names in upper case.
+{ env | grep -i '^PSExecutionPolicyPreference=' || echo "<unset>"; } > install-ps-policy.txt
 if [ "${FAKE_INSTALLER_FAIL:-}" = 1 ]; then
     echo "installer: boom"
     exit 1

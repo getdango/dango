@@ -216,12 +216,29 @@ def test_wheel_path_with_spaces_is_passed_and_verified(tmp_path: Path) -> None:
     assert f"DANGO_INSTALL_SPEC={spec}" in seen
 
 
-def test_installer_does_not_inherit_a_process_execution_policy(tmp_path: Path) -> None:
-    result = _installer_journey(
-        tmp_path, env={"PSExecutionPolicyPreference": "Bypass"}, steps="installer"
-    )
+@pytest.mark.parametrize("key", ["PSExecutionPolicyPreference", "PSEXECUTIONPOLICYPREFERENCE"])
+def test_installer_does_not_inherit_a_process_execution_policy(tmp_path: Path, key: str) -> None:
+    # Windows upper-cases the names in os.environ, so both spellings must be dropped.
+    result = _installer_journey(tmp_path, env={key: "Bypass"}, steps="installer")
     assert result.returncode == 0, result.stdout + result.stderr
     seen = (_installer_dir(tmp_path) / "install-ps-policy.txt").read_text("utf-8")
-    assert seen.strip() == "PSExecutionPolicyPreference=<unset>"
+    assert seen.strip() == "<unset>"
     env_seen = (_installer_dir(tmp_path) / "install-env.txt").read_text("utf-8")
     assert f"DANGO_INSTALL_SPEC={WHEEL}" in env_seen  # the rest of the environment is kept
+
+
+@pytest.mark.parametrize("spec", ["getdango", "getdango>=1.0", "getdango[extra]"])
+def test_unverifiable_specs_pass_but_say_the_source_was_not_verified(
+    tmp_path: Path, spec: str
+) -> None:
+    result = _installer_journey(tmp_path, spec=spec, steps="installer")
+    assert result.returncode == 0, result.stdout + result.stderr
+    passing = next(ln for ln in result.stdout.splitlines() if ln.startswith("PASS installer"))
+    assert "(source not verified)" in passing
+
+
+@pytest.mark.parametrize("spec", [WHEEL, "getdango==1.0.15", URL_SPEC])
+def test_verified_specs_do_not_claim_the_source_was_not_verified(tmp_path: Path, spec: str) -> None:
+    result = _installer_journey(tmp_path, spec=spec, steps="installer")
+    passing = next(ln for ln in result.stdout.splitlines() if ln.startswith("PASS installer"))
+    assert "not verified" not in passing
