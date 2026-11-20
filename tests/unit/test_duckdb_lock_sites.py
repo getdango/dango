@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import asyncio
 import re
+import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import duckdb
 import pytest
 from click.testing import CliRunner
 
@@ -87,7 +90,44 @@ class TestCliSites:
         monkeypatch.setenv("DANGO_DEBUG", "1")
         result = _run(["snapshot", "add"])
         assert result.exit_code == 1
-        assert result.exception is not None
+        assert isinstance(result.exception, duckdb.IOException)
+        assert "Another Dango process" not in result.output
+
+    def test_non_lock_errors_escape_the_group_unchanged(self, project: Path) -> None:
+        with patch("duckdb.connect", side_effect=RuntimeError("disk exploded")):
+            result = _run(["snapshot", "add"])
+        assert result.exit_code == 1
+        assert isinstance(result.exception, RuntimeError)
+        assert "disk exploded" in str(result.exception)
+        assert "Another Dango process" not in result.output
+
+    def test_a_crash_while_handling_a_lock_error_keeps_its_traceback(self, project: Path) -> None:
+        import click
+
+        from dango.cli.main import cli
+
+        @click.command("wp33-probe")
+        def probe() -> None:
+            try:
+                duckdb.connect(str(project / "data" / "warehouse.duckdb"))
+            except duckdb.IOException:
+                raise NameError("bug while handling the lock error") from None
+
+        cli.add_command(probe)
+        try:
+            result = _run(["wp33-probe"])
+        finally:
+            cli.commands.pop("wp33-probe", None)
+        assert isinstance(result.exception, NameError)
+        assert "Another Dango process" not in result.output
+
+    def test_source_list_says_busy_not_never(self, project: Path) -> None:
+        result = _run(["source", "list"])
+        assert result.exit_code == 0
+        flat = _flat(result.output)
+        assert "busy" in flat
+        assert "never" not in flat
+        assert "another Dango process" in flat  # one-line note under the table
 
     def test_other_errors_keep_their_text(self, project: Path) -> None:
         with patch("duckdb.connect", side_effect=RuntimeError("disk exploded")):
@@ -243,3 +283,115 @@ class TestMcpSites:
         with patch("duckdb.connect", side_effect=RuntimeError("disk exploded")):
             result = mcp_server.get_catalog()
         assert result == {"error": "disk exploded"}
+
+
+class TestDbtRunAndDocs:
+    """dbt's own subprocess hits the lock; Dango adds the plain message after its failure line."""
+
+    @pytest.fixture
+    def held_fresh_project(
+        self,
+        tmp_path_factory: pytest.TempPathFactory,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> Iterator[Path]:
+        from tests.factories.scaffold_project import build_fresh_project, working_copy
+
+        root = working_copy(build_fresh_project(tmp_path_factory), tmp_path)
+        monkeypatch.chdir(root)
+        monkeypatch.setenv("COLUMNS", "300")
+        monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.fail.Keyring")
+        monkeypatch.setenv("HOME", str(tmp_path / "home"))
+        with hold_warehouse(root / "data" / "warehouse.duckdb"):
+            yield root
+
+    def test_run(self, held_fresh_project: Path) -> None:
+        result = _run(["run"])
+        assert result.exit_code == 1  # exit code unchanged
+        flat = _flat(result.output)
+        assert "dbt build failed with exit code" in flat
+        assert flat.index("dbt build failed") < flat.index("Another Dango process")
+        assert "dango status" in flat
+
+    def test_docs(self, held_fresh_project: Path) -> None:
+        result = _run(["docs"])
+        assert result.exit_code == 1
+        flat = _flat(result.output)
+        assert "dbt docs generate failed with exit code" in flat
+        assert flat.index("failed with exit code") < flat.index("Another Dango process")
+
+
+class TestDbtLogTail:
+    def _log(self, dbt_dir: Path) -> Path:
+        path = dbt_dir / "logs" / "dbt.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def test_only_the_new_part_of_the_log_counts(self, tmp_path: Path) -> None:
+        from dango.utils.dbt_log_lock import lock_message_since, log_size
+
+        log = self._log(tmp_path)
+        log.write_text(
+            'IO Error: Could not set lock on file "x.duckdb": Conflicting lock is held in '
+            "/usr/bin/python (PID 11) by user a\n",
+            encoding="utf-8",
+        )
+        offset = log_size(tmp_path)
+        assert lock_message_since(tmp_path, offset) is None  # the old run's text is not ours
+        with log.open("a", encoding="utf-8") as handle:
+            handle.write(
+                'IO Error: Could not set lock on file "x.duckdb": Conflicting lock is held in '
+                "/usr/bin/python (PID 4242) by user a\n"
+            )
+        message = lock_message_since(tmp_path, offset)
+        assert message is not None
+        assert "Another Dango process is using the warehouse (PID 4242)" in message
+
+    def test_no_lock_text_no_message(self, tmp_path: Path) -> None:
+        from dango.utils.dbt_log_lock import lock_message_since, log_size
+
+        log = self._log(tmp_path)
+        log.write_text("start\n", encoding="utf-8")
+        offset = log_size(tmp_path)
+        with log.open("a", encoding="utf-8") as handle:
+            handle.write("Compilation Error in model x\n")
+        assert lock_message_since(tmp_path, offset) is None
+
+    def test_missing_log_and_rotated_log(self, tmp_path: Path) -> None:
+        from dango.utils.dbt_log_lock import lock_message_since, log_size
+
+        assert log_size(tmp_path) == 0
+        assert lock_message_since(tmp_path, 0) is None
+        log = self._log(tmp_path)
+        log.write_text('Could not set lock on file "x.duckdb"\n', encoding="utf-8")
+        assert lock_message_since(tmp_path, 10**9) is not None  # log was rotated: read it all
+
+    def test_undecodable_bytes_do_not_raise(self, tmp_path: Path) -> None:
+        from dango.utils.dbt_log_lock import lock_message_since
+
+        self._log(tmp_path).write_bytes(b"\xff\xfe junk \x00")
+        assert lock_message_since(tmp_path, 0) is None
+
+
+class TestRealLockScript:
+    def test_script_captures_the_real_message_and_checks_the_recogniser(self) -> None:
+        script = Path(__file__).resolve().parents[2] / "scripts" / "check_duckdb_lock_text.py"
+        result = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=120,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "REAL DUCKDB MESSAGE" in result.stdout
+        assert "Another Dango process is using the warehouse" in result.stdout
+
+    def test_every_platform_smoke_leg_runs_the_script(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[2] / ".github" / "workflows" / "platform-smoke.yml"
+        )
+        text = workflow.read_text(encoding="utf-8")
+        smoke_job = text.split("\n  installer:", 1)[0]
+        assert "scripts/check_duckdb_lock_text.py" in smoke_job
+        assert "continue-on-error" not in smoke_job

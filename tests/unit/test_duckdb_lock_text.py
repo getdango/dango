@@ -5,7 +5,6 @@ Recognising DuckDB's single-writer lock error and saying what it means in plain 
 
 from __future__ import annotations
 
-import sys
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -103,8 +102,7 @@ class TestMessage:
         assert "wait" in flat.lower()
         assert not any(marker in text for marker in _RAW_MARKERS)
         assert str(db) not in text
-        if sys.platform != "win32":  # Windows wording carries no PID
-            assert f"PID {pid}" in flat
+        assert f"PID {pid}" in flat
         text.encode("cp1252")  # plain ASCII-safe output
 
     def test_pid_is_shown_only_when_numeric(self) -> None:
@@ -195,3 +193,97 @@ def test_no_server_only_or_unix_only_imports() -> None:
     for banned in ("fcntl", "dango.platform.cloud", "dango.runtime", "termios", "import pwd"):
         assert banned not in source
     assert not any(ord(ch) > 127 for ch in source)
+
+
+_OPEN_ONE = "IO Error: File is already open in \nC:\\Python312\\python.exe (PID 1234)"
+_OPEN_TWO = (
+    "IO Error: File is already open in \nC:\\Python312\\python.exe (PID 1234)"
+    "\nC:\\Tools\\dbeaver.exe (PID 5678)"
+)
+_OPEN_NONE = "IO Error: File is already open in "
+
+
+class TestWindowsAlreadyOpenWording:
+    """DuckDB on Windows names the holding process (Restart Manager). Hand-written wording."""
+
+    @pytest.mark.parametrize("text", [_OPEN_ONE, _OPEN_TWO, _OPEN_NONE])
+    def test_recognised(self, text: str) -> None:
+        from dango.utils.duckdb_lock_text import is_duckdb_lock_error
+
+        assert is_duckdb_lock_error(duckdb.IOException(text))
+
+    def test_pid_is_the_last_one_listed(self) -> None:
+        from dango.utils.duckdb_lock_text import describe_error
+
+        two = describe_error(RuntimeError(_OPEN_TWO))
+        one = describe_error(RuntimeError(_OPEN_ONE))
+        none = describe_error(RuntimeError(_OPEN_NONE))
+        assert "Another Dango process" in two
+        assert "(PID 5678)" in two
+        assert "Another Dango process" in one
+        assert "(PID 1234)" in one
+        assert "Another Dango process" in none
+        assert "PID" not in none
+
+    def test_holder_lines_do_not_leak_and_surrounding_text_is_kept(self) -> None:
+        from dango.utils.duckdb_lock_text import rewrite_lock_text
+
+        out = rewrite_lock_text(f"Failed to check DuckDB health: {_OPEN_TWO} (retry later)")
+        assert out.startswith("Failed to check DuckDB health: Another Dango process")
+        assert out.endswith("(retry later)")
+        assert "python.exe" not in out
+        assert "dbeaver" not in out
+
+    def test_the_older_windows_wording_still_works(self) -> None:
+        from dango.utils.duckdb_lock_text import is_duckdb_lock_error
+
+        text = (
+            'IO Error: Cannot open file "C:\\p\\warehouse.duckdb": The process cannot access the '
+            "file because it is being used by another process."
+        )
+        assert is_duckdb_lock_error(RuntimeError(text))
+
+    def test_other_file_is_already_open_text_is_not_matched(self) -> None:
+        from dango.utils.duckdb_lock_text import is_duckdb_lock_error
+
+        assert not is_duckdb_lock_error(RuntimeError("IO Error: File is already open somewhere"))
+
+
+class TestFollowContext:
+    def test_implicit_context_is_ignored_when_asked(
+        self, real_error: tuple[Exception, int, Path]
+    ) -> None:
+        from dango.utils.duckdb_lock_text import is_duckdb_lock_error
+
+        try:
+            try:
+                raise real_error[0]
+            except duckdb.IOException:
+                raise NameError("a real bug while handling the lock error") from None
+        except NameError as bug:
+            assert is_duckdb_lock_error(bug)  # default: follows __context__
+            assert not is_duckdb_lock_error(bug, follow_context=False)
+
+    def test_explicit_cause_and_args_are_still_followed(
+        self, real_error: tuple[Exception, int, Path]
+    ) -> None:
+        from dango.utils.duckdb_lock_text import is_duckdb_lock_error
+
+        wrapped = RuntimeError("step failed")
+        wrapped.__cause__ = real_error[0]
+        assert is_duckdb_lock_error(wrapped, follow_context=False)
+        assert is_duckdb_lock_error(
+            RuntimeError("step failed", real_error[0]), follow_context=False
+        )
+
+
+def test_describe_error_redacts_secrets_before_the_debug_log(tmp_path: Path) -> None:
+    from dango.utils.duckdb_lock_text import describe_error
+
+    (tmp_path / ".env").write_text("API_TOKEN=supersecretvalue99\n", encoding="utf-8")
+    raw = _UNIX_TEXT.replace("/data/", "/data/supersecretvalue99/")
+    with patch("dango.utils.duckdb_lock_text.logger") as log:
+        describe_error(RuntimeError(raw), tmp_path)
+    logged = " ".join(str(a) for call in log.debug.call_args_list for a in call.args)
+    assert "Could not set lock" in logged
+    assert "supersecretvalue99" not in logged

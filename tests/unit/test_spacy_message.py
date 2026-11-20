@@ -193,3 +193,45 @@ def test_helper_module_is_portable() -> None:
     command = spacy_model.spacy_install_command()
     assert command.endswith("-m spacy download en_core_web_sm")
     assert Path(sys.executable).name in command
+
+
+class TestInstallCommandQuoting:
+    def _command(self, monkeypatch: pytest.MonkeyPatch, exe: str, windows: bool) -> str:
+        from dango.utils import spacy_model
+
+        monkeypatch.setattr(spacy_model.sys, "executable", exe)
+        monkeypatch.setattr(spacy_model, "_is_windows", lambda: windows)
+        return spacy_model.spacy_install_command()
+
+    def test_windows_path_with_a_space_is_pasteable_in_powershell(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        exe = "C:\\Users\\John Smith\\venv\\Scripts\\python.exe"
+        command = self._command(monkeypatch, exe, windows=True)
+        assert command == f'& "{exe}" -m spacy download en_core_web_sm'
+
+    def test_windows_path_without_a_space_is_plain(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        exe = "C:\\venv\\Scripts\\python.exe"
+        assert self._command(monkeypatch, exe, windows=True) == (
+            f"{exe} -m spacy download en_core_web_sm"
+        )
+
+    def test_posix_is_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert self._command(monkeypatch, "/opt/my venv/bin/python", windows=False) == (
+            "'/opt/my venv/bin/python' -m spacy download en_core_web_sm"
+        )
+        assert self._command(monkeypatch, "/usr/bin/python3", windows=False) == (
+            "/usr/bin/python3 -m spacy download en_core_web_sm"
+        )
+
+    def test_message_tells_cmd_users_to_drop_the_ampersand(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dango.utils import spacy_model
+
+        monkeypatch.setattr(spacy_model.sys, "executable", "C:\\A B\\python.exe")
+        monkeypatch.setattr(spacy_model, "_is_windows", lambda: True)
+        text = " ".join(spacy_model.spacy_unavailable_lines())
+        assert "cmd.exe" in text
+        monkeypatch.setattr(spacy_model.sys, "executable", "C:\\AB\\python.exe")
+        assert "cmd.exe" not in " ".join(spacy_model.spacy_unavailable_lines())
