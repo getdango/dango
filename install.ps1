@@ -6,10 +6,11 @@
 # Test hooks (opt-in; with none of these set the installer behaves exactly as before):
 #
 #   DANGO_INSTALL_SPEC             pip argument that replaces "getdango" in every Dango pip
-#                                  install (a wheel path, "getdango==1.0.15", ...). One token
-#                                  of letters, digits and . _ / : @ + = ~ , \ - (no spaces or
-#                                  shell metacharacters, must not start with "-"); it is
-#                                  validated and passed to pip as a single argument.
+#                                  install (a wheel path, "getdango==1.0.15", ...). One pip
+#                                  argument of letters, digits, spaces and . _ / : @ + = ~ , \ -
+#                                  (no shell metacharacters or newlines, no leading "-", no
+#                                  leading or trailing space); it is validated and passed to pip
+#                                  as a single argument.
 #   DANGO_INSTALL_NONINTERACTIVE   1 = read every answer from the variables below instead of
 #                                  Read-Host. A prompt whose variable is unset (and that has no
 #                                  default) stops the installer with that variable's name; an
@@ -23,8 +24,10 @@
 #   DANGO_INSTALL_MODE               1|2  1 = virtual environment, 2 = global (required)
 #   DANGO_INSTALL_SETUP              1|2  1 = install only, 2 = install + new project (required)
 #   DANGO_INSTALL_ADD_TO_PATH        y|n  add the user Scripts directory to PATH (default n)
-#   DANGO_INSTALL_PROJECT_NAME       new project directory name (required for SETUP=2; must not
-#                                    already exist)
+#   DANGO_INSTALL_PROJECT_NAME       new project directory name (required for SETUP=2). It is
+#                                    cleaned as when typed (lowercase, spaces to dashes, other
+#                                    characters dropped) and must then match ^[a-z0-9][a-z0-9-]*$
+#                                    and not already exist as a directory
 #   DANGO_INSTALL_EXISTING_ACTION    i|u|c  install, upgrade or cancel, for an existing project
 #                                    with a venv (required)
 #   DANGO_INSTALL_CREATE_VENV        y|n  create the missing venv of an existing project (default y)
@@ -76,8 +79,8 @@ function Test-InstallSpec {
     if ([string]::IsNullOrEmpty($spec)) {
         return
     }
-    if ($spec.StartsWith("-") -or ($spec -notmatch '^[A-Za-z0-9._/:@+=~,\\-]+\z')) {
-        Write-Error-Message "DANGO_INSTALL_SPEC must be one token of letters, digits and . _ / : @ + = ~ , \ - (not starting with -); got: $spec"
+    if ($spec.StartsWith("-") -or $spec.StartsWith(" ") -or $spec.EndsWith(" ") -or ($spec -notmatch '^[A-Za-z0-9._/:@+=~, \\-]+\z')) {
+        Write-Error-Message "DANGO_INSTALL_SPEC must be one pip argument of letters, digits, spaces and . _ / : @ + = ~ , \ - (no leading dash or edge spaces); got: $spec"
         exit 1
     }
     $script:DangoSpec = $spec
@@ -145,7 +148,7 @@ function Test-ExecutionPolicy {
     Write-Host ""
 
     # Prompt for permission
-    $response = Read-Answer -Name 'DANGO_INSTALL_ALLOW_EXECUTION_POLICY' -Prompt "Allow script execution for your user? [Y/n]" -Pattern '^[YyNn]$'
+    $response = Read-Answer -Name 'DANGO_INSTALL_ALLOW_EXECUTION_POLICY' -Prompt "Allow script execution for your user? [Y/n]" -Pattern '^[YyNn]\z'
 
     if ($response -match '^[Yy]$' -or [string]::IsNullOrWhiteSpace($response)) {
         try {
@@ -241,7 +244,7 @@ function Test-Docker {
         Write-Host "  Download: https://docs.docker.com/desktop/install/windows-install/"
         Write-Host ""
 
-        $response = Read-Answer -Name 'DANGO_INSTALL_DOCKER_CONTINUE' -Prompt "Continue without Docker? (y/N)" -Pattern '^[YyNn]$'
+        $response = Read-Answer -Name 'DANGO_INSTALL_DOCKER_CONTINUE' -Prompt "Continue without Docker? (y/N)" -Pattern '^[YyNn]\z'
         if ($response -notmatch '^[Yy]$') {
             Write-Info "Installation cancelled"
             Write-Host ""
@@ -271,7 +274,7 @@ function Test-Docker {
         Write-Host ""
         Write-Host "Or continue without Docker (Metabase won't work):"
 
-        $response = Read-Answer -Name 'DANGO_INSTALL_DOCKER_CONTINUE' -Prompt "Continue? (y/N)" -Pattern '^[YyNn]$'
+        $response = Read-Answer -Name 'DANGO_INSTALL_DOCKER_CONTINUE' -Prompt "Continue? (y/N)" -Pattern '^[YyNn]\z'
         if ($response -notmatch '^[Yy]$') {
             Write-Info "Installation cancelled"
             Write-Host ""
@@ -329,7 +332,7 @@ function Get-InstallMode {
     Write-Host ""
 
     do {
-        $choice = Read-Answer -Name 'DANGO_INSTALL_MODE' -Prompt "Choose [1] or [2]" -Pattern '^[12]$'
+        $choice = Read-Answer -Name 'DANGO_INSTALL_MODE' -Prompt "Choose [1] or [2]" -Pattern '^[12]\z'
         if ($choice -notmatch '^[12]$') {
             Write-Host "✗ Please enter 1 or 2" -ForegroundColor Red
         }
@@ -355,7 +358,7 @@ function Get-SetupMode {
     Write-Host ""
 
     do {
-        $choice = Read-Answer -Name 'DANGO_INSTALL_SETUP' -Prompt "Choose [1] or [2]" -Pattern '^[12]$'
+        $choice = Read-Answer -Name 'DANGO_INSTALL_SETUP' -Prompt "Choose [1] or [2]" -Pattern '^[12]\z'
         if ($choice -notmatch '^[12]$') {
             Write-Host "✗ Please enter 1 or 2" -ForegroundColor Red
         }
@@ -496,7 +499,7 @@ function Install-DangoGlobal {
         Write-Host "  $userScriptsDir" -ForegroundColor Yellow
         Write-Host ""
 
-        $response = Read-Answer -Name 'DANGO_INSTALL_ADD_TO_PATH' -Prompt "Would you like me to add it automatically? [y/N]" -Default 'n' -Pattern '^[YyNn]$'
+        $response = Read-Answer -Name 'DANGO_INSTALL_ADD_TO_PATH' -Prompt "Would you like me to add it automatically? [y/N]" -Default 'n' -Pattern '^[YyNn]\z'
 
         if ($response -match '^[Yy]$') {
             # Add to user PATH
@@ -769,6 +772,15 @@ function Main {
             do {
                 $projectDir = Read-Answer -Name 'DANGO_INSTALL_PROJECT_NAME' -Prompt "Enter project directory name (e.g., my-analytics)" -Pattern '.'
 
+                # Non-interactive: clean the name as below first, so it is checked as it is used
+                if ($env:DANGO_INSTALL_NONINTERACTIVE -eq "1") {
+                    $typedName = $projectDir
+                    $projectDir = ($projectDir.ToLower() -replace '\s+', '-' -replace '[^a-z0-9-]', '')
+                    if ($projectDir -cnotmatch '^[a-z0-9][a-z0-9-]*\z') {
+                        Stop-IfNonInteractive "DANGO_INSTALL_PROJECT_NAME='$typedName' is not usable as a project directory name (after cleanup: lowercase letters, digits and dashes, starting with a letter or digit)"
+                    }
+                }
+
                 if ([string]::IsNullOrWhiteSpace($projectDir)) {
                     Write-Error-Message "Project name cannot be empty"
                     Write-Host ""
@@ -840,7 +852,7 @@ function Main {
             Write-Host "  [c] Cancel"
             Write-Host ""
 
-            $action = Read-Answer -Name 'DANGO_INSTALL_EXISTING_ACTION' -Prompt "Choice" -Pattern '^[iIuUcC]$'
+            $action = Read-Answer -Name 'DANGO_INSTALL_EXISTING_ACTION' -Prompt "Choice" -Pattern '^[iIuUcC]\z'
 
             switch ($action.ToLower()) {
                 "i" {
@@ -865,7 +877,7 @@ function Main {
             Write-Host "This project needs a virtual environment for Dango."
             Write-Host ""
 
-            $response = Read-Answer -Name 'DANGO_INSTALL_CREATE_VENV' -Prompt "Create virtual environment now? [Y/n]" -Default 'y' -Pattern '^[YyNn]$'
+            $response = Read-Answer -Name 'DANGO_INSTALL_CREATE_VENV' -Prompt "Create virtual environment now? [Y/n]" -Default 'y' -Pattern '^[YyNn]\z'
 
             if ($response -match '^[Nn]$') {
                 Write-Info "Cancelled"

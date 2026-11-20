@@ -13,7 +13,10 @@
 # -Utf8Mode runs Python in UTF-8 mode, which hides file-encoding defects).
 # -Installer runs the checkout's install.ps1 instead (non-interactive, into a folder under TEMP)
 # with -Spec / -WheelPath, then walks the journey with the dango the installer put in its venv.
-# The installer may set your CurrentUser execution policy to RemoteSigned, as it does for any user.
+# The installer may set your CurrentUser execution policy to RemoteSigned, as it does for any user;
+# this script records the policy first and restores it afterwards when it changed. A process-level
+# policy of the shell that started this script (-ExecutionPolicy ...) is not passed to the installer.
+# -WheelPath / -Spec may contain spaces; a leading "-" or shell metacharacters are refused.
 # Keep first_user_journey.py, journey_support.py, journey_services.py and journey_installer.py in
 # the same folder (and, with -Installer, install.ps1 in the folder above).
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\first_user_journey.ps1 `
@@ -47,6 +50,7 @@ function PythonVersion([string]$Exe, [string[]]$Pre) {
     return "$v".Trim()
 }
 $code = 1
+$previousPolicy = "$(Get-ExecutionPolicy -Scope CurrentUser)"
 try {
     New-Item -ItemType Directory -Path $root, "$root\work" | Out-Null
     Log "Dango first-user journey, setup log: $log"
@@ -63,6 +67,9 @@ try {
     $extra = @(); if ($WithDocker) { $extra += "--with-docker" }; if ($Utf8Mode) { $extra += "--utf8-mode" }; if ($LegacyStdio) { $extra += "--legacy-stdio" }
     if ($Installer) {
         # The installer builds its own venv (next to the work folder); this python only runs the harness.
+        # Drop the process-level policy of the shell that started this script, so the installer
+        # and the journey run as a user's own session would.
+        Remove-Item Env:PSExecutionPolicyPreference -ErrorAction SilentlyContinue
         $code = RunLogged $exe[0] ($exe[1] + @($journeyPy, "--installer", "--spec", $target, "--workdir", "$root\work", "--log", $journeyLog) + $extra)
     } else {
         if ((RunLogged $exe[0] ($exe[1] + @("-m", "venv", "$root\venv"))) -ne 0) { throw "Creating the virtual environment failed." }
@@ -73,6 +80,18 @@ try {
     Log "Journey exit code: $code"
 } catch {
     Log "Journey setup failed: $_"
+} finally {
+    if ($Installer -and $previousPolicy) {
+        $nowPolicy = "$(Get-ExecutionPolicy -Scope CurrentUser)"
+        if ($nowPolicy -ne $previousPolicy) {
+            try {
+                Set-ExecutionPolicy -ExecutionPolicy $previousPolicy -Scope CurrentUser -Force -ErrorAction Stop
+                Log "Restored the CurrentUser execution policy: $nowPolicy -> $previousPolicy"
+            } catch {
+                Log "Could not restore the CurrentUser execution policy ($nowPolicy -> $previousPolicy): $_"
+            }
+        }
+    }
 }
 Log "Paste both logs back: $log and $journeyLog"
 Log "Temp files (safe to delete): $root"

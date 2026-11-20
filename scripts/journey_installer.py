@@ -6,9 +6,13 @@ clean directory as its working directory, then point the journey at the dango an
 installer put in its virtual environment. Standard library only.
 """
 
+import json
+import os
 import shutil
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from journey_support import Journey, Step, failure
 
@@ -17,6 +21,18 @@ DEFAULT_INSTALLER_TIMEOUT_SECONDS = 600
 
 # Answers for every prompt the installer can show on this path (install only, virtual environment).
 # The execution-policy answer is read by install.ps1 only, and only when the policy is too strict.
+# A process-level execution policy of the shell that started the harness is not passed on.
+INSTALLER_ENV_REMOVE = ("PSExecutionPolicyPreference",)
+_DIST_SUFFIXES = (".whl", ".tar.gz", ".zip")
+
+# Which getdango the venv holds: its version and, for a wheel or URL install, where pip got it.
+_DIST_INFO = """
+import json, importlib.metadata as m
+d = m.distribution("getdango")
+raw = d.read_text("direct_url.json")
+print(json.dumps({"version": d.version, "direct_url": json.loads(raw) if raw else None}))
+"""
+
 INSTALLER_ANSWERS = {
     "DANGO_INSTALL_NONINTERACTIVE": "1",
     "DANGO_INSTALL_DOCKER_CONTINUE": "y",
@@ -31,15 +47,44 @@ def installer_command(script: Path | None) -> list[str]:
     if script is None:
         script = CHECKOUT / ("install.ps1" if sys.platform == "win32" else "install.sh")
     if script.suffix == ".ps1":
-        # Run it as UTF-8 text, as `irm https://getdango.dev/install.ps1 | iex` does. The file has
-        # no BOM, so `powershell -File` (Windows PowerShell 5.1) reads it as ANSI and cannot parse it.
-        # No -ExecutionPolicy: that sets a process-level policy that overrides the user-level one
-        # the installer sets, and the one-liner has none.
+        # Run it the way the documented one-liner does: its UTF-8 text through iex, with no
+        # execution-policy option.
         quoted = str(script).replace("'", "''")
         text = f"[System.IO.File]::ReadAllText('{quoted}', [System.Text.Encoding]::UTF8)"
         shell = shutil.which("powershell") or shutil.which("pwsh") or "powershell"
         return [shell, "-NoProfile", "-Command", f"iex ({text})"]
     return ["bash", str(script)]
+
+
+def _same_file(url: str, spec: str) -> bool:
+    """True when the file:// `url` pip recorded points at the `spec` path."""
+    parsed = urlparse(url)
+    if parsed.scheme != "file":
+        return False
+    recorded = os.path.normcase(os.path.realpath(url2pathname(parsed.path)))
+    return recorded == os.path.normcase(os.path.realpath(spec))
+
+
+def check_installed_from(spec: str, info: dict[str, object]) -> str | None:
+    """Why the installed getdango does not come from `spec`, or None when it does (or cannot be told).
+
+    A `name==version` spec is checked by version; a wheel or sdist path by the file URL pip
+    recorded in direct_url.json; a URL by that recorded URL. Other specs (a bare name) are not
+    verifiable and pass.
+    """
+    direct = info.get("direct_url")
+    url = str(direct.get("url", "")) if isinstance(direct, dict) else ""
+    if "==" in spec and "://" not in spec and not spec.lower().endswith(_DIST_SUFFIXES):
+        wanted = spec.split("==", 1)[1].strip()
+        if info.get("version") != wanted:
+            return f"installed version is {info.get('version')}, wanted {wanted}"
+    elif "://" in spec:
+        if not url or url.split("#")[0] not in spec:
+            return f"pip recorded {url or 'no source URL (not a direct install)'}"
+    elif os.path.exists(spec) or spec.lower().endswith(_DIST_SUFFIXES):
+        if not _same_file(url, spec):
+            return f"pip recorded {url or 'no source URL (not a direct install)'}"
+    return None
 
 
 def step_installer(
@@ -48,7 +93,13 @@ def step_installer(
     """Run the installer in `installer_dir`, then make the journey use the dango it installed."""
     installer_dir.mkdir(parents=True, exist_ok=True)
     env_extra = {**INSTALLER_ANSWERS, "DANGO_INSTALL_SPEC": spec}
-    proc = j.run(installer_command(script), timeout=timeout, cwd=installer_dir, env_extra=env_extra)
+    proc = j.run(
+        installer_command(script),
+        timeout=timeout,
+        cwd=installer_dir,
+        env_extra=env_extra,
+        env_remove=INSTALLER_ENV_REMOVE,
+    )
     if proc.error is not None:
         return failure("installer", f"installer: {proc.error}", proc.output)
     if proc.returncode != 0:
@@ -65,5 +116,14 @@ def step_installer(
     if version.error is not None or version.returncode != 0:
         detail = version.error or f"exit code {version.returncode}"
         return failure("installer", f"installed dango --version: {detail}", version.output)
-    shown = version.output.strip().splitlines()[0] if version.output.strip() else "no version text"
-    return Step("installer", "PASS", f"installed {spec} into {installer_dir / 'venv'} ({shown})")
+    dist = j.run([j.python, "-c", _DIST_INFO], cwd=installer_dir)
+    try:
+        info = json.loads(dist.output.strip().splitlines()[-1]) if dist.returncode == 0 else None
+    except (ValueError, IndexError):
+        info = None
+    if not isinstance(info, dict):
+        return failure("installer", "could not read the installed getdango's metadata", dist.output)
+    problem = check_installed_from(spec, info)
+    if problem:
+        return failure("installer", f"installed getdango does not come from {spec}: {problem}")
+    return Step("installer", "PASS", f"installed getdango {info.get('version')} from {spec}")

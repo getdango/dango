@@ -145,12 +145,14 @@ class Journey:
         ignore_budget: bool = False,
         cwd: Path | None = None,
         env_extra: dict[str, str] | None = None,
+        env_remove: tuple[str, ...] = (),
     ) -> Proc:
         """Run a command in the workdir, append command, exit code and output to the log.
 
         The timeout is capped by what is left of the total budget, except for cleanup commands
         (ignore_budget=True) that must still run once the budget is spent. `cwd` replaces the
-        workdir and `env_extra` adds to the journey environment (the installer step uses both).
+        workdir, `env_extra` adds to the journey environment and `env_remove` drops variables from
+        it (the installer step uses all three).
         """
         limit = timeout if timeout is not None else self.step_timeout
         if ignore_budget:
@@ -165,7 +167,11 @@ class Journey:
             proc = subprocess.run(
                 argv,
                 cwd=cwd or self.workdir,
-                env={**self.env(), **(env_extra or {})},
+                env={
+                    k: v
+                    for k, v in {**self.env(), **(env_extra or {})}.items()
+                    if k not in env_remove
+                },
                 capture_output=True,
                 text=True,
                 encoding=self.output_encoding(),

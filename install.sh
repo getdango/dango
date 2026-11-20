@@ -9,10 +9,11 @@ set -e
 # Test hooks (opt-in; with none of these set the installer behaves exactly as before):
 #
 #   DANGO_INSTALL_SPEC             pip argument that replaces "getdango" in every Dango pip
-#                                  install (a wheel path, "getdango==1.0.15", ...). One token
-#                                  of letters, digits and . _ / : @ + = ~ , \ - (no spaces or
-#                                  shell metacharacters, must not start with "-"); it is
-#                                  validated, always quoted and never evaluated.
+#                                  install (a wheel path, "getdango==1.0.15", ...). One pip
+#                                  argument of letters, digits, spaces and . _ / : @ + = ~ , \ -
+#                                  (no shell metacharacters or newlines, no leading "-", no
+#                                  leading or trailing space); it is validated, always quoted
+#                                  and never evaluated.
 #   DANGO_INSTALL_NONINTERACTIVE   1 = read every answer from the variables below instead of
 #                                  /dev/tty. A prompt whose variable is unset (and that has no
 #                                  default) stops the installer with that variable's name; an
@@ -29,8 +30,10 @@ set -e
 #   DANGO_INSTALL_CONFLICTS_CONTINUE y|n  continue a global install that would upgrade other
 #                                    packages (required when that happens)
 #   DANGO_INSTALL_ADD_TO_PATH        y|n  add the user bin directory to the shell config (default n)
-#   DANGO_INSTALL_PROJECT_NAME       new project directory name (required for SETUP=2; must not
-#                                    already exist)
+#   DANGO_INSTALL_PROJECT_NAME       new project directory name (required for SETUP=2). It is
+#                                    cleaned as when typed (lowercase, spaces to dashes, other
+#                                    characters dropped) and must then match ^[a-z0-9][a-z0-9-]*$
+#                                    and not already exist as a directory
 #   DANGO_INSTALL_EXISTING_ACTION    i|u|c  install, upgrade or cancel, for an existing project
 #                                    with a venv (required)
 #   DANGO_INSTALL_CREATE_VENV        y|n  create the missing venv of an existing project (default y)
@@ -82,14 +85,19 @@ dango_pip_spec() {
 # Reject a DANGO_INSTALL_SPEC that is not a single plain token (checked before anything runs).
 validate_install_spec() {
     local spec="${DANGO_INSTALL_SPEC:-}"
-    local allowed='^[A-Za-z0-9._/:@+=~,\\-]+$'
+    local allowed='^[A-Za-z0-9._/:@+=~, \\-]+$'
     if [ -z "$spec" ]; then
         return 0
     fi
-    if [[ "$spec" == -* ]] || ! [[ "$spec" =~ $allowed ]]; then
-        print_error "DANGO_INSTALL_SPEC must be one token of letters, digits and . _ / : @ + = ~ , \\ - (not starting with -); got: $spec" >&2
+    if [[ "$spec" == -* || "$spec" == " "* || "$spec" == *" " ]] || ! [[ "$spec" =~ $allowed ]]; then
+        print_error "DANGO_INSTALL_SPEC must be one pip argument of letters, digits, spaces and . _ / : @ + = ~ , \\ - (no leading dash or edge spaces); got: $spec" >&2
         exit 1
     fi
+}
+
+# Project directory name from what was typed: lowercase, spaces to dashes, other characters dropped.
+sanitize_project_name() {
+    echo "$1" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-'
 }
 
 # Stop with a message naming the variable when a non-interactive run cannot continue.
@@ -807,6 +815,17 @@ main() {
                 echo -n "Enter project directory name (e.g., my-analytics): "
                 read_answer PROJECT_DIR DANGO_INSTALL_PROJECT_NAME "" '.'
 
+                # Non-interactive: clean the name as below first, so it is checked as it is used
+                if [ "${DANGO_INSTALL_NONINTERACTIVE:-}" = "1" ]; then
+                    typed_name=$PROJECT_DIR
+                    PROJECT_DIR=$(sanitize_project_name "$PROJECT_DIR")
+                    name_ok='^[a-z0-9][a-z0-9-]*$'
+                    if ! [[ "$PROJECT_DIR" =~ $name_ok ]]; then
+                        print_error "DANGO_INSTALL_PROJECT_NAME='$typed_name' is not usable as a project directory name (after cleanup: lowercase letters, digits and dashes, starting with a letter or digit)" >&2
+                        exit 1
+                    fi
+                fi
+
                 if [ -z "$PROJECT_DIR" ]; then
                     print_error "Project name cannot be empty"
                     echo
@@ -827,7 +846,7 @@ main() {
             done
 
             # Sanitize: lowercase, spaces → dashes, remove special chars
-            PROJECT_DIR=$(echo "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-')
+            PROJECT_DIR=$(sanitize_project_name "$PROJECT_DIR")
 
             echo
             print_step "Creating project directory: $PROJECT_DIR"
