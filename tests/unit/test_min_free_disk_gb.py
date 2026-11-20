@@ -17,6 +17,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from dango.cli.commands.doctor import doctor
 from dango.cli.commands.source import sync
 from dango.config.exceptions import ConfigValidationError
 from dango.config.loader import ConfigLoader
@@ -106,6 +107,47 @@ class TestSetting:
         with pytest.raises(ConfigValidationError, match=f"platform.{KEY}"):
             ConfigLoader(root).load_config()
 
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("'2'", 2.0),
+            ("'0.5'", 0.5),
+            ("' 3 '", 3.0),
+            ("1e-9", 1e-9),
+            ("5e-1", 0.5),
+            ("1E3", 1000),
+        ],
+    )
+    def test_numeric_strings_and_yaml_exponent_floats_are_accepted(
+        self, tmp_path: Path, raw: str, expected: float
+    ) -> None:
+        """Quoted numbers and exponent floats PyYAML reads as strings behave like other keys."""
+        root = _project(tmp_path)
+        text = f"project:\n  name: T\n  created_by: t@example.com\n  purpose: p\nplatform:\n  {KEY}: {raw}\n"
+        (root / ".dango" / "project.yml").write_text(text, encoding="utf-8")
+        assert ConfigLoader(root).load_config().platform.min_free_disk_gb == expected
+
+    @pytest.mark.parametrize("raw", ["'true'", "'nan'", "'inf'", "'-2'", "'1e999'", "'2GB'"])
+    def test_non_finite_negative_or_non_numeric_strings_still_rejected(
+        self, tmp_path: Path, raw: str
+    ) -> None:
+        root = _project(tmp_path)
+        text = f"project:\n  name: T\n  created_by: t@example.com\n  purpose: p\nplatform:\n  {KEY}: {raw}\n"
+        (root / ".dango" / "project.yml").write_text(text, encoding="utf-8")
+        with pytest.raises(ConfigValidationError, match=f"platform.{KEY}"):
+            ConfigLoader(root).load_config()
+
+    @pytest.mark.parametrize("platform_text", ["5", "[1, 2]", "abc"])
+    def test_platform_section_that_is_not_a_mapping_is_a_clear_config_error(
+        self, tmp_path: Path, platform_text: str
+    ) -> None:
+        root = _project(tmp_path)
+        text = f"project:\n  name: T\n  created_by: t@example.com\n  purpose: p\nplatform: {platform_text}\n"
+        (root / ".dango" / "project.yml").write_text(text, encoding="utf-8")
+        with pytest.raises(ConfigValidationError, match="'platform' section.*mapping") as exc:
+            ConfigLoader(root).load_config()
+        assert "project.yml" in str(exc.value)
+
     def test_invalid_value_rejected_by_the_model(self) -> None:
         with pytest.raises(ValueError, match=KEY):
             PlatformSettings(min_free_disk_gb=-1)
@@ -146,6 +188,38 @@ class TestCheckDiskSpace:
             assert _db_health.check_disk_space(Path("."), min_free_gb=0.5) is True
         with _disk(0.4), pytest.raises(DiskSpaceError, match="minimum 0.5GB"):
             _db_health.check_disk_space(Path("."), min_free_gb=0.5)
+
+    @pytest.mark.parametrize(
+        ("free_gb", "minimum", "shown_free"),
+        [(0.47, 0.5, "0.47"), (0.96, 1, "0.96"), (4.999, 5, "4.99")],
+    )
+    def test_free_figure_is_rounded_down_so_the_message_never_contradicts_itself(
+        self, free_gb: float, minimum: float, shown_free: str
+    ) -> None:
+        with _disk(free_gb), pytest.raises(DiskSpaceError) as exc:
+            _db_health.check_disk_space(Path("."), min_free_gb=minimum)
+        assert f"{shown_free}GB free (minimum {minimum:g}GB required)" in str(exc.value)
+
+    @pytest.mark.parametrize(
+        ("free_gb", "minimum", "warns"),
+        [
+            (8, 1, False),
+            (1.5, 1, True),
+            (0.9, 0.5, True),
+            (1.1, 0.5, False),
+            (9, 5, True),
+            (11, 5, False),
+            (30, 20, True),
+            (45, 20, False),
+        ],
+    )
+    def test_low_disk_warning_scales_with_the_setting(
+        self, free_gb: float, minimum: float, warns: bool
+    ) -> None:
+        """Warn below twice the minimum: the default 5 keeps today's 10 GB."""
+        with _disk(free_gb), patch.object(_db_health.console, "print") as printed:
+            assert _db_health.check_disk_space(Path("."), min_free_gb=minimum) is True
+        assert printed.called is warns
 
     def test_zero_disables_the_check(self) -> None:
         with _disk(0) as usage, patch.object(_db_health.console, "print") as printed:
@@ -217,6 +291,26 @@ class TestRunSourceUsesTheSetting:
         assert "platform.min_free_disk_gb" in result["error"]
         dispatch.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "content",
+        [
+            b"project: [unclosed\n",
+            b"\xff\xfe\x00 not utf-8",
+            b"project:\n  name: T\n  created_by: t@example.com\n  purpose: p\nplatform: 5\n",
+            b"project:\n  name: T\n  created_by: t@example.com\n  purpose: p\nplatform: [1]\n",
+        ],
+        ids=["bad_yaml", "not_utf8", "platform_int", "platform_list"],
+    )
+    def test_unreadable_or_malformed_project_yml_fails_the_source_without_raising(
+        self, tmp_path: Path, kind: str, content: bytes
+    ) -> None:
+        root = _project(tmp_path)
+        (root / ".dango" / "project.yml").write_bytes(content)
+        result, dispatch = self._run(root, kind, free_gb=50)
+        assert result["status"] == "failed"
+        assert result["error"]
+        dispatch.assert_not_called()
+
 
 class TestSyncCli:
     """`dango sync` end to end through CliRunner with a mocked disk size."""
@@ -265,3 +359,19 @@ class TestSyncCli:
         assert result.exit_code != 0
         csv_loader.assert_not_called()
         assert "platform.min_free_disk_gb" in result.output
+
+
+class TestDoctorWithInvalidPlatformSection:
+    """`dango doctor` reports a bad platform value as an error, not a traceback."""
+
+    @pytest.mark.parametrize(
+        "platform", [{KEY: -1}, {"port": "abc"}, {KEY: "abc"}], ids=["min_free", "port", "abc"]
+    )
+    def test_prints_the_error_and_aborts(self, tmp_path: Path, platform: dict[str, Any]) -> None:
+        root = _project(tmp_path, platform)
+        with patch("dango.cli.utils.require_project_context", return_value=root):
+            result = CliRunner().invoke(doctor, [], obj={"project_root": str(root)})
+        assert result.exit_code == 1
+        assert isinstance(result.exception, SystemExit), repr(result.exception)
+        assert "Traceback" not in result.output
+        assert "Invalid platform configuration" in result.output
