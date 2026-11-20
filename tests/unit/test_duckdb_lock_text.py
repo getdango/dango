@@ -287,3 +287,48 @@ def test_describe_error_redacts_secrets_before_the_debug_log(tmp_path: Path) -> 
     logged = " ".join(str(a) for call in log.debug.call_args_list for a in call.args)
     assert "Could not set lock" in logged
     assert "supersecretvalue99" not in logged
+
+
+# Captured verbatim on windows-latest (DuckDB 1.5.6) by scripts/check_duckdb_lock_text.py: the older
+# wording and the holder lines arrive together in one message.
+_REAL_WINDOWS = (
+    'IO Error: Cannot open file "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\'
+    'dango-lock-check-e18vom3b\\warehouse.duckdb": The process cannot access the file because it is '
+    "being used by another process.\r\n\nFile is already open in \n"
+    "C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\python.exe (PID 6496)"
+)
+
+
+class TestRealWindowsMessage:
+    def test_whole_message_becomes_one_friendly_text_with_the_pid(self) -> None:
+        from dango.utils.duckdb_lock_text import describe_error, is_duckdb_lock_error
+
+        error = duckdb.IOException(_REAL_WINDOWS)
+        assert is_duckdb_lock_error(error)
+        text = describe_error(error)
+        assert "Another Dango process is using the warehouse (PID 6496)" in text
+        assert text.count("Another Dango process") == 1
+        for leaked in ("python.exe", "File is already open", "Cannot open file", "runneradmin"):
+            assert leaked not in text
+
+    def test_rewrite_keeps_surrounding_text_and_leaves_nothing_behind(self) -> None:
+        from dango.utils.duckdb_lock_text import rewrite_lock_text
+
+        out = rewrite_lock_text(f"health check failed: {_REAL_WINDOWS} (will retry)")
+        assert out.startswith("health check failed: Another Dango process")
+        assert out.endswith("(will retry)")
+        assert out.count("Another Dango process") == 1
+        assert "python.exe" not in out
+        assert "File is already open" not in out
+
+    def test_both_orders_of_the_two_wordings_merge(self) -> None:
+        from dango.utils.duckdb_lock_text import describe_error
+
+        swapped = (
+            "IO Error: File is already open in \nC:\\x\\python.exe (PID 77)\n"
+            'Cannot open file "C:\\p\\warehouse.duckdb": The process cannot access the file '
+            "because it is being used by another process."
+        )
+        text = describe_error(RuntimeError(swapped))
+        assert text.count("Another Dango process") == 1
+        assert "(PID 77)" in text
