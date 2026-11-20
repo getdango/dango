@@ -94,7 +94,9 @@ def test_full_run_with_spec_installs_the_spec_only(tmp_path: Path, flow: str) ->
 @pytest.mark.parametrize(
     "spec",
     [
-        "a b",
+        " lead",
+        "trail ",
+        "a\tb",
         "x;y",
         "$(touch SENTINEL)",
         "`touch SENTINEL`",
@@ -125,6 +127,8 @@ def test_spec_with_spaces_or_metacharacters_is_rejected(tmp_path: Path, spec: st
         "getdango-1.0.15+local-py3-none-any.whl",
         "C:\\work\\dist\\getdango-1.0.15-py3-none-any.whl",
         "git+https://example.invalid/getdango.git@v1.0.15",
+        "/tmp/my dist/getdango-1.0.15-py3-none-any.whl",
+        "C:\\Users\\John Smith\\dist\\getdango-1.0.15-py3-none-any.whl",
     ],
 )
 def test_plain_single_token_specs_are_accepted(tmp_path: Path, spec: str) -> None:
@@ -293,7 +297,7 @@ def _outside_helper() -> str:
 def test_no_prompt_reads_the_terminal_outside_the_helpers() -> None:
     rest = _outside_helper()
     assert "/dev/tty" not in rest
-    assert not re.search(r"^\s*read\s", rest, re.M)
+    assert not re.search(r"\bread\b", rest), "a prompt must go through read_answer"
 
 
 def test_every_read_answer_variable_is_documented_in_the_header() -> None:
@@ -306,3 +310,44 @@ def test_every_read_answer_variable_is_documented_in_the_header() -> None:
 
 def test_the_eleven_read_sites_are_all_hooked() -> None:
     assert len(re.findall(r"^\s*read_answer \w+ DANGO_INSTALL_\w+", TEXT, re.M)) == 11
+
+
+# --- non-interactive project names ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["!!!", "-", "--help", " ", "   ", "\t"])
+def test_noninteractive_project_name_that_cleans_to_nothing_fails_naming_it(
+    tmp_path: Path, name: str
+) -> None:
+    env = base_env(DANGO_INSTALL_SETUP="2", DANGO_INSTALL_PROJECT_NAME=name)
+    run = run_installer(tmp_path, env, timeout=30)
+    assert run.proc.returncode != 0
+    assert "DANGO_INSTALL_PROJECT_NAME" in run.output
+    assert "is not usable as a project directory name" in run.output
+    assert run.pip_installs() == []
+    assert "illegal option" not in run.output and "OLDPWD" not in run.output
+
+
+def test_noninteractive_project_name_is_checked_after_the_same_cleanup(tmp_path: Path) -> None:
+    env = base_env(DANGO_INSTALL_SETUP="2", DANGO_INSTALL_PROJECT_NAME="my proj")
+    run = run_installer(tmp_path, env, existing_dirs=("my-proj",), timeout=30)
+    assert run.proc.returncode != 0
+    assert "DANGO_INSTALL_PROJECT_NAME='my-proj' already exists" in run.output
+    assert not (run.cwd / "my-proj" / "venv").exists()
+
+
+def test_noninteractive_project_name_is_documented_in_the_header() -> None:
+    header = "\n".join(TEXT.splitlines()[:80])
+    assert "[a-z0-9][a-z0-9-]*" in header
+
+
+# --- the two installers share one spec allow-list ------------------------------------------------
+
+
+def test_spec_allow_list_is_the_same_in_both_installers() -> None:
+    ps1 = (INSTALL_SH.parent / "install.ps1").read_text(encoding="utf-8")
+    sh_class = re.search(r"allowed='\^(\[[^\]]+\])\+\$'", TEXT)
+    ps_class = re.search(r"-notmatch '\^(\[[^\]]+\])\+\\z'", ps1)
+    assert sh_class and ps_class
+    assert sh_class.group(1) == ps_class.group(1)
+    assert " " in sh_class.group(1)

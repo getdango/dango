@@ -14,6 +14,7 @@ FAKE_INSTALLER = r"""#!/bin/bash
 set -e
 env | grep '^DANGO_INSTALL_' | sort > install-env.txt
 pwd > install-cwd.txt
+echo "PSExecutionPolicyPreference=${PSExecutionPolicyPreference-<unset>}" > install-ps-policy.txt
 if [ "${FAKE_INSTALLER_FAIL:-}" = 1 ]; then
     echo "installer: boom"
     exit 1
@@ -24,6 +25,18 @@ fi
 mkdir -p venv/bin
 cp "$FAKE_BIN/dango" venv/bin/dango
 cp "$FAKE_BIN/python" venv/bin/python
+# What `importlib.metadata` would report for the installed getdango (read by the fake venv python).
+dist="$FAKE_STATE_DIR/installed-dist.json"
+spec="${DANGO_INSTALL_SPEC:-}"
+if [ "${FAKE_INSTALLER_IGNORE_SPEC:-}" = 1 ]; then
+    printf '{"version": "1.0.14", "direct_url": null}\n' > "$dist"
+else
+    case "$spec" in
+        *==*) printf '{"version": "%s", "direct_url": null}\n' "${spec##*==}" > "$dist" ;;
+        *://*) printf '{"version": "1.0.15", "direct_url": {"url": "%s"}}\n' "$spec" > "$dist" ;;
+        *) printf '{"version": "1.0.15", "direct_url": {"url": "file://%s"}}\n' "$spec" > "$dist" ;;
+    esac
+fi
 """
 
 

@@ -96,6 +96,9 @@ import os, pathlib, sys, time
 
 state = pathlib.Path(os.environ["FAKE_STATE_DIR"])
 code = sys.argv[sys.argv.index("-c") + 1] if "-c" in sys.argv else ""
+if "direct_url" in code:  # the journey asking which getdango the installer installed
+    print((state / "installed-dist.json").read_text(encoding="utf-8"))
+    sys.exit(0)
 key = (
     "py-set-ports" if "yaml.safe_dump" in code
     else "py-count" if "NO_TABLE" in code

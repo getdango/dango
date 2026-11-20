@@ -20,6 +20,7 @@ from tests.factories.journey_installer_fakes import make_fake_installer
 pytestmark = pytest.mark.unit
 
 WHEEL = "/dist/getdango-1.0.15-py3-none-any.whl"
+URL_SPEC = "https://example.invalid/dist/getdango-1.0.15-py3-none-any.whl"
 
 
 @pytest.fixture(autouse=True)
@@ -142,7 +143,7 @@ def test_installer_requires_a_spec(tmp_path: Path) -> None:
 def test_installer_and_dango_are_mutually_exclusive(tmp_path: Path) -> None:
     result = run_journey(tmp_path, extra=("--installer", "--spec", WHEEL))
     assert result.returncode == 2
-    assert "--dango" in result.stderr
+    assert "drop --dango" in result.stderr
 
 
 def test_default_journey_has_no_installer_step(tmp_path: Path) -> None:
@@ -160,12 +161,67 @@ def test_powershell_installer_runs_as_utf8_text_like_the_documented_one_liner(
     import journey_installer
 
     argv = journey_installer.installer_command(Path("C:/co/install.ps1"))
-    # install.ps1 is UTF-8 without a BOM: `powershell -File` reads it as ANSI and cannot parse
-    # it, while `irm ... | iex` (what users run) decodes the text as UTF-8.
+    # Run the way the documented one-liner runs it: the script text through iex, no -File.
     assert "-File" not in argv
-    # A process-level -ExecutionPolicy overrides the user-level policy the installer sets, so
-    # Set-ExecutionPolicy fails; users running the one-liner pass no such option.
+    # The one-liner passes no execution-policy option, so neither does the journey.
     assert "-ExecutionPolicy" not in argv
     command = argv[argv.index("-Command") + 1]
     assert "ReadAllText" in command and "UTF8" in command and "install.ps1" in command
     assert journey_installer.installer_command(Path("/co/install.sh")) == ["bash", "/co/install.sh"]
+
+
+# --- the installed getdango must come from the spec under test ----------------------------------
+
+
+def test_installer_that_ignores_a_wheel_spec_fails_the_journey(tmp_path: Path) -> None:
+    result = _installer_journey(tmp_path, env={"FAKE_INSTALLER_IGNORE_SPEC": "1"})
+    assert result.returncode == 1, result.stdout
+    failing = next(ln for ln in result.stdout.splitlines() if ln.startswith("FAIL installer"))
+    assert "does not come from" in failing and WHEEL in failing
+    assert "SKIP init: depends on installer" in result.stdout
+    assert not any(ln.startswith("PASS") for ln in result.stdout.splitlines())
+
+
+def test_installer_that_ignores_a_version_spec_fails_the_journey(tmp_path: Path) -> None:
+    result = _installer_journey(
+        tmp_path, spec="getdango==1.0.15", env={"FAKE_INSTALLER_IGNORE_SPEC": "1"}
+    )
+    assert result.returncode == 1, result.stdout
+    assert "does not come from getdango==1.0.15" in result.stdout
+
+
+def test_installer_that_ignores_a_url_spec_fails_the_journey(tmp_path: Path) -> None:
+    result = _installer_journey(
+        tmp_path, spec=URL_SPEC, env={"FAKE_INSTALLER_IGNORE_SPEC": "1"}, steps="installer"
+    )
+    assert result.returncode == 1, result.stdout
+    assert f"does not come from {URL_SPEC}" in result.stdout
+
+
+@pytest.mark.parametrize("spec", [WHEEL, "getdango==1.0.15", URL_SPEC])
+def test_installer_that_honours_the_spec_passes_and_says_what_was_installed(
+    tmp_path: Path, spec: str
+) -> None:
+    result = _installer_journey(tmp_path, spec=spec, steps="installer")
+    assert result.returncode == 0, result.stdout + result.stderr
+    passing = next(ln for ln in result.stdout.splitlines() if ln.startswith("PASS installer"))
+    assert "getdango 1.0.15" in passing and spec in passing
+
+
+def test_wheel_path_with_spaces_is_passed_and_verified(tmp_path: Path) -> None:
+    spec = str(tmp_path / "my dist" / "getdango-1.0.15-py3-none-any.whl")
+    result = _installer_journey(tmp_path, spec=spec, steps="installer")
+    assert result.returncode == 0, result.stdout + result.stderr
+    seen = (_installer_dir(tmp_path) / "install-env.txt").read_text("utf-8").splitlines()
+    assert f"DANGO_INSTALL_SPEC={spec}" in seen
+
+
+def test_installer_does_not_inherit_a_process_execution_policy(tmp_path: Path) -> None:
+    result = _installer_journey(
+        tmp_path, env={"PSExecutionPolicyPreference": "Bypass"}, steps="installer"
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    seen = (_installer_dir(tmp_path) / "install-ps-policy.txt").read_text("utf-8")
+    assert seen.strip() == "PSExecutionPolicyPreference=<unset>"
+    env_seen = (_installer_dir(tmp_path) / "install-env.txt").read_text("utf-8")
+    assert f"DANGO_INSTALL_SPEC={WHEEL}" in env_seen  # the rest of the environment is kept

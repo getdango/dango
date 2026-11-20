@@ -88,3 +88,19 @@ def test_noninteractive_project_init_skips_the_wizard() -> None:
     init = TEXT[TEXT.index("function Initialize-Project") :].split("\n}\n")[0]
     assert "--skip-wizard" in init
     assert "DANGO_INSTALL_NONINTERACTIVE" in init
+
+
+def test_every_answer_pattern_anchors_the_end_with_backslash_z() -> None:
+    patterns = re.findall(r"Read-Answer\s+-Name\s+'\w+'.*?-Pattern\s+'([^']*)'", TEXT)
+    assert len(patterns) >= 9
+    for pattern in patterns:
+        assert pattern == "." or pattern.endswith("\\z"), pattern
+
+
+def test_noninteractive_project_name_is_cleaned_then_checked_without_looping() -> None:
+    text = TEXT[TEXT.index("$projectDir = Read-Answer") :]
+    block = text[: text.index("Test-Path $projectDir")]
+    assert "DANGO_INSTALL_NONINTERACTIVE" in block
+    assert "'^[a-z0-9][a-z0-9-]*\\z'" in block
+    assert block.index("-replace") < block.index("Stop-IfNonInteractive")
+    assert "[a-z0-9][a-z0-9-]*" in "\n".join(LINES[:70])
