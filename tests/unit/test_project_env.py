@@ -11,14 +11,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from dotenv import dotenv_values, load_dotenv
+
 from dango.utils.project_env import (
     EnvFileError,
     describe_env_read_error,
+    env_has,
     load_env,
     parse_env_text,
     read_env,
 )
-from dotenv import dotenv_values, load_dotenv
 
 pytestmark = pytest.mark.unit
 
@@ -194,7 +196,7 @@ def test_error_text_is_plain_and_rich_safe_after_escaping(tmp_path: Path) -> Non
     from rich.markup import escape
     from rich.text import Text
 
-    root = tmp_path / "[bold]proj[/bold]"
+    root = tmp_path / "[bold]proj"
     root.mkdir()
     (root / ".env").write_bytes(BAD_FILES["cp1252"])
     with pytest.raises(EnvFileError) as info:
@@ -208,3 +210,24 @@ def test_parse_env_text_matches_dotenv_values_for_text() -> None:
     text = BATTERY["interpolation"].decode("utf-8")
     assert parse_env_text(text) == dict(dotenv_values(stream=io.StringIO(text)))
     assert parse_env_text("") == {}
+
+
+def test_env_has_checks_the_environment_then_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _project(tmp_path, b"WP37_A=1\nWP37_B=\n")
+    assert env_has(root, "WP37_A") is True
+    assert env_has(root, "WP37_B") is False, "an empty value is not set"
+    assert env_has(root, "WP37_C") is False
+    monkeypatch.setenv("WP37_C", "x")
+    assert env_has(root, "WP37_C") is True
+
+
+def test_env_has_does_not_read_the_file_when_the_environment_has_the_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _project(tmp_path, BAD_FILES["cp1252"])
+    monkeypatch.setenv("WP37_A", "x")
+    assert env_has(root, "WP37_A") is True
+    with pytest.raises(EnvFileError):
+        env_has(root, "WP37_B")

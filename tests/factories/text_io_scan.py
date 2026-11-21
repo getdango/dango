@@ -11,6 +11,9 @@ Rules (local code only; the excluded prefixes are server-only or vendored):
 * Every text write needs ``newline="\\n"`` (``codecs.open`` and ``TextIOWrapper`` have no
   such parameter or are not writes of a new file, so they are exempt).
 * ``os.popen`` is always flagged (it decodes with the locale and has no encoding parameter).
+* ``load_dotenv``, ``dotenv_values``, ``find_dotenv`` and ``DotEnv`` calls are flagged everywhere
+  except ``dango/utils/project_env.py`` (``DOTENV_HELPER_MODULES``): they read the project
+  ``.env`` and fail with a raw codec error on a non-UTF-8 file; use ``load_env``/``read_env``.
 
 Keywords carried by ``**NAME`` (a module-level dict literal) or ``**{...}`` are followed.
 
@@ -34,6 +37,10 @@ EXCLUDED_PREFIXES = (
     "dango/runtime",
     "dango/ingestion/dlt_sources",
 )
+
+# The only modules that may call python-dotenv's readers (the safe project ``.env`` loader).
+DOTENV_HELPER_MODULES = ("dango/utils/project_env.py",)
+_DOTENV_FUNCS = {"load_dotenv", "dotenv_values", "find_dotenv", "DotEnv"}
 
 _MODE_RE = re.compile(r"^[rwaxbtU+]+$")
 # dotted name -> (mode index, encoding index, errors index, newline index or None)
@@ -303,6 +310,18 @@ def _popen_problem(node: ast.Call, names: dict[str, str]) -> str | None:
     return None
 
 
+def _dotenv_problem(node: ast.Call, names: dict[str, str]) -> str | None:
+    dotted = _dotted(node.func, names)
+    if dotted is None or dotted.rsplit(".", 1)[-1] not in _DOTENV_FUNCS:
+        return None
+    if not (dotted.startswith("dotenv.") or "." not in dotted):
+        return None  # a method of some other object
+    return (
+        f"{dotted.rsplit('.', 1)[-1]}() reads a .env file outside "
+        f"{DOTENV_HELPER_MODULES[0]}; use load_env()/read_env()"
+    )
+
+
 def _partial_problem(node: ast.Call, names: dict[str, str]) -> str | None:
     if _dotted(node.func, names) != "functools.partial" or not node.args:
         return None
@@ -328,11 +347,14 @@ def scan_source(source: str, label: str = "<src>", *, check_lf: bool = True) -> 
         kind = _kind(node, names, modules, parsers)
         if kind is not None and not _opaque(node):
             problems.extend(_file_problems(kind, check_lf=check_lf))
-        for extra in (
+        extras = [
             _subprocess_problem(node, names),
             _popen_problem(node, names),
             _partial_problem(node, names),
-        ):
+        ]
+        if label not in DOTENV_HELPER_MODULES:
+            extras.append(_dotenv_problem(node, names))
+        for extra in extras:
             if extra is not None:
                 problems.append(extra)
         found.extend(f"{label}:{original.lineno} {p}" for p in problems)

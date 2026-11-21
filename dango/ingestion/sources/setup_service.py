@@ -3,7 +3,6 @@
 Non-interactive source setup: schema, parameter validation, and persistence shared by the wizard and MCP.
 """
 
-import os
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -30,6 +29,8 @@ from dango.ingestion.sources.setup_schema import (
     require_agent_setup_supported,
 )
 from dango.logging import get_logger
+from dango.utils.project_env import EnvFileError
+from dango.utils.project_env import env_has as _dotenv_has
 
 logger = get_logger(__name__)
 
@@ -259,15 +260,6 @@ def append_source(project_root: Path, source_config: dict[str, Any]) -> None:
     ConfigLoader(project_root).save_sources_config(config.sources)
 
 
-def _dotenv_has(project_root: Path, name: str) -> bool:
-    from dotenv import dotenv_values
-
-    if os.environ.get(name):
-        return True
-    env_file = project_root / ".env"
-    return env_file.exists() and bool(dotenv_values(env_file).get(name))
-
-
 def prepare_source(
     project_root: Path,
     source_type: str,
@@ -314,9 +306,15 @@ def prepare_source(
             )
         except SourceSetupError as exc:
             errors.extend(exc.errors)
-    taken = [
-        r.name for r in reqs if r.name and r.kind == "env_var" and _dotenv_has(project_root, r.name)
-    ]
+    try:
+        taken = [
+            r.name
+            for r in reqs
+            if r.name and r.kind == "env_var" and _dotenv_has(project_root, r.name)
+        ]
+    except EnvFileError as exc:
+        errors.append(str(exc))
+        taken = []
     if reject_existing_credentials:
         errors.extend(credential_collision_errors(taken))
     reqs = [r for r in reqs if r.name not in taken]

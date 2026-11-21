@@ -41,6 +41,9 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
       {"source": str, "type": str, "auth_type": str,
        "status": "ok"|"missing"|"expired"|"expiring_soon"|"unknown",
        "detail": str}
+
+    Raises:
+        EnvFileError: The project ``.env`` cannot be read (not UTF-8, unreadable).
     """
     from dango.config.helpers import get_config
     from dango.ingestion.sources.registry import AuthType, get_source_metadata
@@ -61,12 +64,9 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
     secrets_file = project_root / ".dlt" / "secrets.toml"
     # OAuthStorage creates an empty secrets.toml on construction; a read-only check must not.
     oauth_storage = OAuthStorage(project_root) if secrets_file.exists() else None
-    env_file = project_root / ".env"
-    dot_env = {}
-    if env_file.exists():
-        from dotenv import dotenv_values
+    from dango.utils.project_env import read_env
 
-        dot_env = dotenv_values(env_file)
+    dot_env = read_env(project_root)
 
     for source in sources:
         source_type = source.type.value

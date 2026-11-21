@@ -37,7 +37,7 @@ OK = {
 def test_scanner_flags_a_bare_dotenv_call(name: str) -> None:
     found = scan_source(BARE[name], "dango/ingestion/x.py", check_lf=False)
     assert len(found) == 1, (name, found)
-    assert "dotenv" in found[0] and "dango/utils/project_env.py" in found[0]
+    assert ".env" in found[0] and "dango/utils/project_env.py" in found[0]
     assert found[0].startswith("dango/ingestion/x.py:")
 
 

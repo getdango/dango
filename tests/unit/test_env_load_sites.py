@@ -56,9 +56,8 @@ def test_runner_construction_does_not_raise_for_a_bad_env(project: Path) -> None
 
 
 def test_credential_checks_raise_the_env_file_error(project: Path) -> None:
-    from dango.utils.project_env import EnvFileError
-
     from dango.ingestion.credential_health import run_credential_checks
+    from dango.utils.project_env import EnvFileError
 
     with pytest.raises(EnvFileError) as info:
         run_credential_checks(project)
@@ -75,10 +74,9 @@ def test_prepare_source_reports_the_env_file_as_a_setup_error(project: Path) -> 
 
 
 def test_credential_requirements_raise_the_env_file_error(project: Path) -> None:
-    from dango.utils.project_env import EnvFileError
-
     from dango.config.models import DataSource, SourceType
     from dango.ingestion.sources.setup_lifecycle import credential_requirements
+    from dango.utils.project_env import EnvFileError
 
     source = DataSource(name="stripe_test", type=SourceType.STRIPE)
     with pytest.raises(EnvFileError):
@@ -109,9 +107,8 @@ def test_script_env_check_reports_the_env_file_and_does_not_crash(project: Path)
 
 
 def test_oauth_manager_raises_the_env_file_error(project: Path) -> None:
-    from dango.utils.project_env import EnvFileError
-
     from dango.oauth import OAuthManager
+    from dango.utils.project_env import EnvFileError
 
     with pytest.raises(EnvFileError) as info:
         OAuthManager(project)
@@ -133,9 +130,8 @@ def test_google_provider_prints_the_friendly_text_not_a_traceback(
 
 
 def test_wizard_database_check_raises_the_env_file_error(project: Path) -> None:
-    from dango.utils.project_env import EnvFileError
-
     from dango.cli.source_wizard import SourceWizard
+    from dango.utils.project_env import EnvFileError
 
     wizard = SourceWizard(project)
     wizard.secret_params = [{"param_name": "credentials_env", "name": "PG_URL"}]
@@ -144,11 +140,20 @@ def test_wizard_database_check_raises_the_env_file_error(project: Path) -> None:
 
 
 def test_bad_env_leaves_the_process_environment_alone(project: Path) -> None:
-    from dango.utils.project_env import EnvFileError
-
     from dango.oauth import OAuthManager
+    from dango.utils.project_env import EnvFileError
 
     before = dict(os.environ)
     with pytest.raises(EnvFileError):
         OAuthManager(project)
     assert dict(os.environ) == before
+
+
+def test_inline_oauth_router_prints_the_friendly_text(
+    project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from dango.oauth.router import run_oauth_for_source
+
+    assert run_oauth_for_source("google_sheets", "sheet1", project) is False
+    captured = capsys.readouterr()
+    _assert_friendly(captured.out + captured.err)

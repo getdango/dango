@@ -313,27 +313,7 @@ class SourceWizard:
 
                     # Validate database connection for postgres sources
                     if source_type in ("postgres",):
-                        import os
-
-                        from dotenv import load_dotenv
-
-                        load_dotenv(self.env_file, override=True)
-                        for sp in self.secret_params:
-                            if sp.get("param_name") != "credentials_env":
-                                continue
-                            env_val = os.getenv(sp.get("name", ""))
-                            if not env_val:
-                                continue
-                            while not self._validate_database_connection(env_val):
-                                if not click.confirm(
-                                    "  Try a different connection URL?", default=True
-                                ):
-                                    break
-                                env_val = click.prompt("  Connection URL")
-                                # Update .env with new value
-                                from dotenv import set_key
-
-                                set_key(str(self.env_file), sp["name"], env_val)
+                        self._check_postgres_connections()
 
             # Step 9: Only save source config if validation passed or no secrets required
             self._save_source(source_config)
@@ -451,6 +431,32 @@ class SourceWizard:
         except Exception as e:
             console.print(f"\n[red]❌ Error: {escape(str(e))}[/red]")
             return False
+
+    def _check_postgres_connections(self) -> None:
+        """Test each saved ``credentials_env`` connection URL; offer a new URL on failure.
+
+        Raises:
+            EnvFileError: The project ``.env`` cannot be read (the wizard reports it).
+        """
+        import os
+
+        from dango.utils.project_env import load_env
+
+        load_env(self.project_root, override=True)
+        for sp in self.secret_params:
+            if sp.get("param_name") != "credentials_env":
+                continue
+            env_val = os.getenv(sp.get("name", ""))
+            if not env_val:
+                continue
+            while not self._validate_database_connection(env_val):
+                if not click.confirm("  Try a different connection URL?", default=True):
+                    break
+                env_val = click.prompt("  Connection URL")
+                # Update .env with new value
+                from dotenv import set_key
+
+                set_key(str(self.env_file), sp["name"], env_val)
 
     def _select_source_flat(self) -> str | None:
         """Select source from flat list (no categories)"""

@@ -6,9 +6,11 @@ Routes OAuth authentication requests to the correct provider based on source typ
 from pathlib import Path
 
 from rich.console import Console
+from rich.markup import escape
 
 from dango.oauth import OAuthManager
 from dango.oauth.providers import FacebookOAuthProvider, GoogleOAuthProvider
+from dango.utils.project_env import EnvFileError
 
 console = Console()
 
@@ -43,8 +45,12 @@ def run_oauth_for_source(source_type: str, source_name: str, project_root: Path)
 
     provider_name, service = OAUTH_PROVIDER_MAP[source_type]
 
-    # Create OAuth manager
-    oauth_manager = OAuthManager(project_root)
+    # Create OAuth manager (an unreadable .env stops it with one message)
+    try:
+        oauth_manager = OAuthManager(project_root)
+    except EnvFileError as e:
+        console.print(f"[red]❌ {escape(str(e))}[/red]")
+        return False
 
     # Route to correct provider
     try:

@@ -328,6 +328,8 @@ def run_doctor() -> list[dict[str, Any]]:
     long-lived and the user may have just set a key.
 
     Returns list of dicts with: source, type, status (ok/missing/expired), detail.
+    If the project .env cannot be read, the list holds one entry (source ".env", status
+    "unknown") whose detail says why.
     """
     project_root = _get_project_root()
     # Correction (coordinating-chat pre-dispatch verification, 2026-09-03):
@@ -336,5 +338,18 @@ def run_doctor() -> list[dict[str, Any]]:
     # function directly — verified by reading it). Already returns the
     # exact list[dict[str, Any]] shape this tool's docstring promises.
     from dango.ingestion.credential_health import get_cached_credential_health
+    from dango.utils.project_env import EnvFileError
 
-    return get_cached_credential_health(project_root, refresh=True)
+    try:
+        return get_cached_credential_health(project_root, refresh=True)
+    except EnvFileError as e:
+        # Same list shape; one entry says why no source could be checked.
+        return [
+            {
+                "source": ".env",
+                "type": "env_file",
+                "auth_type": "env",
+                "status": "unknown",
+                "detail": redact_project_text(project_root, str(e)),
+            }
+        ]

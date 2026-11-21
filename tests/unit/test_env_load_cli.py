@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +22,7 @@ pytestmark = pytest.mark.unit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CP1252_ENV = b"caf\xe9=1\n"
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 RAW = ("Traceback", "codec", "0xe9", "UnicodeDecodeError", "invalid continuation")
 
 
@@ -68,7 +70,7 @@ def _dango(root: Path, *args: str) -> tuple[int, str]:
 
 
 def _assert_friendly(output: str) -> None:
-    flat = " ".join(output.split())
+    flat = " ".join(_ANSI.sub("", output).split())
     assert "Cannot read" in flat, output
     assert ".env" in flat, output
     assert "UTF-8" in flat, output

@@ -199,16 +199,13 @@ def resolve_declared(
     Raises:
         ValueError: If a name is invalid or reserved.
     """
-    import io
-
-    from dotenv import dotenv_values
-
     from dango.config.scripts import check_env_name
+    from dango.utils.project_env import parse_env_text
 
     for name in names:
         check_env_name(name)
     text = _read_env_file(project_root) if env_text is None else env_text
-    parsed = dotenv_values(stream=io.StringIO(text))
+    parsed = parse_env_text(text)
     values = {n: v for n in names if (v := parsed.get(n)) is not None}
     return values, tuple(n for n in names if n not in values)
 

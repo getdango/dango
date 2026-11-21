@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 
 import requests
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
@@ -110,7 +111,7 @@ class GoogleOAuthProvider(BaseOAuthProvider):
         """
         import os
 
-        from dotenv import load_dotenv
+        from dango.utils.project_env import EnvFileError, load_env
 
         try:
             console.print(
@@ -119,7 +120,7 @@ class GoogleOAuthProvider(BaseOAuthProvider):
 
             # Try to load credentials from .env first
             env_file = self.project_root / ".env"
-            load_dotenv(env_file, override=True)
+            load_env(self.project_root, override=True)
             client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
             client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
 
@@ -415,6 +416,9 @@ class GoogleOAuthProvider(BaseOAuthProvider):
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Authentication cancelled[/yellow]")
+            return None
+        except EnvFileError as e:
+            console.print(f"\n[red]✗ {escape(str(e))}[/red]")
             return None
         except Exception as e:
             console.print(f"\n[red]✗ Error: {e}[/red]")
