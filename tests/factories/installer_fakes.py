@@ -58,7 +58,9 @@ if args[:1] == ["-c"]:
             if name in installed:
                 print(name, installed[name])
     else:
-        print(env.get("FAKE_PY_VERSION", "3.12"))
+        # FAKE_PY_VERSION_python3_11=3.11 gives that command its own version (dots become _)
+        own = "FAKE_PY_VERSION_" + os.path.basename(sys.argv[0]).replace(".", "_")
+        print(env.get(own, env.get("FAKE_PY_VERSION", "3.12")))
 elif args[:2] == ["-m", "venv"]:
     target = pathlib.Path(args[2])
     if env.get("FAKE_VENV_FAIL"):
@@ -141,8 +143,16 @@ def _write_exe(path: Path, text: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
-def make_bin(base: Path, dango_on_path: bool = True) -> tuple[Path, Path]:
+def make_bin(
+    base: Path,
+    dango_on_path: bool = True,
+    extra_pythons: tuple[str, ...] = (),
+    dango_in_user_bin: bool = True,
+) -> tuple[Path, Path]:
     """Build an isolated PATH dir (utilities, fake python3, optional fake dango).
+
+    extra_pythons: more fake interpreters by name (e.g. "python3.11") next to python3.
+    dango_in_user_bin: False leaves the user-base bin directory without a dango.
 
     Returns (path dir, user-base dir whose bin/ holds a second fake dango).
     """
@@ -153,11 +163,14 @@ def make_bin(base: Path, dango_on_path: bool = True) -> tuple[Path, Path]:
         assert found, tool
         (bindir / tool).symlink_to(found)
     _write_exe(bindir / "python3", _FAKE_PYTHON)
+    for name in extra_pythons:
+        _write_exe(bindir / name, _FAKE_PYTHON)
     if dango_on_path:
         _write_exe(bindir / "dango", _FAKE_DANGO)
     user_base = base / "userbase"
     (user_base / "bin").mkdir(parents=True)
-    _write_exe(user_base / "bin" / "dango", _FAKE_DANGO)
+    if dango_in_user_bin:
+        _write_exe(user_base / "bin" / "dango", _FAKE_DANGO)
     return bindir, user_base
 
 
@@ -197,6 +210,8 @@ def run_installer(
     env: dict[str, str],
     *,
     dango_on_path: bool = True,
+    extra_pythons: tuple[str, ...] = (),
+    dango_in_user_bin: bool = True,
     seed_project: str = "",
     snippet: str = "",
     existing_dirs: tuple[str, ...] = (),
@@ -208,7 +223,7 @@ def run_installer(
     seed_project: "" (new project), "venv" (existing project with a venv) or "novenv".
     typed: when given, run on a real terminal and type these lines (interactive mode).
     """
-    bindir, user_base = make_bin(base, dango_on_path)
+    bindir, user_base = make_bin(base, dango_on_path, extra_pythons, dango_in_user_bin)
     cwd = base / "proj"
     cwd.mkdir()
     for name in existing_dirs:

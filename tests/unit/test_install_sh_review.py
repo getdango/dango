@@ -23,6 +23,36 @@ def _user_installs(run_calls: list[list[str]]) -> list[list[str]]:
     return [c for c in run_calls if c[:4] == ["-m", "pip", "install", "--user"]]
 
 
+# --- a successful PATH add counts as on PATH (project flow must initialise) ------------------------
+
+
+def test_global_project_after_adding_to_path_initialises_the_project(tmp_path: Path) -> None:
+    env = base_env(
+        **GLOBAL,
+        DANGO_INSTALL_SETUP="2",
+        DANGO_INSTALL_PROJECT_NAME="p1",
+        DANGO_INSTALL_ADD_TO_PATH="y",
+    )
+    run = run_installer(tmp_path, env, dango_on_path=False)
+    assert run.proc.returncode == 0, run.output
+    assert "project was not initialised" not in run.output
+    assert ["dango", "init", "--skip-wizard"] in run.calls()
+
+
+def test_no_advice_to_add_the_line_that_was_just_added(tmp_path: Path) -> None:
+    env = base_env(**GLOBAL, DANGO_INSTALL_ADD_TO_PATH="y")
+    run = run_installer(tmp_path, env, dango_on_path=False, dango_in_user_bin=False)
+    assert run.proc.returncode == 0, run.output
+    assert "Failed to add dango to PATH" in run.output
+    assert "add that line to" not in run.output
+
+
+def test_fish_instructions_say_which_fish_version_is_needed(tmp_path: Path) -> None:
+    env = base_env(**GLOBAL, DANGO_INSTALL_ADD_TO_PATH="n", SHELL="/usr/bin/fish")
+    run = run_installer(tmp_path, env, dango_on_path=False)
+    assert "fish 3.2" in run.output
+
+
 # --- every upgraded package is listed, not just the first ------------------------------------------
 
 
@@ -41,12 +71,36 @@ def test_every_upgraded_package_is_listed(tmp_path: Path) -> None:
 # --- pip advice that works on Debian and Ubuntu (ensurepip is disabled there) --------------------
 
 
-def test_pip_hint_for_a_versioned_python_on_debian_is_the_distro_package(tmp_path: Path) -> None:
-    snippet = "detect_distro_family() { echo debian; }; PYTHON_CMD=python3.11; install_dango_global"
-    run = run_installer(tmp_path, {}, snippet=snippet)
+DEBIAN_NO_PIP = "detect_distro_family() { echo debian; }; PYTHON_CMD=__CMD__; install_dango_global"
+
+
+def test_pip_hint_on_debian_is_the_distro_package_for_the_distros_own_python(
+    tmp_path: Path,
+) -> None:
+    run = run_installer(
+        tmp_path,
+        base_env(FAKE_NO_PIP="1"),
+        snippet=DEBIAN_NO_PIP.replace("__CMD__", "python3.12"),
+        extra_pythons=("python3.12",),  # python3 and python3.12 are both 3.12 here
+    )
     assert run.proc.returncode != 0
     assert "sudo apt install python3-pip" in run.output
-    assert "ensurepip" not in run.output  # ensurepip is disabled for the system Python there
+    assert "ensurepip" not in run.output
+
+
+def test_pip_hint_on_debian_for_another_version_is_venv_then_ensurepip(tmp_path: Path) -> None:
+    # Ubuntu's python3-pip does not run on a newer Python (deadsnakes 3.12 on 22.04: no distutils)
+    env = base_env(FAKE_NO_PIP="1", FAKE_PY_VERSION_python3_11="3.11")
+    run = run_installer(
+        tmp_path,
+        env,
+        snippet=DEBIAN_NO_PIP.replace("__CMD__", "python3.11"),
+        extra_pythons=("python3.11",),  # python3 stays 3.12
+    )
+    assert run.proc.returncode != 0
+    assert "sudo apt install python3.11-venv" in run.output
+    assert "python3.11 -m ensurepip --user --upgrade" in run.output
+    assert "sudo apt install python3-pip" not in run.output
 
 
 # --- a pip too old for --dry-run: go on without the check, do not claim the install would fail -------------
@@ -146,3 +200,26 @@ def test_install_dango_global_is_not_called_in_an_if_condition() -> None:
 def test_no_word_splitting_set_and_no_sourced_os_release() -> None:
     assert "set -- $installed" not in TEXT
     assert ". /etc/os-release" not in TEXT
+
+
+# --- derivatives are recognised through ID_LIKE ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("os_release", "family"),
+    [
+        ("ID=ubuntu\\n", "debian"),
+        ('ID="debian"\\n', "debian"),
+        ('ID=linuxmint\\nID_LIKE="ubuntu debian"\\n', "debian"),
+        ('ID=pop\\nID_LIKE="ubuntu debian"\\n', "debian"),
+        ("ID=fedora\\n", "fedora"),
+        ('ID=rocky\\nID_LIKE="rhel centos fedora"\\n', "fedora"),
+        ("ID=arch\\n", "other"),
+    ],
+)
+def test_distro_family_is_read_from_id_and_id_like(
+    tmp_path: Path, os_release: str, family: str
+) -> None:
+    snippet = f"printf '{os_release}' > osr; detect_distro_family osr"
+    run = run_installer(tmp_path, {}, snippet=snippet)
+    assert run.proc.stdout.strip() == family, run.output

@@ -63,7 +63,11 @@ def test_one_shot_command_hosts_exit_with_the_code_but_interactive_windows_do_no
     assert "NoExit" in func or "noe" in func  # -NoExit keeps the window, so it must not exit
     exit_line = re.search(r"if \(([^\n]*)\) \{\n\s+exit \$Code", func)
     assert exit_line, func
-    assert "$PSCommandPath" in exit_line.group(1) and "$oneShot" in exit_line.group(1)
+    decision = exit_line.group(1)
+    assert "$PSCommandPath" in decision and "$oneShot" in decision
+    # a successful run never calls exit in a host (the VS Code terminal starts with -Command and
+    # `irm | iex; more` must still run `more`); only a failure in a console window does
+    assert "$Code -ne 0" in decision and "$Host.Name -eq 'ConsoleHost'" in decision
     # -NoExit wins over -Command
     assert re.search(r"if \(\$keepOpen\) \{\n\s+\$oneShot = \$false", func), func
 
@@ -98,3 +102,94 @@ def test_the_stop_exception_is_caught_by_type_before_the_generic_catch() -> None
     typed = tail.index("catch [System.OperationCanceledException]")
     generic = tail.index("catch {")
     assert typed < generic
+
+
+# --- the command-line scan ---------------------------------------------------------------------------
+
+
+def _scan_patterns() -> dict[str, str]:
+    func = _function("Complete-Installer")
+    found = re.findall(r"\$arg -match '([^']+)'", func)
+    names = ["command", "encoded", "noexit", "file"]
+    assert len(found) == len(names), found
+    return dict(zip(names, found, strict=True))
+
+
+@pytest.mark.parametrize(
+    ("kind", "arg", "expected"),
+    [
+        ("command", "-Command", True),
+        ("command", "-c", True),
+        ("command", "-co", True),
+        ("command", "-COMMAND", True),
+        ("command", "--command", True),
+        ("command", "/c", True),
+        ("command", "-cx", False),
+        ("command", "-File", False),
+        ("command", "command", False),
+        ("encoded", "-e", True),
+        ("encoded", "-ec", True),
+        ("encoded", "-enc", True),
+        ("encoded", "-EncodedCommand", True),
+        ("encoded", "--encodedcommand", True),
+        ("encoded", "-ex", False),
+        ("noexit", "-noe", True),
+        ("noexit", "-noex", True),
+        ("noexit", "-NoExit", True),
+        ("noexit", "--noexit", True),
+        ("noexit", "-no", False),
+        ("noexit", "-NoProfile", False),
+        ("file", "-File", True),
+        ("file", "-f", True),
+        ("file", "--file", True),
+        ("file", "-fx", False),
+    ],
+)
+def test_the_scan_recognises_each_spelling_of_the_options(
+    kind: str, arg: str, expected: bool
+) -> None:
+    assert bool(re.search(_scan_patterns()[kind], arg, re.I)) is expected
+
+
+def test_the_scan_stops_at_the_first_command_or_file_option() -> None:
+    func = _function("Complete-Installer")
+    # tokens after -Command belong to the command text, so a later -NoExit must not count
+    assert re.search(r"\$oneShot = \$true\s+break", func), func
+    assert "break" in func[func.index("-match '") :]
+
+
+# --- policy resolution ----------------------------------------------------------------------------------
+
+
+def test_the_set_of_policies_that_allow_scripts_is_exactly_three() -> None:
+    func = _function("Test-ScriptPolicyAllows")
+    words = set(re.findall(r'"(\w+)"', func))
+    assert words == {"RemoteSigned", "Unrestricted", "Bypass"}  # AllSigned blocks Activate.ps1
+
+
+def test_the_process_note_resolves_the_saved_policy_through_group_policy_first() -> None:
+    func = _function("Test-ExecutionPolicy")
+    assert "'MachinePolicy','UserPolicy','CurrentUser','LocalMachine'" in func
+    assert re.search(r"if \(-not \(Test-ScriptPolicyAllows \$saved\)\) \{", func)
+    assert re.search(
+        r"if \(Test-ScriptPolicyAllows \(Get-ExecutionPolicy -Scope Process\)\) \{", func
+    )
+
+
+def test_the_blocked_message_gives_only_advice_that_can_help() -> None:
+    func = _function("Test-ExecutionPolicy")
+    blocked = func[func.index("is blocked by a policy") :]
+    assert "Get-ExecutionPolicy -Scope MachinePolicy" in blocked
+    assert "Get-ExecutionPolicy -Scope UserPolicy" in blocked
+    assert "Group Policy" in blocked
+    assert "was saved" in func  # the CurrentUser write is stated outright
+
+
+# --- the Windows job covers a successful one-shot run too ------------------------------------------------
+
+
+def test_windows_job_checks_that_a_successful_one_shot_run_goes_on() -> None:
+    job = WORKFLOW[WORKFLOW.index("\n  installer:") : WORKFLOW.index("\n  installer-containers:")]
+    step = job[job.index("Installer stop behaviour") :].split("\n      - name:")[0]
+    assert "after-installer" in step
+    assert "DANGO_INSTALL_EXISTING_ACTION" in step  # cancel path: exit code 0, no install
