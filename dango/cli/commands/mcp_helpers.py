@@ -42,21 +42,22 @@ def fastmcp_without_dotenv() -> Iterator[None]:
     reads ``.env`` from the *current working directory*: a stray file there (for example one
     saved in cp1252 on Windows) made every ``dango`` command fail with a ``UnicodeDecodeError``
     before any Dango code ran. ``fastmcp`` documents ``FASTMCP_ENV_FILE`` as the name of that
-    file and reads it once, at import time; an empty value names no file. The previous value is
-    put back afterwards so child processes see the caller's environment unchanged. ``FASTMCP_*``
-    settings still come from the real environment. Dango's own project ``.env`` handling is
-    separate and unaffected.
+    file and reads it once, at import time; an empty value names no file. Only the implicit
+    default (``./.env``) is neutralised: when the user set ``FASTMCP_ENV_FILE`` themselves
+    (including to a file that is not UTF-8) it is left exactly as it is, so their choice is
+    honoured. The variable is put back afterwards so child processes see the caller's
+    environment unchanged. ``FASTMCP_*`` settings from the real environment always apply.
+    Dango's own project ``.env`` handling is separate and unaffected.
     """
     name = "FASTMCP_ENV_FILE"
-    previous = os.environ.get(name)
+    if name in os.environ:
+        yield
+        return
     os.environ[name] = ""
     try:
         yield
     finally:
-        if previous is None:
-            os.environ.pop(name, None)
-        else:
-            os.environ[name] = previous
+        os.environ.pop(name, None)
 
 
 def _get_project_root() -> Path:

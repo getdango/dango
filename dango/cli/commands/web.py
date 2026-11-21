@@ -53,7 +53,7 @@ def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
     try:
         project_root = require_project_context(ctx)
 
-        console.print(f"[dim]Project root: {project_root}[/dim]")
+        console.print(f"[dim]Project root: {escape(str(project_root))}[/dim]")
         console.print(f"[dim]Server: http://{host}:{port}[/dim]")
         console.print(f"[dim]API docs: http://{host}:{port}/api/docs[/dim]")
         console.print()
