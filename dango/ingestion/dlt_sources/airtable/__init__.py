@@ -59,10 +59,13 @@ def airtable_resource(
     air_table = api.table(base_id, table["id"])
 
     # Table.iterate() supports rich customization options, such as chunk size, fields, cell format, timezone, locale, and view
-    air_table_generator: Iterator[List[Any]] = air_table.iterate()
+    # Dango change: pass a generator function, not the generator object. A generator object can be
+    # consumed once, so the runner's extract retry failed with SourceExhausted and hid the real error.
+    def air_table_records() -> Iterator[List[Any]]:
+        yield from air_table.iterate()
 
     return dlt.resource(
-        air_table_generator,
+        air_table_records,
         name=table_name,
         primary_key=primary_key,
         write_disposition="replace",
