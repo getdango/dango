@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Any
 
@@ -36,15 +36,59 @@ class PrologueError(Exception):
         self.cause = cause
 
 
-def load_project_env(project_root: Path) -> None:
+# What `dango start` never takes from the project `.env`: a local run must not be flipped into
+# cloud mode, the project root is always the one the command resolved, and `UVICORN_*` names are
+# options of the uvicorn command line `start` runs for the server (`serve` does not read them).
+LOCAL_START_RESERVED_ENV = frozenset({"DANGO_CLOUD_MODE", "DANGO_PROJECT_ROOT"})
+LOCAL_START_RESERVED_PREFIXES = ("UVICORN_",)
+
+
+def load_project_env(
+    project_root: Path,
+    *,
+    skip: Collection[str] = (),
+    skip_prefixes: Collection[str] = (),
+) -> tuple[str, ...]:
     """Load ``<project>/.env`` into the process environment (existing variables win).
 
     Makes ``DANGO_ADMIN_EMAIL`` and other variables available when the process was not
-    started from a shell that exported them (systemd, a desktop launcher) (BUG-100).
+    started from a shell that exported them (systemd, a desktop launcher) (BUG-100), and
+    lets every process started from this one inherit them.
+
+    Args:
+        project_root: Project root directory.
+        skip: Names that must not come from the file.
+        skip_prefixes: Name prefixes that must not come from the file. A name already set
+            in the real environment is left alone either way.
+
+    Returns:
+        The skipped names that the file defines and that were therefore left unset, sorted
+        (never values).
+
+    Raises:
+        UnicodeDecodeError: The file is not UTF-8.
+        ValueError: The file holds a value the operating system rejects (a NUL byte).
+        OSError: The file cannot be read.
+        In every case nothing from the file is left in the environment.
     """
     from dotenv import load_dotenv
 
-    load_dotenv(project_root / ".env")
+    before = set(os.environ)
+    try:
+        load_dotenv(project_root / ".env", encoding="utf-8")
+    except Exception:
+        for name in set(os.environ) - before:
+            del os.environ[name]
+        raise
+    prefixes = tuple(skip_prefixes)
+    ignored = sorted(
+        name
+        for name in set(os.environ) - before
+        if name in skip or (prefixes and name.startswith(prefixes))
+    )
+    for name in ignored:
+        del os.environ[name]
+    return tuple(ignored)
 
 
 def describe_lock_holder(lock_info: dict[str, Any] | None) -> str:
