@@ -6,21 +6,16 @@ The empty-replace guard protects only replace-mode tables: real dlt + DuckDB run
 
 from __future__ import annotations
 
-import importlib as _real_importlib
 import shutil
-import types
 from pathlib import Path
-from typing import Any
 from unittest.mock import patch
 
 import dlt
 import duckdb
 import pytest
 
-from dango.config.models import DataSource, DltNativeConfig, SourceType
 from dango.ingestion.dlt_runner import EMPTY_REPLACE_PROTECTION_ERROR_TYPE, DltPipelineRunner
-
-METHODS = ["native", "dlt"]
+from tests.factories.empty_guard_runs import METHODS, count, ids, resource, sync
 
 
 @pytest.fixture(autouse=True)
@@ -29,22 +24,14 @@ def _isolate_dlt_state(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
 
 
-def _resource(name, rows, disposition, **hints):
-    @dlt.resource(name=name, write_disposition=disposition, **hints)
-    def _gen():
-        yield from rows
-
-    return _gen()
-
-
 def mixed(dim, fact, fact_disposition="merge"):
     """A source with a replace table `dim` and a merge (or append) table `fact`."""
     hints = {"primary_key": "id"} if fact_disposition == "merge" else {}
 
     @dlt.source(name="mixed")
     def _src():
-        yield _resource("dim", dim, "replace")
-        yield _resource("fact", fact, fact_disposition, **hints)
+        yield resource("dim", dim, "replace")
+        yield resource("fact", fact, fact_disposition, **hints)
 
     return _src()
 
@@ -54,59 +41,9 @@ def single(disposition, rows):
 
     @dlt.source(name="single")
     def _src():
-        yield _resource("t", rows, disposition, **hints)
+        yield resource("t", rows, disposition, **hints)
 
     return _src()
-
-
-def sync(runner, method, name, source, **kwargs) -> dict[str, Any]:
-    """Run one sync of `source` through the chosen method (real dlt, real DuckDB)."""
-    if method == "dlt":
-        config = DataSource(name=name, type=SourceType.CHESS)
-        with (
-            patch(
-                "dango.ingestion.dlt_runner.get_source_metadata",
-                return_value={"dlt_package": "fixture", "dlt_function": "fixture_func"},
-            ),
-            patch.object(runner, "_build_source_config", return_value={}),
-            patch.object(runner, "_load_dlt_source", return_value=source),
-            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
-            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
-        ):
-            return runner._run_dlt_source(config, **kwargs)
-    config = DataSource(
-        name=name,
-        type=SourceType.DLT_NATIVE,
-        dlt_native=DltNativeConfig(
-            source_module="fixture_module", source_function="make", function_kwargs={}
-        ),
-    )
-    module = types.SimpleNamespace(make=lambda: source)
-    real_import = _real_importlib.import_module
-
-    def _import(mod_name, *a, **k):
-        return module if mod_name == "fixture_module" else real_import(mod_name, *a, **k)
-
-    with patch("dango.ingestion.dlt_runner.importlib.import_module", side_effect=_import):
-        return runner._run_dlt_native_source(config, **kwargs)
-
-
-def ids(runner, name, table) -> list[int]:
-    con = duckdb.connect(str(runner.duckdb_path), read_only=True)
-    try:
-        return sorted(
-            r[0] for r in con.execute(f'SELECT id FROM "raw_{name}"."{table}"').fetchall()
-        )
-    finally:
-        con.close()
-
-
-def count(runner, name, table) -> int:
-    con = duckdb.connect(str(runner.duckdb_path), read_only=True)
-    try:
-        return con.execute(f'SELECT COUNT(*) FROM "raw_{name}"."{table}"').fetchone()[0]
-    finally:
-        con.close()
 
 
 def seeded(tmp_path, method, name="mx"):
@@ -218,8 +155,8 @@ class TestPureSources:
 def _nested(dim, facts):
     @dlt.source(name="nested")
     def _src():
-        yield _resource("dim", dim, "replace")
-        yield _resource("fact", facts, "merge", primary_key="id")
+        yield resource("dim", dim, "replace")
+        yield resource("fact", facts, "merge", primary_key="id")
 
     return _src()
 
@@ -236,7 +173,7 @@ def _dynamic(dim, facts):
 
     @dlt.source(name="dynamic")
     def _src():
-        yield _resource("dim", dim, "replace")
+        yield resource("dim", dim, "replace")
         yield _fact
 
     return _src()
