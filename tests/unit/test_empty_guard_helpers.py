@@ -69,6 +69,27 @@ class TestResourceDispositions:
 
         assert resource_dispositions(_s()) == {"h": "merge"}
 
+    def test_resources_sharing_a_table_never_lower_its_protection(self):
+        def res(disposition, selected=True):
+            return SimpleNamespace(table_name="t", write_disposition=disposition, selected=selected)
+
+        def source(*resources):
+            return SimpleNamespace(resources={str(i): r for i, r in enumerate(resources)})
+
+        undetermined = res(lambda item: "merge")  # a callable disposition cannot be read
+        assert resource_dispositions(source(res("merge"), undetermined)) == {"t": None}
+        assert resource_dispositions(source(undetermined, res("merge"))) == {"t": None}
+        assert resource_dispositions(source(res("replace"), res("merge"))) == {"t": "replace"}
+        assert resource_dispositions(source(res("merge"), res("replace"))) == {"t": "replace"}
+        assert resource_dispositions(source(res("merge"), res("append"))) == {"t": "append"}
+        assert resource_dispositions(source(res("replace"), res("merge", False))) == {
+            "t": "replace"
+        }
+        assert resource_dispositions(source(res("merge", False), res("replace"))) == {
+            "t": "replace"
+        }
+        assert resource_dispositions(source(res("merge", False))) == {"t": "untouched"}
+
     def test_unrecognised_source_gives_no_hints(self):
         assert resource_dispositions(object()) == {}
         assert resource_dispositions(None) == {}

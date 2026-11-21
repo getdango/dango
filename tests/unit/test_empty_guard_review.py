@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import dlt
@@ -133,6 +134,18 @@ def test_detect_write_disposition_reads_the_dict_form(tmp_path):
         yield resource("x", [], {"disposition": "merge", "strategy": "scd2"})
 
     assert runner._detect_write_disposition(_m()) is False
+
+
+@pytest.mark.unit
+def test_detect_write_disposition_reads_the_dict_form_for_other_source_shapes(tmp_path):
+    runner = DltPipelineRunner(tmp_path)
+    replace = SimpleNamespace(write_disposition={"disposition": "replace"})
+    merge = SimpleNamespace(write_disposition={"disposition": "merge"})
+    # An iterable of resources, and a bare resource-like object.
+    assert runner._detect_write_disposition([merge, replace]) is True
+    assert runner._detect_write_disposition([merge]) is False
+    assert runner._detect_write_disposition(replace) is True
+    assert runner._detect_write_disposition(merge) is False
 
 
 @pytest.fixture

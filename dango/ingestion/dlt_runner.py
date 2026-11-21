@@ -32,6 +32,7 @@ from dango.config.models import (
 from dango.exceptions import ConfigError, ConfigNotFoundError, SyncTimeoutError
 from dango.ingestion.csv_loader import CSVLoader, check_duplicate_filenames
 from dango.ingestion.empty_guard import (
+    disposition_name,
     replace_protected_tables,
     truncate_message,
     zero_rows_message,
@@ -832,7 +833,7 @@ class DltPipelineRunner:
 
             # Log error
             duration = (datetime.now(tz=timezone.utc) - start_time).total_seconds()
-            error_message = str(e)
+            error_message = redacted_error_text(self.project_root, e)
 
             # CSV/local_files are always full refresh regardless of the flag
             is_file_source = source_type in (SourceType.CSV, SourceType.LOCAL_FILES)
@@ -1629,17 +1630,17 @@ class DltPipelineRunner:
                     # resources is a dict-like object
                     for resource in resources.values():
                         if hasattr(resource, "write_disposition"):
-                            if resource.write_disposition == "replace":
+                            if disposition_name(resource.write_disposition) == "replace":
                                 return True
             elif hasattr(source, "__iter__"):
                 # Source is iterable (list of resources)
                 for resource in source:
                     if hasattr(resource, "write_disposition"):
-                        if resource.write_disposition == "replace":
+                        if disposition_name(resource.write_disposition) == "replace":
                             return True
             elif hasattr(source, "write_disposition"):
                 # Source itself has write_disposition
-                if source.write_disposition == "replace":
+                if disposition_name(source.write_disposition) == "replace":
                     return True
 
             return False
@@ -3440,7 +3441,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
             _cleanup_staging(staging_pipeline)
             error_msg = (
                 f"Full refresh failed during staging — the existing destination data "
-                f"was never touched: {e}"
+                f"was never touched: {redacted_error_text(self.project_root, e)}"
             )
             return {
                 "status": "failed",

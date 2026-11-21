@@ -14,7 +14,7 @@ from typing import Any
 _UNTOUCHED = "untouched"
 
 
-def _disposition_name(value: Any) -> str | None:
+def disposition_name(value: Any) -> str | None:
     """Name of a write disposition given as ``"merge"`` or ``{"disposition": "merge", ...}``."""
     if isinstance(value, str):
         return value
@@ -32,20 +32,32 @@ def resource_dispositions(source: Any) -> dict[str, str | None]:
     be read maps to ``None`` (treated as protected by the caller). An unrecognised source shape
     gives an empty mapping.
     """
-    dispositions: dict[str, str | None] = {}
+    selected_values: dict[str, list[str | None]] = {}
+    unselected: set[str] = set()
     try:
-        resources = source.resources.values()
-        for resource in resources:
+        for resource in source.resources.values():
             table_name = resource.table_name
             if not isinstance(table_name, str):
                 continue
-            if not getattr(resource, "selected", True):
-                dispositions[table_name] = _UNTOUCHED
+            if getattr(resource, "selected", True):
+                selected_values.setdefault(table_name, []).append(
+                    disposition_name(resource.write_disposition)
+                )
             else:
-                dispositions[table_name] = _disposition_name(resource.write_disposition)
+                unselected.add(table_name)
     except Exception:
         # Unreadable source: the guard falls back to protecting every table.
         return {}
+    dispositions: dict[str, str | None] = dict.fromkeys(unselected, _UNTOUCHED)
+    for table_name, values in selected_values.items():
+        # Several selected resources can write one table: an undetermined or replace
+        # disposition wins, and a selected resource always beats an unselected one.
+        if None in values:
+            dispositions[table_name] = None
+        elif "replace" in values:
+            dispositions[table_name] = "replace"
+        else:
+            dispositions[table_name] = values[-1]
     return dispositions
 
 
@@ -74,7 +86,7 @@ def _resolve(
         table = tables.get(current)
         if not isinstance(table, Mapping):
             return None
-        disposition = _disposition_name(table.get("write_disposition"))
+        disposition = disposition_name(table.get("write_disposition"))
         if disposition is not None:
             return disposition
         parent = table.get("parent")
