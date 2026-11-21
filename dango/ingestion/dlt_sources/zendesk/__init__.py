@@ -15,6 +15,7 @@ from .helpers.api_helpers import process_ticket, process_ticket_field
 from .helpers.talk_api import PaginationType, ZendeskAPIClient
 from .helpers.credentials import TZendeskCredentials, ZendeskCredentialsOAuth
 from .helpers import make_date_ranges
+from .._replay import replayable
 
 from .settings import (
     DEFAULT_START_DATE,
@@ -56,8 +57,10 @@ def zendesk_talk(
 
     # regular endpoints
     for key, talk_endpoint, item_name, cursor_paginated in TALK_ENDPOINTS:
+        # Dango change: replayable() passes dlt a generator function, not a generator object, so a retried extract can run again.
         yield dlt.resource(
-            talk_resource(
+            replayable(
+                talk_resource,
                 zendesk_client,
                 key,
                 item_name or talk_endpoint,
@@ -420,10 +423,15 @@ def zendesk_support(
     if load_all:
         resources_to_be_loaded.extend(SUPPORT_EXTRA_ENDPOINTS)
     for resource, endpoint_url, data_key, cursor_paginated in resources_to_be_loaded:
+        # Dango change: replayable() passes dlt a generator function, not a generator object, so a retried extract can run again.
         resource_list.append(
             dlt.resource(
-                basic_resource(
-                    zendesk_client, endpoint_url, data_key or resource, cursor_paginated
+                replayable(
+                    basic_resource,
+                    zendesk_client,
+                    endpoint_url,
+                    data_key or resource,
+                    cursor_paginated,
                 ),
                 name=resource,
                 write_disposition="replace",

@@ -1,11 +1,15 @@
 """Source that loads tables form Airtable.
 Supports whitelisting of tables or loading of all tables from a specified base.
 """
+import logging
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
 import dlt
 import pyairtable
 from dlt.sources import DltResource
+
+
+logger = logging.getLogger(__name__)  # dlt's own logger does not exist before a pipeline is created
 
 
 @dlt.source
@@ -36,6 +40,30 @@ def airtable_source(
             yield airtable_resource(api, base_id, t)
 
 
+def _warn_on_colliding_fields(table: Dict[str, Any]) -> None:
+    """Dango addition: warn once per table when field names normalise to the same column.
+
+    dlt snake_cases `fields.<name>` into `fields__<name>`, so `Name` and `name` (or `Full Name` and
+    `Full-Name`) load into one column and only the last value in each record survives. Loaded values are
+    left as they are; the warning tells the user which fields to rename.
+    """
+    naming = dlt.Schema("airtable_source").naming
+    columns: Dict[str, List[str]] = {}
+    for field in table["fields"]:
+        columns.setdefault(naming.normalize_identifier(field["name"]), []).append(field["name"])
+    clashes = []
+    for column, names in columns.items():
+        if len(names) > 1:
+            quoted = ", ".join("'" + n + "'" for n in names)
+            clashes.append(f"{quoted} -> fields__{column}")
+    if clashes:
+        logger.warning(
+            f"Airtable table '{table['name']}': these fields load into the same column, and only "
+            f"the last value in each record is kept: {'; '.join(clashes)}. "
+            "Rename one of them in Airtable to keep every value."
+        )
+
+
 def airtable_resource(
     api: pyairtable.Api,
     base_id: str,
@@ -50,10 +78,12 @@ def airtable_resource(
         table (Dict[str, Any]): Metadata about an airtable, does not contain the actual records
     """
     table_name: str = table["name"]
+    _warn_on_colliding_fields(table)
     # Dango change: key on the Airtable record id. Records arrive as
     # {"id": ..., "createdTime": ..., "fields": {...}}, so a field's value lands in the
-    # flattened column `fields__<name>`; the previous key (the primary field's own name)
-    # never matched a loaded column and failed normalisation with UnboundColumnException.
+    # flattened column `fields__<name>`. The previous key (the primary field's own name) did not
+    # match a loaded column unless that name normalised to a top-level column (`id`,
+    # `created_time`), and failed normalisation with UnboundColumnException otherwise.
     # The record id is always present, unique per table and does not rename any column.
     primary_key: List[str] = ["id"]
     air_table = api.table(base_id, table["id"])

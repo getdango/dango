@@ -8,6 +8,7 @@ from dlt.common.typing import TDataItems
 from dlt.sources import DltResource
 
 from .helpers import get_reactions_data, get_rest_pages, get_stargazers
+from .._replay import replayable
 
 
 @dlt.source
@@ -37,9 +38,11 @@ def github_reactions(
     Returns:
         Sequence[DltResource]: Two DltResources: `issues` with issues and `pull_requests` with pull requests
     """
+    # Dango change: replayable() passes dlt a generator function, not a generator object, so a retried extract can run again.
     return (
         dlt.resource(
-            get_reactions_data(
+            replayable(
+                get_reactions_data,
                 "issues",
                 owner,
                 name,
@@ -51,7 +54,8 @@ def github_reactions(
             write_disposition="replace",
         ),
         dlt.resource(
-            get_reactions_data(
+            replayable(
+                get_reactions_data,
                 "pullRequests",
                 owner,
                 name,
@@ -134,9 +138,11 @@ def github_stargazers(
     Returns:
         Sequence[DltResource]: One DltResource: `stargazers`
     """
+    # Dango change: replayable() passes dlt a generator function, not a generator object, so a retried extract can run again.
     return (
         dlt.resource(
-            get_stargazers(
+            replayable(
+                get_stargazers,
                 owner,
                 name,
                 access_token,
