@@ -40,35 +40,90 @@
 # Color output functions
 function Write-Header {
     Write-Host ""
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "=====================================================" -ForegroundColor Cyan
     Write-Host "  Dango Installer - Open Source Data Platform" -ForegroundColor Cyan
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "=====================================================" -ForegroundColor Cyan
     Write-Host ""
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "✓ $Message" -ForegroundColor Green
+    Write-Host "[OK] $Message" -ForegroundColor Green
 }
 
 function Write-Error-Message {
     param([string]$Message)
-    Write-Host "✗ $Message" -ForegroundColor Red
+    Write-Host "[X] $Message" -ForegroundColor Red
 }
 
 function Write-Warning-Message {
     param([string]$Message)
-    Write-Host "⚠ $Message" -ForegroundColor Yellow
+    Write-Host "[!] $Message" -ForegroundColor Yellow
 }
 
 function Write-Info {
     param([string]$Message)
-    Write-Host "ℹ $Message" -ForegroundColor Blue
+    Write-Host "[i] $Message" -ForegroundColor Blue
 }
 
 function Write-Step {
     param([string]$Message)
-    Write-Host "▶ $Message" -ForegroundColor Cyan
+    Write-Host ">> $Message" -ForegroundColor Cyan
+}
+
+# Stop the installer with an exit code. This throws instead of calling `exit`: `irm | iex` runs
+# the script in the person's own PowerShell session, where `exit` closes their window before they
+# can read the error. The throw is caught at the bottom, which then calls Complete-Installer.
+function Stop-Installer {
+    param([int]$Code)
+
+    $script:InstallerExitCode = $Code
+    throw [System.OperationCanceledException]::new("Dango installer stopped (exit code $Code)")
+}
+
+# End the run. From a script file (powershell -File, or & .\install.ps1) the exit code goes back to
+# the caller; under `irm | iex` there is no file, so the session is left open and the code is only
+# recorded in $LASTEXITCODE.
+function Complete-Installer {
+    param([int]$Code)
+
+    # A PowerShell started for one command (powershell -Command "irm ... | iex", or
+    # -EncodedCommand) ends with that command anyway, so a failure can pass its exit code on to
+    # whatever started it. Not on success, though: nothing needs the code then (a successful
+    # one-shot already ends with 0), and an exit would cut off anything chained after the
+    # installer, or close a host that runs commands this way inside a live session (the VS Code
+    # PowerShell terminal does). -NoExit keeps the window open, so it is not one of those.
+    $oneShot = $false
+    $keepOpen = $false
+    foreach ($arg in @([Environment]::GetCommandLineArgs() | Select-Object -Skip 1)) {
+        if ($arg -match '^(--?|/)c(o(m(m(a(n(d)?)?)?)?)?)?$' -or $arg -match '^(--?|/)e(c|n(c(o(d(e(d(c(o(m(m(a(n(d)?)?)?)?)?)?)?)?)?)?)?)?)?$') {
+            # what follows is the command text, so later words are not options
+            $oneShot = $true
+            break
+        }
+        if ($arg -match '^(--?|/)noe(x(i(t)?)?)?$') {
+            $keepOpen = $true
+            continue
+        }
+        if ($arg -match '^(--?|/)f(i(l(e)?)?)?$') {
+            break
+        }
+    }
+    if ($keepOpen) {
+        $oneShot = $false
+    }
+
+    if ($PSCommandPath -or ($oneShot -and $Code -ne 0 -and $Host.Name -eq 'ConsoleHost')) {
+        exit $Code
+    }
+    $global:LASTEXITCODE = $Code
+}
+
+# True for the policies under which a local script such as Activate.ps1 can run
+function Test-ScriptPolicyAllows {
+    param([string]$Policy)
+
+    return ($Policy -eq "RemoteSigned" -or $Policy -eq "Unrestricted" -or $Policy -eq "Bypass")
 }
 
 # Validate DANGO_INSTALL_SPEC (one plain token, checked before anything runs) and resolve the
@@ -81,7 +136,7 @@ function Test-InstallSpec {
     }
     if ($spec.StartsWith("-") -or $spec.StartsWith(" ") -or $spec.EndsWith(" ") -or ($spec -notmatch '^[A-Za-z0-9._/:@+=~, \\-]+\z')) {
         Write-Error-Message "DANGO_INSTALL_SPEC must be one pip argument of letters, digits, spaces and . _ / : @ + = ~ , \ - (no leading dash or edge spaces); got: $spec"
-        exit 1
+        Stop-Installer 1
     }
     $script:DangoSpec = $spec
 }
@@ -92,7 +147,7 @@ function Stop-IfNonInteractive {
 
     if ($env:DANGO_INSTALL_NONINTERACTIVE -eq "1") {
         Write-Error-Message $Message
-        exit 1
+        Stop-Installer 1
     }
 }
 
@@ -112,11 +167,11 @@ function Read-Answer {
     }
     if ([string]::IsNullOrEmpty($value)) {
         Write-Error-Message "Non-interactive install: set $Name (no answer given, no default)"
-        exit 1
+        Stop-Installer 1
     }
     if ($Pattern -and ($value -notmatch $Pattern)) {
         Write-Error-Message "Non-interactive install: $Name='$value' is not valid (expected $Pattern)"
-        exit 1
+        Stop-Installer 1
     }
     Write-Host "(non-interactive) $Name=$value"
     return $value
@@ -126,12 +181,36 @@ function Read-Answer {
 function Test-ExecutionPolicy {
     Write-Step "Checking PowerShell execution policy..."
 
-    $policy = Get-ExecutionPolicy -Scope CurrentUser
+    # The effective policy decides: a policy set at another scope (machine, group policy, this
+    # process) overrides the CurrentUser one
+    $policy = Get-ExecutionPolicy
 
     # If policy allows scripts, we're good
-    if ($policy -eq "RemoteSigned" -or $policy -eq "Unrestricted" -or $policy -eq "Bypass") {
+    if (Test-ScriptPolicyAllows $policy) {
         Write-Success "Execution policy is already set: $policy"
         Write-Host ""
+
+        # Allowed for this window only (for example powershell -ExecutionPolicy Bypass)? Then a new
+        # window cannot run the venv's Activate.ps1 until the policy is set for the user.
+        if (Test-ScriptPolicyAllows (Get-ExecutionPolicy -Scope Process)) {
+            # The policy a new window gets, in precedence order: Group Policy first, then the user, then
+            # the machine
+            $saved = "Undefined"
+            foreach ($scope in 'MachinePolicy','UserPolicy','CurrentUser','LocalMachine') {
+                $saved = Get-ExecutionPolicy -Scope $scope
+                if ($saved -ne "Undefined") {
+                    break
+                }
+            }
+            if (-not (Test-ScriptPolicyAllows $saved)) {
+                Write-Warning-Message "Scripts are allowed in this PowerShell window only"
+                Write-Host ""
+                Write-Host "A new PowerShell window will not be able to run Activate.ps1 (the command that"
+                Write-Host "switches to Dango's virtual environment) until you run, once:"
+                Write-Host "  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser" -ForegroundColor Yellow
+                Write-Host ""
+            }
+        }
         return
     }
 
@@ -142,9 +221,9 @@ function Test-ExecutionPolicy {
     Write-Host "This is safe and only affects your user account (no admin needed)."
     Write-Host ""
     Write-Host "We will set the policy to 'RemoteSigned' which:"
-    Write-Host "  • Allows local scripts to run"
-    Write-Host "  • Requires downloaded scripts to be signed"
-    Write-Host "  • Only affects your user (not system-wide)"
+    Write-Host "  - Allows local scripts to run"
+    Write-Host "  - Requires downloaded scripts to be signed"
+    Write-Host "  - Only affects your user (not system-wide)"
     Write-Host ""
 
     # Prompt for permission
@@ -157,12 +236,38 @@ function Test-ExecutionPolicy {
             Write-Host ""
         }
         catch {
+            if ($_.FullyQualifiedErrorId -like 'ExecutionPolicyOverride*') {
+                # The CurrentUser policy was written, but a more specific scope keeps its own.
+                # That is fine only when the policy now in force lets scripts run.
+                $now = Get-ExecutionPolicy
+                if (Test-ScriptPolicyAllows $now) {
+                    Write-Warning-Message "Your user setting was saved, but another policy overrides it (in force: $now)"
+                    Write-Host ""
+                    return
+                }
+                Write-Error-Message "Script execution is blocked by a policy set for this computer or this session (in force: $now)"
+                Write-Host ""
+                Write-Host "Your user setting (RemoteSigned) was saved, but it does not take effect while that"
+                Write-Host "policy is in force. See each level with: Get-ExecutionPolicy -List"
+                Write-Host ""
+                $groupPolicy = ((Get-ExecutionPolicy -Scope MachinePolicy) -ne "Undefined") -or ((Get-ExecutionPolicy -Scope UserPolicy) -ne "Undefined")
+                if ($groupPolicy) {
+                    Write-Host "It is set by Group Policy, which no PowerShell option can override. Ask your"
+                    Write-Host "administrator to allow scripts, then run this installer again."
+                } else {
+                    Write-Host "It comes from this PowerShell session (it was started with -ExecutionPolicy)."
+                    Write-Host "Open a PowerShell window without that option, or start one with"
+                    Write-Host "-ExecutionPolicy Bypass for this run, then run this installer again."
+                }
+                Write-Host ""
+                Stop-Installer 1
+            }
             Write-Error-Message "Failed to update execution policy: $_"
             Write-Host ""
             Write-Host "Please run this command manually:"
             Write-Host "  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser"
             Write-Host ""
-            exit 1
+            Stop-Installer 1
         }
     }
     else {
@@ -173,7 +278,7 @@ function Test-ExecutionPolicy {
         Write-Host ""
         Write-Host "Then run this installer again."
         Write-Host ""
-        exit 1
+        Stop-Installer 1
     }
 }
 
@@ -220,7 +325,7 @@ function Test-PythonVersion {
         Write-Host "  winget install Python.Python.3.12"
         Write-Host "  Or download: https://www.python.org/downloads/"
         Write-Host ""
-        exit 1
+        Stop-Installer 1
     }
 
     Write-Success "Python $pythonVersion found ($pythonCmd)"
@@ -251,7 +356,7 @@ function Test-Docker {
             Write-Host "Install Docker and run this script again:"
             Write-Host "  irm https://getdango.dev/install.ps1 | iex"
             Write-Host ""
-            exit 0
+            Stop-Installer 0
         }
         Write-Host ""
         return
@@ -281,7 +386,7 @@ function Test-Docker {
             Write-Host "Start Docker and run this script again:"
             Write-Host "  irm https://getdango.dev/install.ps1 | iex"
             Write-Host ""
-            exit 0
+            Stop-Installer 0
         }
         Write-Host ""
         return
@@ -310,22 +415,22 @@ function Get-InstallScenario {
 
 # Function to prompt for installation mode
 function Get-InstallMode {
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "=====================================================" -ForegroundColor Cyan
     Write-Host "  Installation Options" -ForegroundColor Cyan
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "=====================================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "How would you like to install Dango?"
     Write-Host ""
     Write-Host "[1] Virtual Environment (Recommended)" -ForegroundColor Green
-    Write-Host "    ✓ Keeps Dango separate from other Python programs"
-    Write-Host "    ✓ Safe to experiment - won't affect anything else"
-    Write-Host "    ✗ Requires one setup command each time (we'll show you)"
-    Write-Host "    ✗ Easy to forget - you'll see an error if you do"
+    Write-Host "    + Keeps Dango separate from other Python programs"
+    Write-Host "    + Safe to experiment - won't affect anything else"
+    Write-Host "    - Requires one setup command each time (we'll show you)"
+    Write-Host "    - Easy to forget - you'll see an error if you do"
     Write-Host ""
     Write-Host "[2] Global Install (More convenient)" -ForegroundColor Yellow
-    Write-Host "    ✓ Works immediately - no setup needed"
-    Write-Host "    ✓ Just type 'dango' anywhere"
-    Write-Host "    ⚠ May upgrade packages that other Python programs use"
+    Write-Host "    + Works immediately - no setup needed"
+    Write-Host "    + Just type 'dango' anywhere"
+    Write-Host "    ! May upgrade packages that other Python programs use"
     Write-Host "      (We'll check for conflicts before installing)"
     Write-Host ""
     Write-Host "Tip: Press Ctrl+C anytime to quit" -ForegroundColor DarkGray
@@ -334,7 +439,7 @@ function Get-InstallMode {
     do {
         $choice = Read-Answer -Name 'DANGO_INSTALL_MODE' -Prompt "Choose [1] or [2]" -Pattern '^[12]\z'
         if ($choice -notmatch '^[12]$') {
-            Write-Host "✗ Please enter 1 or 2" -ForegroundColor Red
+            Write-Host "[X] Please enter 1 or 2" -ForegroundColor Red
         }
     } while ($choice -notmatch '^[12]$')
 
@@ -347,9 +452,9 @@ function Get-InstallMode {
 
 # Function to prompt for setup mode
 function Get-SetupMode {
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "=====================================================" -ForegroundColor Cyan
     Write-Host "  What would you like to do?" -ForegroundColor Cyan
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "=====================================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "[1] Just install Dango" -ForegroundColor Green -NoNewline
     Write-Host " (set up projects later)"
@@ -360,7 +465,7 @@ function Get-SetupMode {
     do {
         $choice = Read-Answer -Name 'DANGO_INSTALL_SETUP' -Prompt "Choose [1] or [2]" -Pattern '^[12]\z'
         if ($choice -notmatch '^[12]$') {
-            Write-Host "✗ Please enter 1 or 2" -ForegroundColor Red
+            Write-Host "[X] Please enter 1 or 2" -ForegroundColor Red
         }
     } while ($choice -notmatch '^[12]$')
 
@@ -381,7 +486,7 @@ function New-VirtualEnvironment {
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Message "Failed to create virtual environment"
-        exit 1
+        Stop-Installer 1
     }
 
     Write-Success "Virtual environment created at $Path"
@@ -399,7 +504,7 @@ function Install-Dango {
 
     if (-not (Test-Path $activateScript)) {
         Write-Error-Message "Virtual environment activation script not found"
-        exit 1
+        Stop-Installer 1
     }
 
     & $activateScript
@@ -412,7 +517,7 @@ function Install-Dango {
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Message "Failed to install Dango"
-        exit 1
+        Stop-Installer 1
     }
 
     # Get installed version
@@ -438,7 +543,7 @@ function Update-Dango {
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Message "Failed to upgrade Dango"
-        exit 1
+        Stop-Installer 1
     }
 
     # Get installed version
@@ -453,27 +558,40 @@ function Update-Dango {
 function Install-DangoGlobal {
     param([string]$PythonCmd)
 
+    # pip's --user option cannot work inside a virtual environment
+    $inVenv = & $PythonCmd -c "import sys; print(int(sys.prefix != getattr(sys, 'base_prefix', sys.prefix)))"
+    if ($inVenv -eq "1") {
+        Write-Error-Message "Cannot install globally from inside an active virtual environment"
+        Write-Host ""
+        Write-Host "pip's --user option does not work in a virtual environment."
+        Write-Host "Run 'deactivate', then run this installer again, or choose option [1]"
+        Write-Host "(virtual environment) to keep Dango in its own environment."
+        Write-Host ""
+        Stop-Installer 1
+    }
+
     Write-Step "Installing Dango globally..."
     Write-Host ""
 
-    # Install from PyPI
-    & $PythonCmd -m pip install --user $script:DangoSpec
+    # Install from PyPI (Out-Host: pip's output must not become this function's return value)
+    & $PythonCmd -m pip install --user $script:DangoSpec | Out-Host
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Message "Failed to install Dango from PyPI"
         Write-Host ""
         Write-Host "Possible causes:"
-        Write-Host "  • No internet connection"
-        Write-Host "  • PyPI is down"
-        Write-Host "  • Python version incompatible"
+        Write-Host "  - No internet connection"
+        Write-Host "  - PyPI is down"
+        Write-Host "  - Python version incompatible"
         Write-Host ""
         Write-Host "Check errors above and try again"
-        exit 1
+        Stop-Installer 1
     }
     Write-Host ""
 
     # Get the user Scripts directory
     $userScriptsDir = & $PythonCmd -c "import site, os; print(os.path.join(site.USER_BASE, 'Scripts'))"
+    $script:DangoExe = Join-Path $userScriptsDir "dango.exe"
 
     # Check if dango command is accessible BEFORE we modify PATH
     $dangoWasInPath = $false
@@ -504,17 +622,25 @@ function Install-DangoGlobal {
         if ($response -match '^[Yy]$') {
             # Add to user PATH
             $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
-            if ($currentPath -notlike "*$userScriptsDir*") {
-                [Environment]::SetEnvironmentVariable("Path", "$currentPath;$userScriptsDir", "User")
+            if (@($currentPath -split ';') -notcontains $userScriptsDir) {
+                if ($currentPath) {
+                    $newPath = $currentPath.TrimEnd(';') + ";" + $userScriptsDir
+                } else {
+                    $newPath = $userScriptsDir
+                }
+                [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
                 Write-Success "Added to PATH"
             } else {
                 Write-Info "Already in PATH"
             }
             Write-Host ""
 
-            # CRITICAL: Refresh PATH in current session immediately
-            $env:Path = [System.Environment]::GetEnvironmentVariable('Path','User') + ';' +
-                        [System.Environment]::GetEnvironmentVariable('Path','Machine')
+            # CRITICAL: Make dango visible in the current session immediately. Add to the session
+            # PATH instead of rebuilding it from the saved values, which would drop entries that
+            # only this session has.
+            if (@($env:Path -split ';') -notcontains $userScriptsDir) {
+                $env:Path = "$env:Path;$userScriptsDir"
+            }
 
             # Set script-level flag so we know to show restart warning later
             $script:PathWasAdded = $true
@@ -527,7 +653,8 @@ function Install-DangoGlobal {
             } else {
                 Write-Warning-Message "Failed to add dango to PATH"
                 Write-Host ""
-                Write-Host "Please restart PowerShell and try again."
+                Write-Host "Please restart PowerShell, or run Dango by its full path:"
+                Write-Host "  & `"$script:DangoExe`""
                 Write-Host ""
                 return $false
             }
@@ -539,6 +666,9 @@ function Install-DangoGlobal {
             Write-Host "  1. Search for 'Environment Variables' in Windows"
             Write-Host "  2. Edit 'Path' under User variables"
             Write-Host "  3. Add: $userScriptsDir"
+            Write-Host ""
+            Write-Host "Or add it to this PowerShell window only:"
+            Write-Host "  `$env:Path += `";$userScriptsDir`""
             Write-Host ""
             return $false
         }
@@ -566,7 +696,19 @@ function Initialize-Project {
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Message "Failed to initialize project"
-        exit 1
+        Write-Host ""
+        Write-Host "Dango is installed, but 'dango init' did not finish. Fix the error shown above,"
+        Write-Host "then run it again:"
+        Write-Host "  Set-Location `"$((Get-Location).Path)`"" -ForegroundColor Yellow
+        if ($VenvPath) {
+            Write-Host "  .\$VenvPath\Scripts\Activate.ps1" -ForegroundColor Yellow
+        }
+        Write-Host "  dango init" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "More detail: the output above and, if it was created, .dango\logs\dango.log in the project folder"
+        Write-Host "Get help: https://github.com/getdango/dango/issues"
+        Write-Host ""
+        Stop-Installer 1
     }
 
     Write-Success "Project initialized"
@@ -581,18 +723,23 @@ function Write-ActivationInstructions {
         [bool]$CreatedSubdir
     )
 
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "=====================================================" -ForegroundColor Cyan
     Write-Host "Installation complete!" -ForegroundColor Green
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "=====================================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "✓ Your environment is activated and ready!" -ForegroundColor Green
+    Write-Host "[OK] Dango is installed in this project's virtual environment." -ForegroundColor Green
     Write-Host ""
-    Write-Host "💡 For future sessions, activate your environment with:" -ForegroundColor Cyan
+    Write-Host "Tip: in every new PowerShell window, activate the environment first:" -ForegroundColor Cyan
+    if ($CreatedSubdir) {
+        Write-Host "  Set-Location `"$((Get-Location).Path)`"" -ForegroundColor Yellow
+    }
     Write-Host "  .\$VenvPath\Scripts\Activate.ps1" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "If 'dango' is not found in this window, run the same commands here."
     Write-Host ""
-    Write-Host "Try these commands now:"
+    Write-Host "=====================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Once the environment is active, try these commands:"
     Write-Host "  dango source add" -ForegroundColor Yellow -NoNewline
     Write-Host "    # Add a data source"
     Write-Host "  dango sync" -ForegroundColor Yellow -NoNewline
@@ -609,7 +756,7 @@ function Write-ActivationInstructions {
 function Write-SuccessMessage {
     param([string]$VenvPath)
 
-    Write-Host "✓ Dango is ready to use!" -ForegroundColor Green
+    Write-Host "[OK] Dango is ready to use!" -ForegroundColor Green
     Write-Host "Make sure to activate your venv: " -NoNewline
     Write-Host ".\$VenvPath\Scripts\Activate.ps1" -ForegroundColor Yellow
     Write-Host ""
@@ -619,26 +766,26 @@ function Write-SuccessMessage {
 function Write-GlobalSuccess {
     param([string]$ProjectDir)
 
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "=====================================================" -ForegroundColor Cyan
     Write-Host "Installation complete!" -ForegroundColor Green
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "=====================================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "✓ Dango is installed globally!" -ForegroundColor Green
+    Write-Host "[OK] Dango is installed globally!" -ForegroundColor Green
     Write-Host ""
 
     # If we added PATH during install, user needs to restart PowerShell
     # (Even though dango works in THIS script, it won't work in user's terminal after script exits)
     if ($script:PathWasAdded -eq $true) {
-        Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Yellow
-        Write-Host "⚠  ONE MORE STEP" -ForegroundColor Yellow
-        Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Yellow
+        Write-Host "=====================================================" -ForegroundColor Yellow
+        Write-Host "[!] ONE MORE STEP" -ForegroundColor Yellow
+        Write-Host "=====================================================" -ForegroundColor Yellow
         Write-Host ""
         Write-Host "'dango' is installed, but your current PowerShell can't see it yet."
         Write-Host ""
         Write-Host "To fix this: Restart PowerShell (close and reopen this window)"
         Write-Host ""
         Write-Host "After that, 'dango' will work from anywhere!"
-        Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Yellow
+        Write-Host "=====================================================" -ForegroundColor Yellow
         Write-Host ""
     }
 
@@ -709,11 +856,11 @@ function Main {
                     New-VirtualEnvironment -Path "venv" -PythonCmd $pythonInfo.Command
                     Install-Dango -VenvPath "venv"
 
-                    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+                    Write-Host "=====================================================" -ForegroundColor Cyan
                     Write-Host "Installation complete!" -ForegroundColor Green
-                    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+                    Write-Host "=====================================================" -ForegroundColor Cyan
                     Write-Host ""
-                    Write-Host "✓ Dango is installed!" -ForegroundColor Green
+                    Write-Host "[OK] Dango is installed!" -ForegroundColor Green
                     Write-Host ""
                     Write-Host "To create your first project:"
                     Write-Host "  .\venv\Scripts\Activate.ps1" -ForegroundColor Yellow
@@ -728,27 +875,39 @@ function Main {
                     Write-Host ""
                 } else {
                     # Global install only
-                    Install-DangoGlobal -PythonCmd $pythonInfo.Command
+                    $onPath = Install-DangoGlobal -PythonCmd $pythonInfo.Command
+                    if ($onPath -ne $true) {
+                        # pip succeeded; only this window cannot find the command yet
+                        Write-Warning-Message "Dango is installed, but 'dango' is not on your PATH yet"
+                        Write-Host ""
+                        Write-Host "To create your first project, run Dango by its full path:"
+                        Write-Host "  & `"$script:DangoExe`" init my-project" -ForegroundColor Yellow
+                        Write-Host ""
+                        Write-Host "Or add it to this PowerShell window first, then use 'dango' as usual:"
+                        Write-Host "  `$env:Path += `";$(Split-Path $script:DangoExe)`"" -ForegroundColor Yellow
+                        Write-Host ""
+                        Stop-Installer 0
+                    }
 
-                    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+                    Write-Host "=====================================================" -ForegroundColor Cyan
                     Write-Host "Installation complete!" -ForegroundColor Green
-                    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+                    Write-Host "=====================================================" -ForegroundColor Cyan
                     Write-Host ""
-                    Write-Host "✓ Dango is installed!" -ForegroundColor Green
+                    Write-Host "[OK] Dango is installed!" -ForegroundColor Green
                     Write-Host ""
 
                     # Show restart warning if PATH was added
                     if ($script:PathWasAdded -eq $true) {
-                        Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Yellow
-                        Write-Host "⚠  ONE MORE STEP" -ForegroundColor Yellow
-                        Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Yellow
+                        Write-Host "=====================================================" -ForegroundColor Yellow
+                        Write-Host "[!] ONE MORE STEP" -ForegroundColor Yellow
+                        Write-Host "=====================================================" -ForegroundColor Yellow
                         Write-Host ""
                         Write-Host "'dango' is installed, but your current PowerShell can't see it yet."
                         Write-Host ""
                         Write-Host "To fix this: Restart PowerShell (close and reopen this window)"
                         Write-Host ""
                         Write-Host "After that, 'dango' will work from anywhere!"
-                        Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Yellow
+                        Write-Host "=====================================================" -ForegroundColor Yellow
                         Write-Host ""
                     }
 
@@ -764,7 +923,7 @@ function Main {
                     Write-Host ""
                 }
 
-                exit 0
+                Stop-Installer 0
             }
 
             # Handle install_and_project mode (existing behavior)
@@ -772,17 +931,19 @@ function Main {
             do {
                 $projectDir = Read-Answer -Name 'DANGO_INSTALL_PROJECT_NAME' -Prompt "Enter project directory name (e.g., my-analytics)" -Pattern '.'
 
-                # Non-interactive: clean the name as below first, so it is checked as it is used
-                if ($env:DANGO_INSTALL_NONINTERACTIVE -eq "1") {
-                    $typedName = $projectDir
-                    $projectDir = ($projectDir.ToLower() -replace '\s+', '-' -replace '[^a-z0-9-]', '')
-                    if ($projectDir -cnotmatch '^[a-z0-9][a-z0-9-]*\z') {
-                        Stop-IfNonInteractive "DANGO_INSTALL_PROJECT_NAME='$typedName' is not usable as a project directory name (after cleanup: lowercase letters, digits and dashes, starting with a letter or digit)"
+                # Clean the name first (lowercase, spaces to dashes, other characters dropped), so
+                # every check below sees the folder name that would be created
+                $typedName = $projectDir
+                $projectDir = ($projectDir.ToLower() -replace '\s+', '-' -replace '[^a-z0-9-]', '')
+                if ($projectDir -cnotmatch '^[a-z0-9][a-z0-9-]*\z') {
+                    Stop-IfNonInteractive "DANGO_INSTALL_PROJECT_NAME='$typedName' is not usable as a project directory name (after cleanup: lowercase letters, digits and dashes, starting with a letter or digit)"
+                    if ([string]::IsNullOrWhiteSpace($typedName)) {
+                        Write-Error-Message "Project name cannot be empty"
+                    } elseif ($projectDir -eq "") {
+                        Write-Error-Message "Project name cannot be empty (only letters, digits, spaces and dashes are kept)"
+                    } else {
+                        Write-Error-Message "Project name must start with a letter or digit"
                     }
-                }
-
-                if ([string]::IsNullOrWhiteSpace($projectDir)) {
-                    Write-Error-Message "Project name cannot be empty"
                     Write-Host ""
                     continue
                 }
@@ -800,13 +961,20 @@ function Main {
                 break
             } while ($true)
 
-            # Sanitize: lowercase, spaces → dashes, remove special chars
-            $projectDir = ($projectDir.ToLower() -replace '\s+', '-' -replace '[^a-z0-9-]', '')
-
             Write-Host ""
             Write-Step "Creating project directory: $projectDir"
-            New-Item -ItemType Directory -Path $projectDir | Out-Null
-            Set-Location $projectDir
+            try {
+                New-Item -ItemType Directory -Path $projectDir -ErrorAction Stop | Out-Null
+                Set-Location $projectDir -ErrorAction Stop
+            }
+            catch {
+                Write-Error-Message "Could not create the project directory '$projectDir' here: $_"
+                Write-Host ""
+                Write-Host "Choose a shorter name, or run the installer from a different folder"
+                Write-Host "(current folder: $((Get-Location).Path))."
+                Write-Host ""
+                Stop-Installer 1
+            }
             Write-Success "Directory created"
             Write-Host ""
 
@@ -827,15 +995,23 @@ function Main {
                 # Global install
                 $success = Install-DangoGlobal -PythonCmd $pythonInfo.Command
 
-                if ($success) {
+                if ($success -eq $true) {
                     # Initialize project (no venv needed)
                     Initialize-Project -VenvPath $null
 
                     # Show global success message
                     Write-GlobalSuccess -ProjectDir $projectDir
                 } else {
-                    Write-Warning-Message "Installation completed but PATH setup may be needed"
-                    Write-Host "Please restart PowerShell and run 'dango init' in your project directory."
+                    Write-Warning-Message "Dango is installed, but 'dango' is not on your PATH yet, so the project was not initialised"
+                    Write-Host ""
+                    Write-Host "To finish setting up the project, run:"
+                    Write-Host "  Set-Location `"$((Get-Location).Path)`"" -ForegroundColor Yellow
+                    Write-Host "  & `"$script:DangoExe`" init" -ForegroundColor Yellow
+                    Write-Host ""
+                    Write-Host "Or add Dango to this PowerShell window first, then run 'dango init':"
+                    Write-Host "  `$env:Path += `";$(Split-Path $script:DangoExe)`"" -ForegroundColor Yellow
+                    Write-Host ""
+                    Stop-Installer 1
                 }
             }
         }
@@ -865,7 +1041,7 @@ function Main {
                 }
                 default {
                     Write-Info "Cancelled"
-                    exit 0
+                    Stop-Installer 0
                 }
             }
         }
@@ -887,7 +1063,7 @@ function Main {
                 Write-Host "  .\venv\Scripts\Activate.ps1"
                 Write-Host "  pip install getdango"
                 Write-Host ""
-                exit 0
+                Stop-Installer 0
             }
 
             Write-Host ""
@@ -906,8 +1082,12 @@ function Main {
 }
 
 # Run main function
+$script:InstallerExitCode = 0
 try {
     Main
+}
+catch [System.OperationCanceledException] {
+    # Stop-Installer already said why; its exit code is in $script:InstallerExitCode
 }
 catch {
     Write-Host ""
@@ -916,5 +1096,6 @@ catch {
     Write-Host "Please report this issue at:"
     Write-Host "  https://github.com/getdango/dango/issues"
     Write-Host ""
-    exit 1
+    $script:InstallerExitCode = 1
 }
+Complete-Installer $script:InstallerExitCode

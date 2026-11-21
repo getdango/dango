@@ -48,11 +48,12 @@ def installer_command(script: Path | None) -> list[str]:
         script = CHECKOUT / ("install.ps1" if sys.platform == "win32" else "install.sh")
     if script.suffix == ".ps1":
         # Run it the way the documented one-liner does: its UTF-8 text through iex, with no
-        # execution-policy option.
+        # execution-policy option. The installer ends an iex run with its exit code in
+        # $LASTEXITCODE (it never calls `exit` there), so hand that code on.
         quoted = str(script).replace("'", "''")
         text = f"[System.IO.File]::ReadAllText('{quoted}', [System.Text.Encoding]::UTF8)"
         shell = shutil.which("powershell") or shutil.which("pwsh") or "powershell"
-        return [shell, "-NoProfile", "-Command", f"iex ({text})"]
+        return [shell, "-NoProfile", "-Command", f"iex ({text}); exit $LASTEXITCODE"]
     return ["bash", str(script)]
 
 

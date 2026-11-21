@@ -60,7 +60,7 @@ def test_the_helper_reads_the_noninteractive_switch_and_fails_naming_the_variabl
     assert body is not None
     text = body.group(0)
     assert "DANGO_INSTALL_NONINTERACTIVE" in text
-    assert "exit 1" in text
+    assert "Stop-Installer 1" in text  # throws; `exit` would close an `irm | iex` window
     assert "Read-Host" in text
 
 
@@ -100,7 +100,7 @@ def test_every_answer_pattern_anchors_the_end_with_backslash_z() -> None:
 def test_noninteractive_project_name_is_cleaned_then_checked_without_looping() -> None:
     text = TEXT[TEXT.index("$projectDir = Read-Answer") :]
     block = text[: text.index("Test-Path $projectDir")]
-    assert "DANGO_INSTALL_NONINTERACTIVE" in block
+    assert "Stop-IfNonInteractive" in block
     assert "'^[a-z0-9][a-z0-9-]*\\z'" in block
     assert block.index("-replace") < block.index("Stop-IfNonInteractive")
     assert "[a-z0-9][a-z0-9-]*" in "\n".join(LINES[:70])
