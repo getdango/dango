@@ -28,7 +28,6 @@ import json
 from typing import Any
 
 import click
-from fastmcp import FastMCP
 
 from dango.cli.commands.mcp_helpers import (
     _connect_readonly_with_retry,
@@ -37,8 +36,14 @@ from dango.cli.commands.mcp_helpers import (
     _get_query_timeout_seconds,
     _infer_layer,
     _validate_select_only,
+    fastmcp_without_dotenv,
 )
 from dango.utils.duckdb_lock_text import describe_error
+
+# fastmcp reads ./.env when it is imported; a stray non-UTF-8 file there must not break
+# every `dango` command (see fastmcp_without_dotenv).
+with fastmcp_without_dotenv():
+    from fastmcp import FastMCP
 
 mcp = FastMCP(
     "dango",

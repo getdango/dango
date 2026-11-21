@@ -131,6 +131,7 @@ def configure_logging(
     log_dir: Path | None = None,
     json_console: bool = False,
     console_level: str | None = None,
+    file_logging: bool = True,
 ) -> None:
     """Configure structured logging for Dango.
 
@@ -147,6 +148,8 @@ def configure_logging(
         console_level: Logging level for console output only. Defaults to
             ``"WARNING"`` so that sync progress lines are not printed to the
             terminal. The file handler continues to use *log_level*.
+        file_logging: If False, no log file is created: console logging only. Used when
+            there is no project to log into (the working directory is not a project).
     """
     level = _resolve_log_level(log_level)
     resolved_console_level = _resolve_log_level(console_level or "WARNING")
@@ -164,7 +167,7 @@ def configure_logging(
     shared_processors = _build_shared_processors()
 
     # File handler — JSON output
-    file_handler_ok = _setup_file_handler(handlers, log_dir, level)
+    file_handler_ok = _setup_file_handler(handlers, log_dir, level) if file_logging else True
 
     # Console handler — human-readable or JSON
     if json_console:

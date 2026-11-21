@@ -94,24 +94,12 @@ def cli(ctx: click.Context) -> None:
     """
     ctx.ensure_object(dict)
 
-    from dango.logging import configure_logging
-
-    configure_logging()
-
-    # Warn if the dango binary doesn't match the active venv
     import os
     import sys
 
-    venv_prefix = os.environ.get("VIRTUAL_ENV")
-    if venv_prefix and not sys.executable.startswith(venv_prefix):
-        click.echo(
-            "Warning: Running 'dango' from outside the active venv. "
-            "Run 'hash -r' or restart your terminal.",
-            err=True,
-        )
-
-    # Try to find project root for commands that need it
-    # (init command doesn't need it, but most others do)
+    # Find the project root first: it decides where the log file goes. A command run from a
+    # project subdirectory logs in the project, and one run outside any project (init, --help
+    # of a subcommand) creates no .dango directory in the working directory.
     try:
         from dango.config.helpers import find_project_root
 
@@ -119,6 +107,24 @@ def cli(ctx: click.Context) -> None:
     except Exception:
         # Not in a project - that's OK for some commands like init
         ctx.obj["project_root"] = None
+
+    from dango.logging import configure_logging
+
+    if os.environ.get("DANGO_PROJECT_ROOT"):
+        configure_logging()  # a server process names its project explicitly
+    elif ctx.obj["project_root"] is not None:
+        configure_logging(log_dir=ctx.obj["project_root"] / ".dango" / "logs")
+    else:
+        configure_logging(file_logging=False)
+
+    # Warn if the dango binary doesn't match the active venv
+    venv_prefix = os.environ.get("VIRTUAL_ENV")
+    if venv_prefix and not sys.executable.startswith(venv_prefix):
+        click.echo(
+            "Warning: Running 'dango' from outside the active venv. "
+            "Run 'hash -r' or restart your terminal.",
+            err=True,
+        )
 
 
 # --- Register top-level commands ---

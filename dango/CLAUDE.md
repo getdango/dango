@@ -10,7 +10,7 @@ Root Python package for Dango — contains all module subpackages (cli, config, 
 |------|---------|----------------------|
 | `__init__.py` | Package metadata: version, author, license | `__version__`, `__author__`, `__license__` |
 | `error_format.py` | `format_structured_error()` (what/why/fix message), re-exported by `dango.exceptions` | `format_structured_error()` |
-| `logging.py` | Structured logging (structlog + stdlib integration) | `configure_logging()`, `close_file_handlers()`, `get_logger()`, `bind_contextvars`, `clear_contextvars`, `unbind_contextvars` |
+| `logging.py` | Structured logging (structlog + stdlib integration) | `configure_logging(file_logging=...)`, `close_file_handlers()`, `get_logger()`, `bind_contextvars`, `clear_contextvars`, `unbind_contextvars` |
 | `telemetry.py` | Opt-in anonymous install + weekly heartbeat telemetry (machine-level UUID in `~/.dango/`); also owns dbt/dlt provider state read/write for the unified `dango telemetry` control + `/settings/telemetry` web page (1.0.8-U) | `is_ci()`, `is_telemetry_enabled()`, `has_recorded_consent()`, `set_telemetry_enabled()`, `ping()`, `heartbeat()`, `heartbeat_job()`, `get_dbt_telemetry_state()`, `set_dbt_telemetry_state()`, `get_dlt_telemetry_state()`, `set_dlt_telemetry_state()`, `PROVIDERS` |
 
 ## Common Tasks
@@ -29,7 +29,7 @@ Root Python package for Dango — contains all module subpackages (cli, config, 
 
 **Used by:**
 - `dango/cli/main.py`, `dango/cli/init.py`, `dango/cli/wizard.py` — import `__version__`
-- `dango.logging` — `get_logger()` used by `web/routes/`, `web/middleware/`, `web/app.py`, `platform/scheduling/`, `platform/notifications/`, `oauth/web_flow.py`, `utils/log_rotation.py`, `utils/post_sync.py`, `cli/commands/schedule.py`, `cli/commands/remote_env.py`, `governance/`, `analysis/`; `configure_logging()` called by entry points. Note: `notebooks/` uses stdlib `logging` directly, not `dango.logging`.
+- `dango.logging` — `get_logger()` used by `web/routes/`, `web/middleware/`, `web/app.py`, `platform/scheduling/`, `platform/notifications/`, `oauth/web_flow.py`, `utils/log_rotation.py`, `utils/post_sync.py`, `cli/commands/schedule.py`, `cli/commands/remote_env.py`, `governance/`, `analysis/`; `configure_logging()` called by entry points (the CLI group passes the resolved project's log directory, or `file_logging=False` outside any project so no `.dango/` appears in the working directory). Note: `notebooks/` uses stdlib `logging` directly, not `dango.logging`.
 - `pyproject.toml` defines `getdango` as the installable package
 - Entry point: `dango.cli.main:cli` (configured in `pyproject.toml`)
 - `dango.telemetry` — `cli/init.py` (`ProjectInitializer._prompt_telemetry_consent()`) fires the install ping; `platform/scheduling/scheduler.py` (`SchedulerService._setup_telemetry_heartbeat()`) registers `heartbeat_job()` as a weekly internal scheduler job. Stdlib `urllib.request`/`json`/`platform`/`uuid` only, plus lazy `yaml` for the opt-out config file and a lazy `dango.config.helpers.get_config` import inside `heartbeat_job()`. No new pip dependency. `cli/commands/telemetry.py` and `web/routes/telemetry.py` (1.0.8-U) both call `get_dbt_telemetry_state()`/`set_dbt_telemetry_state()`/`get_dlt_telemetry_state()`/`set_dlt_telemetry_state()`/`PROVIDERS` — this is the one real implementation both front-ends share (Level 0, so `web/` at Level 2 can import it without a Level-2-imports-Level-3 violation).
