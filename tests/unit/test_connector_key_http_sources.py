@@ -15,7 +15,7 @@ import pytest
 from dango.ingestion.dlt_sources.freshdesk import freshdesk_source
 from dango.ingestion.dlt_sources.github import github_repo_events
 from dango.ingestion.dlt_sources.matomo import matomo_visits
-from tests.factories.connector_contract import FakeHttp, KeyCase, run_key_contract
+from tests.factories.connector_contract import FakeHttp, KeyCase, assert_key_contract
 
 NOW = int(time.time())
 OLD = NOW - 7 * 86400
@@ -62,7 +62,7 @@ class TestGithubEventsKeyContract:
         case = _github_case(
             events, "github[events]", {"push_event": ("id",), "watch_event": ("id",)}
         )
-        state = run_key_contract(case, tmp_path)
+        state = assert_key_contract(case, tmp_path)
         assert state["push_event"].rows == 2
 
     def test_numeric_event_ids(self, tmp_path):
@@ -71,12 +71,12 @@ class TestGithubEventsKeyContract:
             _event(3000000000002, "IssuesEvent", created_at="2024-05-01T11:00:00Z"),
         ]
         case = _github_case(events, "github[numeric-id]", {"issues_event": ("id",)})
-        run_key_contract(case, tmp_path)
+        assert_key_contract(case, tmp_path)
 
     def test_events_that_share_a_timestamp_are_all_kept(self, tmp_path):
         events = [_event(str(i), "PushEvent") for i in (101, 102, 103)]
         case = _github_case(events, "github[same-created-at]", {"push_event": ("id",)})
-        assert run_key_contract(case, tmp_path)["push_event"].rows == 3
+        assert assert_key_contract(case, tmp_path)["push_event"].rows == 3
 
 
 # -- Matomo visits and visitors --------------------------------------------------------------------------------
@@ -133,11 +133,11 @@ def _matomo_case(with_visitors: bool):
 @pytest.mark.unit
 class TestMatomoKeyContract:
     def test_visits_keyed_on_camel_case_id_visit(self, tmp_path):
-        state = run_key_contract(_matomo_case(False), tmp_path)
+        state = assert_key_contract(_matomo_case(False), tmp_path)
         assert state["visits"].rows == 3
 
     def test_visitors_transformer_keyed_on_visitor_id(self, tmp_path):
-        state = run_key_contract(_matomo_case(True), tmp_path)
+        state = assert_key_contract(_matomo_case(True), tmp_path)
         assert state["visitors"].rows >= 1
 
 
@@ -195,4 +195,4 @@ class TestFreshdeskKeyContract:
             {"tickets": ("id",), "agents": ("id",)},
             probe=("tickets", "id", "status", 3),
         )
-        run_key_contract(case, tmp_path)
+        assert_key_contract(case, tmp_path)

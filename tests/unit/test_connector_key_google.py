@@ -28,7 +28,7 @@ from google.analytics.data_v1beta.types import (
 import dango.ingestion.dlt_sources.google_ads as ads_module
 from dango.ingestion.dlt_sources.google_ads.settings import DEFAULT_QUERIES
 from dango.ingestion.dlt_sources.google_analytics import google_analytics
-from tests.factories.connector_contract import KeyCase, run_key_contract
+from tests.factories.connector_contract import KeyCase, assert_key_contract
 
 
 def _fake_credentials() -> GcpServiceAccountCredentials:
@@ -135,7 +135,7 @@ class TestGoogleAnalyticsKeyContract:
     )
     def test_dimension_names_become_key_columns(self, dimensions, pk, tmp_path):
         case = _ga_case(dimensions, "my_report", pk, f"ga[{'+'.join(dimensions)}]")
-        run_key_contract(case, tmp_path)
+        assert_key_contract(case, tmp_path)
 
 
 # -- Google Ads ------------------------------------------------------------------------------------------------
@@ -206,7 +206,7 @@ def _ads_case(query: dict):
 class TestGoogleAdsKeyContract:
     @pytest.mark.parametrize("query", DEFAULT_QUERIES, ids=lambda q: q["resource_name"])
     def test_every_default_query_key_exists_after_flatten_and_normalise(self, query, tmp_path):
-        run_key_contract(_ads_case(query), tmp_path)
+        assert_key_contract(_ads_case(query), tmp_path)
 
     def test_user_query_without_a_primary_key_falls_back_to_date(self, tmp_path):
         query = {
@@ -214,4 +214,4 @@ class TestGoogleAdsKeyContract:
             "query": "SELECT segments.date, metrics.clicks FROM customer WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'",
             "primary_key": ["date"],
         }
-        run_key_contract(_ads_case(query), tmp_path)
+        assert_key_contract(_ads_case(query), tmp_path)

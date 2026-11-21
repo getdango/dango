@@ -15,9 +15,9 @@ from dango.ingestion.dlt_sources.slack import slack_source
 from tests.factories.connector_contract import (
     FakeHttp,
     KeyCase,
+    assert_key_contract,
     loaded_tables,
     make_pipeline,
-    run_key_contract,
 )
 
 CHANNELS = ["general", "dev-ops", "2024-plans", "über-chat"]
@@ -122,7 +122,7 @@ class TestSlackPrimaryKeyContract:
             probe=("users", "id", "name", "ann"),
             min_rows={"general_message": 2},
         )
-        run_key_contract(case, tmp_path)
+        assert_key_contract(case, tmp_path)
 
     def test_single_messages_table_keeps_channel_in_the_key(self, tmp_path):
         case = KeyCase(
@@ -131,7 +131,7 @@ class TestSlackPrimaryKeyContract:
             pk={"messages": ("channel", "ts"), "users": ("id",)},
             min_rows={"messages": 4},
         )
-        state = run_key_contract(case, tmp_path)
+        state = assert_key_contract(case, tmp_path)
         # two channels share the same ts values (2 messages each); (channel, ts) must keep all four
         assert state["messages"].rows == 4
 
@@ -144,7 +144,7 @@ class TestSlackPrimaryKeyContract:
                 "general_replies_message": ("thread_ts", "ts"),
             },
         )
-        run_key_contract(case, tmp_path)
+        assert_key_contract(case, tmp_path)
 
     def test_bot_messages_with_blocks_and_subtypes(self, tmp_path):
         case = KeyCase(
@@ -152,7 +152,7 @@ class TestSlackPrimaryKeyContract:
             open=_open(["general"], per_channel=True, null_extra=True),
             pk={"general_message": ("channel", "ts"), "general_bot_message": ("channel", "ts")},
         )
-        run_key_contract(case, tmp_path)
+        assert_key_contract(case, tmp_path)
 
     def test_channel_with_no_messages_does_not_break_the_run(self, tmp_path):
         @contextmanager

@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 
 import dango.ingestion.dlt_sources.facebook_ads as fb_module
-from tests.factories.connector_contract import KeyCase, run_key_contract
+from tests.factories.connector_contract import KeyCase, assert_key_contract
 
 RESOURCES = ("campaigns", "ads", "ad_sets", "ad_creatives", "facebook_insights")
 
@@ -89,11 +89,11 @@ def _case(ids: tuple[str, ...]) -> KeyCase:
 @pytest.mark.unit
 class TestFacebookAdsKeyContract:
     def test_entities_and_daily_insights_keys_exist_and_dedup(self, tmp_path):
-        state = run_key_contract(_case(("31", "32")), tmp_path)
+        state = assert_key_contract(_case(("31", "32")), tmp_path)
         assert state["facebook_insights"].rows >= 2
 
     def test_string_ids_are_stored_as_bigint_key_columns(self, tmp_path):
-        state = run_key_contract(_case(("31",)), tmp_path)
+        state = assert_key_contract(_case(("31",)), tmp_path)
         assert {"campaign_id", "adset_id", "ad_id", "date_start"} <= set(
             state["facebook_insights"].columns
         )

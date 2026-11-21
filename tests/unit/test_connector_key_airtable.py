@@ -11,10 +11,10 @@ import pytest
 from tests.factories.airtable_fake import airtable_record, airtable_source, airtable_table
 from tests.factories.connector_contract import (
     KeyCase,
+    assert_key_contract,
     fetch_rows,
     loaded_tables,
     make_pipeline,
-    run_key_contract,
 )
 
 PRIMARY_NAMES = [
@@ -66,7 +66,7 @@ def _case(primary: str) -> KeyCase:
 class TestAirtablePrimaryKeyContract:
     @pytest.mark.parametrize("primary", PRIMARY_NAMES)
     def test_any_primary_field_name_loads_with_a_real_key(self, primary, tmp_path):
-        run_key_contract(_case(primary), tmp_path)
+        assert_key_contract(_case(primary), tmp_path)
 
     def test_attachments_lookups_and_nested_values(self, tmp_path):
         tables = [airtable_table("Projects", "Project Title", ("Files", "Owners", "Meta"))]
@@ -92,7 +92,7 @@ class TestAirtablePrimaryKeyContract:
             pk={"projects": ("id",)},
             min_rows={"projects": 2},
         )
-        run_key_contract(case, tmp_path)
+        assert_key_contract(case, tmp_path)
 
     def test_records_with_a_blank_primary_field_load(self, tmp_path):
         # Airtable omits empty fields, so a blank primary value means no `fields.<name>` key at all.
@@ -109,7 +109,7 @@ class TestAirtablePrimaryKeyContract:
             pk={"team_members": ("id",)},
             min_rows={"team_members": 2},
         )
-        run_key_contract(case, tmp_path)
+        assert_key_contract(case, tmp_path)
 
     def test_table_where_every_primary_value_is_blank_loads(self, tmp_path):
         tables = [airtable_table("Team Members", "Name")]
@@ -125,7 +125,7 @@ class TestAirtablePrimaryKeyContract:
             pk={"team_members": ("id",)},
             min_rows={"team_members": 2},
         )
-        run_key_contract(case, tmp_path)
+        assert_key_contract(case, tmp_path)
 
     def test_empty_table_does_not_break_other_tables(self, tmp_path):
         tables = [
@@ -138,7 +138,7 @@ class TestAirtablePrimaryKeyContract:
             open=lambda rev: airtable_source(tables, records),
             pk={"team_members": ("id",)},
         )
-        run_key_contract(case, tmp_path)
+        assert_key_contract(case, tmp_path)
 
     def test_two_tables_with_different_primary_fields_in_one_run(self, tmp_path):
         tables = [
@@ -154,7 +154,7 @@ class TestAirtablePrimaryKeyContract:
             open=lambda rev: airtable_source(tables, records),
             pk={"team_members": ("id",), "open_tasks": ("id",)},
         )
-        run_key_contract(case, tmp_path)
+        assert_key_contract(case, tmp_path)
 
     def test_two_tables_whose_names_normalise_to_the_same_table(self, tmp_path):
         # Airtable allows "Team Members" and "team-members" side by side; dlt snake_cases both to one table.

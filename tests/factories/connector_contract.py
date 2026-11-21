@@ -177,7 +177,7 @@ class KeyCase:
     min_rows: dict[str, int] = field(default_factory=dict)
 
 
-def run_key_contract(case: KeyCase, root: Path) -> dict[str, TableState]:
+def assert_key_contract(case: KeyCase, root: Path) -> dict[str, TableState]:
     """Load rev 0 twice and rev 1 once through real dlt; assert (a) keys exist, (b) no duplicates, (c) update.
 
     Returns the tables after the baseline load, so a caller can assert connector-specific details.
