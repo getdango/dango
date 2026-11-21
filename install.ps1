@@ -88,23 +88,32 @@ function Complete-Installer {
     param([int]$Code)
 
     # A PowerShell started for one command (powershell -Command "irm ... | iex", or
-    # -EncodedCommand) ends with that command anyway, so it can pass the exit code on to
-    # whatever started it. -NoExit keeps the window open, so it is not one of those.
+    # -EncodedCommand) ends with that command anyway, so a failure can pass its exit code on to
+    # whatever started it. Not on success, though: nothing needs the code then (a successful
+    # one-shot already ends with 0), and an exit would cut off anything chained after the
+    # installer, or close a host that runs commands this way inside a live session (the VS Code
+    # PowerShell terminal does). -NoExit keeps the window open, so it is not one of those.
     $oneShot = $false
     $keepOpen = $false
     foreach ($arg in @([Environment]::GetCommandLineArgs() | Select-Object -Skip 1)) {
-        if ($arg -match '^[-/]c(o(m(m(a(n(d)?)?)?)?)?)?$' -or $arg -match '^[-/]e(c|n(c(o(d(e(d(c(o(m(m(a(n(d)?)?)?)?)?)?)?)?)?)?)?)?)?$') {
+        if ($arg -match '^(--?|/)c(o(m(m(a(n(d)?)?)?)?)?)?$' -or $arg -match '^(--?|/)e(c|n(c(o(d(e(d(c(o(m(m(a(n(d)?)?)?)?)?)?)?)?)?)?)?)?)?$') {
+            # what follows is the command text, so later words are not options
             $oneShot = $true
+            break
         }
-        if ($arg -match '^[-/]noe(x(i(t)?)?)?$') {
+        if ($arg -match '^(--?|/)noe(x(i(t)?)?)?$') {
             $keepOpen = $true
+            continue
+        }
+        if ($arg -match '^(--?|/)f(i(l(e)?)?)?$') {
+            break
         }
     }
     if ($keepOpen) {
         $oneShot = $false
     }
 
-    if ($PSCommandPath -or $oneShot) {
+    if ($PSCommandPath -or ($oneShot -and $Code -ne 0 -and $Host.Name -eq 'ConsoleHost')) {
         exit $Code
     }
     $global:LASTEXITCODE = $Code
@@ -184,9 +193,14 @@ function Test-ExecutionPolicy {
         # Allowed for this window only (for example powershell -ExecutionPolicy Bypass)? Then a new
         # window cannot run the venv's Activate.ps1 until the policy is set for the user.
         if (Test-ScriptPolicyAllows (Get-ExecutionPolicy -Scope Process)) {
-            $saved = Get-ExecutionPolicy -Scope CurrentUser
-            if ($saved -eq "Undefined") {
-                $saved = Get-ExecutionPolicy -Scope LocalMachine
+            # The policy a new window gets, in precedence order: Group Policy first, then the user, then
+            # the machine
+            $saved = "Undefined"
+            foreach ($scope in 'MachinePolicy','UserPolicy','CurrentUser','LocalMachine') {
+                $saved = Get-ExecutionPolicy -Scope $scope
+                if ($saved -ne "Undefined") {
+                    break
+                }
             }
             if (-not (Test-ScriptPolicyAllows $saved)) {
                 Write-Warning-Message "Scripts are allowed in this PowerShell window only"
@@ -233,10 +247,18 @@ function Test-ExecutionPolicy {
                 }
                 Write-Error-Message "Script execution is blocked by a policy set for this computer or this session (in force: $now)"
                 Write-Host ""
-                Write-Host "A policy from your organization, or a PowerShell started with -ExecutionPolicy,"
-                Write-Host "overrides your user setting. See each level with: Get-ExecutionPolicy -List"
-                Write-Host "Ask your administrator to allow scripts, or start PowerShell with"
-                Write-Host "-ExecutionPolicy Bypass for this run, then run this installer again."
+                Write-Host "Your user setting (RemoteSigned) was saved, but it does not take effect while that"
+                Write-Host "policy is in force. See each level with: Get-ExecutionPolicy -List"
+                Write-Host ""
+                $groupPolicy = ((Get-ExecutionPolicy -Scope MachinePolicy) -ne "Undefined") -or ((Get-ExecutionPolicy -Scope UserPolicy) -ne "Undefined")
+                if ($groupPolicy) {
+                    Write-Host "It is set by Group Policy, which no PowerShell option can override. Ask your"
+                    Write-Host "administrator to allow scripts, then run this installer again."
+                } else {
+                    Write-Host "It comes from this PowerShell session (it was started with -ExecutionPolicy)."
+                    Write-Host "Open a PowerShell window without that option, or start one with"
+                    Write-Host "-ExecutionPolicy Bypass for this run, then run this installer again."
+                }
                 Write-Host ""
                 Stop-Installer 1
             }

@@ -183,6 +183,11 @@ def test_the_blocked_message_gives_only_advice_that_can_help() -> None:
     assert "Get-ExecutionPolicy -Scope UserPolicy" in blocked
     assert "Group Policy" in blocked
     assert "was saved" in func  # the CurrentUser write is stated outright
+    # Group Policy gets the administrator advice; only a session-level policy gets the Bypass advice
+    assert re.search(
+        r"if \(\$groupPolicy\) \{[^}]*administrator[^}]*\} else \{[^}]*-ExecutionPolicy Bypass",
+        blocked,
+    )
 
 
 # --- the Windows job covers a successful one-shot run too ------------------------------------------------

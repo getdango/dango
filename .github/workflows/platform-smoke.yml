@@ -260,10 +260,11 @@ jobs:
             "parsed $f"
           }
 
-      # A stopped installer must hand back its exit code from a script file and from a one-shot
-      # `powershell -Command`, and must NOT end an interactive PowerShell session when the text runs
-      # through iex (exit would close the person's window). -NoExit stands in for the interactive
-      # window here.
+      # A failed installer must hand back its exit code from a script file and from a one-shot
+      # `powershell -Command`; a successful one-shot run must go on to whatever follows it (no
+      # exit); and an interactive session (-NoExit stands in for it) must stay open either way,
+      # because exit would close the person's window. The successful run is the cancel path of an
+      # existing project: it ends the installer with code 0 before anything is installed.
       - name: Installer stop behaviour (exit code, window stays open)
         if: ${{ matrix.os == 'windows-latest' && !cancelled() }}
         shell: powershell
@@ -276,6 +277,20 @@ jobs:
           $out = powershell -NoProfile -NoExit -Command 'iex ([System.IO.File]::ReadAllText((Resolve-Path install.ps1).Path, [System.Text.Encoding]::UTF8)); Write-Output session-still-open:$LASTEXITCODE; exit 0'
           $out
           if (-not ($out -match 'session-still-open:1')) { "as an interactive iex: the session ended or lost the exit code"; exit 1 }
+          Remove-Item Env:DANGO_INSTALL_SPEC
+          $env:DANGO_INSTALL_PS1 = (Resolve-Path install.ps1).Path
+          $work = Join-Path $env:RUNNER_TEMP 'installer-cancel'
+          New-Item -ItemType Directory -Force -Path (Join-Path $work '.dango'), (Join-Path $work 'venv') | Out-Null
+          Set-Content -Path (Join-Path $work '.dango\project.yml') -Value 'project: {}'
+          $env:DANGO_INSTALL_NONINTERACTIVE = '1'
+          $env:DANGO_INSTALL_DOCKER_CONTINUE = 'y'
+          $env:DANGO_INSTALL_ALLOW_EXECUTION_POLICY = 'y'
+          $env:DANGO_INSTALL_EXISTING_ACTION = 'c'
+          Set-Location $work
+          $out = powershell -NoProfile -Command 'iex ([System.IO.File]::ReadAllText($env:DANGO_INSTALL_PS1, [System.Text.Encoding]::UTF8)); Write-Output after-installer'
+          $out
+          if ($LASTEXITCODE -ne 0) { "successful one-shot: expected exit code 0, got $LASTEXITCODE"; exit 1 }
+          if (-not ($out -match 'after-installer')) { "successful one-shot: the command after the installer did not run"; exit 1 }
 
       - name: First-user journey through the installer
         id: journey

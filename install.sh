@@ -147,14 +147,16 @@ run_dango_init() {
 # Platform family for install hints: macos, debian (Debian, Ubuntu and derivatives), fedora (Fedora,
 # RHEL and derivatives) or other.
 detect_distro_family() {
-    if [ "$(uname -s)" = "Darwin" ]; then
+    local release_file=${1:-/etc/os-release}
+    # An explicit file (the tests give one) is read as it is; the default also covers macOS
+    if [ -z "${1:-}" ] && [ "$(uname -s)" = "Darwin" ]; then
         echo "macos"
         return
     fi
     local id="" like=""
-    if [ -r /etc/os-release ]; then
-        id=$(sed -n 's/^ID=//p' /etc/os-release | tr -d "\"'" | tr '[:upper:]' '[:lower:]')
-        like=$(sed -n 's/^ID_LIKE=//p' /etc/os-release | tr -d "\"'" | tr '[:upper:]' '[:lower:]')
+    if [ -r "$release_file" ]; then
+        id=$(sed -n 's/^ID=//p' "$release_file" | tr -d "\"'" | tr '[:upper:]' '[:lower:]')
+        like=$(sed -n 's/^ID_LIKE=//p' "$release_file" | tr -d "\"'" | tr '[:upper:]' '[:lower:]')
     fi
     case " $id $like " in
         *" debian "*|*" ubuntu "*) echo "debian" ;;
@@ -567,6 +569,18 @@ python_externally_managed() {
     [ "$($PYTHON_CMD -c 'import os, sysconfig; print(int(os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED"))))' 2>/dev/null)" = "1" ]
 }
 
+# True when the chosen Python is the distribution's own python3 (the one its pip package is for)
+python_is_distro_python3() {
+    case "$PYTHON_CMD" in
+        python3|python) return 0 ;;
+    esac
+    local mine theirs
+    local code='import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
+    mine=$($PYTHON_CMD -c "$code" 2>/dev/null) || return 1
+    theirs=$(python3 -c "$code" 2>/dev/null) || return 1
+    [ -n "$mine" ] && [ "$mine" = "$theirs" ]
+}
+
 # Stop with advice when a per-user package install cannot work here (it would otherwise fail later,
 # or silently, with a message about the network)
 check_global_install_possible() {
@@ -594,9 +608,17 @@ check_global_install_possible() {
         print_error "pip is not available for $PYTHON_CMD"
         echo
         case "$PYTHON_CMD:$(detect_distro_family)" in
-            # Debian and Ubuntu disable ensurepip for the system Python; their pip package also
-            # serves python3.X (it lives in the shared dist-packages)
-            *:debian) echo "Install it with:  sudo apt install python3-pip" ;;
+            # Debian and Ubuntu: their pip package serves the distribution's own python3 only (it
+            # does not run on a newer Python such as deadsnakes 3.12 on Ubuntu 22.04), and
+            # ensurepip is there only once the venv package is installed
+            *:debian)
+                if python_is_distro_python3; then
+                    echo "Install it with:  sudo apt install python3-pip"
+                else
+                    echo "Install it with:  sudo apt install ${PYTHON_CMD}-venv"
+                    echo "then:             $PYTHON_CMD -m ensurepip --user --upgrade"
+                fi
+                ;;
             python3:fedora) echo "Install it with:  sudo dnf install python3-pip" ;;
             *) echo "Install it with:  $PYTHON_CMD -m ensurepip --user" ;;
         esac
@@ -760,6 +782,9 @@ install_dango_global() {
 
         echo "To use 'dango' from anywhere, add this to your PATH:"
         echo -e "  ${YELLOW}$(path_export_line)${NC}"
+        if [[ "${SHELL:-}" == *"fish"* ]]; then
+            echo "  (fish_add_path needs fish 3.2 or newer)"
+        fi
         echo
         echo -e "This line should be added to: ${CYAN}$SHELL_CONFIG${NC}"
         echo
@@ -1017,7 +1042,9 @@ main() {
                         echo
                         echo "Or make 'dango' available in this terminal first:"
                         echo -e "  ${YELLOW}$(path_export_line)${NC}"
-                        echo "and add that line to $(detect_shell_config) to keep it."
+                        if [ "${PATH_WAS_ADDED:-false}" != true ]; then
+                            echo "and add that line to $(detect_shell_config) to keep it."
+                        fi
                         echo
                         exit 0
                     fi
