@@ -1,4 +1,4 @@
-"""tests/unit/test_connector_key_recovery.py
+"""tests/unit/connector_key/test_connector_key_recovery.py
 
 Failed-run recovery through `DltPipelineRunner` for a replace connector (Airtable) and a merge connector
 (Freshdesk): after a failed sync a retry loads the data once, and `--full-refresh` still works.

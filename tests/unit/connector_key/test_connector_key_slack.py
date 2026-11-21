@@ -1,4 +1,4 @@
-"""tests/unit/test_connector_key_slack.py
+"""tests/unit/connector_key/test_connector_key_slack.py
 
 Primary-key contract for the vendored Slack connector: synthetic Slack Web API replies (stubbed at the HTTP
 transport) loaded through real dlt, for awkward channel names, replies and the single-table layout.

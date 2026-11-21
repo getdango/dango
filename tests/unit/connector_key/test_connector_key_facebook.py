@@ -1,4 +1,4 @@
-"""tests/unit/test_connector_key_facebook.py
+"""tests/unit/connector_key/test_connector_key_facebook.py
 
 Primary-key contract for the vendored Facebook Ads connector: the Facebook SDK and Graph API objects are replaced with
 `export_all_data()` payloads in the shape the API returns (ids as strings) and load through real dlt.

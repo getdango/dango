@@ -1,4 +1,4 @@
-"""tests/unit/test_connector_key_http_sources.py
+"""tests/unit/connector_key/test_connector_key_http_sources.py
 
 Primary-key contract for the vendored GitHub events, Matomo visits and Freshdesk connectors: synthetic API
 replies (stubbed at the HTTP transport) loaded through real dlt for awkward response shapes.

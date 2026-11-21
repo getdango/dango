@@ -1,4 +1,4 @@
-"""tests/unit/test_connector_key_coverage.py
+"""tests/unit/connector_key/test_connector_key_coverage.py
 
 Coverage register for the primary-key contract: every vendored connector is listed with how it is checked, so a
 new connector cannot be added without saying so. Also guards a flag that fails every sync under dlt >= 1.26.

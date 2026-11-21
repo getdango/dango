@@ -1,4 +1,4 @@
-"""tests/unit/test_connector_key_airtable.py
+"""tests/unit/connector_key/test_connector_key_airtable.py
 
 Primary-key contract for the vendored Airtable connector: synthetic Airtable metadata/records through real dlt
 into DuckDB for awkward primary-field names and record shapes.

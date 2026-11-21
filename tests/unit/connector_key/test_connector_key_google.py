@@ -1,4 +1,4 @@
-"""tests/unit/test_connector_key_google.py
+"""tests/unit/connector_key/test_connector_key_google.py
 
 Primary-key contract for the vendored Google Analytics and Google Ads connectors: the Google SDKs are replaced
 by small stand-ins (Analytics: report types and client; Ads: GAQL-shaped rows) and the rows load through real dlt.
