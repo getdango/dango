@@ -6,6 +6,7 @@ new connector cannot be added without saying so. Also guards a flag that fails e
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import pytest
@@ -88,4 +89,19 @@ class TestKeyCoverageRegister:
             for path in SOURCES_DIR.rglob("*.py")
             if "allow_external_schedulers=True" in path.read_text(encoding="utf-8")
         ]
+        assert offenders == []
+
+    def test_no_connector_hands_dlt_a_one_shot_generator_object(self):
+        # The runner re-extracts the same source on a retry; a generator object can be consumed once, so the
+        # retry would fail with SourceExhausted and hide the real error. Pass a generator function instead.
+        offenders = []
+        for path in SOURCES_DIR.rglob("*.py"):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if (
+                    isinstance(node, ast.Call)
+                    and ast.unparse(node.func) in {"dlt.resource", "dlt.transformer"}
+                    and node.args
+                    and isinstance(node.args[0], ast.Call)
+                ):
+                    offenders.append(f"{path.relative_to(SOURCES_DIR)}:{node.lineno}")
         assert offenders == []

@@ -6,6 +6,8 @@ into DuckDB for awkward primary-field names and record shapes.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from tests.factories.airtable_fake import airtable_record, airtable_source, airtable_table
@@ -207,3 +209,62 @@ class TestAirtableDestinationColumnsUnchanged:
         columns = set(loaded_tables(pipeline)["team_members"].columns)
         norm = pipeline.default_schema.naming.normalize_identifier
         assert {"id", "created_time", f"fields__{norm(primary)}", "fields__role"} <= columns
+
+
+def _warnings(caplog) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "Airtable" in r.getMessage()
+    ]
+
+
+@pytest.mark.unit
+class TestAirtableFieldNameCollisionWarning:
+    """Fields whose names normalise to one column (`Name` / `name`) load into it, the last value winning."""
+
+    def test_colliding_fields_log_one_warning_naming_table_and_fields(self, tmp_path, caplog):
+        tables = [
+            airtable_table("Team Members", "Name", ("name", "Team Name", "team_name", "Role"))
+        ]
+        records = {
+            "tblAAAAAAAAAAAAAA": [
+                airtable_record("rec1", **{"Name": "A", "name": "b", "Team Name": "x"})
+            ]
+        }
+        with caplog.at_level(logging.WARNING):
+            with airtable_source(tables, records):
+                pass
+        assert _warnings(caplog) == [
+            "Airtable table 'Team Members': these fields load into the same column, and only the last value in "
+            "each record is kept: 'Name', 'name' -> fields__name; 'Team Name', 'team_name' -> fields__team_name. "
+            "Rename one of them in Airtable to keep every value."
+        ]
+
+    def test_loaded_values_are_unchanged_by_the_warning(self, tmp_path):
+        tables = [airtable_table("Team Members", "Name", ("name",))]
+        records = {"tblAAAAAAAAAAAAAA": [airtable_record("rec1", **{"Name": "A", "name": "b"})]}
+        pipeline = make_pipeline(tmp_path)
+        with airtable_source(tables, records) as source:
+            pipeline.run(source)
+        assert fetch_rows(pipeline, "team_members", ("id", "fields__name")) == [("rec1", "b")]
+
+    def test_no_warning_without_a_collision(self, caplog):
+        tables = [airtable_table("Team Members", "Name", ("Team Name", "Role"))]
+        with caplog.at_level(logging.WARNING):
+            with airtable_source(tables, {}):
+                pass
+        assert _warnings(caplog) == []
+
+    def test_only_the_colliding_table_is_named(self, caplog):
+        tables = [
+            airtable_table("Clean", "Name", ("Role",), table_id="tblAAAAAAAAAAAAAA"),
+            airtable_table("Messy", "Full Name", ("Full-Name",), table_id="tblBBBBBBBBBBBBBB"),
+        ]
+        with caplog.at_level(logging.WARNING):
+            with airtable_source(tables, {}):
+                pass
+        messages = _warnings(caplog)
+        assert len(messages) == 1
+        assert messages[0].startswith("Airtable table 'Messy': ")
+        assert "'Full Name', 'Full-Name' -> fields__full_name" in messages[0]

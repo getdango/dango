@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.factories.network_guard import blocked_network
+
 # Minimal valid service account JSON, shared by every test class in this
 # module — real credential *values* never matter since api_auth() is always
 # mocked; dlt just needs something that parses as GCP credentials config.
@@ -27,8 +29,14 @@ _CREDS_JSON = {
 @pytest.fixture(autouse=True)
 def setup_credentials(monkeypatch):
     """Set up mock Google credentials via environment for every test in this
-    module (both the extractor-level and the run_source()-level classes)."""
+    module (both the extractor-level and the run_source()-level classes).
+
+    The network is blocked for the test: an attempt (for example dlt probing the
+    cloud metadata server for default credentials) fails the test with its target."""
     monkeypatch.setenv("SOURCES__GOOGLE_SHEETS__CREDENTIALS", json.dumps(_CREDS_JSON))
+    with blocked_network() as attempts:
+        yield
+    assert attempts == []
 
 
 @pytest.mark.unit
