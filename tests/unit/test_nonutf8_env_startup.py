@@ -171,11 +171,11 @@ class TestFastmcpEnvFileSetting:
 
     def test_an_empty_value_the_user_set_is_left_alone(self, tmp_path: Path) -> None:
         (tmp_path / ".env").write_text("FASTMCP_LOG_LEVEL=DEBUG\n", encoding="utf-8")
-        done = _run(tmp_path, "-c", _LOG_LEVEL_PROBE, extra_env={"FASTMCP_ENV_FILE": ""})
+        probe = _LOG_LEVEL_PROBE + "import os\nprint(repr(os.environ.get('FASTMCP_ENV_FILE')))\n"
+        done = _run(tmp_path, "-c", probe, extra_env={"FASTMCP_ENV_FILE": ""})
         assert done.returncode == 0, done.stderr[-1500:]
-        assert (
-            done.stdout.strip() == "INFO"
-        )  # "" names no file: the working-directory file is not read
+        # "" names no file, so the working-directory file is not read; the value stays as set
+        assert done.stdout.split() == ["INFO", "''"]
 
     def test_the_working_directory_env_is_not_read_when_the_user_named_none(
         self, tmp_path: Path
