@@ -15,7 +15,7 @@ from tests.factories.connector_contract import KeyCase, assert_key_contract
 
 
 def _toy(write_disposition: str, *, honour_rev: bool = True):
-    """A one-table connector: rows 1 and 2; at rev 1 row 3 appears, and (not for append) row 1 changes."""
+    """A one-table connector: rows 1 and 2; at rev 1 row 3 appears (append) or row 1 changes (merge)."""
 
     @contextmanager
     def open_(rev: int):
@@ -28,7 +28,7 @@ def _toy(write_disposition: str, *, honour_rev: bool = True):
                 {"id": 1, "ts": 110 if changes else 10, "v": "new" if changes else "old"},
                 {"id": 2, "ts": 20, "v": "x"},
             ]
-            if rev:
+            if rev and write_disposition == "append":
                 rows.append({"id": 3, "ts": 300, "v": "added"})
             yield rows
 

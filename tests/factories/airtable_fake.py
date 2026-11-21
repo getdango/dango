@@ -13,6 +13,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from tests.factories.sdk_fakes import package_attribute_restored
+
 CONNECTOR = "dango.ingestion.dlt_sources.airtable"
 
 
@@ -74,7 +76,8 @@ def airtable_stub(tables: list[dict[str, Any]], records: dict[str, Any]) -> Iter
     sys.modules["pyairtable"] = _fake_module(tables, records)
     sys.modules.pop(CONNECTOR, None)
     try:
-        yield
+        with package_attribute_restored(CONNECTOR):
+            yield
     finally:
         for key, value in saved.items():
             if value is None:

@@ -31,7 +31,9 @@ def _message(ts: str, text: str, **extra):
     return {"type": "message", "user": "U1", "text": text, "ts": ts, **extra}
 
 
-def _slack_http(channels: list[str], threads: bool = False, null_extra: bool = False) -> FakeHttp:
+def _slack_http(
+    channels: list[str], rev: int = 0, threads: bool = False, null_extra: bool = False
+) -> FakeHttp:
     ids = {name: f"C{i:03d}" for i, name in enumerate(channels)}
 
     def conversations_list(_req):
@@ -48,6 +50,10 @@ def _slack_http(channels: list[str], threads: bool = False, null_extra: bool = F
             _message("1700000001.000100", f"hello {cid}"),
             _message("1700000002.000200", "second"),
         ]
+        if rev and cid == "C000":
+            msgs.append(
+                _message("1700000009.000900", "added")
+            )  # a new message in the first channel
         if threads:
             msgs.append(
                 _message(
@@ -78,15 +84,16 @@ def _slack_http(channels: list[str], threads: bool = False, null_extra: bool = F
         .route(r"slack\.com/api/conversations\.history", history)
         .route(r"slack\.com/api/conversations\.replies", replies)
         .route(
-            r"slack\.com/api/users\.list", {"ok": True, "members": [{"id": "U1", "name": "ann"}]}
+            r"slack\.com/api/users\.list",
+            {"ok": True, "members": [{"id": "U1", "name": "anne" if rev else "ann"}]},
         )
     )
 
 
 def _open(channels, *, per_channel: bool, replies: bool = False, null_extra: bool = False):
     @contextmanager
-    def open_(_rev: int):
-        http = _slack_http(channels, threads=replies, null_extra=null_extra)
+    def open_(rev: int):
+        http = _slack_http(channels, rev, threads=replies, null_extra=null_extra)
         with http.active():
             source = slack_source(
                 access_token="xoxb-fake",
@@ -119,7 +126,15 @@ class TestSlackPrimaryKeyContract:
                 "_ber_chat_message": ("channel", "ts"),
                 "users": ("id",),
             },
-            probe=("users", "id", "name", "ann"),
+            disposition={
+                "general_message": "append",
+                "dev_ops_message": "append",
+                "_2024_plans_message": "append",
+                "_ber_chat_message": "append",
+                "users": "replace",
+            },
+            probes=(("users", "id", "name", "anne"),),
+            append_probes=(("general_message", "text", "added"),),
             min_rows={"general_message": 2},
         )
         assert_key_contract(case, tmp_path)
@@ -129,6 +144,9 @@ class TestSlackPrimaryKeyContract:
             id="slack[single-table]",
             open=_open(["general", "dev-ops"], per_channel=False),
             pk={"messages": ("channel", "ts"), "users": ("id",)},
+            disposition={"messages": "append", "users": "replace"},
+            probes=(("users", "id", "name", "anne"),),
+            append_probes=(("messages", "text", "added"),),
             min_rows={"messages": 4},
         )
         state = assert_key_contract(case, tmp_path)
@@ -143,6 +161,8 @@ class TestSlackPrimaryKeyContract:
                 "general_message": ("channel", "ts"),
                 "general_replies_message": ("thread_ts", "ts"),
             },
+            disposition={"general_message": "append", "general_replies_message": "append"},
+            append_probes=(("general_message", "text", "added"),),
         )
         assert_key_contract(case, tmp_path)
 
@@ -151,6 +171,8 @@ class TestSlackPrimaryKeyContract:
             id="slack[subtype]",
             open=_open(["general"], per_channel=True, null_extra=True),
             pk={"general_message": ("channel", "ts"), "general_bot_message": ("channel", "ts")},
+            disposition={"general_message": "append", "general_bot_message": "append"},
+            append_probes=(("general_message", "text", "added"),),
         )
         assert_key_contract(case, tmp_path)
 

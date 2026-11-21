@@ -20,9 +20,15 @@ class TestConnectorKeyNetworkGuard:
         network_attempts.clear()  # the guard fails any test that leaves an attempt behind
 
     def test_a_connection_to_an_address_is_blocked_and_recorded(self, network_attempts):
-        with pytest.raises(OSError, match=r"203\.0\.113\.7:80"):
-            socket.create_connection(("203.0.113.7", 80), timeout=0.2)
-        assert "connect 203.0.113.7:80" in network_attempts
+        with socket.socket() as client, pytest.raises(OSError, match=r"203\.0\.113\.7:80"):
+            client.connect(("203.0.113.7", 80))
+        assert network_attempts == ["connect 203.0.113.7:80"]
+        network_attempts.clear()
+
+    def test_create_connection_to_a_host_name_is_blocked_at_the_lookup(self, network_attempts):
+        with pytest.raises(OSError, match="blocked.example.invalid"):
+            socket.create_connection(("blocked.example.invalid", 80), timeout=0.2)
+        assert network_attempts == ["resolve blocked.example.invalid"]
         network_attempts.clear()
 
     def test_loopback_still_works(self, network_attempts):

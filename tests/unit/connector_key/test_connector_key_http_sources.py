@@ -39,16 +39,26 @@ def _event(event_id, event_type, created_at="2024-05-01T10:00:00Z", **extra):
     }
 
 
-def _github_case(events, case_id, pk):
+def _github_case(events, case_id, pk, new_event):
+    """`new_event` appears at rev 1 (a later created_at); its type's table must gain exactly that row."""
+    table = {"PushEvent": "push_event", "IssuesEvent": "issues_event"}[new_event["type"]]
+
     @contextmanager
-    def open_(_rev):
+    def open_(rev):
+        served = [*events, new_event] if rev else events
         http = FakeHttp().route(
-            r"api\.github\.com/repos/o/n/events", (200, events, {"x-ratelimit-remaining": "59"})
+            r"api\.github\.com/repos/o/n/events", (200, served, {"x-ratelimit-remaining": "59"})
         )
         with http.active():
             yield github_repo_events(owner="o", name="n", access_token="ghp_fake")
 
-    return KeyCase(id=case_id, open=open_, pk=pk)
+    return KeyCase(
+        id=case_id,
+        open=open_,
+        pk=pk,
+        disposition=dict.fromkeys(pk, "append"),
+        append_probes=((table, "id", new_event["id"]),),
+    )
 
 
 @pytest.mark.unit
@@ -60,7 +70,10 @@ class TestGithubEventsKeyContract:
             _event("40000000003", "PushEvent", created_at="2024-05-01T12:00:00Z"),
         ]
         case = _github_case(
-            events, "github[events]", {"push_event": ("id",), "watch_event": ("id",)}
+            events,
+            "github[events]",
+            {"push_event": ("id",), "watch_event": ("id",)},
+            _event("40000000009", "PushEvent", created_at="2024-05-02T10:00:00Z"),
         )
         state = assert_key_contract(case, tmp_path)
         assert state["push_event"].rows == 2
@@ -70,13 +83,25 @@ class TestGithubEventsKeyContract:
             _event(3000000000001, "IssuesEvent"),
             _event(3000000000002, "IssuesEvent", created_at="2024-05-01T11:00:00Z"),
         ]
-        case = _github_case(events, "github[numeric-id]", {"issues_event": ("id",)})
+        case = _github_case(
+            events,
+            "github[numeric-id]",
+            {"issues_event": ("id",)},
+            _event(3000000000009, "IssuesEvent", created_at="2024-05-02T10:00:00Z"),
+        )
         assert_key_contract(case, tmp_path)
 
     def test_events_that_share_a_timestamp_are_all_kept(self, tmp_path):
         events = [_event(str(i), "PushEvent") for i in (101, 102, 103)]
-        case = _github_case(events, "github[same-created-at]", {"push_event": ("id",)})
-        assert assert_key_contract(case, tmp_path)["push_event"].rows == 3
+        case = _github_case(
+            events,
+            "github[same-created-at]",
+            {"push_event": ("id",)},
+            _event("109", "PushEvent", created_at="2024-05-02T10:00:00Z"),
+        )
+        assert (
+            assert_key_contract(case, tmp_path)["push_event"].rows == 3
+        )  # all three kept at rev 0
 
 
 # -- Matomo visits and visitors --------------------------------------------------------------------------------
@@ -95,9 +120,9 @@ def _visit(visit_id, visitor_id, server_ts):
 
 
 def _matomo_case(with_visitors: bool):
-    visits = [_visit(i, f"vis{i % 2}", OLD + i) for i in (1, 2, 3)]
-
-    def bulk(request):
+    def bulk(request, rev):
+        # rev 1: visitor vis0 has made one more visit (id 4), so only that visit is new and its profile changes
+        visits = [_visit(i, f"vis{i % 2}", OLD + i) for i in ((1, 2, 3, 4) if rev else (1, 2, 3))]
         params = _qs(request)
         urls = params.get("urls[0]", "")
         if "Live.getLastVisitsDetails" in urls:
@@ -106,12 +131,14 @@ def _matomo_case(with_visitors: bool):
         profiles = []
         for key, value in params.items():
             if key.startswith("urls["):
-                profiles.append({"visitorId": parse_qs(value)["visitorId"][0], "totalVisits": 2})
+                profiles.append(
+                    {"visitorId": parse_qs(value)["visitorId"][0], "totalVisits": 3 if rev else 2}
+                )
         return profiles
 
     @contextmanager
-    def open_(_rev):
-        with FakeHttp().route(r"matomo\.invalid/index\.php", bulk).active():
+    def open_(rev):
+        with FakeHttp().route(r"matomo\.invalid/index\.php", lambda r: bulk(r, rev)).active():
             yield matomo_visits(
                 api_token="tok",
                 url="https://matomo.invalid",
@@ -126,7 +153,9 @@ def _matomo_case(with_visitors: bool):
         id=f"matomo[visitors={with_visitors}]",
         open=open_,
         pk=pk,
-        probe=("visitors", "visitor_id", "total_visits", 2) if with_visitors else None,
+        disposition={"visits": "append", **({"visitors": "merge"} if with_visitors else {})},
+        probes=(("visitors", "visitor_id", "total_visits", 3),) if with_visitors else (),
+        append_probes=(("visits", "id_visit", 4),),
     )
 
 
@@ -144,7 +173,7 @@ class TestMatomoKeyContract:
 # -- Freshdesk -------------------------------------------------------------------------------------------------
 
 
-def _freshdesk_case(endpoints, records_by_endpoint, case_id, pk, probe=None):
+def _freshdesk_case(endpoints, records_by_endpoint, case_id, pk, probes):
     def handler_for(endpoint, rev):
         def handler(request):
             return records_by_endpoint(endpoint, rev) if _qs(request).get("page") == "1" else []
@@ -162,7 +191,9 @@ def _freshdesk_case(endpoints, records_by_endpoint, case_id, pk, probe=None):
 
         return ctx()
 
-    return KeyCase(id=case_id, open=open_, pk=pk, probe=probe)
+    return KeyCase(
+        id=case_id, open=open_, pk=pk, disposition=dict.fromkeys(pk, "merge"), probes=probes
+    )
 
 
 @pytest.mark.unit
@@ -193,6 +224,6 @@ class TestFreshdeskKeyContract:
             records,
             "freshdesk[tickets+agents]",
             {"tickets": ("id",), "agents": ("id",)},
-            probe=("tickets", "id", "status", 3),
+            probes=(("tickets", "id", "status", 3),),
         )
         assert_key_contract(case, tmp_path)

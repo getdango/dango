@@ -13,28 +13,13 @@ from types import SimpleNamespace
 import pytest
 
 from tests.factories.connector_contract import KeyCase, assert_key_contract
-from tests.factories.sdk_fakes import fake_sdk
+from tests.factories.sdk_fakes import FACEBOOK_MODULES, fake_sdk
 
 FB_PKG = "dango.ingestion.dlt_sources.facebook_ads"
 
 
 def _fb_sdk():
-    return fake_sdk(
-        {
-            "facebook_business": {"FacebookAdsApi": object},
-            "facebook_business.adobjects.abstractobject": {},
-            "facebook_business.adobjects.abstractcrudobject": {},
-            "facebook_business.adobjects.ad": {},
-            "facebook_business.adobjects.adaccount": {},
-            "facebook_business.adobjects.adcreative": {},
-            "facebook_business.adobjects.adset": {},
-            "facebook_business.adobjects.campaign": {},
-            "facebook_business.adobjects.lead": {},
-            "facebook_business.adobjects.user": {},
-            "facebook_business.api": {},
-        },
-        FB_PKG,
-    )
+    return fake_sdk(FACEBOOK_MODULES, FB_PKG)
 
 
 RESOURCES = ("campaigns", "ads", "ad_sets", "ad_creatives", "facebook_insights")
@@ -94,8 +79,8 @@ def _case(ids: tuple[str, ...]) -> KeyCase:
             source = fb_module.facebook_ads_combined(
                 account_id="act_1",
                 access_token="tok",
-                initial_load_past_days=1,
-                attribution_window_days_lag=0,
+                initial_load_past_days=3,
+                attribution_window_days_lag=3,  # re-fetches the last days, so changed rows come back
             )
             yield source.with_resources(*RESOURCES)
 
@@ -104,7 +89,12 @@ def _case(ids: tuple[str, ...]) -> KeyCase:
         open=open_,
         pk=dict.fromkeys(("campaigns", "ads", "ad_sets", "ad_creatives"), ("id",))
         | {"facebook_insights": ("campaign_id", "adset_id", "ad_id", "date_start")},
-        probe=("ads", "id", "name", "nx-31"),
+        disposition=dict.fromkeys(("campaigns", "ads", "ad_sets", "ad_creatives"), "replace")
+        | {"facebook_insights": "merge"},
+        probes=(
+            ("ads", "id", "name", "nx-31"),  # replace: the table follows the source
+            ("facebook_insights", "ad_id", "impressions", 200),  # merge: updated in place
+        ),
     )
 
 

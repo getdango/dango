@@ -170,7 +170,13 @@ def _ga_case(dimensions, table, pk, case_id):
 
     first = dimensions[0]
     key_col = re.sub(r"(?<!^)(?=[A-Z])", "_", first).lower().replace(":", "_")
-    return KeyCase(id=case_id, open=open_, pk={table: pk}, probe=(table, key_col, "sessions", 198))
+    return KeyCase(
+        id=case_id,
+        open=open_,
+        pk={table: pk},
+        disposition={table: "merge"},
+        probes=((table, key_col, "sessions", 198),),
+    )
 
 
 @pytest.mark.unit
@@ -224,7 +230,9 @@ class _FakeAdsService:
         self.clicks = clicks
 
     def search_stream(self, customer_id, query):
-        rows = [_nested_row(query, n, self.clicks * n) for n in (1, 2)]
+        # a query with no entity ids (date only) has one row per day; with ids, two entities
+        entities = (1, 2) if "campaign.id" in query else (1,)
+        rows = [_nested_row(query, n, self.clicks * n) for n in entities]
         yield SimpleNamespace(results=rows)
 
 
@@ -246,14 +254,14 @@ def _ads_case(query: dict):
                 end_date=YESTERDAY.format("YYYY-MM-DD"),
             )
 
-    pk = tuple(query["primary_key"])
+    pk = tuple(query.get("primary_key", ["date"]))  # the connector's own fallback is ["date"]
+    name = query["resource_name"]
     return KeyCase(
-        id=f"google_ads[{query['resource_name']}]",
+        id=f"google_ads[{name}]",
         open=open_,
-        pk={query["resource_name"]: pk},
-        probe=(query["resource_name"], "campaign_id", "clicks", 100)
-        if "clicks" in query["query"] and "campaign_id" in pk
-        else None,
+        pk={name: pk},
+        disposition={name: "merge"},
+        probes=((name, pk[0], "clicks", 50),),  # the first row's clicks: 5 at rev 0, 50 at rev 1
     )
 
 
@@ -267,6 +275,5 @@ class TestGoogleAdsKeyContract:
         query = {
             "resource_name": "daily_clicks",
             "query": "SELECT segments.date, metrics.clicks FROM customer WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'",
-            "primary_key": ["date"],
         }
         assert_key_contract(_ads_case(query), tmp_path)

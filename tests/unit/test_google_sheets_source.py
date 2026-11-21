@@ -8,6 +8,7 @@ from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
 import pytest
+from dlt.common.configuration.specs.gcp_credentials import GcpDefaultCredentials
 
 from tests.factories.network_guard import blocked_network
 
@@ -34,6 +35,13 @@ def setup_credentials(monkeypatch):
     The network is blocked for the test: an attempt (for example dlt probing the
     cloud metadata server for default credentials) fails the test with its target."""
     monkeypatch.setenv("SOURCES__GOOGLE_SHEETS__CREDENTIALS", json.dumps(_CREDS_JSON))
+    # While resolving the credentials union spec dlt would look for Google default credentials, which probes
+    # the cloud metadata server (169.254.169.254); these tests supply their own credentials.
+    monkeypatch.setattr(
+        GcpDefaultCredentials,
+        "_get_default_credentials",
+        staticmethod(lambda *_a, **_k: (None, None)),
+    )
     with blocked_network() as attempts:
         yield
     assert attempts == []

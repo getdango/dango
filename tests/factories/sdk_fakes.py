@@ -6,6 +6,7 @@ so a connector imports and runs the same on every machine, with or without the r
 
 from __future__ import annotations
 
+import importlib
 import sys
 import types
 from collections.abc import Iterator
@@ -28,6 +29,42 @@ class _AutoModule(types.ModuleType):
         return placeholder
 
 
+_MISSING = object()
+
+FACEBOOK_MODULES: dict[str, dict[str, Any]] = {
+    "facebook_business": {"FacebookAdsApi": object},
+    "facebook_business.adobjects.abstractobject": {},
+    "facebook_business.adobjects.abstractcrudobject": {},
+    "facebook_business.adobjects.ad": {},
+    "facebook_business.adobjects.adaccount": {},
+    "facebook_business.adobjects.adcreative": {},
+    "facebook_business.adobjects.adset": {},
+    "facebook_business.adobjects.campaign": {},
+    "facebook_business.adobjects.lead": {},
+    "facebook_business.adobjects.user": {},
+    "facebook_business.api": {},
+}
+
+
+@contextmanager
+def package_attribute_restored(dotted: str) -> Iterator[None]:
+    """Put back (or remove) the attribute the import system sets on a package for its submodule `dotted`.
+
+    Restoring `sys.modules` is not enough: `import pkg.sub` also binds `sub` on `pkg`, and `from pkg import sub`
+    reads that attribute first.
+    """
+    parent_name, _, child = dotted.rpartition(".")
+    parent = importlib.import_module(parent_name)
+    before = parent.__dict__.get(child, _MISSING)
+    try:
+        yield
+    finally:
+        if before is _MISSING:
+            parent.__dict__.pop(child, None)
+        else:
+            setattr(parent, child, before)
+
+
 @contextmanager
 def fake_sdk(modules: dict[str, dict[str, Any]], connector_prefix: str) -> Iterator[None]:
     """Install fake modules (dotted name -> explicit attributes), and import `connector_prefix` against them.
@@ -40,6 +77,8 @@ def fake_sdk(modules: dict[str, dict[str, Any]], connector_prefix: str) -> Itera
     ]
     saved = {k: sys.modules.pop(k) for k in touched}
     previous: dict[str, Any] = {}
+    restore_attribute = package_attribute_restored(connector_prefix)
+    restore_attribute.__enter__()
     names = set(modules)
     for dotted in list(names):
         parts = dotted.split(".")
@@ -65,3 +104,4 @@ def fake_sdk(modules: dict[str, dict[str, Any]], connector_prefix: str) -> Itera
             else:
                 sys.modules[dotted] = old
         sys.modules.update(saved)
+        restore_attribute.__exit__(None, None, None)

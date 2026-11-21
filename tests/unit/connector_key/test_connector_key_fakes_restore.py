@@ -12,7 +12,7 @@ import sys
 import pytest
 
 from tests.factories.airtable_fake import airtable_source, airtable_table
-from tests.factories.sdk_fakes import fake_sdk
+from tests.factories.sdk_fakes import FACEBOOK_MODULES, fake_sdk
 
 PARENT = "dango.ingestion.dlt_sources"
 MISSING = object()
@@ -31,9 +31,7 @@ class TestFakesLeaveNoTrace:
     def test_sdk_fake_removes_the_package_attribute_it_created(self, monkeypatch):
         monkeypatch.delitem(sys.modules, f"{PARENT}.facebook_ads", raising=False)
         monkeypatch.delattr(_parent(), "facebook_ads", raising=False)
-        with fake_sdk(
-            {"facebook_business": {}, "facebook_business.api": {}}, f"{PARENT}.facebook_ads"
-        ):
+        with fake_sdk(FACEBOOK_MODULES, f"{PARENT}.facebook_ads"):
             fake_bound = importlib.import_module(f"{PARENT}.facebook_ads")
             assert _attr("facebook_ads") is fake_bound
         assert _attr("facebook_ads") is MISSING
@@ -42,9 +40,7 @@ class TestFakesLeaveNoTrace:
     def test_sdk_fake_restores_the_attribute_that_was_there_before(self, monkeypatch):
         earlier = object()
         monkeypatch.setattr(_parent(), "facebook_ads", earlier, raising=False)
-        with fake_sdk(
-            {"facebook_business": {}, "facebook_business.api": {}}, f"{PARENT}.facebook_ads"
-        ):
+        with fake_sdk(FACEBOOK_MODULES, f"{PARENT}.facebook_ads"):
             importlib.import_module(f"{PARENT}.facebook_ads")
         assert _attr("facebook_ads") is earlier
 

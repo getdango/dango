@@ -59,7 +59,8 @@ def _case(primary: str) -> KeyCase:
         id=f"airtable[{primary}]",
         open=open_,
         pk={"team_members": ("id",)},
-        probe=("team_members", "id", "fields__role", "lead"),
+        disposition={"team_members": "replace"},
+        probes=(("team_members", "id", "fields__role", "lead"),),
         min_rows={"team_members": 2},
     )
 
@@ -92,6 +93,7 @@ class TestAirtablePrimaryKeyContract:
             id="airtable[nested]",
             open=lambda rev: airtable_source(tables, records),
             pk={"projects": ("id",)},
+            disposition={"projects": "replace"},
             min_rows={"projects": 2},
         )
         assert_key_contract(case, tmp_path)
@@ -109,6 +111,7 @@ class TestAirtablePrimaryKeyContract:
             id="airtable[blank-primary]",
             open=lambda rev: airtable_source(tables, records),
             pk={"team_members": ("id",)},
+            disposition={"team_members": "replace"},
             min_rows={"team_members": 2},
         )
         assert_key_contract(case, tmp_path)
@@ -125,6 +128,7 @@ class TestAirtablePrimaryKeyContract:
             id="airtable[all-blank]",
             open=lambda rev: airtable_source(tables, records),
             pk={"team_members": ("id",)},
+            disposition={"team_members": "replace"},
             min_rows={"team_members": 2},
         )
         assert_key_contract(case, tmp_path)
@@ -139,6 +143,7 @@ class TestAirtablePrimaryKeyContract:
             id="airtable[empty-table]",
             open=lambda rev: airtable_source(tables, records),
             pk={"team_members": ("id",)},
+            disposition={"team_members": "replace"},
         )
         assert_key_contract(case, tmp_path)
 
@@ -155,6 +160,7 @@ class TestAirtablePrimaryKeyContract:
             id="airtable[two-tables]",
             open=lambda rev: airtable_source(tables, records),
             pk={"team_members": ("id",), "open_tasks": ("id",)},
+            disposition={"team_members": "replace", "open_tasks": "replace"},
         )
         assert_key_contract(case, tmp_path)
 
@@ -173,8 +179,9 @@ class TestAirtablePrimaryKeyContract:
             pipeline.run(source)
         state = loaded_tables(pipeline)["team_members"]
         assert state.pk == ("id",)
-        # replace disposition: the later resource owns the table; the load must not fail
-        assert state.rows >= 1
+        # both Airtable tables land in the one normalised table; their record ids never collide
+        assert state.rows == 2
+        assert fetch_rows(pipeline, "team_members", ("id",)) == [("rec1",), ("rec2",)]
 
 
 @pytest.mark.unit

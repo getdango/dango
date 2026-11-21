@@ -33,7 +33,10 @@ COVERAGE: dict[str, tuple[str, str]] = {
         "test_connector_key_http_sources.py",
     ),
     "freshdesk": (FULL, "test_connector_key_http_sources.py"),
-    "google_analytics": (FULL + " (protobuf report types)", "test_connector_key_google.py"),
+    "google_analytics": (
+        FULL + " (report shapes through stand-in SDK types)",
+        "test_connector_key_google.py",
+    ),
     "google_ads": (FULL + " (GAQL-shaped rows, client replaced)", "test_connector_key_google.py"),
     "facebook_ads": (
         FULL + " (Graph objects replaced; leads transformer not run)",
@@ -93,7 +96,8 @@ class TestKeyCoverageRegister:
 
     def test_no_connector_hands_dlt_a_one_shot_generator_object(self):
         # The runner re-extracts the same source on a retry; a generator object can be consumed once, so the
-        # retry would fail with SourceExhausted and hide the real error. Pass a generator function instead.
+        # retry would fail with SourceExhausted and hide the real error. Pass a generator function instead
+        # (`replayable(fn, *args)` builds one).
         offenders = []
         for path in SOURCES_DIR.rglob("*.py"):
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -102,6 +106,7 @@ class TestKeyCoverageRegister:
                     and ast.unparse(node.func) in {"dlt.resource", "dlt.transformer"}
                     and node.args
                     and isinstance(node.args[0], ast.Call)
+                    and ast.unparse(node.args[0].func) != "replayable"
                 ):
                     offenders.append(f"{path.relative_to(SOURCES_DIR)}:{node.lineno}")
         assert offenders == []
