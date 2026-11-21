@@ -56,7 +56,15 @@ def project(tmp_path: Path) -> Path:
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("WP35_VAR", "WP35_SHELL", "WP35_OTHER", "DANGO_CLOUD_MODE", "DANGO_PROJECT_ROOT"):
+    for name in (
+        "WP35_VAR",
+        "WP35_SHELL",
+        "WP35_OTHER",
+        "DANGO_CLOUD_MODE",
+        "DANGO_PROJECT_ROOT",
+        "UVICORN_HEADERS",
+        "UVICORN_LOG_LEVEL",
+    ):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -193,7 +201,42 @@ class TestServerProcessEnvironment:
         assert env["WP35_VAR"] == "from-dotenv"  # the file was read ...
         assert "DANGO_CLOUD_MODE" not in env  # ... but these two keys are not taken from it
         assert env["DANGO_PROJECT_ROOT"] == str(project)
-        assert "DANGO_CLOUD_MODE" in _ANSI_RE.sub("", result.output)  # and the user is told
+        output = _ANSI_RE.sub("", result.output)
+        assert "DANGO_CLOUD_MODE" in output  # and the user is told, by name only:
+        assert "/somewhere/else" not in "".join(output.split())
+        assert "=true" not in output
+
+    def test_uvicorn_variables_in_dotenv_do_not_reach_the_server(
+        self, project: Path, tmp_path: Path
+    ) -> None:
+        (project / ".env").write_text(
+            "WP35_VAR=from-dotenv\nUVICORN_HEADERS=X-Probe:secret-probe-value\n",
+            encoding="utf-8",
+        )
+        out = tmp_path / "child_env.json"
+        result, _ = _start_with_real_child(project, out)
+        assert result.exit_code == 0, result.output
+        env = _child_env(out)
+        assert env["WP35_VAR"] == "from-dotenv"
+        assert "UVICORN_HEADERS" not in env
+        output = _ANSI_RE.sub("", result.output)
+        assert "UVICORN_HEADERS" in output
+        assert "secret-probe-value" not in output
+
+    def test_uvicorn_variable_set_in_the_shell_passes_through(
+        self, project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("UVICORN_LOG_LEVEL", "warning")
+        (project / ".env").write_text(
+            "WP35_VAR=from-dotenv\nUVICORN_LOG_LEVEL=debug\n", encoding="utf-8"
+        )
+        out = tmp_path / "child_env.json"
+        result, _ = _start_with_real_child(project, out)
+        assert result.exit_code == 0, result.output
+        env = _child_env(out)
+        assert env["WP35_VAR"] == "from-dotenv"
+        assert env["UVICORN_LOG_LEVEL"] == "warning"
+        assert "UVICORN_LOG_LEVEL" not in _ANSI_RE.sub("", result.output)
 
     def test_cloud_mode_set_in_the_shell_is_kept(
         self, project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -258,14 +301,70 @@ class TestUnreadableEnvFile:
         assert started == []
 
     def test_non_utf8_env_sets_nothing_and_starts_nothing(self, project: Path) -> None:
+        from dango.cli import console
+
         (project / ".env").write_bytes(b"WP35_VAR=ok\nWP35_OTHER=caf\xe9\n")
         docker = MagicMock()
+        real_print = console.print
+        seen_at_message: list[str | None] = []
+
+        def spy(*args: Any, **kwargs: Any) -> None:
+            if args and "Cannot read" in str(args[0]):
+                seen_at_message.append(os.environ.get("WP35_VAR"))
+            real_print(*args, **kwargs)
+
         result = _invoke_start(
-            project, lambda *a, **k: 1, [patch(f"{_STARTUP}.start_docker_services", docker)]
+            project,
+            lambda *a, **k: 1,
+            [
+                patch(f"{_STARTUP}.start_docker_services", docker),
+                patch("dango.cli.commands.platform.console.print", side_effect=spy),
+            ],
         )
         assert result.exit_code == 1
         docker.assert_not_called()
-        assert "WP35_VAR" not in os.environ
+        assert seen_at_message == [None]  # checked before the harness restores os.environ
+
+    @pytest.mark.parametrize(
+        ("name", "content"),
+        [
+            ("nul_byte", b'WP35_VAR=ok\nWP35_OTHER="a\x00b"\n'),
+            ("utf16_without_bom", "WP35_VAR=ok\r\n".encode("utf-16-le")),
+        ],
+        ids=["nul_byte", "utf16_without_bom"],
+    )
+    def test_nul_bytes_abort_with_a_clear_message_and_no_rollback(
+        self, project: Path, name: str, content: bytes
+    ) -> None:
+        (project / ".env").write_bytes(content)
+        rollback = MagicMock()
+        stop_server = MagicMock()
+        result = _invoke_start(
+            project,
+            lambda *a, **k: 1,
+            [
+                patch("dango.platform.DockerManager", rollback),
+                patch(f"{_PM}.stop_fastapi_server", stop_server),
+            ],
+        )
+        output = " ".join(_ANSI_RE.sub("", result.output).split())
+        assert result.exit_code == 1, name
+        assert "Cannot read" in output
+        assert ".env" in output
+        assert "readable UTF-8 text file" in output
+        assert "Unexpected error" not in output
+        assert "Traceback" not in output
+        rollback.assert_not_called()
+        stop_server.assert_not_called()
+
+    def test_nul_byte_message_escapes_rich_markup_in_the_path(self, tmp_path: Path) -> None:
+        root = tmp_path / "[red]proj"
+        root.mkdir()
+        (root / ".env").write_bytes(b'WP35_OTHER="a\x00b"\n')
+        result = _invoke_start(root, lambda *a, **k: 1)
+        output = "".join(_ANSI_RE.sub("", result.output).split())
+        assert result.exit_code == 1
+        assert "[red]proj" in output
 
     def test_message_escapes_rich_markup_in_the_path(self, tmp_path: Path) -> None:
         root = tmp_path / "[red]proj"

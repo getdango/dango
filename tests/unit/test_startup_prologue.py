@@ -177,3 +177,50 @@ def test_load_project_env_raises_on_a_non_utf8_file(tmp_path: Path) -> None:
     (tmp_path / ".env").write_bytes(b"A=caf\xe9\n")
     with pytest.raises(UnicodeDecodeError):
         load_project_env(tmp_path)
+
+
+def test_load_project_env_skip_prefixes_ignore_matching_file_keys_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    monkeypatch.delenv("WP35P_FROM_FILE", raising=False)
+    monkeypatch.delenv("WP35P_TWO", raising=False)
+    monkeypatch.delenv("WP35_PLAIN", raising=False)
+    monkeypatch.setenv("WP35P_SHELL", "real")
+    (tmp_path / ".env").write_text(
+        "WP35P_FROM_FILE=a\nWP35P_TWO=b\nWP35P_SHELL=file\nWP35_PLAIN=c\n", encoding="utf-8"
+    )
+    ignored = load_project_env(tmp_path, skip_prefixes=("WP35P_",))
+    assert ignored == ("WP35P_FROM_FILE", "WP35P_TWO")
+    assert "WP35P_FROM_FILE" not in os.environ
+    assert "WP35P_TWO" not in os.environ
+    assert os.environ["WP35P_SHELL"] == "real"
+    assert os.environ["WP35_PLAIN"] == "c"
+    monkeypatch.delenv("WP35_PLAIN")
+
+
+def test_load_project_env_nul_byte_raises_and_leaves_the_environment_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    monkeypatch.delenv("WP35_BEFORE", raising=False)
+    (tmp_path / ".env").write_bytes(b'WP35_BEFORE=1\nWP35_BAD="a\x00b"\n')
+    snapshot = dict(os.environ)
+    with pytest.raises(ValueError):
+        load_project_env(tmp_path)
+    assert dict(os.environ) == snapshot
+
+
+def test_load_project_env_non_utf8_leaves_the_environment_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    monkeypatch.delenv("WP35_BEFORE", raising=False)
+    (tmp_path / ".env").write_bytes(b"WP35_BEFORE=1\nWP35_BAD=caf\xe9\n")
+    snapshot = dict(os.environ)
+    with pytest.raises(UnicodeDecodeError):
+        load_project_env(tmp_path)
+    assert dict(os.environ) == snapshot
