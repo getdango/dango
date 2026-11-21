@@ -42,7 +42,8 @@ async function state() {
 function native() {
   const r = spawnSync('/work/venv/bin/python', ['/scripts/restore_native.py'], {encoding: 'utf8', timeout: 90000,
     maxBuffer: 2 * 1024 ** 2, env: {...process.env, PGPASSFILE: '/secrets/pgpass-python'}});
-  safe((r.stdout || '') + (r.stderr || '')); assert.equal(r.status, 0, 'Native restore identity failed');
+  safe((r.stdout || '') + (r.stderr || ''));
+  assert.equal(r.status, 0, 'Native restore identity failed: ' + (r.stderr || 'No child stderr captured'));
   return JSON.parse(r.stdout);
 }
 async function objects(original) {
