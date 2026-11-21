@@ -49,12 +49,13 @@ def airtable_resource(
             It starts with "app". See https://support.airtable.com/docs/finding-airtable-ids
         table (Dict[str, Any]): Metadata about an airtable, does not contain the actual records
     """
-    primary_key_id = table["primaryFieldId"]
-    primary_key_field = [
-        field for field in table["fields"] if field["id"] == primary_key_id
-    ][0]
     table_name: str = table["name"]
-    primary_key: List[str] = [primary_key_field["name"]]
+    # Dango change: key on the Airtable record id. Records arrive as
+    # {"id": ..., "createdTime": ..., "fields": {...}}, so a field's value lands in the
+    # flattened column `fields__<name>`; the previous key (the primary field's own name)
+    # never matched a loaded column and failed normalisation with UnboundColumnException.
+    # The record id is always present, unique per table and does not rename any column.
+    primary_key: List[str] = ["id"]
     air_table = api.table(base_id, table["id"])
 
     # Table.iterate() supports rich customization options, such as chunk size, fields, cell format, timezone, locale, and view
