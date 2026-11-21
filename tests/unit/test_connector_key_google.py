@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import pendulum
 import pytest
+from dlt.common.configuration.specs.gcp_credentials import GcpDefaultCredentials
 from dlt.sources.credentials import GcpServiceAccountCredentials
 from google.analytics.data_v1beta.types import (
     DimensionHeader,
@@ -31,8 +32,22 @@ from tests.factories.connector_contract import KeyCase, run_key_contract
 
 
 def _fake_credentials() -> GcpServiceAccountCredentials:
+    # every field set; the union credentials spec of the sources still tries its OAuth member first, which
+    # would probe for default credentials (see _no_default_credentials)
     return GcpServiceAccountCredentials(
-        project_id="fake-project", private_key="not-a-key", client_email="svc@fake-project.invalid"
+        project_id="fake-project",
+        private_key="not-a-key",
+        private_key_id="fake-key-id",
+        client_email="svc@fake-project.invalid",
+    )
+
+
+def _no_default_credentials():
+    """dlt looks for Google default credentials (a metadata-server probe) while resolving the union spec."""
+    return patch.object(
+        GcpDefaultCredentials,
+        "_get_default_credentials",
+        staticmethod(lambda *_a, **_k: (None, None)),
     )
 
 
@@ -85,6 +100,7 @@ def _ga_case(dimensions, table, pk, case_id):
         with (
             patch(base, fake),
             patch.object(GcpServiceAccountCredentials, "to_native_credentials", lambda self: None),
+            _no_default_credentials(),
         ):
             yield google_analytics(
                 credentials=_fake_credentials(),
@@ -164,6 +180,7 @@ def _ads_case(query: dict):
         with (
             patch.object(ads_module, "get_client", lambda **_kw: client),
             patch.object(ads_module, "to_dict", lambda row: row),
+            _no_default_credentials(),
         ):
             yield ads_module.google_ads(
                 credentials=_fake_credentials(),

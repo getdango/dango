@@ -7,6 +7,7 @@ runner that loads synthetic records through real dlt into a temporary DuckDB, th
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
@@ -19,6 +20,9 @@ import dlt
 import requests
 from requests.adapters import HTTPAdapter
 from requests.structures import CaseInsensitiveDict
+
+# dlt's anonymous usage telemetry would open a connection; these tests must not touch the network.
+os.environ.setdefault("RUNTIME__DLTHUB_TELEMETRY", "false")
 
 # (status, json body, extra headers)
 Reply = tuple[int, Any, dict[str, str]]

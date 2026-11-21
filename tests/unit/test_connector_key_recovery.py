@@ -28,7 +28,11 @@ def project(tmp_path, monkeypatch) -> Path:
     monkeypatch.setenv("DLT_DATA_DIR", str(tmp_path / "dlt_data"))
     monkeypatch.setenv("AIRTABLE_ACCESS_TOKEN", "pat_fake")
     monkeypatch.setenv("FRESHDESK_API_KEY", "key_fake")
-    with patch("dango.ingestion.dlt_runner.time.sleep"):
+    monkeypatch.setenv("RUNTIME__DLTHUB_TELEMETRY", "false")
+    with (
+        patch("dango.ingestion.dlt_runner.time.sleep"),
+        patch("dango.ingestion.dlt_runner._apply_dlt_telemetry_env"),
+    ):
         yield root
 
 
