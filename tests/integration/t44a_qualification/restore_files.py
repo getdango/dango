@@ -76,9 +76,11 @@ def inventory(root):
                 + ((len(name.encode()) + len(row.get("target", "").encode()) + 1023) // 512) * 512
             )
             restore_upper += 4096
-    for row in rows.values():
+    for name, row in rows.items():
         if row["kind"] == "link":
-            assert row["resolved"] in rows, "Link target absent from backup closure"
+            assert row["resolved"] in rows, (
+                "Link target absent from backup closure: " + name + " -> " + row["resolved"]
+            )
     key_path = root / "secrets/app.json"
     keys = json.loads(key_path.read_text())
     assert keys and all(isinstance(v, str) and len(v) >= 16 for v in keys.values())
