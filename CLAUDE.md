@@ -349,7 +349,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `visualization/metabase.py` | 2152 | — |
 | `cli/init.py` | 1705 | — |
 | `visualization/dashboard_manager.py` | 1279 | — |
-| `cli/commands/platform.py` | 1391 | — (extracted from main.py by TASK-005) |
+| `cli/commands/platform.py` | 1551 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 887 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 940 | — (renamed from auth.py by TASK-093) |
 | `web/app.py` | 580 | — (background Metabase sync in v1.0.1) |
