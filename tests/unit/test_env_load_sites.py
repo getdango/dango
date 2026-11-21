@@ -46,6 +46,16 @@ def test_sync_runner_fails_each_source_with_the_friendly_text(project: Path) -> 
     assert summary["success_count"] == 0
     for failed in summary["failed_sources"]:
         _assert_friendly(failed["error"])
+    # The failure is recorded like any other failed sync: history entry and activity log line.
+    from dango.utils.activity_log import get_activity_log_file
+    from dango.utils.sync_history import load_sync_history
+
+    for source in sources:
+        entry = load_sync_history(project, source.name)[0]
+        assert entry["status"] == "failed"
+        _assert_friendly(entry["error_message"])
+    log = get_activity_log_file(project).read_text(encoding="utf-8")
+    assert "Sync blocked: Cannot read" in log
 
 
 def test_runner_construction_does_not_raise_for_a_bad_env(project: Path) -> None:

@@ -20,6 +20,9 @@ from dango.utils.project_env import (
     load_env,
     parse_env_text,
     read_env,
+    read_env_text,
+    set_env_value,
+    unset_env_value,
 )
 
 pytestmark = pytest.mark.unit
@@ -231,3 +234,203 @@ def test_env_has_does_not_read_the_file_when_the_environment_has_the_name(
     assert env_has(root, "WP37_A") is True
     with pytest.raises(EnvFileError):
         env_has(root, "WP37_B")
+
+
+# --- read mode never touches the process environment (review L1/L3) -------------------------
+
+
+@pytest.mark.parametrize("name", sorted(BATTERY))
+def test_read_env_leaves_the_environment_untouched(name: str, tmp_path: Path) -> None:
+    root = _project(tmp_path, BATTERY[name])
+    before = dict(os.environ)
+    read_env(root)
+    assert dict(os.environ) == before
+
+
+def test_read_env_failure_does_not_roll_back_other_environment_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only load_env restores the environment; a failed read must not undo anyone's writes."""
+    root = _project(tmp_path, b"WP37_A=1\n")
+
+    def failing_values(*_args: Any, **_kwargs: Any) -> Any:
+        os.environ["WP37_B"] = "written-meanwhile"
+        raise UnicodeDecodeError("utf-8", b"\xe9", 0, 1, "invalid continuation byte")
+
+    monkeypatch.setattr("dotenv.dotenv_values", failing_values)
+    with pytest.raises(EnvFileError):
+        read_env(root)
+    assert os.environ["WP37_B"] == "written-meanwhile"
+    monkeypatch.delenv("WP37_B", raising=False)
+
+
+# --- read_env_text / set_env_value / unset_env_value (review OS1) ---------------------------
+
+TEXT_BATTERY: dict[str, bytes | None] = {
+    "missing": None,
+    "empty": b"",
+    "plain": b"WP37_A=1\nWP37_B=2\n",
+    "no_trailing_newline": b"WP37_A=1\nWP37_B=2",
+    "crlf": b"WP37_A=1\r\nWP37_B=2\r\n",
+    "export_prefix": b"export WP37_A=1\nWP37_B=2\n",
+    "quotes": b"WP37_A='one two'\nWP37_B=\"three\"\n",
+    "comments": b"# header\n\nWP37_A=1  # trailing\n# tail\n",
+    "duplicates": b"WP37_A=1\nWP37_A=2\nWP37_B=3\n",
+    "bom": b"\xef\xbb\xbfWP37_A=1\n",
+    "non_ascii": "WP37_A=café\n".encode(),
+    "multiline": b'WP37_A="x\ny"\nWP37_B=2\n',
+    "invalid_line": b"not a pair\nWP37_A=1\n",
+}
+VALUES = ["plain", "with space", "it's", 'say "hi"', "back\\slash", "café —", "a#b", ""]
+
+
+def _file(tmp_path: Path, tag: str, data: bytes | None) -> Path:
+    path = tmp_path / tag / ".env"
+    path.parent.mkdir(parents=True)
+    if data is not None:
+        path.write_bytes(data)
+    return path
+
+
+@pytest.mark.parametrize("name", sorted(TEXT_BATTERY))
+def test_read_env_text_matches_read_text(name: str, tmp_path: Path) -> None:
+    path = _file(tmp_path, "a", TEXT_BATTERY[name])
+    expected = path.read_text(encoding="utf-8") if path.exists() else ""
+    assert read_env_text(path) == expected
+
+
+@pytest.mark.parametrize("name", sorted(BAD_FILES))
+def test_read_env_text_rejects_unreadable_content(name: str, tmp_path: Path) -> None:
+    path = _file(tmp_path, "a", BAD_FILES[name])
+    with pytest.raises(EnvFileError) as info:
+        read_env_text(path)
+    assert str(path) in str(info.value) and "UTF-8" in str(info.value)
+
+
+def test_read_env_text_reports_a_directory_and_a_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = tmp_path / ".env"
+    folder.mkdir()
+    with pytest.raises(EnvFileError):
+        read_env_text(folder)
+    path = _file(tmp_path, "b", b"A=1\n")
+    real_open = open
+
+    def deny(file: Any, *args: Any, **kwargs: Any) -> Any:
+        if str(file) == str(path):
+            raise PermissionError(13, "Permission denied", str(file))
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", deny)
+    with pytest.raises(EnvFileError, match="Permission denied"):
+        read_env_text(path)
+
+
+@pytest.mark.parametrize("value", VALUES)
+@pytest.mark.parametrize("key", ["WP37_A", "WP37_NEW"])
+@pytest.mark.parametrize("name", sorted(TEXT_BATTERY))
+def test_set_env_value_matches_dotenv_set_key(
+    name: str, key: str, value: str, tmp_path: Path
+) -> None:
+    from dotenv import set_key
+
+    mine = _file(tmp_path, "mine", TEXT_BATTERY[name])
+    theirs = _file(tmp_path, "theirs", TEXT_BATTERY[name])
+    set_env_value(mine, key, value)
+    set_key(str(theirs), key, value)
+    assert mine.read_bytes() == theirs.read_bytes()
+
+
+@pytest.mark.parametrize("key", ["WP37_A", "WP37_MISSING"])
+@pytest.mark.parametrize("name", sorted(TEXT_BATTERY))
+def test_unset_env_value_matches_dotenv_unset_key(name: str, key: str, tmp_path: Path) -> None:
+    from dotenv import unset_key
+
+    mine = _file(tmp_path, "mine", TEXT_BATTERY[name])
+    theirs = _file(tmp_path, "theirs", TEXT_BATTERY[name])
+    removed = unset_env_value(mine, key)
+    expected_removed, _ = unset_key(str(theirs), key) if theirs.exists() else (None, key)
+    assert removed is bool(expected_removed)
+    assert mine.exists() == theirs.exists()
+    if mine.exists():
+        assert mine.read_bytes() == theirs.read_bytes()
+
+
+def _no_leftovers(path: Path) -> None:
+    assert [p.name for p in path.parent.iterdir() if p.name != path.name] == []
+
+
+@pytest.mark.parametrize("action", ["set", "unset"])
+@pytest.mark.parametrize("name", sorted(BAD_FILES))
+def test_unreadable_file_is_never_rewritten(name: str, action: str, tmp_path: Path) -> None:
+    path = _file(tmp_path, "a", BAD_FILES[name])
+    path.chmod(0o600)
+    before = path.read_bytes()
+    with pytest.raises(EnvFileError) as info:
+        if action == "set":
+            set_env_value(path, "WP37_A", "new")
+        else:
+            unset_env_value(path, "WP37_A")
+    assert "Cannot read" in str(info.value) and "UTF-8" in str(info.value)
+    assert path.read_bytes() == before
+    assert path.stat().st_mode & 0o777 == 0o600
+    _no_leftovers(path)
+
+
+def test_failed_replace_leaves_the_file_byte_identical(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _file(tmp_path, "a", b"WP37_A=1\nWP37_B=2\n")
+    before = path.read_bytes()
+
+    def deny(*_args: Any, **_kwargs: Any) -> None:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr("os.replace", deny)
+    for call in (
+        lambda: set_env_value(path, "WP37_A", "changed"),
+        lambda: unset_env_value(path, "WP37_A"),
+    ):
+        with pytest.raises(EnvFileError) as info:
+            call()
+        assert "Cannot write" in str(info.value) and "Permission denied" in str(info.value)
+        assert path.read_bytes() == before
+        _no_leftovers(path)
+
+
+def test_failure_while_writing_leaves_the_file_byte_identical(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import dotenv.main
+
+    path = _file(tmp_path, "a", b"WP37_A=1\nWP37_B=2\nWP37_C=3\n")
+    before = path.read_bytes()
+    real = dotenv.main.with_warn_for_invalid_lines
+
+    def dies_after_first(mappings: Any) -> Any:
+        for count, mapping in enumerate(real(mappings)):
+            if count == 1:
+                raise OSError(28, "No space left on device")
+            yield mapping
+
+    monkeypatch.setattr(dotenv.main, "with_warn_for_invalid_lines", dies_after_first)
+    with pytest.raises(EnvFileError, match="No space left"):
+        set_env_value(path, "WP37_B", "changed")
+    assert path.read_bytes() == before
+    _no_leftovers(path)
+
+
+def test_unset_of_a_missing_file_or_key_is_false_and_writes_nothing(tmp_path: Path) -> None:
+    missing = tmp_path / "nothing" / ".env"
+    assert unset_env_value(missing, "WP37_A") is False
+    assert not missing.exists()
+    path = _file(tmp_path, "a", b"WP37_A=1\n")
+    assert unset_env_value(path, "WP37_B") is False
+    assert path.read_bytes() == b"WP37_A=1\n"
+
+
+def test_set_env_value_creates_a_missing_file(tmp_path: Path) -> None:
+    path = _file(tmp_path, "a", None)
+    set_env_value(path, "WP37_A", "x y")
+    assert path.read_bytes() == b"WP37_A='x y'\n"
