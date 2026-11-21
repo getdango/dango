@@ -3,6 +3,10 @@
 Web UI backend server command.
 """
 
+import os
+from pathlib import Path
+from typing import Any
+
 import click
 from rich.markup import escape
 
@@ -16,12 +20,21 @@ from dango.cli import console
 @click.pass_context
 def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
     """
-    Start the Web UI backend server.
+    Start the Web UI backend server only.
 
     This starts a FastAPI server that provides:
     - REST API for source management
     - Real-time WebSocket updates
     - Service health monitoring
+
+    Before serving it runs the same local startup checks as "dango serve": it loads the
+    project .env file, checks the DuckDB version, rotates logs, applies pending database
+    migrations and creates the dbt schemas.
+
+    It does NOT start Docker, Metabase, dbt-docs or the file watcher, download the Metabase
+    driver, or open a browser. "dango start" is the normal way to run Dango on your own
+    computer; "dango serve" is for servers. Binds to 0.0.0.0 (all interfaces) unless --host
+    is given.
 
     The API documentation is available at:
       http://localhost:8080/api/docs
@@ -35,6 +48,8 @@ def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
 
     console.print("\n🍡 [bold]Starting Dango Web UI[/bold]\n")
 
+    project_root: Path | None = None
+    previous_root = os.environ.get("DANGO_PROJECT_ROOT")
     try:
         project_root = require_project_context(ctx)
 
@@ -43,30 +58,83 @@ def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
         console.print(f"[dim]API docs: http://{host}:{port}/api/docs[/dim]")
         console.print()
 
+        from dango.platform.common.startup_prologue import (
+            PrologueError,
+            load_project_env,
+            run_local_prologue,
+        )
+        from dango.utils.error_text import rich_error_text
+
+        # Audit logging and other helpers resolve the project from this variable, not from
+        # the working directory (which may be a subdirectory of the project).
+        os.environ["DANGO_PROJECT_ROOT"] = str(project_root)
+        load_project_env(project_root)
+
+        def _waiting(holder: str) -> None:
+            console.print(
+                f"[yellow]Waiting for another Dango process to finish with the warehouse "
+                f"({escape(holder)}). Press Ctrl+C to cancel.[/yellow]"
+            )
+
+        def _note(message: str) -> None:
+            console.print(f"[yellow]{escape(message)}[/yellow]")
+
+        try:
+            applied = run_local_prologue(
+                project_root, lock_schemas=True, on_lock_wait=_waiting, on_note=_note
+            )
+        except PrologueError as err:
+            console.print(
+                f"[red]Error starting server:[/red] {err.label}: "
+                f"{rich_error_text(project_root, err.cause)}"
+            )
+            raise click.Abort() from err.cause
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            raise click.Abort() from None
+        for db_name, migrations in applied.items():
+            if migrations:
+                console.print(f"[dim]Applied {len(migrations)} migration(s) to {db_name}[/dim]")
+
         # Import and run uvicorn
         import uvicorn
 
-        from dango.web import app as web_app
+        target: Any
+        if reload:
+            # The reloader starts the app in a new process: uvicorn needs an import string, and
+            # the new process finds the project through DANGO_PROJECT_ROOT (set above).
+            target = "dango.web.app:app"
+        else:
+            from dango.web import app as web_app
 
-        # Set project root in app state
-        web_app.app.state.project_root = project_root
+            # Set project root in app state
+            web_app.app.state.project_root = project_root
+            target = web_app.app
 
         # Start server
         console.print("[green]Starting server...[/green]")
         console.print("[dim]Press Ctrl+C to stop[/dim]\n")
 
-        uvicorn.run(web_app.app, host=host, port=port, reload=reload, log_level="info")
+        uvicorn.run(target, host=host, port=port, reload=reload, log_level="info")
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Server stopped[/yellow]")
     except click.Abort:
         raise
     except Exception as e:
-        console.print(f"\n[red]Error starting server:[/red] {escape(str(e))}")
+        from dango.utils.error_text import rich_error_text
+
+        console.print(f"\n[red]Error starting server:[/red] {rich_error_text(project_root, e)}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
             import traceback
 
-            console.print(traceback.format_exc())
+            console.print(escape(traceback.format_exc()))
         raise click.Abort() from e
+    finally:
+        # The server has stopped: leave no project pointer behind for code in this process.
+        if previous_root is None:
+            os.environ.pop("DANGO_PROJECT_ROOT", None)
+        else:
+            os.environ["DANGO_PROJECT_ROOT"] = previous_root
