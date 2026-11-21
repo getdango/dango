@@ -59,6 +59,7 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
     )
     from dango.platform.common.startup_prologue import (
         PrologueError,
+        describe_env_load_error,
         load_project_env,
         run_local_prologue,
     )
@@ -71,7 +72,14 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
         raise SystemExit(1) from None
 
     # Load .env so DANGO_ADMIN_EMAIL and other env vars are available under systemd (BUG-100)
-    load_project_env(project_root)
+    try:
+        load_project_env(project_root)
+    except (UnicodeDecodeError, ValueError, OSError) as exc:
+        reason, hint = describe_env_load_error(exc, "serve")
+        print(f"Cannot read {project_root / '.env'}: {reason}", file=sys.stderr)
+        if hint:
+            print(hint, file=sys.stderr)
+        raise SystemExit(1) from exc
 
     # Load config (M6: catch config errors cleanly)
     try:

@@ -91,6 +91,35 @@ def load_project_env(
     return tuple(ignored)
 
 
+def describe_env_load_error(
+    exc: UnicodeDecodeError | ValueError | OSError, command: str
+) -> tuple[str, str | None]:
+    """Plain-text reason a project ``.env`` could not be loaded, and what to do about it.
+
+    Shared by ``dango start``, ``dango serve`` and ``dango web`` so they word it the same way.
+    The caller prints ``Cannot read <path>: <reason>`` and then the hint, if there is one.
+
+    Args:
+        exc: What :func:`load_project_env` raised.
+        command: The command to name in the hint (``start``, ``serve`` or ``web``).
+
+    Returns:
+        ``(reason, hint)``; the hint is None when the operating system's message says it all.
+    """
+    if isinstance(exc, UnicodeDecodeError):
+        return (
+            "it must be UTF-8 text.",
+            f"Save the file as UTF-8, then run 'dango {command}' again.",
+        )
+    if isinstance(exc, ValueError):
+        # A NUL byte (also what UTF-16 text without a BOM decodes to) or an oversized value.
+        return (
+            "it is not a readable UTF-8 text file.",
+            f"Save the file as plain UTF-8 text, then run 'dango {command}' again.",
+        )
+    return (exc.strerror or "read error", None)
+
+
 def describe_lock_holder(lock_info: dict[str, Any] | None) -> str:
     """Plain ASCII description of whoever holds the dbt lock (PID and operation if known)."""
     if not lock_info:

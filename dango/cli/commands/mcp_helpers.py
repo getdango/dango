@@ -27,8 +27,37 @@ connection instead of calling _connect_readonly_with_retry itself.
 
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+
+@contextmanager
+def fastmcp_without_dotenv() -> Iterator[None]:
+    """Import ``fastmcp`` inside this block so it does not read ``./.env``.
+
+    ``fastmcp`` builds its settings object when it is imported, and ``pydantic-settings`` then
+    reads ``.env`` from the *current working directory*: a stray file there (for example one
+    saved in cp1252 on Windows) made every ``dango`` command fail with a ``UnicodeDecodeError``
+    before any Dango code ran. ``fastmcp`` documents ``FASTMCP_ENV_FILE`` as the name of that
+    file and reads it once, at import time; an empty value names no file. Only the implicit
+    default (``./.env``) is neutralised: when the user set ``FASTMCP_ENV_FILE`` themselves
+    (including to a file that is not UTF-8) it is left exactly as it is, so their choice is
+    honoured. The variable is put back afterwards so child processes see the caller's
+    environment unchanged. ``FASTMCP_*`` settings from the real environment always apply.
+    Dango's own project ``.env`` handling is separate and unaffected.
+    """
+    name = "FASTMCP_ENV_FILE"
+    if name in os.environ:
+        yield
+        return
+    os.environ[name] = ""
+    try:
+        yield
+    finally:
+        os.environ.pop(name, None)
 
 
 def _get_project_root() -> Path:

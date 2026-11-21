@@ -53,13 +53,14 @@ def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
     try:
         project_root = require_project_context(ctx)
 
-        console.print(f"[dim]Project root: {project_root}[/dim]")
+        console.print(f"[dim]Project root: {escape(str(project_root))}[/dim]")
         console.print(f"[dim]Server: http://{host}:{port}[/dim]")
         console.print(f"[dim]API docs: http://{host}:{port}/api/docs[/dim]")
         console.print()
 
         from dango.platform.common.startup_prologue import (
             PrologueError,
+            describe_env_load_error,
             load_project_env,
             run_local_prologue,
         )
@@ -68,7 +69,16 @@ def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
         # Audit logging and other helpers resolve the project from this variable, not from
         # the working directory (which may be a subdirectory of the project).
         os.environ["DANGO_PROJECT_ROOT"] = str(project_root)
-        load_project_env(project_root)
+        try:
+            load_project_env(project_root)
+        except (UnicodeDecodeError, ValueError, OSError) as exc:
+            reason, hint = describe_env_load_error(exc, "web")
+            console.print(
+                f"[red]Cannot read {escape(str(project_root / '.env'))}:[/red] {escape(reason)}"
+            )
+            if hint:
+                console.print(f"[dim]{escape(hint)}[/dim]")
+            raise click.Abort() from exc
 
         def _waiting(holder: str) -> None:
             console.print(

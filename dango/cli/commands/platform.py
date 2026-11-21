@@ -183,6 +183,7 @@ def _load_project_env_or_abort(project_root: Path) -> None:
     from dango.platform.common.startup_prologue import (
         LOCAL_START_RESERVED_ENV,
         LOCAL_START_RESERVED_PREFIXES,
+        describe_env_load_error,
         load_project_env,
     )
 
@@ -193,17 +194,11 @@ def _load_project_env_or_abort(project_root: Path) -> None:
             skip=LOCAL_START_RESERVED_ENV,
             skip_prefixes=LOCAL_START_RESERVED_PREFIXES,
         )
-    except UnicodeDecodeError as exc:
-        console.print(f"[red]Cannot read {env_file}:[/red] it must be UTF-8 text.")
-        console.print("[dim]Save the file as UTF-8, then run 'dango start' again.[/dim]")
-        raise click.Abort() from exc
-    except ValueError as exc:
-        # A NUL byte (also what UTF-16 text without a BOM decodes to) or an oversized value.
-        console.print(f"[red]Cannot read {env_file}:[/red] it is not a readable UTF-8 text file.")
-        console.print("[dim]Save the file as plain UTF-8 text, then run 'dango start' again.[/dim]")
-        raise click.Abort() from exc
-    except OSError as exc:
-        console.print(f"[red]Cannot read {env_file}:[/red] {escape(exc.strerror or 'read error')}")
+    except (UnicodeDecodeError, ValueError, OSError) as exc:
+        reason, hint = describe_env_load_error(exc, "start")
+        console.print(f"[red]Cannot read {env_file}:[/red] {escape(reason)}")
+        if hint:
+            console.print(f"[dim]{escape(hint)}[/dim]")
         raise click.Abort() from exc
     if ignored:
         console.print(
