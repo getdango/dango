@@ -130,6 +130,12 @@ def test_web_exports_the_project_root_for_audit_logging(project: Path) -> None:
     assert served.env["DANGO_PROJECT_ROOT"] == str(project)
 
 
+def test_web_leaves_no_project_root_variable_behind_after_it_stops(project: Path) -> None:
+    result, _served = _web(project)
+    assert result.exit_code == 0, result.output
+    assert "DANGO_PROJECT_ROOT" not in os.environ
+
+
 def test_web_applies_pending_migrations_to_a_cloned_project(project: Path) -> None:
     for name in ("auth.db", "scheduler.db"):
         (project / ".dango" / name).unlink()

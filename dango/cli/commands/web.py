@@ -48,6 +48,7 @@ def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
     console.print("\n🍡 [bold]Starting Dango Web UI[/bold]\n")
 
     project_root: Path | None = None
+    previous_root = os.environ.get("DANGO_PROJECT_ROOT")
     try:
         project_root = require_project_context(ctx)
 
@@ -109,3 +110,9 @@ def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
 
             console.print(escape(traceback.format_exc()))
         raise click.Abort() from e
+    finally:
+        # The server has stopped: leave no project pointer behind for code in this process.
+        if previous_root is None:
+            os.environ.pop("DANGO_PROJECT_ROOT", None)
+        else:
+            os.environ["DANGO_PROJECT_ROOT"] = previous_root
