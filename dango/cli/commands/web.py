@@ -5,6 +5,7 @@ Web UI backend server command.
 
 import os
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.markup import escape
@@ -69,14 +70,28 @@ def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
         os.environ["DANGO_PROJECT_ROOT"] = str(project_root)
         load_project_env(project_root)
 
+        def _waiting(holder: str) -> None:
+            console.print(
+                f"[yellow]Waiting for another Dango process to finish with the warehouse "
+                f"({escape(holder)}). Press Ctrl+C to cancel.[/yellow]"
+            )
+
+        def _note(message: str) -> None:
+            console.print(f"[yellow]{escape(message)}[/yellow]")
+
         try:
-            applied = run_local_prologue(project_root, lock_schemas=True)
+            applied = run_local_prologue(
+                project_root, lock_schemas=True, on_lock_wait=_waiting, on_note=_note
+            )
         except PrologueError as err:
             console.print(
                 f"[red]Error starting server:[/red] {err.label}: "
                 f"{rich_error_text(project_root, err.cause)}"
             )
             raise click.Abort() from err.cause
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Cancelled.[/yellow]")
+            raise click.Abort() from None
         for db_name, migrations in applied.items():
             if migrations:
                 console.print(f"[dim]Applied {len(migrations)} migration(s) to {db_name}[/dim]")
@@ -84,16 +99,23 @@ def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
         # Import and run uvicorn
         import uvicorn
 
-        from dango.web import app as web_app
+        target: Any
+        if reload:
+            # The reloader starts the app in a new process: uvicorn needs an import string, and
+            # the new process finds the project through DANGO_PROJECT_ROOT (set above).
+            target = "dango.web.app:app"
+        else:
+            from dango.web import app as web_app
 
-        # Set project root in app state
-        web_app.app.state.project_root = project_root
+            # Set project root in app state
+            web_app.app.state.project_root = project_root
+            target = web_app.app
 
         # Start server
         console.print("[green]Starting server...[/green]")
         console.print("[dim]Press Ctrl+C to stop[/dim]\n")
 
-        uvicorn.run(web_app.app, host=host, port=port, reload=reload, log_level="info")
+        uvicorn.run(target, host=host, port=port, reload=reload, log_level="info")
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Server stopped[/yellow]")

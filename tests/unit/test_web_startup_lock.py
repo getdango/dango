@@ -171,7 +171,10 @@ def test_an_unwritable_lock_folder_fails_at_once_with_a_clear_message(project: P
 
 
 def test_web_does_not_write_when_the_schemas_already_exist(project: Path) -> None:
-    with patch(f"{_STARTUP}.ensure_dbt_schemas") as schemas:
+    with (
+        patch(f"{_STARTUP}.ensure_dbt_schemas") as schemas,
+        patch.object(DbtLock, "acquire", side_effect=AssertionError("no lock needed")),
+    ):
         result, run = _web()
     assert result.exit_code == 0, result.output
     assert run.call_count == 1
@@ -182,7 +185,8 @@ def test_web_starts_when_another_process_holds_the_warehouse_with_schemas(
     project: Path, warehouse_holder: Any
 ) -> None:
     warehouse_holder()
-    result, run = _web()
+    with patch.object(DbtLock, "acquire", side_effect=AssertionError("no lock needed")):
+        result, run = _web()
     output = _text(result)
     assert result.exit_code == 0, output
     assert run.call_count == 1
@@ -202,6 +206,45 @@ def test_web_starts_when_another_process_holds_a_warehouse_without_schemas(
     assert result.exit_code == 0, output
     assert run.call_count == 1
     assert "in use by another Dango process" in output
+
+
+_LOCK_ERROR = (
+    'IO Error: Could not set lock on file "warehouse.duckdb": Conflicting lock is held in '
+    "/usr/bin/python (PID 4242). See also https://duckdb.org/docs/connect/concurrency"
+)
+
+
+def test_a_lock_conflict_while_writing_the_schemas_is_a_note_not_a_failure(
+    project: Path,
+) -> None:
+    _drop_warehouse(project)
+    with patch(f"{_STARTUP}.ensure_dbt_schemas", side_effect=duckdb.IOException(_LOCK_ERROR)):
+        result, run = _web()
+    output = _text(result)
+    assert result.exit_code == 0, output
+    assert run.call_count == 1
+    assert "in use by another Dango process" in output
+    assert "4242" not in output
+
+
+def test_schemas_written_by_another_process_while_waiting_are_not_written_again(
+    project: Path,
+) -> None:
+    _drop_warehouse(project)
+    with (
+        patch(f"{_PROLOGUE}._schemas_present", side_effect=[False, True]),
+        patch(f"{_STARTUP}.ensure_dbt_schemas") as schemas,
+    ):
+        result, run = _web()
+    assert result.exit_code == 0, result.output
+    assert run.call_count == 1
+    schemas.assert_not_called()
+
+
+def test_the_lock_wait_is_bounded_to_about_a_minute() -> None:
+    from dango.platform.common import startup_prologue
+
+    assert 30 <= startup_prologue.LOCK_WAIT_TIMEOUT_SECONDS <= 90
 
 
 def test_web_still_aborts_on_a_corrupt_warehouse(project: Path) -> None:
