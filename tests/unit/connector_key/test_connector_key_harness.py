@@ -1,7 +1,7 @@
 """tests/unit/connector_key/test_connector_key_harness.py
 
 The key-contract harness itself: it pins each table's write disposition, rejects an update check that cannot
-fail, and checks that an append table gains exactly the new row (instead of skipping the update check).
+fail, and checks that an append table gains exactly the new row (instead of leaving the update check out).
 """
 
 from __future__ import annotations
