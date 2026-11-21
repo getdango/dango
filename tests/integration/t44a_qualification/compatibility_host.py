@@ -203,7 +203,7 @@ def run(rig, disk_gate):
         assert not any(s.encode() in data for s in rig.secrets.values()), (
             "N3 report secret exposure"
         )
-        (rig.root / "work/n3-compatibility.json").write_bytes(data)
+        (rig.root / "evidence/n3-compatibility.json").write_bytes(data)
     assert report["status"] == STATUS, "N3 native/cleanup failure; receipts retained"
     return {"status": STATUS, "sha256": digest(data)}
 
