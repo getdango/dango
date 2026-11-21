@@ -791,11 +791,10 @@ def oauth_setup(ctx: click.Context, provider: str) -> None:
     """
     import os
 
-    from dotenv import set_key
     from rich.panel import Panel
     from rich.prompt import Confirm
 
-    from dango.utils.project_env import load_env
+    from dango.utils.project_env import load_env, set_env_value
 
     from ..utils import require_project_context
 
@@ -926,7 +925,7 @@ def oauth_setup(ctx: click.Context, provider: str) -> None:
             env_file.touch()
 
         for env_var, value in credentials.items():
-            set_key(str(env_file), env_var, value)
+            set_env_value(env_file, env_var, value)
 
         console.print(
             f"\n[green]✓ {config['display_name']} OAuth credentials saved to .env[/green]"

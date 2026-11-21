@@ -111,7 +111,12 @@ class GoogleOAuthProvider(BaseOAuthProvider):
         """
         import os
 
-        from dango.utils.project_env import EnvFileError, load_env
+        from dango.utils.project_env import (
+            EnvFileError,
+            load_env,
+            set_env_value,
+            unset_env_value,
+        )
 
         try:
             console.print(
@@ -157,15 +162,13 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                             "   [yellow]Check your credentials at: https://console.cloud.google.com/apis/credentials[/yellow]"
                         )
                         if Confirm.ask("\n[cyan]Re-enter credentials?[/cyan]", default=False):
-                            from dotenv import unset_key
-
                             client_id = ""
                             client_secret = ""
                             os.environ.pop("GOOGLE_CLIENT_ID", None)
                             os.environ.pop("GOOGLE_CLIENT_SECRET", None)
                             if env_file.exists():
-                                unset_key(str(env_file), "GOOGLE_CLIENT_ID")
-                                unset_key(str(env_file), "GOOGLE_CLIENT_SECRET")
+                                unset_env_value(env_file, "GOOGLE_CLIENT_ID")
+                                unset_env_value(env_file, "GOOGLE_CLIENT_SECRET")
                             continue
                 else:
                     # Show setup instructions only if credentials not found
@@ -270,13 +273,11 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                 # Clear cached credentials and loop back to the credential prompt
                 # so the user can re-enter immediately without a second prompt.
                 if "action" in oauth_response:
-                    from dotenv import unset_key
-
                     os.environ.pop("GOOGLE_CLIENT_ID", None)
                     os.environ.pop("GOOGLE_CLIENT_SECRET", None)
                     if env_file.exists():
-                        unset_key(str(env_file), "GOOGLE_CLIENT_ID")
-                        unset_key(str(env_file), "GOOGLE_CLIENT_SECRET")
+                        unset_env_value(env_file, "GOOGLE_CLIENT_ID")
+                        unset_env_value(env_file, "GOOGLE_CLIENT_SECRET")
                     console.print(
                         "\n[yellow]Cleared cached credentials. Please enter new OAuth credentials.[/yellow]\n"
                     )
@@ -308,12 +309,10 @@ class GoogleOAuthProvider(BaseOAuthProvider):
             # Token exchange validates the client_id/secret against Google's endpoint.
             # If invalid, we never reach this point and bad credentials are not persisted.
             if client_id and client_secret:
-                from dotenv import set_key
-
                 if not env_file.exists():
                     env_file.touch()
-                set_key(str(env_file), "GOOGLE_CLIENT_ID", client_id)
-                set_key(str(env_file), "GOOGLE_CLIENT_SECRET", client_secret)
+                set_env_value(env_file, "GOOGLE_CLIENT_ID", client_id)
+                set_env_value(env_file, "GOOGLE_CLIENT_SECRET", client_secret)
                 console.print("[dim]Saved credentials to .env for future use[/dim]")
 
             # Fetch user info to get email (identifier)

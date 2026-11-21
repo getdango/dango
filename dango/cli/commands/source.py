@@ -549,6 +549,7 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
         env_file = project_root / ".env"
         if env_file.exists():
             from dango.utils.env_file import parse_env_file, serialize_env_file
+            from dango.utils.project_env import read_env_text
 
             matching = result.env_vars_matching
             if matching:
@@ -557,7 +558,7 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
                     console.print(f"  [cyan]{k}[/cyan]")
                 console.print()
                 if Confirm.ask("Remove these environment variables?", default=False):
-                    env_vars = parse_env_file(env_file.read_text(encoding="utf-8"))
+                    env_vars = parse_env_file(read_env_text(env_file))
                     for k in matching:
                         env_vars.pop(k, None)
                     env_file.write_text(

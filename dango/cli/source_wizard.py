@@ -46,6 +46,12 @@ from dango.oauth.router import (
     run_oauth_for_source,
 )
 from dango.oauth.storage import OAuthStorage
+from dango.utils.project_env import (
+    EnvFileError,
+    read_env_text,
+    set_env_value,
+    unset_env_value,
+)
 
 console = Console()
 
@@ -161,6 +167,13 @@ class SourceWizard:
             )
 
             self._print_git_warnings()
+
+            # Credentials are saved to .env: stop before asking for any if it cannot be read.
+            try:
+                read_env_text(self.env_file)
+            except EnvFileError as exc:
+                console.print(f"\n[red]❌ {escape(str(exc))}[/red]")
+                return False
 
             # State machine for navigation with back button support
             source_type = None
@@ -454,9 +467,7 @@ class SourceWizard:
                     break
                 env_val = click.prompt("  Connection URL")
                 # Update .env with new value
-                from dotenv import set_key
-
-                set_key(str(self.env_file), sp["name"], env_val)
+                set_env_value(self.env_file, sp["name"], env_val)
 
     def _select_source_flat(self) -> str | None:
         """Select source from flat list (no categories)"""
@@ -829,14 +840,12 @@ class SourceWizard:
                 # Clear cached credentials from both os.environ AND .env file
                 import os
 
-                from dotenv import unset_key
-
                 os.environ.pop("GOOGLE_CLIENT_ID", None)
                 os.environ.pop("GOOGLE_CLIENT_SECRET", None)
                 env_file = self.project_root / ".env"
                 if env_file.exists():
-                    unset_key(str(env_file), "GOOGLE_CLIENT_ID")
-                    unset_key(str(env_file), "GOOGLE_CLIENT_SECRET")
+                    unset_env_value(env_file, "GOOGLE_CLIENT_ID")
+                    unset_env_value(env_file, "GOOGLE_CLIENT_SECRET")
                 console.print("\n[cyan]Re-entering credentials...[/cyan]\n")
                 continue
             else:  # Retry
@@ -1569,9 +1578,7 @@ def {module_name}_resource(api_key: str):
 
         # Write to .env file
         self.env_file.parent.mkdir(parents=True, exist_ok=True)
-        from dotenv import set_key
-
-        set_key(str(self.env_file), env_var_name, value)
+        set_env_value(self.env_file, env_var_name, value)
 
         console.print(f"  [green]✓[/green] Saved {env_var_name} to .env")
         return value
@@ -1839,7 +1846,7 @@ def {module_name}_resource(api_key: str):
             # Check if env var already exists in .env
             env_exists = False
             if self.env_file.exists():
-                env_content = self.env_file.read_text(encoding="utf-8")
+                env_content = read_env_text(self.env_file)
                 for line in env_content.split("\n"):
                     line = line.strip()
                     if line and not line.startswith("#"):

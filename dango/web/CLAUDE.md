@@ -45,7 +45,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/websocket.py` | `ConnectionManager`, `ws_manager` singleton, `/ws` endpoint (auth in middleware; slot reserved before `accept()`, capped at `MAX_WS_CONNECTIONS` total and `MAX_WS_CONNECTIONS_PER_IDENTITY` per user, close 1013) | `ConnectionManager`, `ws_manager` |
 | `routes/ui.py` | `/`, `/sources`, `/models`, `/health`, `/logs`, `/api`, `/api/docs`, `/api/redoc`, `/login`, `/account`, `/admin/users`, `/invite/{token}` | `templates`, `_render_template()` |
 | `routes/metabase_proxy.py` | All Metabase proxy routes + SSO session state | `proxy_to_metabase()`, `get_metabase_session()` |
-| `routes/secrets.py` | Secrets and OAuth credential management (admin-only, .env + .dlt/secrets.toml CRUD) | `router` |
+| `routes/secrets.py` | Secrets and OAuth credential management (admin-only, .env + .dlt/secrets.toml CRUD); an unreadable `.env` (not UTF-8) answers 422 through the `DangoError` handler with a fixed message and no server path | `router` |
 | `routes/telemetry.py` | Telemetry status/toggle API + `/settings/telemetry` page (admin-only, 1.0.8-U) — web front-end onto the same state `dango telemetry` (CLI) controls | `router` |
 | `routes/oauth_connect.py` | Web-based OAuth connect/callback for cloud deployments | `router` |
 | `routes/schedules.py` | Schedule list/get, trigger, reload, localhost-only `/api/internal/scheduler/status` (public in auth middleware, guarded in handler), cancel, history, notification config/test, `/schedules` page (read-only, ~608 lines). Config mutations removed by R10-C (BUG-175) — use CLI instead. | `router` |

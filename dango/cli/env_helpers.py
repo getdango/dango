@@ -12,6 +12,8 @@ from uuid import uuid4
 import click
 from rich.console import Console
 
+from dango.utils.project_env import read_env_text
+
 console = Console()
 
 
@@ -32,7 +34,7 @@ def create_env_template(
 
     # Read existing content (or start with header for new file)
     if env_file.exists():
-        original_content = env_file.read_text(encoding="utf-8")
+        original_content = read_env_text(env_file)
         existing_lines = original_content.splitlines()
     else:
         original_content = ""
@@ -132,7 +134,7 @@ def validate_env_file(env_file: Path, required_vars: list[str]) -> tuple[bool, l
 
     # Parse .env file
     env_values = {}
-    for line in env_file.read_text(encoding="utf-8").splitlines():
+    for line in read_env_text(env_file).splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             key, value = line.split("=", 1)

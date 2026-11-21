@@ -53,11 +53,23 @@ def _mask_value(value: str | None) -> str:
 
 
 def read_env_file(project_root: Path) -> dict[str, str]:
-    """Read and parse the project ``.env`` file."""
-    env_file = project_root / ".env"
-    if not env_file.exists():
-        return {}
-    return parse_env_file(env_file.read_text(encoding="utf-8"))
+    """Read and parse the project ``.env`` file.
+
+    Raises:
+        ConfigValidationError: The file cannot be read (not UTF-8, unreadable). The app's
+            ``DangoError`` handler returns it as a 422 with a fixed message (no path, no raw
+            codec text).
+    """
+    from dango.exceptions import ConfigValidationError
+    from dango.utils.project_env import EnvFileError, describe_env_read_error, read_env_text
+
+    try:
+        return parse_env_file(read_env_text(project_root / ".env"))
+    except EnvFileError as exc:
+        logger.warning("secrets_env_unreadable", path=str(exc.path), exc_info=True)
+        reason, hint = describe_env_read_error(exc.cause, None)
+        message = f"The project .env file cannot be read: {reason} {hint or ''}".strip()
+        raise ConfigValidationError(message, context={"path": str(exc.path)}) from exc
 
 
 def _write_env_file(project_root: Path, env_vars: dict[str, str]) -> None:
