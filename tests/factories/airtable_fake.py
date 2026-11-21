@@ -36,15 +36,15 @@ def airtable_record(rec_id: str, **fields: Any) -> dict[str, Any]:
     return {"id": rec_id, "createdTime": "2024-03-01T10:00:00.000Z", "fields": fields}
 
 
-def _fake_module(
-    tables: list[dict[str, Any]], records: dict[str, list[dict[str, Any]]]
-) -> types.ModuleType:
+def _fake_module(tables: list[dict[str, Any]], records: dict[str, Any]) -> types.ModuleType:
     class _Table:
         def __init__(self, table_id: str) -> None:
             self._records = records.get(table_id, [])
 
         def iterate(self, **_kw: Any) -> Iterator[list[dict[str, Any]]]:
-            # pyairtable yields one list of records per API page
+            # pyairtable yields one list of records per API page; an exception value simulates an API failure
+            if isinstance(self._records, BaseException):
+                raise self._records
             if self._records:
                 yield list(self._records)
 
@@ -68,21 +68,26 @@ def _fake_module(
 
 
 @contextmanager
-def airtable_source(
-    tables: list[dict[str, Any]], records: dict[str, list[dict[str, Any]]]
-) -> Iterator[Any]:
-    """Yield the connector's source built against the fake client (module state restored on exit)."""
+def airtable_stub(tables: list[dict[str, Any]], records: dict[str, Any]) -> Iterator[None]:
+    """Install the fake `pyairtable` and force the connector to be imported against it (restored on exit)."""
     saved = {k: sys.modules.get(k) for k in ("pyairtable", CONNECTOR)}
     sys.modules["pyairtable"] = _fake_module(tables, records)
     sys.modules.pop(CONNECTOR, None)
     try:
-        module = importlib.import_module(CONNECTOR)
-        yield module.airtable_source(
-            base_id="appBBBBBBBBBBBBBB", table_names=None, access_token="pat_fake"
-        )
+        yield
     finally:
         for key, value in saved.items():
             if value is None:
                 sys.modules.pop(key, None)
             else:
                 sys.modules[key] = value
+
+
+@contextmanager
+def airtable_source(tables: list[dict[str, Any]], records: dict[str, Any]) -> Iterator[Any]:
+    """Yield the connector's source built against the fake client."""
+    with airtable_stub(tables, records):
+        module = importlib.import_module(CONNECTOR)
+        yield module.airtable_source(
+            base_id="appBBBBBBBBBBBBBB", table_names=None, access_token="pat_fake"
+        )

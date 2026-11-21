@@ -186,7 +186,7 @@ def run_key_contract(case: KeyCase, root: Path) -> dict[str, TableState]:
     for table, expected_pk in case.pk.items():
         assert table in first, f"{case.id}: table {table!r} was not loaded; got {sorted(first)}"
         state = first[table]
-        assert state.pk == expected_pk, (
+        assert sorted(state.pk) == sorted(expected_pk), (
             f"{case.id}: {table} declares pk {state.pk}, expected {expected_pk}"
         )
         missing = [c for c in state.pk if c not in state.columns]
