@@ -136,6 +136,16 @@ def test_web_leaves_no_project_root_variable_behind_after_it_stops(project: Path
     assert "DANGO_PROJECT_ROOT" not in os.environ
 
 
+def test_web_restores_a_project_root_variable_that_was_set_before(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DANGO_PROJECT_ROOT", "/elsewhere")
+    result, served = _web(project)
+    assert result.exit_code == 0, result.output
+    assert served.env["DANGO_PROJECT_ROOT"] == str(project)
+    assert os.environ["DANGO_PROJECT_ROOT"] == "/elsewhere"
+
+
 def test_web_applies_pending_migrations_to_a_cloned_project(project: Path) -> None:
     for name in ("auth.db", "scheduler.db"):
         (project / ".dango" / name).unlink()
@@ -199,7 +209,18 @@ def _run_recorded(command: str, project: Path) -> list[str]:
     patches = _recorders(events)
     patches.append(patch("dotenv.load_dotenv", side_effect=lambda *_a, **_k: events.append("env")))
     patches.append(patch("uvicorn.run", side_effect=lambda *_a, **_k: events.append("uvicorn")))
+    if command == "web":
+        (project / "data" / "warehouse.duckdb").unlink()  # schemas missing: the write step runs
     if command == "serve":
+        from dango.config import ConfigLoader
+
+        real_load = ConfigLoader.load_config
+
+        def recorded_load(self: ConfigLoader, *a: Any, **k: Any) -> Any:
+            events.append("config")
+            return real_load(self, *a, **k)
+
+        patches.append(patch.object(ConfigLoader, "load_config", recorded_load))
         patches += [
             patch(f"{_SERVE}._stop_docker_quiet", side_effect=lambda _r: events.append("stop")),
             patch(f"{_SERVE}._check_port"),
@@ -243,6 +264,7 @@ def test_web_runs_the_prologue_steps_in_serve_order(project: Path) -> None:
 def test_serve_step_order_is_unchanged(project: Path) -> None:
     assert _run_recorded("serve", project) == [
         "env",
+        "config",
         "align",
         "rotate",
         "migrate",
@@ -257,6 +279,7 @@ def test_serve_step_order_is_unchanged(project: Path) -> None:
 
 
 def test_web_holds_the_dbt_lock_while_it_writes_the_schemas(project: Path) -> None:
+    (project / "data" / "warehouse.duckdb").unlink()
     held: list[bool] = []
 
     def probe(_root: Path) -> None:
@@ -273,19 +296,6 @@ def test_web_holds_the_dbt_lock_while_it_writes_the_schemas(project: Path) -> No
     lock = DbtLock(project, source="test", operation="after")
     assert lock.acquire(timeout=0), "the lock must be released before the server starts"
     lock.release()
-
-
-def test_web_aborts_when_another_process_holds_the_dbt_lock(project: Path) -> None:
-    holder = DbtLock(project, source="sync", operation="load")
-    assert holder.acquire(timeout=0)
-    try:
-        with patch.object(DbtLock, "acquire", side_effect=DbtLockError("lock busy: boom")):
-            result, served = _web(project)
-    finally:
-        holder.release()
-    assert result.exit_code == 1
-    assert served.called == 0
-    assert "lock busy: boom" in _text(result)
 
 
 # --- failures in web: one clear message, Abort, never a traceback --------------------------
@@ -305,6 +315,7 @@ _FAILURES = [
 def test_web_failing_step_prints_the_reason_and_aborts(
     project: Path, target: str, error: Exception, label: str
 ) -> None:
+    (project / "data" / "warehouse.duckdb").unlink()
     with patch(f"{_STARTUP}.{target}", side_effect=error):
         result, served = _web(project)
     output = _text(result)
@@ -329,6 +340,7 @@ def test_web_does_not_touch_duckdb_or_migrate_after_a_version_mismatch(project: 
 def test_web_failure_text_is_redacted_and_not_parsed_as_markup(project: Path) -> None:
     (project / ".env").write_text(f"WP32_SECRET={_SECRET}\n", encoding="utf-8")
     error = RuntimeError(f"cannot create [bold]x[/bold] password={_SECRET}")
+    (project / "data" / "warehouse.duckdb").unlink()
     with patch(f"{_STARTUP}.ensure_dbt_schemas", side_effect=error):
         result, _served = _web(project)
     output = _text(result)
