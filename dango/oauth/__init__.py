@@ -153,9 +153,9 @@ class OAuthManager:
         # This allows flexibility for:
         # - Local development with custom ports
         # - Cloud deployment with custom domains
-        from dotenv import load_dotenv
+        from dango.utils.project_env import load_env
 
-        load_dotenv(self.project_root / ".env")
+        load_env(self.project_root)  # raises EnvFileError for an unreadable .env
 
         self.callback_url = os.getenv("DANGO_OAUTH_CALLBACK_URL", "http://localhost:8080/callback")
 

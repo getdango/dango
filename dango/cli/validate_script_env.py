@@ -197,14 +197,25 @@ def check_script_env(project_root: Path) -> list[Result]:
         )
 
     provided = _provided_names()
-    env_file = project_root / ".env"
+    from rich.markup import escape
+
+    from dango.utils.project_env import EnvFileError, read_env
+
     dotenv: dict[str, str | None] = {}
-    if env_file.is_file():
-        from dotenv import dotenv_values
+    env_ok = True
+    try:
+        dotenv = read_env(project_root)
+    except EnvFileError as exc:
+        env_ok = False
+        results.append(
+            (
+                "scripts: .env",
+                "warn",
+                f"{escape(str(exc))} Did not check the variables scripts declare.",
+            )
+        )
 
-        dotenv = dict(dotenv_values(env_file))
-
-    if config_ok:
+    if config_ok and env_ok:
         for entry in config.scripts:
             missing = [n for n in entry.env if dotenv.get(n) is None]
             if missing:

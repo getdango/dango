@@ -622,19 +622,16 @@ def oauth_check(ctx: click.Context) -> None:
     """
     import os
 
-    from dotenv import load_dotenv
-
     from dango.oauth.storage import OAuthStorage
+    from dango.utils.project_env import load_env
 
     from ..utils import require_project_context
 
     try:
         project_root = require_project_context(ctx)
 
-        # Load .env
-        env_file = project_root / ".env"
-        if env_file.exists():
-            load_dotenv(env_file)
+        # Load .env (an unreadable file stops the command with one message below)
+        load_env(project_root)
 
         console.print("\n[bold cyan]OAuth Configuration Check[/bold cyan]\n")
 
@@ -794,19 +791,19 @@ def oauth_setup(ctx: click.Context, provider: str) -> None:
     """
     import os
 
-    from dotenv import load_dotenv, set_key
     from rich.panel import Panel
     from rich.prompt import Confirm
+
+    from dango.utils.project_env import load_env, set_env_value
 
     from ..utils import require_project_context
 
     try:
         project_root = require_project_context(ctx)
 
-        # Load existing .env
+        # Load existing .env (an unreadable file stops the command with one message below)
         env_file = project_root / ".env"
-        if env_file.exists():
-            load_dotenv(env_file)
+        load_env(project_root)
 
         console.print(f"\n[bold cyan]OAuth Setup Wizard: {provider.title()}[/bold cyan]\n")
         console.print("[dim]Press Ctrl+C at any time to cancel[/dim]\n")
@@ -928,7 +925,7 @@ def oauth_setup(ctx: click.Context, provider: str) -> None:
             env_file.touch()
 
         for env_var, value in credentials.items():
-            set_key(str(env_file), env_var, value)
+            set_env_value(env_file, env_var, value)
 
         console.print(
             f"\n[green]✓ {config['display_name']} OAuth credentials saved to .env[/green]"

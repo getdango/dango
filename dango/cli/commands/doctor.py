@@ -19,11 +19,12 @@ def doctor(ctx: click.Context) -> None:
     from dango.cli.utils import require_project_context
     from dango.exceptions import ConfigError
     from dango.ingestion.credential_health import get_cached_credential_health
+    from dango.utils.project_env import EnvFileError
 
     project_root = require_project_context(ctx)
     try:
         results = get_cached_credential_health(project_root)
-    except ConfigError as e:
+    except (ConfigError, EnvFileError) as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
         raise click.Abort() from e
 

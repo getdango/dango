@@ -11,6 +11,12 @@ Rules (local code only; the excluded prefixes are server-only or vendored):
 * Every text write needs ``newline="\\n"`` (``codecs.open`` and ``TextIOWrapper`` have no
   such parameter or are not writes of a new file, so they are exempt).
 * ``os.popen`` is always flagged (it decodes with the locale and has no encoding parameter).
+* python-dotenv calls (``load_dotenv``, ``dotenv_values``, ``find_dotenv``, ``DotEnv``,
+  ``get_key``, ``set_key``, ``unset_key``), also as the first argument of ``functools.partial``,
+  are flagged everywhere except ``dango/utils/project_env.py`` (``DOTENV_HELPER_MODULES``): they
+  read or rewrite the project ``.env`` and fail with a raw codec error on a non-UTF-8 file; use
+  the helpers in ``dango.utils.project_env``. ``get_key``/``set_key``/``unset_key`` are only
+  flagged when they come from ``dotenv`` (a local function of that name is not python-dotenv).
 
 Keywords carried by ``**NAME`` (a module-level dict literal) or ``**{...}`` are followed.
 
@@ -34,6 +40,11 @@ EXCLUDED_PREFIXES = (
     "dango/runtime",
     "dango/ingestion/dlt_sources",
 )
+
+# The only modules that may call python-dotenv's readers (the safe project ``.env`` loader).
+DOTENV_HELPER_MODULES = ("dango/utils/project_env.py",)
+_DOTENV_READERS = {"load_dotenv", "dotenv_values", "find_dotenv", "DotEnv"}
+_DOTENV_FUNCS = _DOTENV_READERS | {"get_key", "set_key", "unset_key"}
 
 _MODE_RE = re.compile(r"^[rwaxbtU+]+$")
 # dotted name -> (mode index, encoding index, errors index, newline index or None)
@@ -303,6 +314,43 @@ def _popen_problem(node: ast.Call, names: dict[str, str]) -> str | None:
     return None
 
 
+def _dotenv_name(func: ast.expr, names: dict[str, str]) -> str | None:
+    """The python-dotenv function a callable expression refers to, else None."""
+    dotted = _dotted(func, names)
+    if dotted is None:
+        return None
+    last = dotted.rsplit(".", 1)[-1]
+    if dotted.startswith("dotenv.") and last in _DOTENV_FUNCS:
+        return last
+    # A bare, never-imported name: only the original reader names (``set_key`` and friends
+    # could be any local function).
+    if "." not in dotted and last in _DOTENV_READERS:
+        return last
+    return None
+
+
+def _dotenv_problem(node: ast.Call, names: dict[str, str]) -> str | None:
+    name = _dotenv_name(node.func, names)
+    if name is None:
+        return None
+    return (
+        f"{name}() reads or rewrites a .env file outside {DOTENV_HELPER_MODULES[0]}; "
+        "use the helpers in dango.utils.project_env"
+    )
+
+
+def _dotenv_partial_problem(node: ast.Call, names: dict[str, str]) -> str | None:
+    if _dotted(node.func, names) != "functools.partial" or not node.args:
+        return None
+    name = _dotenv_name(node.args[0], names)
+    if name is None:
+        return None
+    return (
+        f"functools.partial({name}) reads or rewrites a .env file outside "
+        f"{DOTENV_HELPER_MODULES[0]}; use the helpers in dango.utils.project_env"
+    )
+
+
 def _partial_problem(node: ast.Call, names: dict[str, str]) -> str | None:
     if _dotted(node.func, names) != "functools.partial" or not node.args:
         return None
@@ -328,11 +376,15 @@ def scan_source(source: str, label: str = "<src>", *, check_lf: bool = True) -> 
         kind = _kind(node, names, modules, parsers)
         if kind is not None and not _opaque(node):
             problems.extend(_file_problems(kind, check_lf=check_lf))
-        for extra in (
+        extras = [
             _subprocess_problem(node, names),
             _popen_problem(node, names),
             _partial_problem(node, names),
-        ):
+        ]
+        if label not in DOTENV_HELPER_MODULES:
+            extras.append(_dotenv_problem(node, names))
+            extras.append(_dotenv_partial_problem(node, names))
+        for extra in extras:
             if extra is not None:
                 problems.append(extra)
         found.extend(f"{label}:{original.lineno} {p}" for p in problems)

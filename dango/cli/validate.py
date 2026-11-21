@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -388,6 +389,7 @@ class ProjectValidator:
         import os
 
         from dango.ingestion.sources.registry import get_source_metadata
+        from dango.utils.project_env import EnvFileError, read_env
 
         try:
             loader = ConfigLoader(self.project_root)
@@ -395,13 +397,7 @@ class ProjectValidator:
             sources = config.sources.sources
 
             # Load .env for checking (don't override existing vars)
-            env_file = self.project_root / ".env"
-            if env_file.exists():
-                from dotenv import dotenv_values
-
-                dot_env = dotenv_values(env_file)
-            else:
-                dot_env = {}
+            dot_env = read_env(self.project_root)
 
             for source in sources:
                 metadata = get_source_metadata(source.type.value)
@@ -425,6 +421,8 @@ class ProjectValidator:
                             )
                         )
 
+        except EnvFileError as e:
+            self.results.append(ValidationResult("Env Vars", "fail", escape(str(e))))
         except Exception as e:
             self.results.append(
                 ValidationResult(

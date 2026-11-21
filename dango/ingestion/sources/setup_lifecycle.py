@@ -327,6 +327,7 @@ def _env_vars_matching(project_root: Path, name: str, other_names: list[str]) ->
     if not env_file.exists():
         return []
     from dango.utils.env_file import parse_env_file
+    from dango.utils.project_env import read_env_text
 
     def token(n: str) -> str:
         """Env var prefix for a source name."""
@@ -339,7 +340,7 @@ def _env_vars_matching(project_root: Path, name: str, other_names: list[str]) ->
     longer = [o for o in other_names if o.startswith(f"{name}_")]
     return [
         k
-        for k in parse_env_file(env_file.read_text(encoding="utf-8"))
+        for k in parse_env_file(read_env_text(env_file))
         if belongs(k, name) and not any(belongs(k, o) for o in longer)
     ]
 

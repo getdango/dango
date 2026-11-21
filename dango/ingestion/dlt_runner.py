@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Any
 import dlt
 from dlt.common.pipeline import LoadInfo
 from dlt.pipeline.exceptions import PipelineStepFailed
-from dotenv import load_dotenv
 from rich.console import Console
 from rich.markup import escape
 
@@ -359,6 +358,35 @@ class DltPipelineRunner:
         """Redacted, Rich-escaped error text for ``console.print`` (tolerates a bare instance)."""
         return rich_error_text(getattr(self, "project_root", None), error)
 
+    def _env_file_failure(
+        self, source_name: str, error: Exception, full_refresh: bool, start_time: datetime
+    ) -> dict[str, Any]:
+        """Failed result for a source when the project ``.env`` cannot be read."""
+        from dango.utils.activity_log import log_activity
+        from dango.utils.sync_history import save_sync_history_entry
+
+        message = str(error)
+        console.print(f"[red]❌ {self._rich_err(message)}[/red]")
+        save_sync_history_entry(
+            self.project_root,
+            source_name,
+            {
+                "timestamp": start_time.isoformat(),
+                "status": "failed",
+                "duration_seconds": 0,
+                "rows_processed": 0,
+                "full_refresh": full_refresh,
+                "error_message": message,
+            },
+        )
+        log_activity(
+            project_root=self.project_root,
+            level="error",
+            source=source_name,
+            message=f"Sync blocked: {message}",
+        )
+        return {"status": "failed", "source": source_name, "error": message, "rows_loaded": 0}
+
     def _load_credentials(self):
         """
         Load credentials from .dlt/ directory and .env file
@@ -371,9 +399,15 @@ class DltPipelineRunner:
         but we also load .env for backward compatibility with existing projects.
         """
         # First, load .env file (lower priority)
-        env_file = self.project_root / ".env"
-        if env_file.exists():
-            load_dotenv(env_file, override=False)  # Don't override existing env vars
+        # An unreadable .env is kept and reported as a failed source (run_source) instead of
+        # raising here, so no caller sees a raw codec error.
+        from dango.utils.project_env import EnvFileError, load_env
+
+        self._env_error: EnvFileError | None = None
+        try:
+            load_env(self.project_root)  # Don't override existing env vars
+        except EnvFileError as exc:
+            self._env_error = exc
 
         # dlt will automatically load .dlt/secrets.toml and .dlt/config.toml
         # from the current working directory when creating pipelines.
@@ -504,6 +538,10 @@ class DltPipelineRunner:
         console.print(f"\n{'=' * 60}")
         console.print(f"🍡 Syncing: [bold]{source_name}[/bold] ({source_type.value})")
         console.print(f"{'=' * 60}")
+
+        env_error = getattr(self, "_env_error", None)
+        if env_error is not None:
+            return self._env_file_failure(source_name, env_error, full_refresh, start_time)
 
         # Check pip dependencies before sync
         deps_ok, missing_deps = self._check_dependencies(source_type.value)

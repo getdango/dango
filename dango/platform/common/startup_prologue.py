@@ -71,15 +71,14 @@ def load_project_env(
         OSError: The file cannot be read.
         In every case nothing from the file is left in the environment.
     """
-    from dotenv import load_dotenv
+    from dango.utils.project_env import EnvFileError, load_env
 
     before = set(os.environ)
     try:
-        load_dotenv(project_root / ".env", encoding="utf-8")
-    except Exception:
-        for name in set(os.environ) - before:
-            del os.environ[name]
-        raise
+        load_env(project_root)
+    except EnvFileError as exc:
+        # load_env already restored the environment; callers describe the original error.
+        raise exc.cause from None
     prefixes = tuple(skip_prefixes)
     ignored = sorted(
         name
@@ -106,18 +105,9 @@ def describe_env_load_error(
     Returns:
         ``(reason, hint)``; the hint is None when the operating system's message says it all.
     """
-    if isinstance(exc, UnicodeDecodeError):
-        return (
-            "it must be UTF-8 text.",
-            f"Save the file as UTF-8, then run 'dango {command}' again.",
-        )
-    if isinstance(exc, ValueError):
-        # A NUL byte (also what UTF-16 text without a BOM decodes to) or an oversized value.
-        return (
-            "it is not a readable UTF-8 text file.",
-            f"Save the file as plain UTF-8 text, then run 'dango {command}' again.",
-        )
-    return (exc.strerror or "read error", None)
+    from dango.utils.project_env import describe_env_read_error
+
+    return describe_env_read_error(exc, command)
 
 
 def describe_lock_holder(lock_info: dict[str, Any] | None) -> str:
