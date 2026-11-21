@@ -108,7 +108,9 @@ def main():
                     for p in root.rglob("*.parquet")
                 },
             }
-            assert metadata["version"] == "1.1" and metadata["data_path"] == str(root)
+            assert metadata["version"] == "1.1" and metadata["data_path"] == str(root) + "/", (
+                "Restore metadata version/data-root identity mismatch"
+            )
             assert state["files"] and all(
                 json.loads(json.dumps(v)) == expected[k] for k, v in state.items()
             )
