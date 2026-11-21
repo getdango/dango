@@ -83,6 +83,14 @@ class TestServeUnreadableEnv:
         assert "UnicodeDecodeError" not in result.output
         prologue.assert_not_called()
 
+    def test_message_matches_the_start_wording(self, project: Path) -> None:
+        (project / ".env").write_bytes(b"caf\xe9=1\n")
+        result, _ = _serve(project)
+        assert result.stderr == (
+            f"Cannot read {project / '.env'}: it must be UTF-8 text.\n"
+            "Save the file as UTF-8, then run 'dango serve' again.\n"
+        )
+
     def test_failure_comes_before_the_config_is_loaded(self, project: Path) -> None:
         (project / ".env").write_bytes(b"caf\xe9=1\n")
         result, _ = _serve(project)
