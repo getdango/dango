@@ -306,6 +306,7 @@ def test_web_failing_step_prints_the_reason_and_aborts(
     assert served.called == 0
     assert label in output and str(error) in output
     assert "Traceback" not in output
+    assert output.count("Error starting server") == 1
     assert "Aborted" in output
 
 

@@ -52,15 +52,15 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
     )
     from dango.platform.common.startup import (
         apply_metabase_duckdb_lock_if_needed,
-        check_duckdb_version_alignment,
-        cleanup_stale_dbt_lock,
-        ensure_dbt_schemas,
         ensure_duckdb_driver,
         import_dashboards,
-        rotate_logs,
-        run_pending_migrations,
         setup_metabase_if_needed,
         start_docker_services,
+    )
+    from dango.platform.common.startup_prologue import (
+        PrologueError,
+        load_project_env,
+        run_local_prologue,
     )
 
     from ..utils import require_project_context
@@ -71,9 +71,7 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
         raise SystemExit(1) from None
 
     # Load .env so DANGO_ADMIN_EMAIL and other env vars are available under systemd (BUG-100)
-    from dotenv import load_dotenv
-
-    load_dotenv(project_root / ".env")
+    load_project_env(project_root)
 
     # Load config (M6: catch config errors cleanly)
     try:
@@ -90,42 +88,23 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
     if effective_workers < 1:
         effective_workers = 1
 
-    # 0. Version alignment check — must run BEFORE any DuckDB write operations
-    # because write mode auto-migrates the file format irreversibly.
+    # 0-2. Shared prologue: version alignment (BEFORE any DuckDB write), log rotation,
+    # migrations, stale dbt lock, leftover containers, dbt schemas. Same steps and order as
+    # `dango web`; serve keeps its own stderr messages and exit code.
+    def _after_migrations(stale_lock_removed: bool) -> None:
+        # Clean up stale dbt lock from crashed process
+        if stale_lock_removed:
+            print("WARNING: Removed stale dbt lock from crashed process", file=sys.stderr)
+
+        # BUG-104: Stop leftover containers before DuckDB write operations.
+        # Containers from a previous crashed run may hold the DuckDB file lock.
+        _stop_docker_quiet(project_root)
+
     try:
-        check_duckdb_version_alignment()
-    except Exception as exc:
-        from dango.exceptions import VersionMismatchError
-
-        if isinstance(exc, VersionMismatchError):
-            print(f"DuckDB version mismatch: {exc}", file=sys.stderr)
-            raise SystemExit(1) from exc
-        raise
-
-    # 0.5. Log rotation (never-fail)
-    rotate_logs(project_root)
-
-    # 1. Migrations
-    try:
-        run_pending_migrations(project_root)
-    except Exception as exc:
-        print(f"Migration failed: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
-
-    # Clean up stale dbt lock from crashed process
-    if cleanup_stale_dbt_lock(project_root):
-        print("WARNING: Removed stale dbt lock from crashed process", file=sys.stderr)
-
-    # BUG-104: Stop leftover containers before DuckDB write operations.
-    # Containers from a previous crashed run may hold the DuckDB file lock.
-    _stop_docker_quiet(project_root)
-
-    # 2. dbt schemas
-    try:
-        ensure_dbt_schemas(project_root)
-    except Exception as exc:
-        print(f"Schema setup failed: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        run_local_prologue(project_root, after_migrations=_after_migrations)
+    except PrologueError as exc:
+        print(f"{exc.label}: {exc.cause}", file=sys.stderr)
+        raise SystemExit(1) from exc.cause
 
     # 3. DuckDB driver. BUG-124: a jar synced from local may satisfy startup when the
     # network is unavailable, but only if its bytes match the pinned digest.
