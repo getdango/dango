@@ -31,6 +31,11 @@ from dango.config.models import (
 )
 from dango.exceptions import ConfigError, ConfigNotFoundError, SyncTimeoutError
 from dango.ingestion.csv_loader import CSVLoader, check_duplicate_filenames
+from dango.ingestion.empty_guard import (
+    replace_protected_tables,
+    truncate_message,
+    zero_rows_message,
+)
 from dango.ingestion.sources.registry import get_source_metadata
 from dango.utils.docker_hints import DOCKER_UNAVAILABLE_ERROR, note_metabase_skipped
 from dango.utils.duckdb_lock_text import rewrite_lock_text
@@ -1449,28 +1454,31 @@ class DltPipelineRunner:
             # schema was already intentionally dropped above (before extract), so
             # there's nothing left here to prevent; that path keeps relying on the
             # existing post-load checks below, unchanged.
+            #
+            # Per-table scope (1.0.15-WP-34): only replace-mode tables are protected. A
+            # merge/append table with no new rows this run is normal and must not fail the
+            # sync. The whole run is blocked (nothing is loaded, state is restored) when a
+            # protected table would be emptied, so the load is never half-applied.
+            protected_tables = replace_protected_tables(source, pipeline, pre_table_counts or {})
             if pre_table_counts is not None and uses_replace_mode and not allow_empty_replace:
                 staged_counts = {
                     k: v for k, v in norm_info.row_counts.items() if not k.startswith("_dlt")
                 }
                 would_truncate: list[tuple[str, int]] = []
                 for table_name, pre_count in pre_table_counts.items():
-                    if pre_count > 0 and staged_counts.get(table_name, 0) == 0:
+                    if (
+                        pre_count > 0
+                        and table_name in protected_tables
+                        and staged_counts.get(table_name, 0) == 0
+                    ):
                         would_truncate.append((table_name, pre_count))
                 if would_truncate:
                     pipeline.drop_pending_packages()
                     self._restore_dlt_state(state_backup)
-                    table_details = "\n  - ".join(
-                        f"{name}: {count:,} rows → 0 rows (table would be lost)"
-                        for name, count in would_truncate
+                    error_msg = redacted_error_text(
+                        self.project_root, truncate_message(source_name, would_truncate)
                     )
-                    error_msg = (
-                        f"Sync would truncate {len(would_truncate)} table(s) with "
-                        f"existing data:\n  - {table_details}\n"
-                        f"To force sync with empty data, use: "
-                        f"dango sync {source_name} --allow-empty-replace"
-                    )
-                    console.print(f"  [red]❌ {error_msg}[/red]")
+                    console.print(f"  [red]❌ {self._rich_err(error_msg)}[/red]")
                     return {
                         "status": "failed",
                         "source": source_name,
@@ -1489,22 +1497,33 @@ class DltPipelineRunner:
             rows_loaded = stats.get("rows_loaded", 0)
 
             # Empty replace protection: block 0-row replace-mode syncs
-            # that would wipe existing data
+            # that would wipe existing data. Only rows of protected (replace-mode)
+            # tables count as at risk; without per-table counts the source total is used.
+            rows_at_risk = (
+                sum(pre_table_counts[name] for name in protected_tables)
+                if pre_table_counts is not None
+                else pre_refresh_rows
+            )
             if (
                 rows_loaded == 0
-                and pre_refresh_rows is not None
-                and pre_refresh_rows > 0
+                and rows_at_risk is not None
+                and rows_at_risk > 0
                 and (full_refresh or uses_replace_mode)
                 and not allow_empty_replace
             ):
                 # Restore pipeline state so next sync retries correctly
                 self._restore_dlt_state(state_backup)
-                error_msg = (
-                    f"Sync returned 0 rows — existing {pre_refresh_rows:,} rows "
-                    f"preserved. To force sync with empty data, use: "
-                    f"dango sync {source_name} --allow-empty-replace"
+                error_msg = redacted_error_text(
+                    self.project_root,
+                    zero_rows_message(
+                        source_name,
+                        rows_at_risk,
+                        [n for n in protected_tables if pre_table_counts[n] > 0]
+                        if pre_table_counts is not None
+                        else None,
+                    ),
                 )
-                console.print(f"  [red]❌ {error_msg}[/red]")
+                console.print(f"  [red]❌ {self._rich_err(error_msg)}[/red]")
                 return {
                     "status": "failed",
                     "source": source_name,
@@ -1527,23 +1546,16 @@ class DltPipelineRunner:
                 if post_table_counts is not None:
                     truncated_tables: list[tuple[str, int]] = []
                     for table_name, pre_count in pre_table_counts.items():
-                        if pre_count > 0:
+                        if pre_count > 0 and table_name in protected_tables:
                             post_count = post_table_counts.get(table_name, 0)
                             if post_count == 0:
                                 truncated_tables.append((table_name, pre_count))
                     if truncated_tables:
                         self._restore_dlt_state(state_backup)
-                        table_details = "\n  - ".join(
-                            f"{name}: {count:,} rows → 0 rows (table would be lost)"
-                            for name, count in truncated_tables
+                        error_msg = redacted_error_text(
+                            self.project_root, truncate_message(source_name, truncated_tables)
                         )
-                        error_msg = (
-                            f"Sync would truncate {len(truncated_tables)} table(s) with "
-                            f"existing data:\n  - {table_details}\n"
-                            f"To force sync with empty data, use: "
-                            f"dango sync {source_name} --allow-empty-replace"
-                        )
-                        console.print(f"  [red]❌ {error_msg}[/red]")
+                        console.print(f"  [red]❌ {self._rich_err(error_msg)}[/red]")
                         return {
                             "status": "failed",
                             "source": source_name,
@@ -1920,28 +1932,31 @@ class DltPipelineRunner:
             # schema was already intentionally dropped above (before extract), so
             # there's nothing left here to prevent; that path keeps relying on the
             # existing post-load checks below, unchanged.
+            #
+            # Per-table scope (1.0.15-WP-34): only replace-mode tables are protected. A
+            # merge/append table with no new rows this run is normal and must not fail the
+            # sync. The whole run is blocked (nothing is loaded, state is restored) when a
+            # protected table would be emptied, so the load is never half-applied.
+            protected_tables = replace_protected_tables(source, pipeline, pre_table_counts or {})
             if pre_table_counts is not None and uses_replace_mode and not allow_empty_replace:
                 staged_counts = {
                     k: v for k, v in norm_info.row_counts.items() if not k.startswith("_dlt")
                 }
                 would_truncate: list[tuple[str, int]] = []
                 for table_name, pre_count in pre_table_counts.items():
-                    if pre_count > 0 and staged_counts.get(table_name, 0) == 0:
+                    if (
+                        pre_count > 0
+                        and table_name in protected_tables
+                        and staged_counts.get(table_name, 0) == 0
+                    ):
                         would_truncate.append((table_name, pre_count))
                 if would_truncate:
                     pipeline.drop_pending_packages()
                     self._restore_dlt_state(state_backup)
-                    table_details = "\n  - ".join(
-                        f"{name}: {count:,} rows → 0 rows (table would be lost)"
-                        for name, count in would_truncate
+                    error_msg = redacted_error_text(
+                        self.project_root, truncate_message(source_name, would_truncate)
                     )
-                    error_msg = (
-                        f"Sync would truncate {len(would_truncate)} table(s) with "
-                        f"existing data:\n  - {table_details}\n"
-                        f"To force sync with empty data, use: "
-                        f"dango sync {source_name} --allow-empty-replace"
-                    )
-                    console.print(f"  [red]❌ {error_msg}[/red]")
+                    console.print(f"  [red]❌ {self._rich_err(error_msg)}[/red]")
                     return {
                         "status": "failed",
                         "source": source_name,
@@ -1960,22 +1975,33 @@ class DltPipelineRunner:
             rows_loaded = stats.get("rows_loaded", 0)
 
             # Empty replace protection: block 0-row replace-mode syncs
-            # that would wipe existing data
+            # that would wipe existing data. Only rows of protected (replace-mode)
+            # tables count as at risk; without per-table counts the source total is used.
+            rows_at_risk = (
+                sum(pre_table_counts[name] for name in protected_tables)
+                if pre_table_counts is not None
+                else pre_refresh_rows
+            )
             if (
                 rows_loaded == 0
-                and pre_refresh_rows is not None
-                and pre_refresh_rows > 0
+                and rows_at_risk is not None
+                and rows_at_risk > 0
                 and (full_refresh or uses_replace_mode)
                 and not allow_empty_replace
             ):
                 # Restore pipeline state so next sync retries correctly
                 self._restore_dlt_state(state_backup)
-                error_msg = (
-                    f"Sync returned 0 rows — existing {pre_refresh_rows:,} rows "
-                    f"preserved. To force sync with empty data, use: "
-                    f"dango sync {source_name} --allow-empty-replace"
+                error_msg = redacted_error_text(
+                    self.project_root,
+                    zero_rows_message(
+                        source_name,
+                        rows_at_risk,
+                        [n for n in protected_tables if pre_table_counts[n] > 0]
+                        if pre_table_counts is not None
+                        else None,
+                    ),
                 )
-                console.print(f"  [red]❌ {error_msg}[/red]")
+                console.print(f"  [red]❌ {self._rich_err(error_msg)}[/red]")
                 return {
                     "status": "failed",
                     "source": source_name,
@@ -1999,23 +2025,16 @@ class DltPipelineRunner:
                 if post_table_counts is not None:
                     truncated_tables: list[tuple[str, int]] = []
                     for table_name, pre_count in pre_table_counts.items():
-                        if pre_count > 0:
+                        if pre_count > 0 and table_name in protected_tables:
                             post_count = post_table_counts.get(table_name, 0)
                             if post_count == 0:
                                 truncated_tables.append((table_name, pre_count))
                     if truncated_tables:
                         self._restore_dlt_state(state_backup)
-                        table_details = "\n  - ".join(
-                            f"{name}: {count:,} rows → 0 rows (table would be lost)"
-                            for name, count in truncated_tables
+                        error_msg = redacted_error_text(
+                            self.project_root, truncate_message(source_name, truncated_tables)
                         )
-                        error_msg = (
-                            f"Sync would truncate {len(truncated_tables)} table(s) with "
-                            f"existing data:\n  - {table_details}\n"
-                            f"To force sync with empty data, use: "
-                            f"dango sync {source_name} --allow-empty-replace"
-                        )
-                        console.print(f"  [red]❌ {error_msg}[/red]")
+                        console.print(f"  [red]❌ {self._rich_err(error_msg)}[/red]")
                         return {
                             "status": "failed",
                             "source": source_name,
