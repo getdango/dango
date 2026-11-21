@@ -1,11 +1,13 @@
 """tests/unit/test_connector_key_google.py
 
-Primary-key contract for the vendored Google Analytics and Google Ads connectors: the client object is replaced
-(Analytics: real protobuf report types; Ads: GAQL-shaped rows) and the rows load through real dlt.
+Primary-key contract for the vendored Google Analytics and Google Ads connectors: the Google SDKs are replaced
+by small stand-ins (Analytics: report types and client; Ads: GAQL-shaped rows) and the rows load through real dlt.
 """
 
 from __future__ import annotations
 
+import enum
+import importlib
 import re
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -15,20 +17,70 @@ import pendulum
 import pytest
 from dlt.common.configuration.specs.gcp_credentials import GcpDefaultCredentials
 from dlt.sources.credentials import GcpServiceAccountCredentials
-from google.analytics.data_v1beta.types import (
-    DimensionHeader,
-    DimensionValue,
-    MetricHeader,
-    MetricType,
-    MetricValue,
-    Row,
-    RunReportResponse,
-)
 
-import dango.ingestion.dlt_sources.google_ads as ads_module
-from dango.ingestion.dlt_sources.google_ads.settings import DEFAULT_QUERIES
-from dango.ingestion.dlt_sources.google_analytics import google_analytics
 from tests.factories.connector_contract import KeyCase, assert_key_contract
+from tests.factories.sdk_fakes import fake_sdk
+
+GA_PKG = "dango.ingestion.dlt_sources.google_analytics"
+ADS_PKG = "dango.ingestion.dlt_sources.google_ads"
+
+
+class _Named:
+    def __init__(self, name: str = "", **_kw):
+        self.name = name
+
+
+class _Value:
+    def __init__(self, value: str = ""):
+        self.value = value
+
+
+class _MetricType(enum.Enum):
+    TYPE_INTEGER = 1
+
+
+class _Header:
+    def __init__(self, name: str, type_=None):
+        self.name, self.type_ = name, type_
+
+
+class _Row:
+    def __init__(self, dimension_values, metric_values):
+        self.dimension_values, self.metric_values = dimension_values, metric_values
+
+
+class _Request:
+    def __init__(self, dimensions=(), metrics=(), **_kw):
+        self.dimensions, self.metrics = dimensions, metrics
+
+
+class _Response:
+    def __init__(self, dimension_headers, metric_headers, rows, row_count):
+        self.dimension_headers, self.metric_headers = dimension_headers, metric_headers
+        self.rows, self.row_count = rows, row_count
+
+
+def _ga_sdk():
+    return fake_sdk(
+        {
+            "google.analytics.data_v1beta": {"BetaAnalyticsDataClient": object},
+            "google.analytics.data_v1beta.types": {
+                "Dimension": _Named,
+                "Metric": _Named,
+                "DateRange": _Named,
+                "MetricType": _MetricType,
+                "RunReportRequest": _Request,
+                "RunReportResponse": _Response,
+            },
+            "apiclient.discovery": {},
+            "proto": {},
+        },
+        GA_PKG,
+    )
+
+
+def _ads_sdk():
+    return fake_sdk({"google.ads.googleads.client": {}, "proto": {}}, ADS_PKG)
 
 
 def _fake_credentials() -> GcpServiceAccountCredentials:
@@ -79,16 +131,16 @@ class _FakeGaClient:
                 for d in dims
             ]
             rows.append(
-                Row(
-                    dimension_values=[DimensionValue(value=v) for v in values],
-                    metric_values=[MetricValue(value=str(self.sessions * n))],
+                _Row(
+                    [_Value(v) for v in values],
+                    [_Value(str(self.sessions * n))],
                 )
             )
-        return RunReportResponse(
-            dimension_headers=[DimensionHeader(name=d) for d in dims],
-            metric_headers=[MetricHeader(name="sessions", type_=MetricType.TYPE_INTEGER)],
-            rows=rows,
-            row_count=len(rows),
+        return _Response(
+            [_Header(d) for d in dims],
+            [_Header("sessions", _MetricType.TYPE_INTEGER)],
+            rows,
+            len(rows),
         )
 
 
@@ -96,13 +148,14 @@ def _ga_case(dimensions, table, pk, case_id):
     @contextmanager
     def open_(rev):
         fake = type("Fake", (_FakeGaClient,), {"sessions": 99 if rev else 10})
-        base = "dango.ingestion.dlt_sources.google_analytics.BetaAnalyticsDataClient"
         with (
-            patch(base, fake),
+            _ga_sdk(),
             patch.object(GcpServiceAccountCredentials, "to_native_credentials", lambda self: None),
             _no_default_credentials(),
         ):
-            yield google_analytics(
+            module = importlib.import_module(GA_PKG)
+            module.BetaAnalyticsDataClient = fake
+            yield module.google_analytics(
                 credentials=_fake_credentials(),
                 property_id=123456,
                 queries=[
@@ -137,6 +190,9 @@ class TestGoogleAnalyticsKeyContract:
         case = _ga_case(dimensions, "my_report", pk, f"ga[{'+'.join(dimensions)}]")
         assert_key_contract(case, tmp_path)
 
+
+with _ads_sdk():
+    DEFAULT_QUERIES = importlib.import_module(ADS_PKG + ".settings").DEFAULT_QUERIES
 
 # -- Google Ads ------------------------------------------------------------------------------------------------
 
@@ -177,11 +233,10 @@ def _ads_case(query: dict):
     def open_(rev):
         service = _FakeAdsService(clicks=50 if rev else 5)
         client = SimpleNamespace(get_service=lambda _name: service)
-        with (
-            patch.object(ads_module, "get_client", lambda **_kw: client),
-            patch.object(ads_module, "to_dict", lambda row: row),
-            _no_default_credentials(),
-        ):
+        with _ads_sdk(), _no_default_credentials():
+            ads_module = importlib.import_module(ADS_PKG)
+            ads_module.get_client = lambda **_kw: client
+            ads_module.to_dict = lambda row: row
             yield ads_module.google_ads(
                 credentials=_fake_credentials(),
                 customer_id="1234567890",

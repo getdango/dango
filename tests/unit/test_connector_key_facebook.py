@@ -1,19 +1,41 @@
 """tests/unit/test_connector_key_facebook.py
 
-Primary-key contract for the vendored Facebook Ads connector: the Graph API objects are replaced with
+Primary-key contract for the vendored Facebook Ads connector: the Facebook SDK and Graph API objects are replaced with
 `export_all_data()` payloads in the shape the API returns (ids as strings) and load through real dlt.
 """
 
 from __future__ import annotations
 
+import importlib
 from contextlib import contextmanager
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 
-import dango.ingestion.dlt_sources.facebook_ads as fb_module
 from tests.factories.connector_contract import KeyCase, assert_key_contract
+from tests.factories.sdk_fakes import fake_sdk
+
+FB_PKG = "dango.ingestion.dlt_sources.facebook_ads"
+
+
+def _fb_sdk():
+    return fake_sdk(
+        {
+            "facebook_business": {"FacebookAdsApi": object},
+            "facebook_business.adobjects.abstractobject": {},
+            "facebook_business.adobjects.abstractcrudobject": {},
+            "facebook_business.adobjects.ad": {},
+            "facebook_business.adobjects.adaccount": {},
+            "facebook_business.adobjects.adcreative": {},
+            "facebook_business.adobjects.adset": {},
+            "facebook_business.adobjects.campaign": {},
+            "facebook_business.adobjects.lead": {},
+            "facebook_business.adobjects.user": {},
+            "facebook_business.api": {},
+        },
+        FB_PKG,
+    )
+
 
 RESOURCES = ("campaigns", "ads", "ad_sets", "ad_creatives", "facebook_insights")
 
@@ -65,10 +87,10 @@ def _case(ids: tuple[str, ...]) -> KeyCase:
         def job(params):
             return SimpleNamespace(get_result=lambda: _insight_rows(params, rev, ids))
 
-        with (
-            patch.object(fb_module, "get_ads_account", lambda *a, **k: account),
-            patch.object(fb_module, "execute_job", job),
-        ):
+        with _fb_sdk():
+            fb_module = importlib.import_module(FB_PKG)
+            fb_module.get_ads_account = lambda *a, **k: account
+            fb_module.execute_job = job
             source = fb_module.facebook_ads_combined(
                 account_id="act_1",
                 access_token="tok",
