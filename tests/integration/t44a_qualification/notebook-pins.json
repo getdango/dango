@@ -1,0 +1,1501 @@
+{
+  "status": "FROZEN_CORE_CLOSURE_NATIVE_UNRUN",
+  "product": "marimo",
+  "version": "0.25.2",
+  "selected_extras": [],
+  "target": {
+    "python": "3.14.10",
+    "platform": "linux/amd64"
+  },
+  "artifacts": [
+    {
+      "name": "anyio",
+      "version": "4.16.0",
+      "file": "anyio-4.16.0-py3-none-any.whl",
+      "sha256": "c66ae634e0b8228396b801741beb3294326d4b6102f7bba4041c0dfb58c29026",
+      "compressed": 134521,
+      "logical": 553035,
+      "allocated_upper": 872448,
+      "python": ">=3.10",
+      "license": "MIT",
+      "license_classifiers": [],
+      "requires": [
+        "exceptiongroup>=1.0.2; python_version < \"3.11\"",
+        "idna>=2.8",
+        "typing_extensions>=4.16.0; python_version < \"3.15\"",
+        "trio>=0.32.0; extra == \"trio\""
+      ],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "anyio-4.16.0.dist-info/licenses/LICENSE",
+          "size": 1081,
+          "sha256": "5361ac9dc58f2ef5fd2e9b09c68297c17f04950909bbc8023bdb82eacf22c2b0"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/a9/16/7757fb84c819accc7d7e9af5291b261e4abb8627ee040f99e7d35ef2457a/anyio-4.16.0-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 872448
+    },
+    {
+      "name": "click",
+      "version": "8.5.1",
+      "file": "click-8.5.1-py3-none-any.whl",
+      "sha256": "8bb5376d2006950386f8c6427613334a2acadc5f559cb80e638d00b4df957e37",
+      "compressed": 126163,
+      "logical": 449840,
+      "allocated_upper": 585728,
+      "python": ">=3.10",
+      "license": "BSD-3-Clause",
+      "license_classifiers": [],
+      "requires": [],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "click-8.5.1.dist-info/licenses/LICENSE.txt",
+          "size": 1475,
+          "sha256": "9a8ad106a394e853bfe21f42f4e72d592819a22805d991b5f3275029292b658d"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/31/7d/164b7ffc8624fe9efb4221bf9af485d5c1e41b9ae118045d2b6dc5457d8b/click-8.5.1-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": true,
+      "expanded_upper": 585728
+    },
+    {
+      "name": "docutils",
+      "version": "0.23",
+      "file": "docutils-0.23-py3-none-any.whl",
+      "sha256": "25d013af9bf23bc1c7b2b093dff4208166c53a94786c9e447808335ef1185fea",
+      "compressed": 634701,
+      "logical": 2210889,
+      "allocated_upper": 3514368,
+      "python": ">=3.9",
+      "license": null,
+      "license_classifiers": [
+        "License :: Public Domain",
+        "License :: OSI Approved :: BSD License",
+        "License :: OSI Approved :: GNU General Public License (GPL)"
+      ],
+      "requires": [],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "docutils-0.23.dist-info/licenses/COPYING.rst",
+          "size": 6075,
+          "sha256": "6ab4f27c76c74f96e5e692da5944a6f82968f3bddaac5660a4aa723e70eb5d8f"
+        },
+        {
+          "path": "docutils-0.23.dist-info/licenses/licenses/BSD-0-Clause.rst",
+          "size": 644,
+          "sha256": "42ac50251ab8a6738f77d5707f2a788dbf3446a6ed68edecb6ac17489a78e163"
+        },
+        {
+          "path": "docutils-0.23.dist-info/licenses/licenses/BSD-2-Clause.rst",
+          "size": 1318,
+          "sha256": "b8f3b31a2f4312401fe4122fe932a333ec0d7e47d849c02da0404e8048fe74d0"
+        },
+        {
+          "path": "docutils-0.23.dist-info/licenses/licenses/gpl-3-0.txt",
+          "size": 35150,
+          "sha256": "e6037104443f9a7829b2aa7c5370d0789a7bda3ca65a0b904cdc0c2e285d9195"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/32/91/30151a39f7570f448ed84529390628a651d7f27c87d73c9b887f8189695e/docutils-0.23-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 3514368
+    },
+    {
+      "name": "h11",
+      "version": "0.16.0",
+      "file": "h11-0.16.0-py3-none-any.whl",
+      "sha256": "63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86",
+      "compressed": 37515,
+      "logical": 103935,
+      "allocated_upper": 225280,
+      "python": ">=3.8",
+      "license": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "requires": [],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "h11-0.16.0.dist-info/licenses/LICENSE.txt",
+          "size": 1124,
+          "sha256": "37db5bb85926db28a427a25867f10b1232003aea1be69ccb851138adb8e6f361"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 225280
+    },
+    {
+      "name": "idna",
+      "version": "3.20",
+      "file": "idna-3.20-py3-none-any.whl",
+      "sha256": "ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c",
+      "compressed": 69583,
+      "logical": 342091,
+      "allocated_upper": 446464,
+      "python": ">=3.9",
+      "license": "BSD-3-Clause",
+      "license_classifiers": [],
+      "requires": [
+        "ruff >= 0.16.0 ; extra == \"all\"",
+        "mypy >= 1.11.2 ; extra == \"all\"",
+        "ty >= 0.0.37 ; extra == \"all\"",
+        "pytest >= 8.3.2 ; extra == \"all\"",
+        "hypothesis >= 6.141.1 ; extra == \"all\"",
+        "coverage >= 7.10.0 ; extra == \"all\""
+      ],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "idna-3.20.dist-info/licenses/LICENSE.md",
+          "size": 1541,
+          "sha256": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/58/a2/bb081bab032533a855d44de1d56f8e8426114ff1ba5d1f07a438a0a654f8/idna-3.20-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": true,
+      "expanded_upper": 446464
+    },
+    {
+      "name": "itsdangerous",
+      "version": "2.2.0",
+      "file": "itsdangerous-2.2.0-py3-none-any.whl",
+      "sha256": "c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef",
+      "compressed": 16234,
+      "logical": 46856,
+      "allocated_upper": 126976,
+      "python": ">=3.8",
+      "license": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: BSD License"
+      ],
+      "requires": [],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "itsdangerous-2.2.0.dist-info/LICENSE.txt",
+          "size": 1475,
+          "sha256": "63af09891b6be8ad1a4252ed43af0f4efba7fc948e228367bed7f3c5ae0b09d7"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/04/96/92447566d16df59b2a776c0fb82dbc4d9e07cd95062562af01e408583fc4/itsdangerous-2.2.0-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 126976
+    },
+    {
+      "name": "jedi",
+      "version": "0.20.1",
+      "file": "jedi-0.20.1-py2.py3-none-any.whl",
+      "sha256": "0fb16d86c4a4c73c37ba518c77419975e30fcc620658a8d14fbb5720cdd34142",
+      "compressed": 4885980,
+      "logical": 14584318,
+      "allocated_upper": 53940224,
+      "python": ">=3.10",
+      "license": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "requires": [
+        "parso <0.9.0,>=0.8.7",
+        "Django ; extra == 'dev'",
+        "attrs ; extra == 'dev'",
+        "colorama ; extra == 'dev'",
+        "docopt ; extra == 'dev'",
+        "flake8 ==7.1.2 ; extra == 'dev'",
+        "pytest <9.0.0 ; extra == 'dev'",
+        "types-setuptools ==80.9.0.20250529 ; extra == 'dev'",
+        "typing-extensions ; extra == 'dev'",
+        "zuban ==0.7.0 ; extra == 'dev'",
+        "Jinja2 ==3.1.6 ; extra == 'docs'",
+        "MarkupSafe ==3.0.3 ; extra == 'docs'",
+        "Pygments ==2.20.0 ; extra == 'docs'",
+        "Sphinx ==9.1.0 ; extra == 'docs'",
+        "alabaster ==1.0.0 ; extra == 'docs'",
+        "babel ==2.18.0 ; extra == 'docs'",
+        "certifi ==2026.4.22 ; extra == 'docs'",
+        "charset-normalizer ==3.4.7 ; extra == 'docs'",
+        "docutils ==0.22.4 ; extra == 'docs'",
+        "idna ==3.13 ; extra == 'docs'",
+        "imagesize ==2.0.0 ; extra == 'docs'",
+        "iniconfig ==2.3.0 ; extra == 'docs'",
+        "packaging ==26.2 ; extra == 'docs'",
+        "pluggy ==1.6.0 ; extra == 'docs'",
+        "pytest ==9.0.3 ; extra == 'docs'",
+        "requests ==2.33.1 ; extra == 'docs'",
+        "roman-numerals ==4.1.0 ; extra == 'docs'",
+        "snowballstemmer ==3.0.1 ; extra == 'docs'",
+        "sphinx-rtd-theme ==3.1.0 ; extra == 'docs'",
+        "sphinxcontrib-applehelp ==2.0.0 ; extra == 'docs'",
+        "sphinxcontrib-devhelp ==2.0.0 ; extra == 'docs'",
+        "sphinxcontrib-htmlhelp ==2.1.0 ; extra == 'docs'",
+        "sphinxcontrib-jquery ==4.1 ; extra == 'docs'",
+        "sphinxcontrib-jsmath ==1.0.1 ; extra == 'docs'",
+        "sphinxcontrib-qthelp ==2.0.0 ; extra == 'docs'",
+        "sphinxcontrib-serializinghtml ==2.0.0 ; extra == 'docs'",
+        "urllib3 ==2.6.3 ; extra == 'docs'"
+      ],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "jedi/third_party/django-stubs/LICENSE.txt",
+          "size": 1075,
+          "sha256": "235e993965d399a25e7d493d25c8622f78718510884b9c051f1f1866b6f34e9d"
+        },
+        {
+          "path": "jedi/third_party/typeshed/LICENSE",
+          "size": 12657,
+          "sha256": "295f8538c94ae5c3043301cf7cff1c852dab6a786a8ddee471e061b40d5ecabe"
+        },
+        {
+          "path": "jedi-0.20.1.dist-info/LICENSE.txt",
+          "size": 1241,
+          "sha256": "78e60cd0b8f28694f30195482c33d76908d846b0d15278deb7332aa22ba8e412"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/be/c7/71eb0d51cdcbb63b857c931aa4e9218b078b5d9f8ecd383b234f28fe7b0f/jedi-0.20.1-py2.py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 53940224
+    },
+    {
+      "name": "loro",
+      "version": "1.17.1",
+      "file": "loro-1.17.1-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "e41abe03d999fd312e7f7252a2b63143db33ae5bfe3e240c9d41ca4b8a65cacf",
+      "compressed": 3900479,
+      "logical": 11441345,
+      "allocated_upper": 11501568,
+      "python": ">=3.8",
+      "license": "MIT",
+      "license_classifiers": [],
+      "requires": [],
+      "native_members": [
+        {
+          "path": "loro/loro.cpython-314-x86_64-linux-gnu.so",
+          "size": 11194776,
+          "sha256": "cbbdbd645bda25930604f0c50cfd5d8450a49c92112a6f540148424cc5fd6c68",
+          "magic_hex": "7f454c46"
+        }
+      ],
+      "notice_members": [
+        {
+          "path": "loro-1.17.1.dist-info/licenses/LICENSE",
+          "size": 1061,
+          "sha256": "951d9cdea0e7269a2a1599e2ad60ebe4a66597b938c3186e256bd8d5a9de3903"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/31/ff/f56b5ab5e36c84f250e49e4e04bc11779e78cd98d70f86f4a2d14e627643/loro-1.17.1-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 11501568
+    },
+    {
+      "name": "marimo",
+      "version": "0.25.2",
+      "file": "marimo-0.25.2-py3-none-any.whl",
+      "sha256": "7acb7a433755c6d965c03e07725477ab63804f6667ba9e37e4da582f358018c7",
+      "compressed": 39465510,
+      "logical": 120570466,
+      "allocated_upper": 134160384,
+      "python": ">=3.10",
+      "license": "Apache-2.0",
+      "license_classifiers": [],
+      "requires": [
+        "click>=8.0,<9 ; sys_platform != 'emscripten'",
+        "jedi>=0.18.0,<0.21.0",
+        "markdown>=3.6,<4",
+        "pymdown-extensions>=10.21.2,<12",
+        "pygments>=2.19,<3",
+        "tomlkit>=0.12.0",
+        "pyyaml>=6.0.1",
+        "uvicorn>=0.22.0 ; sys_platform != 'emscripten'",
+        "starlette>=0.37.2 ; sys_platform != 'emscripten'",
+        "python-multipart>=0.0.18",
+        "websockets>=14.2.0 ; sys_platform != 'emscripten'",
+        "loro>=1.10.0 ; python_full_version < '3.15' and sys_platform != 'android' and sys_platform != 'emscripten'",
+        "typing-extensions>=4.4.0 ; python_full_version < '3.12'",
+        "docutils>=0.16.0",
+        "psutil>=5.0 ; sys_platform != 'android' and sys_platform != 'emscripten'",
+        "itsdangerous>=2.0.0",
+        "narwhals>=2.0.0",
+        "packaging",
+        "msgspec>=0.22.0",
+        "pyzmq>=27.1.0 ; sys_platform != 'emscripten'",
+        "python-lsp-server>=1.13.0 ; extra == 'lsp'",
+        "python-lsp-ruff>=2.0.0 ; extra == 'lsp'",
+        "httpx2>=2.5.0,<3 ; extra == 'mcp'",
+        "mcp>=2.0.0,<3 ; extra == 'mcp'",
+        "opentelemetry-api~=1.28.0 ; extra == 'otel'",
+        "opentelemetry-sdk~=1.28.0 ; extra == 'otel'",
+        "opentelemetry-exporter-otlp-proto-http~=1.28.0 ; extra == 'otel'",
+        "opentelemetry-exporter-otlp-proto-grpc~=1.28.0 ; extra == 'otel'",
+        "marimo[sql] ; extra == 'recommended'",
+        "marimo[sandbox] ; extra == 'recommended'",
+        "marimo-lens>=0.2.3 ; extra == 'recommended'",
+        "cryptography>=42.0.0 ; extra == 'recommended'",
+        "altair>=5.4.0 ; extra == 'recommended'",
+        "pydantic-ai-slim[openai]>=2.34.0,<3.0.0 ; extra == 'recommended'",
+        "ruff ; extra == 'recommended'",
+        "nbformat>=5.7.0 ; extra == 'recommended'",
+        "uv>=0.9.21 ; extra == 'sandbox'",
+        "duckdb>=1.0.0 ; extra == 'sql'",
+        "polars[pyarrow]>=1.9.0 ; extra == 'sql'",
+        "sqlglot[c]>=30.7.0 ; extra == 'sql'"
+      ],
+      "native_members": [
+        {
+          "path": "marimo/_lsp/copilot/bin/linux/arm64/rg",
+          "size": 4774312,
+          "sha256": "204c5d433e275ee8f29f1a22a5fb9c32a667f280f003a2e0a5011af122d8d6f2",
+          "magic_hex": "7f454c46"
+        },
+        {
+          "path": "marimo/_lsp/copilot/bin/linux/x64/rg",
+          "size": 5728000,
+          "sha256": "f2ee496a39139b8d9ad9408081217a55f1382cef4950100565d147d247364856",
+          "magic_hex": "7f454c46"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/darwin/arm64/copilot-tokenizer.node",
+          "size": 2111664,
+          "sha256": "e008d90027e0c53af67065b697255735eaa8c0a917ccfcb7d96470953b32b94e",
+          "magic_hex": "cffaedfe"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/darwin/arm64/kerberos.node",
+          "size": 325616,
+          "sha256": "fdcca42b9123ddc8758c03d1c559b8e2250f399193153e3093a67a8502f84fe8",
+          "magic_hex": "cafebabe"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/darwin/arm64/keytar.node",
+          "size": 117728,
+          "sha256": "138c91da56cb0d0c482ebf036fb15db7925d56bad15b5fc983118453966755cb",
+          "magic_hex": "cffaedfe"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/darwin/arm64/vscode-policy-watcher.node",
+          "size": 116720,
+          "sha256": "2f74f206231c10048c8c4961d70ec85affe63ab387a50c64f8230f40a6cc2e83",
+          "magic_hex": "cffaedfe"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/darwin/arm64/watcher.node",
+          "size": 342368,
+          "sha256": "21d08d0f890cdee9c233b3d93b8bd78f174966b32808cc997dd74d5b8f29ea7a",
+          "magic_hex": "cffaedfe"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/darwin/x64/copilot-tokenizer.node",
+          "size": 2231728,
+          "sha256": "69baceefd12cecaf1c731fbcc37225d5af9882c16bda51d7a898982162a48d94",
+          "magic_hex": "cffaedfe"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/darwin/x64/kerberos.node",
+          "size": 325616,
+          "sha256": "cf28a754b7ba9c4d0aacebb1e562a99dc3289b66afa381e197fc61a1395469bf",
+          "magic_hex": "cafebabe"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/darwin/x64/keytar.node",
+          "size": 82704,
+          "sha256": "05d39798701e81120d640d03960ca2f61e8ca81d1e66d5a6b67593ca7ccc3c61",
+          "magic_hex": "cffaedfe"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/darwin/x64/vscode-policy-watcher.node",
+          "size": 78064,
+          "sha256": "94bfb2fd489d661fe57f475eeaf645acbd1be96d8ecd7621335ad86a9aa779d5",
+          "magic_hex": "cffaedfe"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/darwin/x64/watcher.node",
+          "size": 342592,
+          "sha256": "fde0ded9151bf512f0e4cc7886b0a38daca25d9fe229b61254c76c0d96bba3ee",
+          "magic_hex": "cffaedfe"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/linux/arm64/copilot-tokenizer.node",
+          "size": 2340024,
+          "sha256": "396086afba083257988bd992ed3d36a54969334cfd84f8f4dfdd49440d58f27a",
+          "magic_hex": "7f454c46"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/linux/arm64/kerberos.node",
+          "size": 195864,
+          "sha256": "ad3a64cd9091e411dacb515a0e06f54992062474013637e02c90d132f50a5f18",
+          "magic_hex": "7f454c46"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/linux/arm64/keytar.node",
+          "size": 134032,
+          "sha256": "8f0f32c5d576a0987e294b8dc9f1909133504f4fe20b65888bca0dd3bfaec29c",
+          "magic_hex": "7f454c46"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/linux/arm64/vscode-policy-watcher.node",
+          "size": 68176,
+          "sha256": "08191514e1b03acd4447be8064cf0f62ad4de3dda501222cdf53cd104b962ece",
+          "magic_hex": "7f454c46"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/linux/arm64/watcher.node",
+          "size": 469976,
+          "sha256": "7c05ea16fe5d983c4bab7b39abe07c3622bfbc7acdbce9c816a6d1936d855222",
+          "magic_hex": "7f454c46"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/linux/x64/copilot-tokenizer.node",
+          "size": 2606400,
+          "sha256": "4ce3e63c86f2205ca0c1b844a307e909f61800411feb1646a443bd84eacc4f46",
+          "magic_hex": "7f454c46"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/linux/x64/kerberos.node",
+          "size": 200048,
+          "sha256": "da2f5513da4b373509df8a09225a431677ac0b96fa697e332cfb6b7aac0c8355",
+          "magic_hex": "7f454c46"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/linux/x64/keytar.node",
+          "size": 109664,
+          "sha256": "e7894a1e1001764de29ff08d3dae418ccbaaf78889c5673d367e05df1682fc7c",
+          "magic_hex": "7f454c46"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/linux/x64/vscode-policy-watcher.node",
+          "size": 47912,
+          "sha256": "185fb114f72749c1a29e5faf4e4f36df5c69f44894bb156e9cddb2eb0013eb0e",
+          "magic_hex": "7f454c46"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/linux/x64/watcher.node",
+          "size": 523152,
+          "sha256": "f5a86a5231fb33c6c1830649eafd2c9e72647edb45aad753148d08cee6a42dea",
+          "magic_hex": "7f454c46"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/win32/arm64/copilot-tokenizer.node",
+          "size": 2056992,
+          "sha256": "3f9992084bcb8df09c58ed6b6b7304e82ca3b9313befdafafbebbcd68f394a25",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/win32/arm64/kerberos.node",
+          "size": 208864,
+          "sha256": "11e7ee34b65bc415d0f2aa13968a1b34802f86c45e5a3c9394101e1054f69af7",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/win32/arm64/keytar.node",
+          "size": 174880,
+          "sha256": "50a3cb498f6abd9b7df55e71efaf337229d0b2cd91a811f1dbdb97eff675fe84",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/win32/arm64/vscode-policy-watcher.node",
+          "size": 169432,
+          "sha256": "a5adde908ed89125494f438336c3f2607cb3446e0c88fb99f8e7c547b2b1a1b8",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/win32/arm64/watcher.node",
+          "size": 596256,
+          "sha256": "11bd10f72373cfbdbc61e7a8d46855c8ae5a80ed934503aff82fe41df0b1424b",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/win32/arm64/windows.node",
+          "size": 129312,
+          "sha256": "eb8e3a185eafa2be41de7bebba4a1953a457bdfd147e621e3580206e81355962",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/win32/x64/copilot-tokenizer.node",
+          "size": 2333472,
+          "sha256": "b8ba7da657b35e079f5a80071459acd57d44ddd5911e1c01a9caac95e77b652f",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/win32/x64/kerberos.node",
+          "size": 211560,
+          "sha256": "ed47c0be7bdf7e9fa3fe0be2e7ed36b2d6a8b3de45c6f9f73b2b0bb72d840ad6",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/win32/x64/keytar.node",
+          "size": 178464,
+          "sha256": "dbe6f16fbea7db9d2b4c3687e737b14653dbc0f2ddef320e14f0eaa93df25860",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/win32/x64/vscode-policy-watcher.node",
+          "size": 187360,
+          "sha256": "b54dad0e05895f1bd6a5411cfbf7aa48ec6a9a2a18efc99f863d699a63b25e28",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/win32/x64/watcher.node",
+          "size": 546592,
+          "sha256": "93219e81d924078c1da2473dc43dfbd52c481b20bbd8aac93592916de749473d",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/compiled/win32/x64/windows.node",
+          "size": 130848,
+          "sha256": "22b955ad2551fb241ed82c66fc6da4beed7998dde807664c4870ab4d0d77a9cb",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/crypt32-arm64.node",
+          "size": 150496,
+          "sha256": "ebffe55f66e9cdf68faa3e5e99a5d260e1dd183b953164ae0bb835116e6d2673",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/crypt32.node",
+          "size": 159712,
+          "sha256": "c2f7b4ca1efe0ede4cd02d36f82729898fb8c82267b0fe82521e22303c7248d4",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter-bash.wasm",
+          "size": 1364404,
+          "sha256": "d1844429a58620f306b6f42aebe92298243ca8120cd833a3ab5d87c7a2e7b9fd",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter-c-sharp.wasm",
+          "size": 5917000,
+          "sha256": "674da4f2042881ba36b2c38103fe23aef671c8245b8957194a449c28d0e43357",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter-cpp.wasm",
+          "size": 3434931,
+          "sha256": "174eb0deb75b2ec7881bcacda9f995648d8e683956e5c2267e69ab6dc503fcbf",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter-go.wasm",
+          "size": 209980,
+          "sha256": "6dfc8eacdad0a54d0cad0d888851bd19cdd14d82582f110f888bbf6f9e5e2d64",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter-java.wasm",
+          "size": 414860,
+          "sha256": "59d4472ed8afe0962933505b5ae1ecc4f48646c6b249ca65911703791949e68d",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter-javascript.wasm",
+          "size": 385415,
+          "sha256": "b6f5f903b634247c2032333c69ca08de43f5af3bd1e173b999848c36b2813571",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter-php.wasm",
+          "size": 796985,
+          "sha256": "a7994ca735a334b0bf81d6ecfcad39b6e646420d7a9d24cb20288e916839c749",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter-powershell.wasm",
+          "size": 944125,
+          "sha256": "2a46fff0f6db28940fd19aeb42c97e8e32607f3f4c2eb334c92356a6220499e8",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter-python.wasm",
+          "size": 455428,
+          "sha256": "4df477b5ccbddb0a2dfc151309ba564bab19f4310e8031f782b07e99ed0a8090",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter-regex.wasm",
+          "size": 12592,
+          "sha256": "89641aa4900d4e1a015b5b124d0cae11a5d0e0281e8b8818f1c7bd57cdbc923f",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter-ruby.wasm",
+          "size": 2139740,
+          "sha256": "bc8e1ff1b79176ac00ae2010b9be3498304a2d1b6cdf53e88620b136f20e6787",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter-rust.wasm",
+          "size": 1028560,
+          "sha256": "feff3b232b016fe538f17899758701a8f51bc6d3f10116b93291965a376054dd",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter-tsx.wasm",
+          "size": 1482951,
+          "sha256": "402caa9fabd65c48b995ed0bf0f33eb79f377584f7f5294ec13978c39667d0f8",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter-typescript.wasm",
+          "size": 1429463,
+          "sha256": "b92b8f1b09429b26953a73928a40c56496eedfb373dc19a84bde3e205de7f438",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/tree-sitter.wasm",
+          "size": 190040,
+          "sha256": "813b8f03795cdabee19a7ccd70f5f0be5ce4fcd959fca573b61c89b7936beb02",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_static/assets/loro_wasm_bg-CSolyDSZ.wasm",
+          "size": 3240077,
+          "sha256": "75ff0754c7681ec2c83345ea191e7ebf079cdf099fadea7da6401cd031217b67",
+          "magic_hex": "0061736d"
+        },
+        {
+          "path": "marimo/_lsp/copilot/bin/darwin/arm64/rg",
+          "size": 4547488,
+          "sha256": "28bcfffbaed35d3f102d905a51fe3685d8af504ffd7ab6b1dd243c5b9e78678b",
+          "magic_hex": "cffaedfe"
+        },
+        {
+          "path": "marimo/_lsp/copilot/bin/darwin/x64/rg",
+          "size": 4798864,
+          "sha256": "6b038a0bfa60855ba338d9dd32343e1a670ed1bfbddfb405ad2db09a036d8b01",
+          "magic_hex": "cffaedfe"
+        },
+        {
+          "path": "marimo/_lsp/copilot/bin/win32/arm64/rg.exe",
+          "size": 4899104,
+          "sha256": "fa43c36d331d935f800a655cae29f07ea59ddebc3e6c0b48b1a60b025bcd9823",
+          "magic_hex": "4d5a9000"
+        },
+        {
+          "path": "marimo/_lsp/copilot/bin/win32/x64/rg.exe",
+          "size": 5445056,
+          "sha256": "72dc6f288b8f13e22da7572a55f576ac335b8402e617b8aaf91f8dbf72adf1a0",
+          "magic_hex": "4d5a9000"
+        }
+      ],
+      "notice_members": [
+        {
+          "path": "marimo/_lsp/copilot/node_modules/vscode-jsonrpc/License.txt",
+          "size": 1095,
+          "sha256": "ec9ee83580841e8eb687aca9867f221503809ba6426c7f876ede17d91b9fcfd0"
+        },
+        {
+          "path": "marimo/_lsp/copilot/node_modules/vscode-jsonrpc/thirdpartynotices.txt",
+          "size": 623,
+          "sha256": "a89123562fe364dc8e969e85614eb6c1f8452afe131d6e42bd1314bb2d092b04"
+        },
+        {
+          "path": "marimo/_lsp/copilot/node_modules/zod/LICENSE",
+          "size": 1072,
+          "sha256": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8"
+        },
+        {
+          "path": "marimo/third_party_licenses.txt",
+          "size": 20490,
+          "sha256": "0fca96f9d3ca6bdea9560108bacf5ca4f4f9b21f6d8e225dfa556f0b445ac07d"
+        },
+        {
+          "path": "marimo-0.25.2.dist-info/licenses/LICENSE",
+          "size": 11358,
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/06/5c/c26a57aefe28fceab762ad104744c1af18a4b62809629897722c866bbd2f/marimo-0.25.2-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 134160384
+    },
+    {
+      "name": "Markdown",
+      "version": "3.11.3",
+      "file": "markdown-3.11.3-py3-none-any.whl",
+      "sha256": "e1a31a112232504d753e5c01bb8c2de90d3f0ba986b063e10770cf7695b09e73",
+      "compressed": 116758,
+      "logical": 366167,
+      "allocated_upper": 614400,
+      "python": ">=3.11",
+      "license": "BSD-3-Clause",
+      "license_classifiers": [],
+      "requires": [
+        "coverage; extra == \"testing\"",
+        "pyyaml; extra == \"testing\"",
+        "zensical==0.0.62; extra == \"docs\"",
+        "mdx_gh_links==0.4; extra == \"docs\"",
+        "mkdocstrings==1.0.6; extra == \"docs\"",
+        "mkdocstrings-python==1.16.8; extra == \"docs\"",
+        "pygments==2.21.0; extra == \"docs\"",
+        "pymdown-extensions==11.0.2; extra == \"docs\"",
+        "justhtml==3.11.2; extra == \"docs\"",
+        "ghp-import==2.1.0; extra == \"docs\""
+      ],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "markdown-3.11.3.dist-info/licenses/LICENSE.md",
+          "size": 1650,
+          "sha256": "7ba4eb6d10b32b2d11dce13821340351cdbbb30ba8ccc67841db2ffd86e79aca"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/81/6f/1fa8970e960e5c832874399e6efa564870ade8206d57fef5d5e296b834f5/markdown-3.11.3-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 614400
+    },
+    {
+      "name": "msgspec",
+      "version": "0.22.0",
+      "file": "msgspec-0.22.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "5e4f7e09cceac7dbf4c0761b8ae7df51c55b5df5e9af7aff2c895aac1ebea015",
+      "compressed": 230505,
+      "logical": 543355,
+      "allocated_upper": 700416,
+      "python": ">=3.10",
+      "license": "BSD-3-Clause",
+      "license_classifiers": [],
+      "requires": [
+        "tomli; python_version < \"3.11\" and extra == \"toml\"",
+        "tomli_w; extra == \"toml\"",
+        "pyyaml; extra == \"yaml\""
+      ],
+      "native_members": [
+        {
+          "path": "msgspec/_core.cpython-314-x86_64-linux-gnu.so",
+          "size": 438984,
+          "sha256": "df71c03e2eac9277f398fa3f22aef383f2f2cce59e2fdffc2b512464c05c814a",
+          "magic_hex": "7f454c46"
+        }
+      ],
+      "notice_members": [
+        {
+          "path": "msgspec-0.22.0.dist-info/licenses/LICENSE",
+          "size": 1498,
+          "sha256": "6fde8b6723885e8508808f65ac372feb97d3eee2eab2b91d34d796b75b7ac734"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/63/ba/a8d390d5bd4c7d9ccde87c95cf071ada934cc9ca2c6af4d3d50b38f2d718/msgspec-0.22.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 700416
+    },
+    {
+      "name": "narwhals",
+      "version": "2.28.0",
+      "file": "narwhals-2.28.0-py3-none-any.whl",
+      "sha256": "1f69d6385ec30e2fa6e1fdeb37c562ecabd0f713f6f3e3b58a668c5c9df9567f",
+      "compressed": 490591,
+      "logical": 2079651,
+      "allocated_upper": 3121152,
+      "python": ">=3.10",
+      "license": "MIT",
+      "license_classifiers": [],
+      "requires": [
+        "cudf-cu12>=24.10.0 ; sys_platform == 'linux' and extra == 'cudf'",
+        "dask[dataframe]>=2024.8 ; extra == 'dask'",
+        "duckdb>=1.1 ; extra == 'duckdb'",
+        "ibis-framework>=6.0.0 ; extra == 'ibis'",
+        "packaging>=21.3 ; extra == 'ibis'",
+        "pyarrow-hotfix>=0.7 ; extra == 'ibis'",
+        "modin>=0.22.0 ; extra == 'modin'",
+        "pandas>=1.3.4 ; extra == 'pandas'",
+        "polars>=0.20.4 ; extra == 'polars'",
+        "pyarrow>=13.0.0 ; extra == 'pyarrow'",
+        "pyspark>=3.5.0 ; extra == 'pyspark'",
+        "pyspark[connect]>=3.5.0 ; extra == 'pyspark-connect'",
+        "narwhals[duckdb] ; extra == 'sql'",
+        "sqlparse>=0.5.5 ; extra == 'sql'",
+        "sqlframe>=3.22.0,!=3.39.3 ; extra == 'sqlframe'"
+      ],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "narwhals-2.28.0.dist-info/licenses/LICENSE.md",
+          "size": 1082,
+          "sha256": "811445f30147b8f0c9d444c9025fd528f9532c54b7b83f6e2368473dc91cfdf0"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/cf/82/8ef9c7e0f50493307a49c09cfa7f00c5a778b6d1921f7b2dabe1d3a5809e/narwhals-2.28.0-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 3121152
+    },
+    {
+      "name": "packaging",
+      "version": "26.3",
+      "file": "packaging-26.3-py3-none-any.whl",
+      "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+      "compressed": 129956,
+      "logical": 499179,
+      "allocated_upper": 675840,
+      "python": ">=3.9",
+      "license": "Apache-2.0 OR BSD-2-Clause",
+      "license_classifiers": [],
+      "requires": [],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "packaging/licenses/__init__.py",
+          "size": 7859,
+          "sha256": "590d12eee73ddbec53b4e9ee5bfc64d9cb3aacb4940e8ebcba260757ce56740b"
+        },
+        {
+          "path": "packaging/licenses/_spdx.py",
+          "size": 51122,
+          "sha256": "596ec35e2ca0ebcba9fd8343ff0a51625af548786257815f24b41f7e08613314"
+        },
+        {
+          "path": "packaging-26.3.dist-info/licenses/LICENSE",
+          "size": 197,
+          "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48"
+        },
+        {
+          "path": "packaging-26.3.dist-info/licenses/LICENSE.APACHE",
+          "size": 10174,
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+        },
+        {
+          "path": "packaging-26.3.dist-info/licenses/LICENSE.BSD",
+          "size": 1344,
+          "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": true,
+      "expanded_upper": 675840
+    },
+    {
+      "name": "parso",
+      "version": "0.8.7",
+      "file": "parso-0.8.7-py2.py3-none-any.whl",
+      "sha256": "a8926eb2a1b915486941fdbd31e86a4baf88fe8c210f25f2f35ecec5b574ca1c",
+      "compressed": 107025,
+      "logical": 355069,
+      "allocated_upper": 573440,
+      "python": ">=3.6",
+      "license": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "requires": [
+        "flake8 ==5.0.4 ; extra == 'qa'",
+        "types-setuptools ==67.2.0.1 ; extra == 'qa'",
+        "zuban ==0.5.1 ; extra == 'qa'",
+        "docopt ; extra == 'testing'",
+        "pytest ; extra == 'testing'"
+      ],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "parso-0.8.7.dist-info/LICENSE.txt",
+          "size": 4176,
+          "sha256": "fa67973073753d17624caf8684d5ee816d70c89d912c5bca7ca0f08e7b150edb"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/99/5d/8268b644392ee874ee82a635cd0df1773de230bde356c38de28e298392cc/parso-0.8.7-py2.py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 573440
+    },
+    {
+      "name": "psutil",
+      "version": "7.2.2",
+      "file": "psutil-7.2.2-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "076a2d2f923fd4821644f5ba89f059523da90dc9014e85f8e45a5774ca5bc6f9",
+      "compressed": 155560,
+      "logical": 520630,
+      "allocated_upper": 618496,
+      "python": ">=3.6",
+      "license": "BSD-3-Clause",
+      "license_classifiers": [],
+      "requires": [
+        "psleak ; extra == 'dev'",
+        "pytest ; extra == 'dev'",
+        "pytest-instafail ; extra == 'dev'",
+        "pytest-xdist ; extra == 'dev'",
+        "setuptools ; extra == 'dev'",
+        "abi3audit ; extra == 'dev'",
+        "black ; extra == 'dev'",
+        "check-manifest ; extra == 'dev'",
+        "coverage ; extra == 'dev'",
+        "packaging ; extra == 'dev'",
+        "pylint ; extra == 'dev'",
+        "pyperf ; extra == 'dev'",
+        "pypinfo ; extra == 'dev'",
+        "pytest-cov ; extra == 'dev'",
+        "requests ; extra == 'dev'",
+        "rstcheck ; extra == 'dev'",
+        "ruff ; extra == 'dev'",
+        "sphinx ; extra == 'dev'",
+        "sphinx-rtd-theme ; extra == 'dev'",
+        "toml-sort ; extra == 'dev'",
+        "twine ; extra == 'dev'",
+        "validate-pyproject[all] ; extra == 'dev'",
+        "virtualenv ; extra == 'dev'",
+        "vulture ; extra == 'dev'",
+        "wheel ; extra == 'dev'",
+        "colorama ; (os_name == \"nt\") and extra == 'dev'",
+        "pyreadline3 ; (os_name == \"nt\") and extra == 'dev'",
+        "pywin32 ; (os_name == \"nt\" and implementation_name != \"pypy\") and extra == 'dev'",
+        "wheel ; (os_name == \"nt\" and implementation_name != \"pypy\") and extra == 'dev'",
+        "wmi ; (os_name == \"nt\" and implementation_name != \"pypy\") and extra == 'dev'",
+        "psleak ; extra == 'test'",
+        "pytest ; extra == 'test'",
+        "pytest-instafail ; extra == 'test'",
+        "pytest-xdist ; extra == 'test'",
+        "setuptools ; extra == 'test'",
+        "pywin32 ; (os_name == \"nt\" and implementation_name != \"pypy\") and extra == 'test'",
+        "wheel ; (os_name == \"nt\" and implementation_name != \"pypy\") and extra == 'test'",
+        "wmi ; (os_name == \"nt\" and implementation_name != \"pypy\") and extra == 'test'"
+      ],
+      "native_members": [
+        {
+          "path": "psutil/_psutil_linux.abi3.so",
+          "size": 150904,
+          "sha256": "8085c743a77f6059be6d18d54317ccce2e715425bb5f15aa8835770463d6b9fd",
+          "magic_hex": "7f454c46"
+        }
+      ],
+      "notice_members": [
+        {
+          "path": "psutil-7.2.2.dist-info/LICENSE",
+          "size": 1548,
+          "sha256": "b89c063b3786e28e0c0a38f1931db61fed35e69dd2a2966fbecffee0f46c8d10"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/b5/70/5d8df3b09e25bce090399cf48e452d25c935ab72dad19406c77f4e828045/psutil-7.2.2-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 618496
+    },
+    {
+      "name": "Pygments",
+      "version": "2.21.0",
+      "file": "pygments-2.21.0-py3-none-any.whl",
+      "sha256": "2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9",
+      "compressed": 1250147,
+      "logical": 4621166,
+      "allocated_upper": 6725632,
+      "python": ">=3.9",
+      "license": "BSD-2-Clause",
+      "license_classifiers": [],
+      "requires": [
+        "colorama>=0.4.6; extra == 'windows-terminal'"
+      ],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "pygments-2.21.0.dist-info/licenses/AUTHORS",
+          "size": 11048,
+          "sha256": "71a83872ad82f57be692cf827e048e2cd51d45169cfa1ea3f28706d97a872c0f"
+        },
+        {
+          "path": "pygments-2.21.0.dist-info/licenses/LICENSE",
+          "size": 1331,
+          "sha256": "a9d66f1d526df02e29dce73436d34e56e8632f46c275bbdffc70569e882f9f17"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/71/46/17f022dd3e953bf20a04a028a21ec746d942f8d2af30fa0f124fa0e6a684/pygments-2.21.0-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": true,
+      "expanded_upper": 6725632
+    },
+    {
+      "name": "pymdown-extensions",
+      "version": "11.0.2",
+      "file": "pymdown_extensions-11.0.2-py3-none-any.whl",
+      "sha256": "259910762019732caa1dfd76f3faa62c59f191d46573e80bcb1d13c0f675bbe5",
+      "compressed": 269929,
+      "logical": 1658567,
+      "allocated_upper": 1937408,
+      "python": ">=3.10",
+      "license": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "requires": [
+        "markdown>=3.6",
+        "pyyaml",
+        "pygments>=2.19.1; extra == 'extra'"
+      ],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "pymdown_extensions-11.0.2.dist-info/licenses/LICENSE.md",
+          "size": 4292,
+          "sha256": "e6645f914fbae5bc557419fcafbeab9e375897e8274c54e2b177953e9354f93e"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/a6/43/9f45ec4d14e596efc32c925a78104934790438b0c0628b70d741016734ad/pymdown_extensions-11.0.2-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 1937408
+    },
+    {
+      "name": "python-multipart",
+      "version": "0.0.33",
+      "file": "python_multipart-0.0.33-py3-none-any.whl",
+      "sha256": "8f16c07b36add9da6b2ee87d3efcaf0a45a6de9c3d0a5dd94e9ccf7675a7bc45",
+      "compressed": 32253,
+      "logical": 111145,
+      "allocated_upper": 200704,
+      "python": ">=3.11",
+      "license": "Apache-2.0",
+      "license_classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ],
+      "requires": [],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "python_multipart-0.0.33.dist-info/licenses/LICENSE.txt",
+          "size": 11358,
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/dd/1b/6b1b4164ec734cac911460ab599bfbe46afedd42c5c9627fe4235942c314/python_multipart-0.0.33-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 200704
+    },
+    {
+      "name": "PyYAML",
+      "version": "6.0.3",
+      "file": "pyyaml-6.0.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "c458b6d084f9b935061bc36216e8a69a7e293a2f1e68bf956dcd9e6cbcd143f5",
+      "compressed": 794175,
+      "logical": 2844552,
+      "allocated_upper": 2998272,
+      "python": ">=3.8",
+      "license": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "requires": [],
+      "native_members": [
+        {
+          "path": "yaml/_yaml.cpython-314-x86_64-linux-gnu.so",
+          "size": 2620168,
+          "sha256": "458bd0cb0030102b9bcffb7689696ac87bedcbd5384bc4c7883e7bbe0ce4e0a1",
+          "magic_hex": "7f454c46"
+        }
+      ],
+      "notice_members": [
+        {
+          "path": "pyyaml-6.0.3.dist-info/licenses/LICENSE",
+          "size": 1101,
+          "sha256": "8d3928f9dc4490fd635707cb88eb26bd764102a7282954307d3e5167a577e8a4"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/88/f9/16491d7ed2a919954993e48aa941b200f38040928474c9e85ea9e64222c3/pyyaml-6.0.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "kind": "wheel",
+      "shared_existing": true,
+      "expanded_upper": 2998272
+    },
+    {
+      "name": "pyzmq",
+      "version": "27.3.0",
+      "file": "pyzmq-27.3.0-cp312-abi3-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "858fe25231e0fd8612da142efde019faa5ef63fa150a821a27870e791b38c798",
+      "compressed": 855178,
+      "logical": 2190820,
+      "allocated_upper": 2813952,
+      "python": ">=3.9",
+      "license": "BSD-3-Clause",
+      "license_classifiers": [],
+      "requires": [
+        "cffi; implementation_name == \"pypy\""
+      ],
+      "native_members": [
+        {
+          "path": "pyzmq.libs/libsodium-6c8f8377.so.26.4.0",
+          "size": 650489,
+          "sha256": "1a6422f29c9c90e3910758527e366d762b792e30557abe7870f5594b3e3c62e5",
+          "magic_hex": "7f454c46"
+        },
+        {
+          "path": "pyzmq.libs/libzmq-2f02442c.so.5.2.5",
+          "size": 793681,
+          "sha256": "1665f84c654a8e7c1e8df85a7dd65c7a12e686b9f4181424da19ad5bc80e5e88",
+          "magic_hex": "7f454c46"
+        },
+        {
+          "path": "zmq/backend/cython/_zmq.abi3.so",
+          "size": 255969,
+          "sha256": "ce3471b34d5f7d39c25399306c502d91dcd0a5e2aa319db510abf0aef33c244b",
+          "magic_hex": "7f454c46"
+        }
+      ],
+      "notice_members": [
+        {
+          "path": "pyzmq-27.3.0.dist-info/licenses/LICENSE.md",
+          "size": 1545,
+          "sha256": "c0cf5f5c03f8d6772f7a271df1cb671054578bd3d79527c72fc1f28f8cc72a7a"
+        },
+        {
+          "path": "pyzmq-27.3.0.dist-info/licenses/licenses/LICENSE.libsodium.txt",
+          "size": 823,
+          "sha256": "508a76d186356c0dd807a670ef510964f8724557024796a2c426c6c0e19ab683"
+        },
+        {
+          "path": "pyzmq-27.3.0.dist-info/licenses/licenses/LICENSE.tornado.txt",
+          "size": 11358,
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "pyzmq-27.3.0.dist-info/licenses/licenses/LICENSE.zeromq.txt",
+          "size": 16725,
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/2c/62/e4721d8b8b9de685323717489a408521067a786cabc2b73ccd91aa9b9077/pyzmq-27.3.0-cp312-abi3-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 2813952
+    },
+    {
+      "name": "starlette",
+      "version": "1.10.0",
+      "file": "starlette-1.10.0-py3-none-any.whl",
+      "sha256": "478c0ab3b4ced6e82719849c118fa406f0278a3499c1a898cd15cd31bdc38ce4",
+      "compressed": 80571,
+      "logical": 275681,
+      "allocated_upper": 536576,
+      "python": ">=3.11",
+      "license": "BSD-3-Clause",
+      "license_classifiers": [],
+      "requires": [
+        "anyio<5,>=4.0.0",
+        "typing-extensions>=4.10.0; python_version < '3.13'",
+        "httpx2>=2.0.0; extra == 'full'",
+        "httpx<0.29.0,>=0.27.0; extra == 'full'",
+        "itsdangerous; extra == 'full'",
+        "jinja2; extra == 'full'",
+        "opentelemetry-api; extra == 'full'",
+        "python-multipart>=0.0.18; extra == 'full'",
+        "pyyaml; extra == 'full'"
+      ],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "starlette-1.10.0.dist-info/licenses/LICENSE.md",
+          "size": 1518,
+          "sha256": "dcb95677a02240243187e964f941847d19b17821cf99e5afae684fab328c19bf"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 536576
+    },
+    {
+      "name": "tomlkit",
+      "version": "0.15.2",
+      "file": "tomlkit-0.15.2-py3-none-any.whl",
+      "sha256": "05562412163a3037b94497385fb7f9204c637bc605af7a48199e41cf2272f437",
+      "compressed": 52225,
+      "logical": 215561,
+      "allocated_upper": 323584,
+      "python": ">=3.9",
+      "license": "MIT",
+      "license_classifiers": [],
+      "requires": [],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "tomlkit-0.15.2.dist-info/licenses/LICENSE",
+          "size": 1062,
+          "sha256": "f2f9b460ba719da6626add264d3782f275a4ff7aab677beda08b330911e23adb"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/da/46/7d84138a60a8bd796825b2d38ebe92d0d16501ca57d501b7c5d677401bbc/tomlkit-0.15.2-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": true,
+      "expanded_upper": 323584
+    },
+    {
+      "name": "typing_extensions",
+      "version": "4.16.0",
+      "file": "typing_extensions-4.16.0-py3-none-any.whl",
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+      "compressed": 45571,
+      "logical": 182767,
+      "allocated_upper": 217088,
+      "python": ">=3.9",
+      "license": "PSF-2.0",
+      "license_classifiers": [],
+      "requires": [],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "typing_extensions-4.16.0.dist-info/licenses/LICENSE",
+          "size": 13936,
+          "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": true,
+      "expanded_upper": 217088
+    },
+    {
+      "name": "uvicorn",
+      "version": "0.54.0",
+      "file": "uvicorn-0.54.0-py3-none-any.whl",
+      "sha256": "505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf",
+      "compressed": 87427,
+      "logical": 294179,
+      "allocated_upper": 618496,
+      "python": ">=3.10",
+      "license": "BSD-3-Clause",
+      "license_classifiers": [],
+      "requires": [
+        "click>=7.0",
+        "h11>=0.8",
+        "typing-extensions>=4.0; python_version < '3.11'",
+        "httptools>=0.8.0; extra == 'standard'",
+        "python-dotenv>=0.13; extra == 'standard'",
+        "pyyaml>=5.1; extra == 'standard'",
+        "uvloop>=0.15.1; (sys_platform != 'win32' and (sys_platform != 'cygwin' and platform_python_implementation != 'PyPy')) and extra == 'standard'",
+        "watchfiles>=0.20; extra == 'standard'",
+        "websockets>=13.0; extra == 'standard'"
+      ],
+      "native_members": [],
+      "notice_members": [
+        {
+          "path": "uvicorn-0.54.0.dist-info/licenses/LICENSE.md",
+          "size": 1526,
+          "sha256": "efe1acf3e62fb99c288b0ec73e5a773b7268ef4320fe757ea994214e4b63c371"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/38/0c/b54a4fdd7f90a3af8b02ebc9ce6712c2c208b7926a2f7bad95c33ebbe943/uvicorn-0.54.0-py3-none-any.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 618496
+    },
+    {
+      "name": "websockets",
+      "version": "17.4",
+      "file": "websockets-17.4-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+      "sha256": "ef03fb4b3685df0ed9dc6a074a090f030345cad2c23c61818da3e08e693a9caa",
+      "compressed": 226449,
+      "logical": 836440,
+      "allocated_upper": 1220608,
+      "python": ">=3.11",
+      "license": "BSD-3-Clause",
+      "license_classifiers": [],
+      "requires": [],
+      "native_members": [
+        {
+          "path": "websockets/speedups.cpython-314-x86_64-linux-gnu.so",
+          "size": 38232,
+          "sha256": "371e53bbeec540920fd479872c0b180b55e072f077db6be357180388c63ab723",
+          "magic_hex": "7f454c46"
+        }
+      ],
+      "notice_members": [
+        {
+          "path": "websockets-17.4.dist-info/licenses/LICENSE",
+          "size": 1514,
+          "sha256": "3d6a0c050d8bec52fabad502e45fb25bd02bcadbd70dea34d447b6a0ff4e6da8"
+        }
+      ],
+      "url": "https://files.pythonhosted.org/packages/c1/24/d203439f909ffbf37260ca28a3432381412d2e79912ebf98be572e63055e/websockets-17.4-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+      "kind": "wheel",
+      "shared_existing": false,
+      "expanded_upper": 1220608
+    }
+  ],
+  "license_disposition": {
+    "root": "Apache-2.0",
+    "docutils": "Public-domain dominant; bundled BSD-0/BSD-2/GPL-3 notices retained, no blanket public-domain claim",
+    "itsdangerous": "BSD-3-Clause verified LICENSE.txt",
+    "pyzmq_bundled": "Exact soname/hash libsodium ISC and libzmq MPL-2.0; upstream component release version beyond wheel soname not independently established; notices retained",
+    "marimo_unused_lsp": "Wheel includes Copilot/LSP and multi-platform native payload; exact member hashes inventoried. Root Apache-2.0 and available third-party notices do not establish complete Copilot payload license provenance. Headless export does not intentionally enable LSP/Copilot; no binary redistribution. Reviewer must disposition this limited provenance gap before install, not label all bundled payload Apache-2.0."
+  },
+  "sizes": {
+    "all_wheel_compressed": 54195006,
+    "all_wheel_allocated_upper": 229269504,
+    "new_compressed": 51727186,
+    "new_allocated_upper": 217296896,
+    "new_archive_plus_three_expanded": 703617874,
+    "allocated_method": "Each member file length rounded up to4096 plus4096 metadata bytes per member; preinstall actual du/df remains mandatory"
+  },
+  "checks": {
+    "target": {
+      "implementation_name": "cpython",
+      "implementation_version": "3.14.10",
+      "os_name": "posix",
+      "platform_machine": "x86_64",
+      "platform_python_implementation": "CPython",
+      "platform_release": "",
+      "platform_system": "Linux",
+      "platform_version": "",
+      "python_full_version": "3.14.10",
+      "python_version": "3.14",
+      "sys_platform": "linux",
+      "extra": ""
+    },
+    "all_artifact_metadata_sha_size_nonyanked_verified": 25,
+    "satisfied_target_core_edges": [
+      {
+        "parent": "anyio",
+        "requirement": "idna>=2.8",
+        "selected": "3.20"
+      },
+      {
+        "parent": "anyio",
+        "requirement": "typing_extensions>=4.16.0; python_version < \"3.15\"",
+        "selected": "4.16.0"
+      },
+      {
+        "parent": "jedi",
+        "requirement": "parso <0.9.0,>=0.8.7",
+        "selected": "0.8.7"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "click>=8.0,<9 ; sys_platform != 'emscripten'",
+        "selected": "8.5.1"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "jedi>=0.18.0,<0.21.0",
+        "selected": "0.20.1"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "markdown>=3.6,<4",
+        "selected": "3.11.3"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "pymdown-extensions>=10.21.2,<12",
+        "selected": "11.0.2"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "pygments>=2.19,<3",
+        "selected": "2.21.0"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "tomlkit>=0.12.0",
+        "selected": "0.15.2"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "pyyaml>=6.0.1",
+        "selected": "6.0.3"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "uvicorn>=0.22.0 ; sys_platform != 'emscripten'",
+        "selected": "0.54.0"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "starlette>=0.37.2 ; sys_platform != 'emscripten'",
+        "selected": "1.10.0"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "python-multipart>=0.0.18",
+        "selected": "0.0.33"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "websockets>=14.2.0 ; sys_platform != 'emscripten'",
+        "selected": "17.4"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "loro>=1.10.0 ; python_full_version < '3.15' and sys_platform != 'android' and sys_platform != 'emscripten'",
+        "selected": "1.17.1"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "docutils>=0.16.0",
+        "selected": "0.23"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "psutil>=5.0 ; sys_platform != 'android' and sys_platform != 'emscripten'",
+        "selected": "7.2.2"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "itsdangerous>=2.0.0",
+        "selected": "2.2.0"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "narwhals>=2.0.0",
+        "selected": "2.28.0"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "packaging",
+        "selected": "26.3"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "msgspec>=0.22.0",
+        "selected": "0.22.0"
+      },
+      {
+        "parent": "marimo",
+        "requirement": "pyzmq>=27.1.0 ; sys_platform != 'emscripten'",
+        "selected": "27.3.0"
+      },
+      {
+        "parent": "pymdown-extensions",
+        "requirement": "markdown>=3.6",
+        "selected": "3.11.3"
+      },
+      {
+        "parent": "pymdown-extensions",
+        "requirement": "pyyaml",
+        "selected": "6.0.3"
+      },
+      {
+        "parent": "starlette",
+        "requirement": "anyio<5,>=4.0.0",
+        "selected": "4.16.0"
+      },
+      {
+        "parent": "uvicorn",
+        "requirement": "click>=7.0",
+        "selected": "8.5.1"
+      },
+      {
+        "parent": "uvicorn",
+        "requirement": "h11>=0.8",
+        "selected": "0.16.0"
+      }
+    ],
+    "status": "PASS_DOWNLOAD_ONLY_NO_INSTALL"
+  },
+  "source_provenance": {
+    "public_release": "https://pypi.org/project/marimo/0.25.2/",
+    "pypi_observed_source_commit": "b0e402345e0a0c0731e745c8e1183ef0840804b2",
+    "attestation_limit": "Observed public PyPI provenance, not independent cryptographic attestation verification"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "buffers@0.1.1": {
+    "license": "MIT/X11",
+    "archive_sha256": "f8de49c60e467005182d9687b5d87775bbcec6385ac63220b7741327441deb6d",
+    "npm_gitHead": null,
+    "source_commit": "1b745ee35d33eb166e15ef1866073a07c6d7de87",
+    "provenance": "Original author James Halliday license-addition commit preserved by bitpay fork. Version0.1.1 and index.js match published archive; commit changes README/package license only, not implementation. Original upstream repo404, not a latest-license inference.",
+    "implementation_member": "index.js",
+    "implementation_sha256": "97801e296ba5f3c32242f647e1daac5917e300367fed7935ab1e62f40adb1b8a",
+    "notices": [
+      {
+        "url": "https://raw.githubusercontent.com/bitpay/node-buffers/1b745ee35d33eb166e15ef1866073a07c6d7de87/README.markdown",
+        "sha256": "3d43971a444ee578cefe75c5a532ad0e5e7bd7492ed6721545f2cc712d0c0c90",
+        "bytes": 2783
+      },
+      {
+        "url": "https://raw.githubusercontent.com/bitpay/node-buffers/1b745ee35d33eb166e15ef1866073a07c6d7de87/package.json",
+        "sha256": "eb42a43d5b685e6de2f2f4a5e18a70255be72349def7eedf504b912dd908913e",
+        "bytes": 451
+      }
+    ]
+  },
+  "pause@0.0.1": {
+    "license": "MIT",
+    "archive_sha256": "d37b84046db0c28c9768be649e8f02bd991ede34b276b5dba7bade23b523235e",
+    "npm_gitHead": null,
+    "provenance": "Complete MIT text and TJ Holowaychuk copyright in exact original npm Readme.md; no repository/latest assumption.",
+    "notice_member": "Readme.md",
+    "notice_sha256": "d568e8932b83f0ae0799a3ff43b2ddd8940b5afd0ad33e70d9226a63c3a8505d",
+    "notice_bytes": 1146
+  }
+}

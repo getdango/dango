@@ -1,0 +1,52 @@
+{
+  "old": {
+    "file": "duckdb-1.5.2-cp314-cp314-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl",
+    "url": "https://files.pythonhosted.org/packages/cc/b1/1464f468d2e5813f5808de95df9d3113a645a5bfa2ffcaecbc542ddae272/duckdb-1.5.2-cp314-cp314-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl",
+    "sha256": "be37680ddb380015cb37318e378c53511c45c4f0d8fac5599d22b7d092b9217a",
+    "compressed": 21434056,
+    "native_members": {
+      "_duckdb.cpython-314-x86_64-linux-gnu.so": {
+        "sha256": "5214dd1b4a7441d0bd1d6cd94315b0e2084c4c409b44e2d6708abc2d21c104d5",
+        "bytes": 60218424,
+        "magic": "ELF"
+      }
+    },
+    "notices": {
+      "duckdb/experimental/spark/LICENSE": {
+        "sha256": "ff5aa49c52e9830627582e9854fa76827d19c3b040b856162d172d72a9e95067",
+        "bytes": 13387
+      },
+      "duckdb-1.5.2.dist-info/licenses/LICENSE": {
+        "sha256": "075c33400ffcb0c586dd106a029d3e733e9da3693f8fcb9cebfc651c8a2f14e3",
+        "bytes": 1072
+      }
+    },
+    "requires_python": ">=3.10.0",
+    "kind": "wheel",
+    "name": "duckdb",
+    "version": "1.5.2",
+    "expanded_upper": 61181952,
+    "license": "MIT; bundled license texts frozen verbatim"
+  },
+  "current_version": "2.0.0",
+  "extra_peak": 805306368,
+  "report_bound": 16777216,
+  "physical_file_bound": 33554432,
+  "clone_bound": 134217728,
+  "old_source_commit": "8a5851971fae891f292c2714d86046ee018e9737",
+  "current_source_commit": "d54cbbe3df17e8e5ce68312f483b4155836112aa",
+  "source_dlt_commit": "d220927d13a79740ac799419d08ed9847f7b5069",
+  "current_requires_python": ">=3.11.0",
+  "physical_error": [
+    "Trying to read a database file with version number 999",
+    "but we can only read versions between"
+  ],
+  "downgrade_error": [
+    "DuckLake catalog version is '1.1', which is newer than the requested version '1.0'",
+    "Cannot downgrade a DuckLake catalog."
+  ],
+  "migration_error": [
+    "DuckLake catalog version mismatch: catalog version is 1.0, but the extension requires version 1.1",
+    "AUTOMATIC_MIGRATION"
+  ]
+}
