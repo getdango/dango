@@ -505,5 +505,18 @@
       "runtime_fresh_fixture": "Existing PG/WAL/dbt/driver/image/Garage staging additionally charged before growth; measured40e9 whole-owned + all planned images + remaining +2GiB AND actualdf before install/each compiler/runtime/native phase/export."
     },
     "reuse_limits": "N1 scoped15queries and named-zone calendar evidence valid; old SDK S3 proof separate; unsupported parallel2-thread DDL remains unresolved. G10 still UNRUN until native evidence and serial independent reviews."
+  },
+  "n3_compatibility": {
+    "status": "IMPLEMENTED_NATIVE_UNRUN",
+    "mode": "compatibility-only early native diagnostic; no fullapp/notebook stages",
+    "clients": [
+      "isolated released PythonDuckDB1.5.2 diagnostic negative/control ONLY",
+      "unchanged selectedPythonDuckDB2.0.0"
+    ],
+    "extra_peak_bytes": 805306368,
+    "expected": "physical old350/new350/mixedrefusal/recovery; separate PGDuckLake1.0/1.1 requested-version refusal, noauto-migration, original capture/actor350invariance",
+    "profiles": "unchangedPG1CPU768MiB+onePython3CPU3072MiB=4CPU3840MiB; serial old/new processes",
+    "evidence": "complete bounded n3-*.json originals+separatecopies16MiBeach; hashes/SQL/errors/wholecatalogandParquetbeforeafter; nativecleanup then existing exactcontainer/secretcleanup",
+    "caveats": "No oldengineDuckLake1.1 claim, automaticmigration, physicalfiledowngrade, Dango integration or shipping claim"
   }
 }

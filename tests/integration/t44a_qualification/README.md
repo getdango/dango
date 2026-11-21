@@ -514,3 +514,31 @@ owned temp/data and Garage growth. Conservative prior peak plus this reserve is3
 bytes, a projection only; fresh PG/WAL/driver/setup growth is charged separately. Every actual
 phase still measures inclusive40e9 fit, all planned images, remaining copies and >=2GiB headroom
 against real runner free space. Native G10 results and scoped acceptance remain pending.
+
+
+N3 compatibility mode (native results pending)
+---------------------------------------------
+
+`run.py <owned-root> <pinned-baseline> --compatibility` uses the existing genuine
+dbt/source-pinned producer setup, then runs only the physical-file and PG catalog
+compatibility checks. It does not acquire or build the app or run notebook cases.
+The released Python DuckDB 1.5.2 wheel is a separate offline venv used only as an
+old-file control and incompatible physical-file reader. The selected 2.0.0 wheel,
+extensions, Python and images are unchanged. No interpreter imports both engines.
+
+Physical cases preserve two closed files and backups: old-created 350 remains
+readable under 2.0.0 without rewrite; an explicitly new v2.0.0 physical file must
+refuse the old engine at the native storage-version boundary, remain unchanged,
+and recover to 350 with the correct engine. Separate PG cases use actual native
+DuckLake spec 1.1 and a newly created, distinct spec 1.0 fixture. Explicit mismatched
+version requests must refuse with automatic migration false; default and explicit
+compatible requests must read 350 without changing spec, metadata or Parquet.
+The selected capture/schema OID/table UUID/root/snapshot/files bind every read.
+Physical-file refusal does not prove PG catalog incompatibility.
+
+The additional 768 MiB reservation covers the old wheel, isolated install/unpack,
+physical files and backups, clone growth, spill/WAL and both complete report copies.
+Actual owned/image/remaining allocations plus 2 GiB headroom must fit the approved
+40,000,000,000-byte ceiling and actual runner free space before each phase. Existing
+4 CPU/4.5 GiB hard container bounds, numeric-user/loopback/secret guards and exact
+owned cleanup remain in force. All N3 native assertions remain unrun until CI.

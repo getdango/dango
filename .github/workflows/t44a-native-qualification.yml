@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      T44A_MODE: engine
+      T44A_MODE: compatibility
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -96,6 +96,7 @@ jobs:
             ${{ runner.temp }}/t44a03/evidence/garage-LICENSE.txt
             ${{ runner.temp }}/t44a03/evidence/semantic-*.json
             ${{ runner.temp }}/t44a03/evidence/engine-*.json
+            ${{ runner.temp }}/t44a03/evidence/n3-*.json
             ${{ runner.temp }}/t44a03/evidence/notebook-result.json
             ${{ runner.temp }}/t44a03/evidence/notebook-binding.json
             ${{ runner.temp }}/t44a03/evidence/notebook-positive.json

@@ -16,6 +16,7 @@ import time
 import urllib.request
 from pathlib import Path
 
+import compatibility_host as compatibility
 import engine_behavior as engine
 import notebook_run
 from dbt_assets import EXTRA_PEAK, export_candidates
@@ -169,12 +170,21 @@ def main():
         "--notebook",
         "--semantic",
         "--engine",
+        "--compatibility",
     }
-    held_reader = producer_capture and sys.argv[3] in {"--held-reader", "--semantic", "--engine"}
+    held_reader = producer_capture and sys.argv[3] in {
+        "--held-reader",
+        "--semantic",
+        "--engine",
+        "--compatibility",
+    }
+    compatibility_mode = producer_capture and sys.argv[3] == "--compatibility"
     engine_mode = producer_capture and sys.argv[3] == "--engine"
     notebook = producer_capture and sys.argv[3] == "--notebook"
     expected_status = (
-        notebook_run.STATUS
+        compatibility.STATUS
+        if compatibility_mode
+        else notebook_run.STATUS
         if notebook
         else PREREQUISITE
         if held_reader
@@ -215,6 +225,8 @@ def main():
         if producer_capture
         else PINS["artifacts"]
     )
+    if compatibility_mode:
+        rig.artifact_pins.append(compatibility.PINS["old"])
     rig.label = "t44a03-" + str(os.getpid())
     result = {
         "status": "FAIL",
@@ -238,6 +250,7 @@ def main():
             + DLT_FILES
             + (notebook_run.FILES if notebook else [])
             + (engine.FILES if engine_mode else [])
+            + (compatibility.FILES if compatibility_mode else [])
         },
     }
     existing = {}
@@ -274,6 +287,8 @@ def main():
             from semantic_fixture import EXTRA_PEAK as SEMANTIC_PEAK
 
             rig.remaining += SEMANTIC_PEAK
+        if compatibility_mode:
+            rig.remaining += compatibility.EXTRA_PEAK
         if engine_mode:
             rig.remaining += engine.EXTRA_PEAK
         disk_gate(rig, rig.remaining, "before-public-acquisition-and-image-pulls")
@@ -299,6 +314,7 @@ def main():
             + DLT_FILES
             + (notebook_run.FILES if notebook else [])
             + (engine.FILES if engine_mode else [])
+            + (compatibility.FILES if compatibility_mode else [])
         ):
             shutil.copyfile(HERE / name, root / "scripts" / name)
             assert sha((root / "scripts" / name).read_bytes()) == sha((HERE / name).read_bytes())
@@ -393,6 +409,13 @@ def main():
                 result["held_prerequisite"] = prerequisite(
                     root / "work", root / "work/project/target"
                 )
+            if compatibility_mode:
+                for name in compatibility.FILES:
+                    assert (
+                        sha((root / "scripts" / name).read_bytes())
+                        == result["qualification_inputs"][name]
+                    )
+                result["compatibility"] = compatibility.run(rig, disk_gate)
             if notebook:
                 from held_reader import install_gate
 
@@ -440,6 +463,8 @@ def main():
                 notebook_run.export(rig, disk_gate)
             if engine_mode:
                 engine.export(rig, rig.secrets, disk_gate)
+            if compatibility_mode:
+                compatibility.export(rig, disk_gate)
         except Exception as error:
             result["status"], result["export_error"] = "FAIL", str(error)
         try:
