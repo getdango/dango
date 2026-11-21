@@ -12,8 +12,10 @@ import tempfile
 import time
 from pathlib import Path
 
+import restore_host as restore
 import semantic_fixture as semantics
-from app_build import build_outputs, verify_build_update
+from app_build import build_outputs
+from app_runtime_profiles import PROFILES, runtime_rig
 from canvas_prebuild import load_inventory, verify_archive
 from held_reader import EXTRA_PEAK, export_reports, install_gate, pg_snapshot, run_actor
 from run import PINS, disk_gate, download, image_present, sha
@@ -21,137 +23,12 @@ from runtime_cleanup import cleanup_runtime_storage
 
 HERE = Path(__file__).resolve().parent
 MIB = 1024**2
-# Each service retains the frozen image/user/mount/security/network profile.
-# These are running limits, not permission to overlap build or fixture production.
-PROFILES = {
-    "postgres": (0.5, 512, None),
-    "fixture": (3, 3072, None),
-    "garage": (0.25, 256, 128),
-    "app": (2.25, 2560, 2048),
-    "actor": (1, 1024, 640),
-}
-
-
-def active_host_config(config):
-    """Docker reports enabled OOM killing as either false or null after start."""
-    value = config["OomKillDisable"]
-    assert value is False or value is None, "Active container OOM killer must remain enabled"
-    normalized = dict(config)
-    normalized["OomKillDisable"] = False
-    return normalized
-
-
-def verify_active_config(info, frozen, pg, pg_id):
-    """Bind Docker's started shared-namespace hostname to the exact owned PG."""
-    assert info["Id"] == frozen["Id"], "Active container identity changed"
-    assert pg["Id"] == pg_id, "Hostname peer is not the exact owned PG"
-    assert pg["Config"]["Hostname"] == pg_id[:12], "Unexpected owned PG hostname"
-    expected = dict(frozen["Config"])
-    assert expected["Hostname"] == frozen["Id"][:12], "Unexpected custom created hostname"
-    if frozen["Id"] != pg_id:
-        assert (
-            info["HostConfig"]["NetworkMode"]
-            == frozen["HostConfig"]["NetworkMode"]
-            == ("container:" + pg_id)
-        ), "Active hostname is not bound to the exact owned PG namespace"
-        expected["Hostname"] = pg["Config"]["Hostname"]
-    changed = sorted(
-        k
-        for k in set(info["Config"]) | set(expected)
-        if k not in info["Config"] or k not in expected or info["Config"][k] != expected[k]
-    )
-    assert not changed, "Active container Config changed: " + ", ".join(changed)
-
-
-def runtime_rig(base):
-    """Reuse launch/capture/cleanup; audit only exact owned nonrunning limit updates."""
-
-    class RuntimeRig(base):
-        component = "postgres"
-
-        def create(self, role, command):
-            expected_role = {"postgres": "postgres", "fixture": "producer"}.get(
-                self.component, "consumer"
-            )
-            assert role == expected_role
-            # The original create gate remains: only PG may be running here.
-            name = super().create(role, command)
-            before = json.loads(self.call(["docker", "inspect", name]).stdout)[0]
-            cpus, memory, _ = PROFILES[self.component]
-            self.call(
-                [
-                    "docker",
-                    "update",
-                    "--cpus=" + str(cpus),
-                    "--memory=" + str(memory * MIB),
-                    "--memory-swap=" + str(memory * MIB),
-                    before["Id"],
-                ]
-            )
-            after = json.loads(self.call(["docker", "inspect", before["Id"]]).stdout)[0]
-            verify_build_update(before, after, cpus, memory * MIB)
-            self.objects[name] = (self.component, after)
-            return name
-
-        def signature(self, role):
-            return sha(
-                (
-                    super().signature(role)
-                    + json.dumps(
-                        [self.component, PROFILES[self.component], self.input_hashes],
-                        sort_keys=True,
-                    )
-                ).encode()
-            )
-
-        def start_owned(self, name, attached=False):
-            component, frozen = self.objects[name]
-            self.component = component
-            role = {"postgres": "postgres", "fixture": "producer"}.get(component, "consumer")
-            if component != "postgres":
-                assert self.ready[component] == self.signature(role), "STALE runtime readiness"
-            now = json.loads(self.call(["docker", "inspect", name]).stdout)[0]
-            cpus, memory, _ = PROFILES[component]
-            verify_build_update(frozen, now, cpus, memory * MIB)
-            if component != "postgres":
-                self.shared_network(now["HostConfig"]["NetworkMode"])
-            running = self.call(
-                ["docker", "ps", "-q", "--no-trunc", "--filter", "label=probe.owner=" + self.label]
-            ).stdout.split()
-            known = {info["Id"]: (n, c) for n, (c, info) in self.objects.items()}
-            active = []
-            for identity in running:
-                assert identity in known, "Unregistered running owned identity"
-                other_name, other_component = known[identity]
-                info = json.loads(self.call(["docker", "inspect", identity]).stdout)[0]
-                assert info["Name"] == "/" + other_name
-                assert info["Config"]["Labels"]["probe.owner"] == self.label
-                assert (
-                    info["Id"] == identity and info["Image"] == self.objects[other_name][1]["Image"]
-                )
-                assert info["State"]["Running"] and info["State"]["Status"] == "running"
-                assert sorted(json.dumps(m, sort_keys=True) for m in info["Mounts"]) == sorted(
-                    json.dumps(m, sort_keys=True) for m in self.objects[other_name][1]["Mounts"]
-                )
-                assert active_host_config(info["HostConfig"]) == active_host_config(
-                    self.objects[other_name][1]["HostConfig"]
-                ), "Active container HostConfig changed beyond Docker's enabled-OOM default"
-                verify_active_config(
-                    info, self.objects[other_name][1], self.objects[self.pg][1], self.pg_id
-                )
-                active.append(other_component)
-            active.append(component)
-            assert len(active) == len(set(active)), "Duplicate running service role"
-            assert sum(PROFILES[c][0] for c in active) <= 4
-            assert sum(PROFILES[c][1] for c in active) <= 4608
-            self.call(["docker", "start", *(["-a"] if attached else []), name], timeout=600)
-
-    return RuntimeRig
 
 
 def main():
     """Fresh synthetic fixture, real S3, normal migrations/app/CLI and ordinary actors."""
     semantic = sys.argv[-1] == "--semantic"
+    restoring = sys.argv[-1] == "--replacement-restore"
     root, baseline = [Path(p).resolve() for p in sys.argv[1:3]]
     assert (semantics.reserve(root) > 0) == semantic, "Wrong semantic prerequisite/mode"
     build = json.loads((root / "evidence/app-build.json").read_text())
@@ -191,6 +68,7 @@ def main():
             "semantic_fixture.py",
             "semantic_oracles.py",
             "producer_capture.py",
+            *(restore.FILES if restoring else []),
         ]
     }
     result = {"status": "FAIL", "full_app": "UNRUN", "fixture": "UNRUN", "profiles": PROFILES}
@@ -303,6 +181,7 @@ def main():
             "semantic_actor.cjs",
             "semantic_fixture.py",
             "semantic_oracles.py",
+            *(restore.FILES if restoring else []),
         ]:
             install(HERE / name, root / "scripts" / name)
         for artifact, url in [
@@ -420,15 +299,28 @@ def main():
                 "export NODE_OPTIONS=--max-old-space-size=" + str(PROFILES[component][2]) + "; "
             )
             command += (
-                "node /scripts/app_actor.cjs" + (" --semantic" if semantic else "")
+                ("exec " if restoring else "")
+                + "node /scripts/app_actor.cjs"
+                + (" --restore-original" if restoring else " --semantic" if semantic else "")
                 if component == "actor"
-                else "node /scripts/app_service.cjs " + component
+                else ("exec " if restoring else "") + "node /scripts/app_service.cjs " + component
             )
+            if restoring and component != "actor":
+                command += " --restore-original"
             names[component] = rig.create("consumer", ["-c", command])
-        disk_gate(rig, remaining, "before-running-garage-and-full-app")
+        if restoring:
+            names["inventory"] = restore.actor(rig, "original")
+        disk_gate(
+            rig,
+            remaining + (restore.REPORT_RESERVE if restoring else 0),
+            "before-running-garage-and-full-app",
+        )
         rig.start_owned(names["garage"])
         rig.start_owned(names["app"])
         result["full_app"] = "STARTED_NOT_YET_ACCEPTED"
+        if restoring:
+            restore.run(rig, names, result, remaining)
+            return
         (semantics.run_actor if semantic else run_actor)(
             rig, names["actor"], names["app"], install, result
         )
@@ -465,7 +357,11 @@ def main():
         except Exception as error:
             cleanup_errors.append(str(error))
         try:
-            result["runtime_storage_cleanup"] = cleanup_runtime_storage(rig)
+            result["runtime_storage_cleanup"] = (
+                result["restore_private_cleanup"]
+                if restoring and "restore_private_cleanup" in result
+                else cleanup_runtime_storage(rig)
+            )
         except Exception as error:
             cleanup_errors.append(str(error))
         for role, was_present in existing.items():
@@ -488,8 +384,14 @@ def main():
         text = json.dumps(result, indent=2)
         assert not any(v in text for v in generated.values())
         (root / "evidence/app-runtime.json").write_text(text + "\n")
+        if restoring:
+            assert result["status"] == restore.STATUS, result.get("error")
     assert result["status"] == (
-        "PASS_SEMANTIC_MATRIX_FULL_APP" if semantic else "PASS_FIRST_RUNNING_APP_SLICE"
+        restore.STATUS
+        if restoring
+        else "PASS_SEMANTIC_MATRIX_FULL_APP"
+        if semantic
+        else "PASS_FIRST_RUNNING_APP_SLICE"
     ), result.get("error")
 
 

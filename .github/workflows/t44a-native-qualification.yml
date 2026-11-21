@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      T44A_MODE: compatibility
+      T44A_MODE: replacement-restore
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -41,15 +41,15 @@ jobs:
         run: |
           env -i PATH="$PATH" PROBE_HEAD="$GITHUB_SHA" python candidate/tests/integration/t44a_qualification/run.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline" "--$T44A_MODE"
       - name: Measured full development acquisition, frozen source and lock
-        if: env.T44A_MODE == 'held-reader' || env.T44A_MODE == 'semantic' || env.T44A_MODE == 'engine'
+        if: env.T44A_MODE == 'held-reader' || env.T44A_MODE == 'semantic' || env.T44A_MODE == 'engine' || env.T44A_MODE == 'replacement-restore'
         run: |
           env -i PATH="$PATH" python candidate/tests/integration/t44a_qualification/app_acquire.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline"
       - name: Fresh populated installer smoke, offline install and complete normal app build
-        if: env.T44A_MODE == 'held-reader' || env.T44A_MODE == 'semantic' || env.T44A_MODE == 'engine'
+        if: env.T44A_MODE == 'held-reader' || env.T44A_MODE == 'semantic' || env.T44A_MODE == 'engine' || env.T44A_MODE == 'replacement-restore'
         run: |
           env -i PATH="$PATH" python candidate/tests/integration/t44a_qualification/app_build.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline"
       - name: Real full-app ordinary actor native slice
-        if: env.T44A_MODE == 'held-reader' || env.T44A_MODE == 'semantic'
+        if: env.T44A_MODE == 'held-reader' || env.T44A_MODE == 'semantic' || env.T44A_MODE == 'replacement-restore'
         run: |
           env -i PATH="$PATH" python candidate/tests/integration/t44a_qualification/app_runtime.py "$RUNNER_TEMP/t44a03" "$GITHUB_WORKSPACE/baseline" "--$T44A_MODE"
       - name: Selected native engine clients and DuckDB httpfs secret assertions
@@ -97,6 +97,7 @@ jobs:
             ${{ runner.temp }}/t44a03/evidence/semantic-*.json
             ${{ runner.temp }}/t44a03/evidence/engine-*.json
             ${{ runner.temp }}/t44a03/evidence/n3-*.json
+            ${{ runner.temp }}/t44a03/evidence/restore-*.json
             ${{ runner.temp }}/t44a03/evidence/notebook-result.json
             ${{ runner.temp }}/t44a03/evidence/notebook-binding.json
             ${{ runner.temp }}/t44a03/evidence/notebook-positive.json

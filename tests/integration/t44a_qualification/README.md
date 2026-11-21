@@ -542,3 +542,5 @@ Actual owned/image/remaining allocations plus 2 GiB headroom must fit the approv
 40,000,000,000-byte ceiling and actual runner free space before each phase. Existing
 4 CPU/4.5 GiB hard container bounds, numeric-user/loopback/secret guards and exact
 owned cleanup remain in force. All N3 native assertions remain unrun until CI.
+
+Replacement restore mode (`replacement-restore`) is a qualification candidate until actual CI and independent review. It stops original writers, inventories final objects, cold-copies the entire PG cluster and runtime/data/Garage/config/key closure, removes original containers and quarantines their roots, then uses independent extracted roots and new container IDs. The restored app uses saved users/project/private chart, fresh native350/filter300 queries and private403; Garage starts without bootstrap. The whole top task root, both copies, image bounds, future growth and2GiB headroom must fit40e9 and actual runner free space. Archive/private keys and both trees are removed only after exact container absence. No integrated Dango restore, cross-host portability, or new release/shipping claim.

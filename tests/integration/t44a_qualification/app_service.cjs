@@ -10,14 +10,23 @@ const {S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand} = proj
 
 async function main() {
   const s = secret();
+  const restored = process.argv.includes('--restore');
+  const controlledStop = restored || process.argv.includes('--restore-original');
   async function normal(path, args, env, cwd) {
     const child = spawn(path, args, {env, cwd, stdio: 'inherit'});
-    const signal = () => child.kill('SIGTERM'); process.once('SIGTERM', signal);
+    let stopping = false;
+    const signal = () => { stopping = true; child.kill('SIGTERM'); }; process.once('SIGTERM', signal);
     try { await new Promise((resolve, reject) => {
-      child.once('error', reject); child.once('exit', code => code === 0 ? resolve() : reject(new Error('Normal service process failed')));
+      child.once('error', reject); child.once('exit', (code, signal) =>
+        code === 0 || (controlledStop && stopping && signal === 'SIGTERM') ? resolve() : reject(new Error('Normal service process failed')));
     }); } finally { process.removeListener('SIGTERM', signal); }
   }
   if (process.argv[2] === 'garage') {
+    if (restored) {
+      await normal('/tools/garage', ['-c', '/scripts/garage.toml', 'server'],
+        {...process.env, RUST_LOG: 'netapp=info,garage=info,garage::server=warn,garage_api_common::generic_server=warn'}, '/work');
+      return;
+    }
     await normal('/tools/garage', ['-c', '/scripts/garage.toml', 'server', '--single-node', '--default-bucket'],
       {...process.env, GARAGE_DEFAULT_ACCESS_KEY: s.s3Access, GARAGE_DEFAULT_SECRET_KEY: s.s3Secret,
         RUST_LOG: 'netapp=info,garage=info,garage::server=warn,garage_api_common::generic_server=warn',
@@ -27,7 +36,7 @@ async function main() {
   const canvas = JSON.parse(fs.readFileSync('/scripts/canvas-prebuild.json', 'utf8'));
   const canvasDir = path.dirname(projectRequire.resolve('canvas/package.json'));
   assert.equal(projectRequire('canvas/package.json').version, '3.2.1');
-  assert.ok(!fs.existsSync(path.join(canvasDir, 'build')), 'Canvas installation must be fresh');
+  assert.equal(fs.existsSync(path.join(canvasDir, 'build')), restored, 'Canvas installation/restore state');
   const installerDir = path.resolve(canvasDir, '../prebuild-install');
   assert.equal(require(path.join(installerDir, 'package.json')).version, '7.1.3');
   for (const [name, expected] of Object.entries(canvas.installer.file_sha256)) {
@@ -35,7 +44,7 @@ async function main() {
   }
   const archive = '/work/canvas-prebuild/' + canvas.file;
   assert.equal(crypto.createHash('sha256').update(fs.readFileSync(archive)).digest('hex'), canvas.sha256);
-  await normal(process.execPath, [path.join(installerDir, 'bin.js'), '-r', 'napi',
+  if (!restored) await normal(process.execPath, [path.join(installerDir, 'bin.js'), '-r', 'napi',
     '--local-prebuilds', '/work/canvas-prebuild'], {...process.env}, canvasDir);
   const installed = fs.readdirSync(path.join(canvasDir, 'build'), {recursive: true})
     .map(name => 'build/' + name).filter(name => fs.statSync(path.join(canvasDir, name)).isFile()).sort();
@@ -50,6 +59,7 @@ async function main() {
   const png = projectRequire('canvas').createCanvas(1, 1).toBuffer('image/png');
   assert.equal(png.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
   console.log('PASS_FROZEN_CANVAS_PREBUILD_OFFLINE_INSTALL_LOAD_AND_PNG');
+  if (!restored) {
   const opts = {endpoint: 'http://127.0.0.1:3900', region: 'garage', forcePathStyle: true,
     maxAttempts: 1, credentials: {accessKeyId: s.s3Access, secretAccessKey: s.s3Secret}};
   const client = new S3Client(opts);
@@ -84,6 +94,8 @@ async function main() {
   console.log(JSON.stringify({reviewerS3Probe}));
   await client.send(new DeleteObjectCommand(input)); client.destroy();
   console.log('PASS_GARAGE_AUTHENTICATED_PUT_GET_AND_BAD_SECRET_403');
+  }
+  assert.equal(process.env.LIGHTDASH_SECRET_FALLBACKS, undefined);
   const env = {...process.env, NODE_ENV: 'production', PORT: '8080', SITE_URL: 'http://127.0.0.1:8080',
     LIGHTDASH_SECRET: s.appSecret,
     PGCONNECTIONURI: 'postgresql://postgres:' + s.pg + '@127.0.0.1:5432/lightdash',

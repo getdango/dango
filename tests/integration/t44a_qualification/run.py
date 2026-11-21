@@ -171,12 +171,14 @@ def main():
         "--semantic",
         "--engine",
         "--compatibility",
+        "--replacement-restore",
     }
     held_reader = producer_capture and sys.argv[3] in {
         "--held-reader",
         "--semantic",
         "--engine",
         "--compatibility",
+        "--replacement-restore",
     }
     compatibility_mode = producer_capture and sys.argv[3] == "--compatibility"
     engine_mode = producer_capture and sys.argv[3] == "--engine"

@@ -164,6 +164,11 @@ async function main() {
   await api(editor, 'POST', '/api/v1/saved/' + chart.uuid + '/results', {}, 403);
   evidence.privateResult = {ownerAccessible: true, editorStatus: 403, chartUuid: chart.uuid};
   await reviewerPermissionProbe(owner, projectUuid, space.uuid, chart.uuid, identity.userUuid, metricQuery);
+  if (process.argv.includes('--restore-original')) {
+    evidence.restoreIdentity = {ownerUuid: ownerIdentity.userUuid, editorUuid: identity.userUuid,
+      projectUuid, spaceUuid: space.uuid, chartUuid: chart.uuid, metricQuery};
+    evidence.status = 'PASS_RESTORE_ORIGINAL_350'; return;
+  }
   fs.writeFileSync('/work/held-baseline-ready', 'read-only-oracles-complete\n');
   for (let n = 0; !fs.existsSync('/work/held-baseline-verified'); n++) {
     assert.ok(n < 900, 'Host invariance verification deadline');
