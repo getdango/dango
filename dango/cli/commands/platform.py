@@ -182,23 +182,33 @@ def _load_project_env_or_abort(project_root: Path) -> None:
     """Load the project ``.env`` for ``dango start``; a file that cannot be read aborts."""
     from dango.platform.common.startup_prologue import (
         LOCAL_START_RESERVED_ENV,
+        LOCAL_START_RESERVED_PREFIXES,
         load_project_env,
     )
 
     env_file = escape(str(project_root / ".env"))
     try:
-        ignored = load_project_env(project_root, skip=LOCAL_START_RESERVED_ENV)
+        ignored = load_project_env(
+            project_root,
+            skip=LOCAL_START_RESERVED_ENV,
+            skip_prefixes=LOCAL_START_RESERVED_PREFIXES,
+        )
     except UnicodeDecodeError as exc:
         console.print(f"[red]Cannot read {env_file}:[/red] it must be UTF-8 text.")
         console.print("[dim]Save the file as UTF-8, then run 'dango start' again.[/dim]")
+        raise click.Abort() from exc
+    except ValueError as exc:
+        # A NUL byte (also what UTF-16 text without a BOM decodes to) or an oversized value.
+        console.print(f"[red]Cannot read {env_file}:[/red] it is not a readable UTF-8 text file.")
+        console.print("[dim]Save the file as plain UTF-8 text, then run 'dango start' again.[/dim]")
         raise click.Abort() from exc
     except OSError as exc:
         console.print(f"[red]Cannot read {env_file}:[/red] {escape(exc.strerror or 'read error')}")
         raise click.Abort() from exc
     if ignored:
         console.print(
-            f"[dim]Ignoring {', '.join(ignored)} in .env: 'dango start' does not take it from "
-            "the file (set it in your shell if you need it).[/dim]"
+            f"[dim]Ignoring {', '.join(ignored)} in .env: 'dango start' does not take these "
+            "from the file (set them in your shell if you need them).[/dim]"
         )
         console.print()
 
