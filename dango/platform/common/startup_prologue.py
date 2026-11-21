@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Any
 
@@ -36,15 +36,41 @@ class PrologueError(Exception):
         self.cause = cause
 
 
-def load_project_env(project_root: Path) -> None:
+# Keys `dango start` never takes from the project `.env`: a local run must not be flipped into
+# cloud mode, and the project root is always the one the command resolved.
+LOCAL_START_RESERVED_ENV = frozenset({"DANGO_CLOUD_MODE", "DANGO_PROJECT_ROOT"})
+
+
+def load_project_env(project_root: Path, *, skip: Collection[str] = ()) -> tuple[str, ...]:
     """Load ``<project>/.env`` into the process environment (existing variables win).
 
     Makes ``DANGO_ADMIN_EMAIL`` and other variables available when the process was not
-    started from a shell that exported them (systemd, a desktop launcher) (BUG-100).
+    started from a shell that exported them (systemd, a desktop launcher) (BUG-100), and
+    lets every process started from this one inherit them.
+
+    Args:
+        project_root: Project root directory.
+        skip: Names that must not come from the file. A name already set in the real
+            environment is left alone either way.
+
+    Returns:
+        The names in ``skip`` that the file defines and that were therefore left unset
+        (never values).
+
+    Raises:
+        UnicodeDecodeError: The file is not UTF-8; nothing was loaded.
+        OSError: The file cannot be read.
     """
     from dotenv import load_dotenv
 
-    load_dotenv(project_root / ".env")
+    before = {name: os.environ.get(name) for name in skip}
+    load_dotenv(project_root / ".env", encoding="utf-8")
+    ignored = []
+    for name, previous in before.items():
+        if previous is None and name in os.environ:
+            del os.environ[name]
+            ignored.append(name)
+    return tuple(sorted(ignored))
 
 
 def describe_lock_holder(lock_info: dict[str, Any] | None) -> str:

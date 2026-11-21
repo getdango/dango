@@ -178,6 +178,31 @@ def _print_metabase_skipped(setup_result: dict[str, Any]) -> None:
     console.print("[dim]  then: DANGO_ADMIN_EMAIL=you@yourcompany.com dango start[/dim]")
 
 
+def _load_project_env_or_abort(project_root: Path) -> None:
+    """Load the project ``.env`` for ``dango start``; a file that cannot be read aborts."""
+    from dango.platform.common.startup_prologue import (
+        LOCAL_START_RESERVED_ENV,
+        load_project_env,
+    )
+
+    env_file = escape(str(project_root / ".env"))
+    try:
+        ignored = load_project_env(project_root, skip=LOCAL_START_RESERVED_ENV)
+    except UnicodeDecodeError as exc:
+        console.print(f"[red]Cannot read {env_file}:[/red] it must be UTF-8 text.")
+        console.print("[dim]Save the file as UTF-8, then run 'dango start' again.[/dim]")
+        raise click.Abort() from exc
+    except OSError as exc:
+        console.print(f"[red]Cannot read {env_file}:[/red] {escape(exc.strerror or 'read error')}")
+        raise click.Abort() from exc
+    if ignored:
+        console.print(
+            f"[dim]Ignoring {', '.join(ignored)} in .env: 'dango start' does not take it from "
+            "the file (set it in your shell if you need it).[/dim]"
+        )
+        console.print()
+
+
 @click.command()
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
 @click.pass_context
@@ -222,6 +247,10 @@ def start(ctx: click.Context, yes: bool) -> None:
 
     try:
         project_root = require_project_context(ctx)
+
+        # Load .env first: the server, scheduler and scripts started below inherit it.
+        _load_project_env_or_abort(project_root)
+
         enforce_scaffold(project_root, "start", assume_yes=yes)
 
         # Detect stale PID file from a previous crash

@@ -276,6 +276,20 @@ class TestUnreadableEnvFile:
         assert result.exit_code == 1
         assert "[red]proj" in output
 
+    def test_unreadable_env_aborts_with_a_clear_message(self, project: Path) -> None:
+        (project / ".env").write_text("WP35_VAR=ok\n", encoding="utf-8")
+        denied = PermissionError(13, "Permission denied")
+        result = _invoke_start(
+            project,
+            lambda *a, **k: 1,
+            [patch("dotenv.load_dotenv", side_effect=denied)],
+        )
+        output = " ".join(_ANSI_RE.sub("", result.output).split())
+        assert result.exit_code == 1
+        assert "Cannot read" in output
+        assert "Permission denied" in output
+        assert "Traceback" not in output
+
     def test_unparseable_lines_do_not_stop_start(self, project: Path) -> None:
         (project / ".env").write_text(
             "this is not a variable line\nWP35_VAR=ok\n", encoding="utf-8"
