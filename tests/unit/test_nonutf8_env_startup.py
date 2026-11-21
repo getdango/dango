@@ -136,6 +136,61 @@ class TestStrayNonUtf8EnvInTheWorkingDirectory:
         assert done.stdout.strip() == "'missing-on-purpose'"
 
 
+_LOG_LEVEL_PROBE = (
+    "import dango.cli.commands.mcp_server\nimport fastmcp\nprint(fastmcp.settings.log_level)\n"
+)
+
+
+class TestFastmcpEnvFileSetting:
+    """fastmcp's own ``.env`` is neutralised only when the user did not name one."""
+
+    def test_a_file_the_user_names_is_honoured(self, cwd_with_cp1252_env: Path) -> None:
+        custom = cwd_with_cp1252_env.parent / "custom.env"
+        custom.write_text("FASTMCP_LOG_LEVEL=DEBUG\n", encoding="utf-8")
+        done = _run(
+            cwd_with_cp1252_env,
+            "-c",
+            _LOG_LEVEL_PROBE,
+            extra_env={"FASTMCP_ENV_FILE": str(custom)},
+        )
+        assert "Traceback" not in done.stderr, done.stderr[-1500:]
+        assert done.returncode == 0, done.stderr[-1500:]
+        assert done.stdout.strip() == "DEBUG"
+
+    def test_a_file_the_user_names_is_still_set_afterwards(self, tmp_path: Path) -> None:
+        custom = tmp_path / "custom.env"
+        custom.write_text("FASTMCP_LOG_LEVEL=DEBUG\n", encoding="utf-8")
+        code = (
+            "import os\n"
+            "import dango.cli.commands.mcp_server\n"
+            "print(os.environ['FASTMCP_ENV_FILE'])\n"
+        )
+        done = _run(tmp_path, "-c", code, extra_env={"FASTMCP_ENV_FILE": str(custom)})
+        assert done.returncode == 0, done.stderr[-1500:]
+        assert done.stdout.strip() == str(custom)
+
+    def test_an_empty_value_the_user_set_is_left_alone(self, tmp_path: Path) -> None:
+        (tmp_path / ".env").write_text("FASTMCP_LOG_LEVEL=DEBUG\n", encoding="utf-8")
+        done = _run(tmp_path, "-c", _LOG_LEVEL_PROBE, extra_env={"FASTMCP_ENV_FILE": ""})
+        assert done.returncode == 0, done.stderr[-1500:]
+        assert (
+            done.stdout.strip() == "INFO"
+        )  # "" names no file: the working-directory file is not read
+
+    def test_the_working_directory_env_is_not_read_when_the_user_named_none(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / ".env").write_text("FASTMCP_LOG_LEVEL=DEBUG\n", encoding="utf-8")
+        done = _run(tmp_path, "-c", _LOG_LEVEL_PROBE)
+        assert done.returncode == 0, done.stderr[-1500:]
+        assert done.stdout.strip() == "INFO"
+
+    def test_a_setting_from_the_real_environment_still_applies(self, tmp_path: Path) -> None:
+        done = _run(tmp_path, "-c", _LOG_LEVEL_PROBE, extra_env={"FASTMCP_LOG_LEVEL": "DEBUG"})
+        assert done.returncode == 0, done.stderr[-1500:]
+        assert done.stdout.strip() == "DEBUG"
+
+
 @pytest.fixture
 def project_with_subdir(tmp_path: Path) -> tuple[Path, Path]:
     root = tmp_path / "proj"

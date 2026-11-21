@@ -221,3 +221,21 @@ class TestWebUnreadableEnv:
         (project / ".env").write_bytes(b"caf\xe9=1\n")
         _web(project)
         assert "DANGO_PROJECT_ROOT" not in os.environ
+
+
+class TestWebBannerEscapesThePath:
+    def test_a_path_that_looks_like_a_closing_tag_prints_literally_and_web_starts(
+        self, tmp_path: Path
+    ) -> None:
+        closing = tmp_path / "a[" / "red]b"  # the path reads ".../a[/red]b"
+        closing.mkdir(parents=True)
+        opening = tmp_path / "[bold]proj"
+        opening.mkdir()
+        for project_root in (closing, opening):
+            result, prologue, uvicorn_run = _web(project_root)
+            output = _squash(result.output)
+            assert result.exit_code == 0, result.output
+            assert "Error starting server" not in output
+            assert _squash(f"Project root: {project_root}") in output
+            prologue.assert_called_once()
+            uvicorn_run.assert_called_once()
