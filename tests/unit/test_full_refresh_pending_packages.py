@@ -119,3 +119,29 @@ class TestKeptWhenTheRefreshDidNotHappen:
         assert failed["status"] == "failed"
         assert has_pending_package()
         assert a_ids(runner) == [1, 2, 3]
+
+
+@pytest.mark.parametrize("method", METHODS)
+def test_a_package_that_cannot_be_dropped_is_a_warning_not_a_failed_refresh(
+    tmp_path: Any, method: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runner = DltPipelineRunner(tmp_path)
+    assert sync(runner, method, "fr", source("merge", FRESH))["status"] == "success"
+    failed_load(runner, method, source("merge", STALE))
+    with patch.object(dlt.Pipeline, "drop_pending_packages", side_effect=OSError("busy")):
+        refreshed = sync(runner, method, "fr", source("merge", FRESH), full_refresh=True)
+    assert refreshed["status"] == "success", refreshed.get("error")
+    assert a_ids(runner) == [1, 2, 3]
+    assert "a later plain sync may load it again" in " ".join(capsys.readouterr().out.split())
+
+
+@pytest.mark.parametrize("method", METHODS)
+def test_a_refresh_with_nothing_pending_says_nothing_about_it(
+    tmp_path: Any, method: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runner = DltPipelineRunner(tmp_path)
+    assert sync(runner, method, "fr", source("merge", FRESH))["status"] == "success"
+    capsys.readouterr()
+    refreshed = sync(runner, method, "fr", source("merge", FRESH), full_refresh=True)
+    assert refreshed["status"] == "success", refreshed.get("error")
+    assert "leftover" not in capsys.readouterr().out

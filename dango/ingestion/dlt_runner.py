@@ -3542,6 +3542,12 @@ Need help? Visit: https://github.com/getdango/dango/issues
             finally:
                 db.close()
 
+            # The swap is committed: packages an earlier failed load left in the REAL pipeline
+            # describe data this refresh just replaced, and the next plain sync would load them
+            # back. (Before the swap, or when it was blocked or failed, they are kept: they belong
+            # to a load the user may still want to resume.)
+            self._drop_stale_pending_packages(pipeline)
+
             _cleanup_staging(staging_pipeline)
             console.print(f"  ✓ Loaded {rows_loaded:,} rows")
 
@@ -3571,6 +3577,25 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 "rows_loaded": 0,
                 "uses_replace_mode": uses_replace_mode,
             }
+
+    def _drop_stale_pending_packages(self, pipeline: Any) -> None:
+        """Drop the real pipeline's pending (extracted or normalized, not loaded) packages.
+
+        Called only after a full refresh swapped fresh data in. A failure only warns: the refresh
+        itself succeeded, and the warning says what a later plain sync may do.
+        """
+        if pipeline is None:
+            return
+        try:
+            if not pipeline.has_pending_data:
+                return
+            pipeline.drop_pending_packages()
+            console.print("  🧹 Dropped the leftover data of an earlier failed load")
+        except Exception as e:
+            console.print(
+                f"  ⚠️  Could not drop the leftover data of an earlier failed load "
+                f"({self._rich_err(e)}); a later plain sync may load it again"
+            )
 
     def _backup_dlt_state(self, pipeline_name: str) -> Path | None:
         """
