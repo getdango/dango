@@ -126,10 +126,21 @@ class TestOwnershipCannotBeShown:
     def computed(self):
         return source(res("dyn", table=lambda item: "x"), res("fx"))
 
-    def test_with_a_computed_name_an_unowned_replace_table_stays_protected(self):
+    def test_with_a_computed_name_a_table_owned_by_another_resource_is_untouched(self):
+        """The schema names another resource as its writer, and dlt empties only selected writers."""
         pipeline = schema(fx=root("fx"), gone=root("gone"), gone_m=root("gone_m", "merge"))
-        got = protected(self.computed(), pipeline, "fx", "gone", "gone_m", "not_in_schema")
-        assert got == {"fx", "gone", "not_in_schema"}
+        assert protected(self.computed(), pipeline, "fx", "gone", "gone_m") == {"fx"}
+
+    def test_with_a_computed_name_a_table_without_a_known_owner_stays_protected(self):
+        pipeline = schema(
+            no_owner={"write_disposition": "replace"},
+            no_owner_merge={"write_disposition": "merge"},
+            undetermined={},
+        )
+        got = protected(
+            self.computed(), pipeline, "no_owner", "no_owner_merge", "undetermined", "not_in_schema"
+        )
+        assert got == {"no_owner", "undetermined", "not_in_schema"}
 
     def test_with_a_computed_name_an_unselected_hint_stays_untouched(self):
         src = source(res("dyn", table=lambda item: "x"), res("u", table="u", selected=False))

@@ -27,8 +27,11 @@ def resource(name, rows, disposition, **hints):
     return _gen()
 
 
-def sync(runner, method, name, source, **kwargs) -> dict[str, Any]:
-    """Run one sync of `source` through the chosen method (real dlt, real DuckDB)."""
+def sync(runner, method, name, source, native=None, **kwargs) -> dict[str, Any]:
+    """Run one sync of `source` through the chosen method (real dlt, real DuckDB).
+
+    `native` adds fields (e.g. `pipeline_name`, `dataset_name`) to the dlt_native config.
+    """
     if method == "dlt":
         config = DataSource(name=name, type=SourceType.CHESS)
         with (
@@ -46,7 +49,10 @@ def sync(runner, method, name, source, **kwargs) -> dict[str, Any]:
         name=name,
         type=SourceType.DLT_NATIVE,
         dlt_native=DltNativeConfig(
-            source_module="fixture_module", source_function="make", function_kwargs={}
+            source_module="fixture_module",
+            source_function="make",
+            function_kwargs={},
+            **(native or {}),
         ),
     )
     module = types.SimpleNamespace(make=lambda: source)

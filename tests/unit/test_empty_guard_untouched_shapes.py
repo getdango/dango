@@ -118,15 +118,28 @@ class TestComputedAndDispatchedTables:
         )
         assert snapshot(runner, "comp") == before
 
-    def test_a_table_no_selected_resource_can_name_stays_protected_beside_a_computed_name(
+    def test_a_table_of_a_dropped_resource_is_untouched_beside_a_computed_name(
         self, tmp_path, method
     ):
-        """With a computed name this run cannot tell which tables it writes: prefer safe."""
+        """The schema records `fx` as written by another resource; this run cannot empty it."""
         runner, before = run1(tmp_path, method, "comp", computed_source(1))
         result = sync(runner, method, "comp", computed_source(2, fixed=False))
-        assert blocked(result)
-        assert "fx: 1 rows" in result["error"]
-        assert snapshot(runner, "comp") == before
+        assert result["status"] == "success", result.get("error")
+        after = snapshot(runner, "comp")
+        assert after["fx"] == before["fx"]  # rows, content and _dlt_load_id
+        assert [r[0] for r in after["dyn_x"]] == [2]
+
+    def test_a_deselected_fixed_table_is_untouched_beside_a_computed_name(self, tmp_path, method):
+        runner, before = run1(tmp_path, method, "comp", computed_source(1))
+        result = sync(
+            runner,
+            method,
+            "comp",
+            computed_source(2).with_resources("dyn"),
+            allow_empty_replace=False,
+        )
+        assert result["status"] == "success", result.get("error")
+        assert snapshot(runner, "comp")["fx"] == before["fx"]
 
     def test_a_dispatched_table_that_vanishes_is_blocked_and_the_other_resource_is_not_named(
         self, tmp_path, method
