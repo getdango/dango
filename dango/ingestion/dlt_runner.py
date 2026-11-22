@@ -33,6 +33,7 @@ from dango.ingestion.csv_loader import CSVLoader, check_duplicate_filenames
 from dango.ingestion.empty_guard import (
     disposition_name,
     replace_protected_tables,
+    tables_run_can_write,
     truncate_message,
     zero_rows_message,
 )
@@ -1445,6 +1446,7 @@ class DltPipelineRunner:
                     source_name=source_name,
                     dataset_name=dataset_name,
                     pipeline_name=pipeline_name,
+                    pipeline=pipeline,
                     max_lock_wait=max_lock_wait,
                     uses_replace_mode=uses_replace_mode,
                     pre_refresh_rows=pre_refresh_rows,
@@ -1650,7 +1652,8 @@ class DltPipelineRunner:
         Detect if dlt source uses 'replace' write_disposition.
 
         This determines if the source performs full refreshes (replace mode)
-        or true incremental loading (append/merge mode).
+        or true incremental loading (append/merge mode). Resources that are not selected
+        for this run (deselected, or narrowed away) are ignored.
 
         Args:
             source: dlt source object
@@ -1667,6 +1670,9 @@ class DltPipelineRunner:
                 if hasattr(resources, "values"):
                     # resources is a dict-like object
                     for resource in resources.values():
+                        # A resource deselected for this run writes nothing.
+                        if not getattr(resource, "selected", True):
+                            continue
                         if hasattr(resource, "write_disposition"):
                             if disposition_name(resource.write_disposition) == "replace":
                                 return True
@@ -1920,6 +1926,7 @@ class DltPipelineRunner:
                     source_name=source_name,
                     dataset_name=dataset_name,
                     pipeline_name=source_name,
+                    pipeline=pipeline,
                     max_lock_wait=max_lock_wait,
                     uses_replace_mode=uses_replace_mode,
                     pre_refresh_rows=pre_refresh_rows,
@@ -3238,6 +3245,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
         pre_refresh_rows: int | None = None,
         pre_table_counts: dict[str, int] | None = None,
         allow_empty_replace: bool = False,
+        pipeline: Any = None,
     ) -> dict[str, Any]:
         """Full-refresh a merge/append source by staging into a separate pipeline and
         swapping into the real destination only once the staged reload has succeeded.
@@ -3275,6 +3283,10 @@ Need help? Visit: https://github.com/getdango/dango/issues
         - `CREATE TABLE "{dataset_name}"."{table}" AS SELECT ...` fails outright if the
           `{dataset_name}` schema doesn't exist yet (a merge/append source's very first
           --full-refresh) -- the swap ensures the schema exists first.
+
+        Only the tables this run can write are reloaded, checked and swapped (selected resources'
+        tables, their nested tables, stale tables the schema records for them): the other tables of
+        the source, such as those of a narrowed selection or a removed resource, are left untouched.
 
         The empty-replace-protection checks here mirror the existing post-load checks
         in both call sites (total-empty and per-table-truncated-to-zero), evaluated
@@ -3355,16 +3367,28 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 k: v for k, v in norm_info.row_counts.items() if not k.startswith("_dlt")
             }
 
+            # Only tables this run can write are reloaded, checked and swapped; the rest of the
+            # source's tables (narrowed selection, removed resource) are left as they are.
+            if pre_table_counts is not None:
+                writable = tables_run_can_write(source, pipeline, pre_table_counts) | set(
+                    staged_counts
+                )
+                scoped_counts = {n: c for n, c in pre_table_counts.items() if n in writable}
+                scoped_rows: int | None = sum(scoped_counts.values())
+                untouched = sorted(set(pre_table_counts) - set(scoped_counts))
+                if untouched:
+                    names = ", ".join(escape(n) for n in untouched)
+                    console.print(f"  Left untouched (not part of this sync): {names}")
+            else:
+                scoped_counts = None
+                scoped_rows = pre_refresh_rows
+
             if not allow_empty_replace:
-                if (
-                    pre_refresh_rows is not None
-                    and pre_refresh_rows > 0
-                    and sum(staged_counts.values()) == 0
-                ):
+                if scoped_rows is not None and scoped_rows > 0 and sum(staged_counts.values()) == 0:
                     staging_pipeline.drop_pending_packages()
                     _cleanup_staging()
                     error_msg = (
-                        f"Full refresh staged 0 rows — existing {pre_refresh_rows:,} rows "
+                        f"Full refresh staged 0 rows — existing {scoped_rows:,} rows "
                         f"were never touched. To force sync with empty data, use: "
                         f"dango sync {source_name} --allow-empty-replace"
                     )
@@ -3378,10 +3402,10 @@ Need help? Visit: https://github.com/getdango/dango/issues
                         "uses_replace_mode": uses_replace_mode,
                     }
 
-                if pre_table_counts is not None:
+                if scoped_counts is not None:
                     truncated_tables = [
                         (table_name, pre_count)
-                        for table_name, pre_count in pre_table_counts.items()
+                        for table_name, pre_count in scoped_counts.items()
                         if pre_count > 0 and staged_counts.get(table_name, 0) == 0
                     ]
                     if truncated_tables:
@@ -3445,7 +3469,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 db.execute("BEGIN TRANSACTION")
                 try:
                     db.execute(f'CREATE SCHEMA IF NOT EXISTS "{dataset_name}"')
-                    all_table_names = set(staged_counts) | set(pre_table_counts or {})
+                    all_table_names = set(staged_counts) | set(scoped_counts or {})
                     for table_name in all_table_names:
                         db.execute(f'DROP TABLE IF EXISTS "{dataset_name}"."{table_name}"')
                         if table_name in staged_counts:

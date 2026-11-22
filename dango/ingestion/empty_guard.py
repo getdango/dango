@@ -81,10 +81,17 @@ def resource_dispositions(source: Any) -> dict[str, str | None]:
     return {} if shape is None else shape.hints
 
 
-def _schema_tables(pipeline: Any) -> Mapping[str, Any] | None:
-    """The pipeline's default schema tables, or ``None`` if they cannot be read."""
+def _schema_tables(source: Any, pipeline: Any) -> Mapping[str, Any] | None:
+    """Tables of the schema dlt extracts *source* with, else the default schema; ``None`` if unreadable.
+
+    A pipeline holds one schema per source name (a source renamed between runs, or two sources
+    sharing a pipeline, leave several), and dlt extracts into the one named after the source.
+    """
     try:
-        tables = pipeline.default_schema.tables
+        try:
+            tables = pipeline.schemas[source.schema.name].tables
+        except Exception:
+            tables = pipeline.default_schema.tables
     except Exception:
         # A missing or unreadable schema means we cannot tell which resource wrote a table.
         return None
@@ -123,10 +130,11 @@ def _resolve(
     """Write disposition this run applies to *table_name*, ``"untouched"`` if it cannot write it.
 
     ``None`` means undetermined (the caller protects it). Order of evidence: the fixed table name
-    of a resource (the table or one of its parents), then the selected resource that the schema
-    records as the table's writer. A table with neither is untouched, unless this run cannot tell
-    what it writes (a computed table name, an unreadable source or schema): then the schema's own
-    disposition decides and a table the schema does not know stays protected.
+    of a resource (the table or one of its parents), then the resource that the schema records as
+    the table's writer: a selected one decides, any other leaves the table untouched. A table with
+    neither is untouched, unless this run cannot tell what it writes (a computed table name, an
+    unreadable source or schema): then the schema's own disposition decides and a table the schema
+    does not know stays protected.
     """
     chain = _lineage(table_name, tables or {})
     owner = None
@@ -145,7 +153,10 @@ def _resolve(
                 return value
         if owner in shape.selected:
             return shape.selected[owner]
-        if not shape.computed and tables is not None:
+        # The schema names another resource as the table's writer: dlt empties only the tables of
+        # selected resources, so this run cannot. A table with no known writer is untouched only
+        # when no selected resource computes its table names.
+        if owner is not None or (not shape.computed and tables is not None):
             return _UNTOUCHED
     return _schema_disposition(chain, tables or {})
 
@@ -158,12 +169,25 @@ def replace_protected_tables(source: Any, pipeline: Any, candidates: Iterable[st
     ``replace`` or cannot be read. Merge and append tables are not protected, and neither is a
     table that no selected resource can write (a deselected or removed resource, a narrowed
     selection): dlt rewrites only tables that are part of the load. When the run cannot tell what
-    it writes (a computed table name, an unreadable source or schema) a table is protected unless
-    the schema shows it is not replace-mode, so that case is never less safe than before.
+    it writes (a computed table name, an unreadable source or schema) a table with no known writer
+    is protected unless the schema shows it is not replace-mode, so that case is never less safe
+    than before.
     """
     shape = _inspect(source)
-    tables = _schema_tables(pipeline)
+    tables = _schema_tables(source, pipeline)
     return {name for name in candidates if _resolve(name, shape, tables) in (None, "replace")}
+
+
+def tables_run_can_write(source: Any, pipeline: Any, candidates: Iterable[str]) -> set[str]:
+    """The *candidates* a run of *source* can write or empty, whatever their write disposition.
+
+    The complement is left alone by the run: tables of resources that are not selected, of removed
+    resources, and tables that no resource of the source writes. Undetermined tables count as
+    writable, so the answer is never narrower than the one ``replace_protected_tables`` uses.
+    """
+    shape = _inspect(source)
+    tables = _schema_tables(source, pipeline)
+    return {name for name in candidates if _resolve(name, shape, tables) != _UNTOUCHED}
 
 
 def truncate_message(source_name: str, truncated: list[tuple[str, int]]) -> str:

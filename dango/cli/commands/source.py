@@ -883,7 +883,7 @@ def source_inspect_state(ctx: click.Context, source_name: str) -> None:
 @click.option("--until", help="End date for incremental loading (YYYY-MM-DD)")
 @click.option("--backfill", help="Backfill duration (e.g. '7d', '2w', '1m')")
 @click.option("--limit", type=int, help="Limit rows per source (dev testing)")
-@click.option("--full-refresh", is_flag=True, help="Drop existing data and reload from scratch")
+@click.option("--full-refresh", is_flag=True, help="Drop and reload the tables each source loads")
 @click.option("--dry-run", is_flag=True, help="Show what would be synced without executing")
 @click.option(
     "--allow-schema-changes",
@@ -919,7 +919,7 @@ def sync(
       dango sync --since 2024-01-01            Override start date
       dango sync --backfill 30d                Backfill last 30 days
       dango sync --limit 1000                  Dev mode: limit rows per source
-      dango sync --full-refresh                Reset state and reload all data
+      dango sync --full-refresh                Reset state and reload the tables each source loads
       dango sync --dry-run                     Preview what would be synced
       dango sync chess --allow-empty-replace   Override empty-sync policy for this run
 
@@ -1043,9 +1043,12 @@ def sync(
         check_git_branch_warning(project_root)
 
         if full_refresh:
-            console.print("[yellow]⚠️  Full refresh mode: existing data will be dropped[/yellow]")
+            console.print(
+                "[yellow]Full refresh mode: the tables each source loads this run will be "
+                "dropped and reloaded; tables it does not load stay untouched[/yellow]"
+            )
             if not yes and not safe_confirm(
-                "Full refresh will reload all data. Continue?", default=False
+                "Full refresh will reload the tables each source loads. Continue?", default=False
             ):
                 raise click.Abort()
 

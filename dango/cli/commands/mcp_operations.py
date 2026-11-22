@@ -134,7 +134,10 @@ def run_sync(
         if limit and src_type == "csv":
             warnings.append(f"'{src.name}' (csv) does not support limit — CSV loads all rows")
     if full_refresh:
-        warnings.append("Full refresh: existing data will be dropped and reloaded")
+        warnings.append(
+            "Full refresh: the tables each source loads will be dropped and reloaded; "
+            "tables it does not load stay untouched"
+        )
 
     if dry_run:
         return {

@@ -100,9 +100,9 @@ class TestNarrowedFullRefresh:
         result = sync(runner, method, "fr", empty_run, full_refresh=True)
         assert result["status"] == "failed"
         assert result["error_type"] == EMPTY_REPLACE_PROTECTION_ERROR_TYPE
-        assert "a: 1 rows" in result["error"]
-        assert "b:" not in result["error"] and "c:" not in result["error"]
-        assert "existing 3 rows" not in result["error"]
+        assert (
+            "existing 1 rows were never touched" in result["error"]
+        )  # not 3: b and c are not at risk
         assert snapshot(runner, "fr") == before
         forced = sync(
             runner,
@@ -187,6 +187,22 @@ class TestFullRefreshEdges:
         result = sync(runner, method, "fr", build(2, [{"id": 2}]), full_refresh=True)
         assert result["status"] == "success", result.get("error")
         assert ids(snapshot(runner, "fr")["a"]) == [2]  # id 1 was deleted upstream: purged
+
+    def test_one_of_two_chosen_tables_going_empty_is_named_alone(self, tmp_path, method):
+        wds = DISPOSITIONS["merge"]
+        runner, before = seeded(tmp_path, method, wds)
+        result = sync(
+            runner,
+            method,
+            "fr",
+            source(wds, 2, keep=["a", "b"], empty=["b"]),
+            full_refresh=True,
+        )
+        assert result["status"] == "failed"
+        assert "Full refresh would truncate 1 table(s)" in result["error"]
+        assert "b: 1 rows" in result["error"] and "a:" not in result["error"]
+        assert "c:" not in result["error"]
+        assert snapshot(runner, "fr") == before
 
     def test_the_run_lists_the_tables_it_leaves_untouched(self, tmp_path, method, capsys):
         wds = DISPOSITIONS["merge"]
