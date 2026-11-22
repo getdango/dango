@@ -40,6 +40,43 @@ def linked_target(name, target):
     return target
 
 
+def discard_broken_node_shim(root):
+    """Remove only the observed unused pnpm Node alias after original services stop."""
+    assert root.name == "t44a03" and root.resolve(strict=True) == root
+    assert digest((root / "work/app/project/package.json").read_bytes()) == (
+        "2eccb6a16906f27962d35a489c2eb0846bf3c379d81daccde8653a39903a8ef7"
+    ), "Frozen upstream runtime declaration changed"
+    name = "work/app/project/node_modules/.bin/node"
+    path = root / name
+    assert path.parent.resolve(strict=True) == path.parent, "Aliased shim directory"
+    try:
+        before = path.lstat()
+    except FileNotFoundError:
+        return {"path": name, "status": "ABSENT"}
+    assert stat.S_ISLNK(before.st_mode) and (before.st_uid, before.st_gid) == (501, 20), (
+        "Unexpected Node shim type/owner"
+    )
+    target = os.readlink(path)
+    expected = "work/app/project/node_modules/node/bin/node"
+    assert not target.startswith("/") and linked_target(name, target) == expected, (
+        "Unexpected Node shim target"
+    )
+    destination = root / expected
+    assert destination.resolve().is_relative_to(root), "Node shim target escapes owned root"
+    assert not os.path.lexists(destination), "Node shim executable exists; retain it"
+    current = path.lstat()
+    assert (current.st_dev, current.st_ino, current.st_mode, current.st_uid, current.st_gid) == (
+        before.st_dev,
+        before.st_ino,
+        before.st_mode,
+        before.st_uid,
+        before.st_gid,
+    ) and os.readlink(path) == target, "Node shim changed before removal"
+    path.unlink()
+    assert not os.path.lexists(path), "Disposable Node shim remains"
+    return {"path": name, "target": target, "status": "REMOVED_PROVEN_DANGLING"}
+
+
 def inventory(root):
     """Read every cold file and its ownership, preserving links without following them."""
     rows = {}
@@ -153,6 +190,7 @@ def main():
     assert root.name == "t44a03" and root.resolve(strict=True) == root
     assert source in {root, root / "restore-replacement"} and source.resolve(strict=True) == source
     assert output.parent == root / "restore-backup" and output.exists() == verify
+    discarded = discard_broken_node_shim(source) if not verify and source == root else None
     report = inventory(source)
     body = json.dumps(report, sort_keys=True, separators=(",", ":")).encode() + b"\n"
     assert len(body) <= REPORT_BOUND, "Private inventory bound"
@@ -170,6 +208,7 @@ def main():
                 "entries": len(report["rows"]),
                 "archive_upper": report["archive_upper"],
                 "restore_upper": report["restore_upper"],
+                "discarded_node_shim": discarded,
             }
         )
     )
