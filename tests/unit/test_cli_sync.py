@@ -402,6 +402,9 @@ class TestSyncGuardRails:
             (tmp_path / "data" / "warehouse.duckdb").touch()
             patches = _patch_sync_prereqs()
             patches[0] = patch("dango.cli.utils.require_project_context", return_value=tmp_path)
+            patches.append(
+                patch("dango.cli.commands.source.stdin_is_interactive", return_value=True)
+            )
             runner = CliRunner()
             for p in patches:
                 p.start()

@@ -86,7 +86,7 @@ class TestAtATerminal:
     def test_the_prompt_is_shown_and_yes_continues(self) -> None:
         result, run_sync = _invoke(["--full-refresh"], input_text="yes\nyes\n", interactive=True)
         assert result.exit_code == 0, result.output
-        assert "Full refresh will reload all data" in result.output
+        assert "Full refresh will reload the tables each source loads" in result.output
         assert NEEDS not in result.output
         assert run_sync.call_args.kwargs["full_refresh"] is True
 
