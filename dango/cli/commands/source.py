@@ -5,7 +5,7 @@ Data source management commands (add, list, remove) and sync.
 
 import re
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import click
 from rich.markup import escape
@@ -56,6 +56,18 @@ def _parse_duration(value: str) -> int:
     if amount <= 0:
         raise click.BadParameter("Duration must be a positive number.")
     return amount * _DURATION_MULTIPLIERS[unit]
+
+
+def _exit_interrupted() -> NoReturn:
+    """Say the sync was interrupted and exit 130 (128 + SIGINT, the shell convention).
+
+    A script can tell an unfinished sync from a successful one. Used both for a
+    ``KeyboardInterrupt`` raised outside a source and for the ``interrupted`` flag that
+    ``run_sync`` sets in its summary.
+    """
+    console.print("\n[yellow]Sync interrupted — progress saved.[/yellow]")
+    console.print("[green]Resume with the same command.[/green]")
+    raise click.exceptions.Exit(130)
 
 
 def _source_supports_date_range(source_type: str) -> bool:
@@ -1027,14 +1039,16 @@ def sync(
         # agent, a pipe nobody closes) the prompt would wait forever: say how to proceed instead.
         if full_refresh and not yes and not stdin_is_interactive():
             console.print(
-                "[red]Error:[/red] --full-refresh needs confirmation: "
-                "run it in a terminal or add --yes"
+                "[red]Error:[/red] --full-refresh needs confirmation: add --yes, or run it in "
+                "an interactive terminal (none was detected on stdin)"
             )
             raise click.Abort()
 
         # Guard rail: on first sync, confirm scope
         # Placed before lock so user doesn't wait for lock if they'll cancel.
-        if not yes and not dry_run:
+        # Without a terminal nobody can answer (an open pipe would wait forever): take the
+        # default, yes, as an EOF already does.
+        if not yes and not dry_run and stdin_is_interactive():
             warehouse_path = project_root / "data" / "warehouse.duckdb"
             if not warehouse_path.exists():
                 if not safe_confirm(
@@ -1137,10 +1151,10 @@ def sync(
                 allow_empty_replace=allow_empty_replace,
             )
         except KeyboardInterrupt:
-            console.print("\n[yellow]Sync interrupted — progress saved.[/yellow]")
-            console.print("[green]Resume with the same command.[/green]")
-            # 130 = 128 + SIGINT, the shell convention: a script can tell this from success
-            raise click.exceptions.Exit(130) from None
+            _exit_interrupted()
+
+        if summary.get("interrupted"):
+            _exit_interrupted()
 
         # Refresh Metabase's connection before triggering schema sync. On cloud,
         # _load_with_lock() already stopped/started Metabase around the write phase;

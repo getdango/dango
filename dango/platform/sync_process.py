@@ -457,7 +457,12 @@ def _handle_crash(
             # Skip if the subprocess already wrote a terminal history entry
             # (e.g., it crashed after recording its own failure in dlt_runner)
             recent = load_sync_history(project_root, src, limit=1)
-            if recent and recent[0].get("status") in ("failed", "success", "partial"):
+            if recent and recent[0].get("status") in (
+                "failed",
+                "success",
+                "partial",
+                "interrupted",
+            ):
                 # Check if this entry is recent (within last 5 minutes)
 
                 entry_ts = recent[0].get("timestamp", "")

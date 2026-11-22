@@ -74,17 +74,13 @@ def redact_patterns(text: str) -> str:
 def redact_text(text: str, secrets: frozenset[str]) -> str:
     """Replace known secret values, URL userinfo, auth header values and token-like params.
 
-    dlt's command-line advice after a failed load is replaced by Dango's wording too: every
-    error text that is stored, printed or sent passes through here.
-
     Known values shorter than ``MIN_SECRET_LENGTH`` are ignored. Longer values are replaced
     longest first so a value containing another one is removed whole.
     """
     for value in sorted(secrets, key=len, reverse=True):
         if len(value) >= MIN_SECRET_LENGTH:
             text = text.replace(value, REDACTED)
-    # last, so the raw passage that reaches the debug log is already redacted
-    return rewrite_dlt_advice(redact_patterns(text))
+    return redact_patterns(text)
 
 
 def redact_nested(value: Any, secrets: frozenset[str]) -> Any:
@@ -160,10 +156,29 @@ def redact_project_text(project_root: Path | None, text: str) -> str:
     return redact_text(text, secrets)
 
 
-def redact_error_fields(project_root: Path | None, record: dict[str, Any]) -> dict[str, Any]:
-    """A copy of *record* with every value whose key contains ``error`` redacted."""
+def _rewrite_nested(value: Any, source_name: str | None) -> Any:
+    if isinstance(value, str):
+        return rewrite_dlt_advice(value, source_name)
+    if isinstance(value, dict):
+        return {k: _rewrite_nested(v, source_name) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_rewrite_nested(v, source_name) for v in value]
+    return value
+
+
+def redact_error_fields(
+    project_root: Path | None, record: dict[str, Any], source_name: str | None = None
+) -> dict[str, Any]:
+    """A copy of *record* with every value whose key contains ``error`` redacted.
+
+    Error fields are where stored failure text lives (sync history, schedule records), so dlt's
+    command-line advice is replaced by Dango's wording here too: entries written before the
+    wording changed read back with it. Log text goes through ``redact_text`` instead, unchanged.
+    """
     secrets = load_secret_values(project_root) if project_root is not None else frozenset()
     return {
-        key: redact_nested(value, secrets) if "error" in key.lower() else value
+        key: _rewrite_nested(redact_nested(value, secrets), source_name)
+        if "error" in key.lower()
+        else value
         for key, value in record.items()
     }

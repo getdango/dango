@@ -9,6 +9,7 @@ from pathlib import Path
 
 from rich.markup import escape
 
+from dango.utils.dlt_error_text import rewrite_dlt_advice
 from dango.utils.duckdb_lock_text import rewrite_lock_text
 from dango.utils.redact import redact_project_text
 
@@ -16,12 +17,20 @@ from dango.utils.redact import redact_project_text
 MAX_PRINTED_CHARS = 8000
 
 
-def redacted_error_text(project_root: Path | None, error: object) -> str:
-    """Plain text of *error* with secrets masked (for logs and stored text)."""
-    return redact_project_text(project_root, str(error))
+def redacted_error_text(
+    project_root: Path | None, error: object, source_name: str | None = None
+) -> str:
+    """Plain text of *error* with secrets masked (for stored text and printed errors).
+
+    dlt's command-line advice after a failed load is replaced by Dango's wording, naming
+    *source_name* when it is known.
+    """
+    return rewrite_dlt_advice(redact_project_text(project_root, str(error)), source_name)
 
 
-def rich_error_text(project_root: Path | None, error: object) -> str:
+def rich_error_text(
+    project_root: Path | None, error: object, source_name: str | None = None
+) -> str:
     """Text of *error* with secrets masked and Rich markup escaped (for ``console.print``).
 
     The text is redacted first and cut afterwards (a cut can never expose part of a secret), to
@@ -29,7 +38,7 @@ def rich_error_text(project_root: Path | None, error: object) -> str:
     still what stored error records keep. DuckDB's raw lock-conflict text is replaced by a plain
     explanation (the raw text goes to the debug log).
     """
-    text = rewrite_lock_text(redacted_error_text(project_root, error))
+    text = rewrite_lock_text(redacted_error_text(project_root, error, source_name))
     if len(text) > MAX_PRINTED_CHARS:
         text = f"{text[:MAX_PRINTED_CHARS]}... [truncated {len(text) - MAX_PRINTED_CHARS} chars]"
     return escape(text)

@@ -169,7 +169,10 @@ class TestRealSignal:
                 break
             seen += line
             assert time.monotonic() < deadline, seen
-        # a python parent sends it: a background job in a non-interactive shell ignores SIGINT
+        # a python parent sends it: a background job in a non-interactive shell ignores SIGINT.
+        # Windows: the CTRL_C_EVENT branch below has never run (the child is not a console process
+        # group leader, so delivery is unverified); it is a real-device checklist item and this
+        # test is not Windows evidence. The product path (KeyboardInterrupt, Exit(130)) is portable.
         os.kill(proc.pid, getattr(signal, "CTRL_C_EVENT", signal.SIGINT))
         try:
             rest, _ = proc.communicate(timeout=30)
@@ -318,7 +321,7 @@ class TestInterruptInsideDltSteps:
         project: Path,
         out: Any,
     ) -> None:
-        """Ctrl+C while the failing resource is being skipped must stop the sync."""
+        """Ctrl+C while the retry without the failing resource runs must stop the sync."""
         source = MagicMock()
         source.resources = {"a": MagicMock(), "b": MagicMock()}
         failing = RuntimeError("Error in a: boom")

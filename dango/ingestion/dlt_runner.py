@@ -39,9 +39,11 @@ from dango.ingestion.empty_guard import (
 )
 from dango.ingestion.interrupts import interrupts_stay_interrupts
 from dango.ingestion.sources.registry import get_source_metadata
+from dango.utils.dlt_error_text import rewrite_dlt_advice
 from dango.utils.docker_hints import DOCKER_UNAVAILABLE_ERROR, note_metabase_skipped
 from dango.utils.duckdb_lock_text import rewrite_lock_text
 from dango.utils.error_text import redacted_error_text, rich_error_text
+from dango.utils.redact import redact_project_text
 from dango.utils.tls_errors import print_guidance_for_install_failure
 
 if TYPE_CHECKING:
@@ -90,6 +92,21 @@ def _is_duckdb_lock_error(error: BaseException) -> bool:
     """True if the error message indicates a DuckDB write-lock conflict."""
     error_str = str(error).lower()
     return any(keyword in error_str for keyword in _DUCKDB_LOCK_KEYWORDS)
+
+
+def _is_destination_error(error: BaseException) -> bool:
+    """True if the error is dlt's failure to open or write the destination (not a network one)."""
+    from dlt.destinations.exceptions import DestinationConnectionError
+
+    current: BaseException | None = error
+    for _ in range(6):
+        if current is None:
+            return False
+        if isinstance(current, DestinationConnectionError):
+            return True
+        inner = getattr(current, "exception", None)
+        current = inner if isinstance(inner, BaseException) else current.__cause__
+    return False
 
 
 def _connect_with_lock_retry(
@@ -356,9 +373,19 @@ class DltPipelineRunner:
         except ConfigNotFoundError:
             return PlatformSettings().min_free_disk_gb
 
-    def _rich_err(self, error: object) -> str:
+    def _rich_err(self, error: object, source_name: str | None = None) -> str:
         """Redacted, Rich-escaped error text for ``console.print`` (tolerates a bare instance)."""
-        return rich_error_text(getattr(self, "project_root", None), error)
+        return rich_error_text(getattr(self, "project_root", None), error, source_name)
+
+    def _failure_text(self, error: object, source_name: str) -> str:
+        """Stored text of a failed source; dlt's raw advice (if any) goes to the debug log once."""
+        redacted = redact_project_text(self.project_root, str(error))
+        text = rewrite_dlt_advice(redacted, source_name)
+        if text != redacted:
+            _logging.getLogger(__name__).debug(
+                "sync_failure_raw source=%s: %s", source_name, redacted
+            )
+        return text
 
     def _env_file_failure(
         self, source_name: str, error: Exception, full_refresh: bool, start_time: datetime
@@ -873,7 +900,7 @@ class DltPipelineRunner:
 
             # Log error
             duration = (datetime.now(tz=timezone.utc) - start_time).total_seconds()
-            error_message = redacted_error_text(self.project_root, e)
+            error_message = self._failure_text(e, source_name)
 
             # CSV/local_files are always full refresh regardless of the flag
             is_file_source = source_type in (SourceType.CSV, SourceType.LOCAL_FILES)
@@ -2141,7 +2168,7 @@ class DltPipelineRunner:
 
         except Exception as e:
             # Pipeline failed - restore previous state
-            console.print(f"  ❌ Pipeline failed: {self._rich_err(e)}")
+            console.print(f"  ❌ Pipeline failed: {self._rich_err(e, source_name)}")
 
             # Slack-specific error guidance
             error_str = str(e).lower()
@@ -2223,6 +2250,18 @@ class DltPipelineRunner:
                             "failed_resources": [failing_resource],
                             "succeeded_resources": remaining,
                             **stats,
+                        }
+                    except KeyboardInterrupt:
+                        console.print("\n  [yellow]Sync interrupted[/yellow]")
+                        console.print(
+                            "  [green]Progress saved — resume with the same command[/green]"
+                        )
+                        self._cleanup_state_backup(state_backup)
+                        return {
+                            "status": "interrupted",
+                            "source": source_name,
+                            "rows_loaded": 0,
+                            "uses_replace_mode": uses_replace_mode,
                         }
                     except Exception:
                         console.print("  ❌ Partial sync also failed")
@@ -2860,7 +2899,7 @@ class DltPipelineRunner:
             User-friendly error message with guidance
         """
         error_str = str(error).lower()
-        shown = redacted_error_text(getattr(self, "project_root", None), error)
+        shown = redacted_error_text(getattr(self, "project_root", None), error, source_name)
 
         # Authentication errors
         if any(
@@ -2982,6 +3021,18 @@ Fix commands:
 
   # Restart services
   dango stop && dango start
+
+Error details: {shown}
+"""
+
+        # The warehouse could not be opened or written (permissions, full disk, read-only): dlt
+        # words this "Connection with ... failed", which is not a network problem.
+        if _is_destination_error(error):
+            return f"""
+Dango could not write to the warehouse file.
+
+Check that the file and its folder are writable by this user and that the disk has free space.
+Data that was already extracted is kept; fix the cause, then run the same command again.
 
 Error details: {shown}
 """
@@ -3506,11 +3557,11 @@ Need help? Visit: https://github.com/getdango/dango/issues
             return result
 
         except Exception as e:
-            console.print(f"  ❌ Full refresh staging failed: {self._rich_err(e)}")
+            console.print(f"  ❌ Full refresh staging failed: {self._rich_err(e, source_name)}")
             _cleanup_staging(staging_pipeline)
             error_msg = (
                 f"Full refresh failed during staging — the existing destination data "
-                f"was never touched: {redacted_error_text(self.project_root, e)}"
+                f"was never touched: {redacted_error_text(self.project_root, e, source_name)}"
             )
             return {
                 "status": "failed",
@@ -3731,6 +3782,35 @@ def _display_dbt_output(dbt_output: str) -> None:
             )
 
 
+INTERRUPTED_ERROR = "Sync interrupted before it finished"
+
+
+def _interrupted_summary(
+    results: list[dict[str, Any]],
+    success_sources: list[str],
+    failed_sources: list[dict[str, Any]],
+    skipped_sources: list[str],
+    interrupted_source: str,
+) -> dict[str, Any]:
+    """The ``run_sync`` summary of a sync stopped by an interrupt (flagged, counted as failed)."""
+    return {
+        "success_count": len(success_sources),
+        "failed_count": len(failed_sources),
+        "skipped_count": len(skipped_sources),
+        "success_sources": success_sources,
+        "failed_sources": failed_sources,
+        "skipped_sources": skipped_sources,
+        "results": results,
+        "oauth_warnings": [],
+        "transform_status": "skipped",
+        "transform_error": None,
+        "hooks_status": "skipped",
+        "hooks_failed": [],
+        "interrupted": True,
+        "interrupted_source": interrupted_source,
+    }
+
+
 def run_sync(
     project_root: Path,
     sources: list[DataSource],
@@ -3767,7 +3847,9 @@ def run_sync(
             If None, falls back to each source's persisted `empty_sync_policy`.
 
     Returns:
-        Summary dictionary with success/failed counts
+        Summary dictionary with success/failed counts. When a source was interrupted the sync
+        stops there and the summary carries ``interrupted: True`` and ``interrupted_source``
+        (the source is also listed in ``failed_sources``); no dbt run or post-sync hook ran.
     """
     runner = DltPipelineRunner(project_root)
     runner.allow_schema_changes = allow_schema_changes
@@ -3795,9 +3877,20 @@ def run_sync(
         results.append(result)
 
         if result.get("status") == "interrupted":
-            # Ctrl+C stops the whole sync: no further sources, no dbt, no post-sync hooks. The
-            # source's history entry (status "interrupted") is already written by run_source.
-            raise KeyboardInterrupt
+            # An interrupt stops the whole sync: no further sources, no dbt, no post-sync hooks.
+            # It comes back as a flag on the summary, not as a KeyboardInterrupt: callers other
+            # than the CLI (scheduler subprocess, MCP worker thread, web event loop) only handle
+            # Exception. The source's history entry (status "interrupted") is already written.
+            failed_sources.append(
+                {
+                    "name": source_config.name,
+                    "error": INTERRUPTED_ERROR,
+                    "error_type": "interrupted",
+                }
+            )
+            return _interrupted_summary(
+                results, success_sources, failed_sources, skipped_sources, source_config.name
+            )
 
         if result.get("status") == "success":
             success_sources.append(source_config.name)

@@ -312,10 +312,13 @@ class TestSyncGuardRails:
         assert result.exit_code == 0
 
     def test_first_sync_shown_when_no_warehouse(self) -> None:
-        """First-sync confirmation shown when warehouse.duckdb doesn't exist."""
+        """First-sync confirmation shown (at a terminal) when warehouse.duckdb doesn't exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             patches = _patch_sync_prereqs()
+            patches.append(
+                patch("dango.cli.commands.source.stdin_is_interactive", return_value=True)
+            )
             # Override require_project_context to use our tmpdir
             patches[0] = patch("dango.cli.utils.require_project_context", return_value=tmp_path)
             runner = CliRunner()

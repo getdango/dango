@@ -256,3 +256,19 @@ def test_a_read_only_destination_is_not_called_a_network_problem(
     assert "Network connectivity" not in printed
     assert "could not write to the warehouse" in printed
     assert CAUSE in printed
+
+
+def test_failure_report_names_the_source_for_text_that_is_still_raw(project: Path) -> None:
+    """A summary built from older, unrewritten text gets the real source name when printed."""
+    summary = {"failed_sources": [{"name": "native", "error": str(_step_failed())}]}
+    report = StringIO()
+    with patch("dango.cli.sync_report.console") as console:
+        console.print.side_effect = lambda *a, **k: report.write(" ".join(map(str, a)) + "\n")
+        print_failed_sources(summary, project)
+    assert "`dango sync native`" in report.getvalue().replace("\n", " ")
+
+
+def test_the_pipeline_failed_line_names_the_source(project: Path, out: StringIO) -> None:
+    _run(project, "dlt", _step_failed(), ("native",))
+    line = out.getvalue().split("❌ Pipeline failed:")[1].split("Dango could not write")[0]
+    assert "`dango sync native`" in line.replace("\n", " ")

@@ -32,7 +32,7 @@ def save_sync_history_entry(project_root: Path, source_name: str, entry: dict[st
                 history = json.load(f)
 
         # Add new entry (error text can carry a source credential: redact it once, here)
-        history.append(redact_error_fields(project_root, entry))
+        history.append(redact_error_fields(project_root, entry, source_name))
 
         # Keep only last 100 entries
         if len(history) > 100:
@@ -85,7 +85,7 @@ def update_last_sync_entry(project_root: Path, source_name: str, updates: dict[s
         with open(history_file, encoding="utf-8") as f:
             history = json.load(f)
         if history:
-            history[-1].update(redact_error_fields(project_root, updates))
+            history[-1].update(redact_error_fields(project_root, updates, source_name))
             with open(history_file, "w", encoding="utf-8", newline="\n") as f:
                 json.dump(history, f, indent=2)
     except Exception as e:
@@ -107,7 +107,7 @@ def load_sync_history(
             # Return most recent entries first. Entries written before errors were redacted
             # on save can still hold raw text, so redact on read as well.
             recent = history[-limit:][::-1] if history else []
-            return [redact_error_fields(project_root, e) for e in recent]
+            return [redact_error_fields(project_root, e, source_name) for e in recent]
     except Exception as e:
         logger.warning("Failed to load sync history for %s: %s", source_name, e)
         return []
