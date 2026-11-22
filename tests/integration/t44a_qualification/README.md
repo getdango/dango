@@ -557,9 +557,15 @@ The unchanged hard30GB and actual free-space checks apply before each write phas
 The host-only cold archive phase reserves its conservative archive upper bound
 plus reports, after exact original service absence. It records allocated archive
 bytes/hash and numeric file/inode-group counts without relaxing either copy bound.
-The full replacement upper bound plus runtime growth and reports must still fit
-before any original root moves. Archive completion alone is not N4 PASS, and
-quarantined originals remain until final cleanup.
+The full replacement upper bound plus reports must fit before any original root
+moves, with all services still absent throughout extraction. After complete tree/
+rights/key/inode comparison, measured owned bytes plus replacement-runtime growth
+and reports must fit before any replacement service starts. Only already-owned
+driver expansion, Garage acquisition and canvas archive/install copies are removed
+from that future-growth bound, using the same frozen pins; no R4-R7 re-fetch or
+reinstall occurs. Original runtime gates retain their full fresh-setup reservation.
+Archive/extraction completion alone is not N4 PASS. Quarantined originals remain
+until final cleanup; both hard30GB and actual free-space gates remain mandatory.
 
 ### Filesystem-only N4 setup discriminator (not restore admission)
 

@@ -111,11 +111,15 @@ def main():
         # app/results1GiB, actor caches1GiB, four tmpfs/logs and PG socket tmpfs.
         driver = next(p for p in PINS["artifacts"] if p["kind"] == "driver")
         remaining = (1024 + 512 + 512 + 512 + 1024 + 1024 + 4 * 64 + 16 + 4 * 8) * MIB
-        remaining += (
-            driver["expanded_upper"] + garage["binary"]["bytes"] * 2 + garage["source"]["bytes"]
+        # Fresh acquisition only: restored driver/Garage/canvas bytes are already in owned closure.
+        runtime_artifacts_upper = (
+            driver["expanded_upper"]
+            + garage["binary"]["bytes"] * 2
+            + garage["source"]["bytes"]
+            + 2 * canvas["compressed"]
+            + 2 * canvas["allocated_upper"]
         )
-        # Download + local archive copy, installed files + one full extraction/temp copy.
-        remaining += 2 * canvas["compressed"] + 2 * canvas["allocated_upper"]
+        remaining += runtime_artifacts_upper
         remaining += semantics.reserve(root)
         remaining += EXTRA_PEAK  # New branch/gate and both bounded evidence copies.
         result["remaining_runtime_upper"] = remaining
@@ -319,7 +323,11 @@ def main():
         rig.start_owned(names["app"])
         result["full_app"] = "STARTED_NOT_YET_ACCEPTED"
         if restoring:
-            restore.run(rig, names, result, remaining)
+            # R4-R7 load restored artifacts; no download/driver expansion/canvas reinstall.
+            replacement_growth_upper = remaining - runtime_artifacts_upper
+            assert replacement_growth_upper >= 0
+            result["remaining_replacement_growth_upper"] = replacement_growth_upper
+            restore.run(rig, names, result, replacement_growth_upper)
             return
         (semantics.run_actor if semantic else run_actor)(
             rig, names["actor"], names["app"], install, result

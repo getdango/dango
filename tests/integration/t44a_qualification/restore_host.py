@@ -285,9 +285,12 @@ def run(original, names, result, growth):
         report["archive_sha256"] = file_hash(archive)
         audit_archive(archive, inv)
         private_inventory(original, top, top, backup / "original-inventory.json", True)
+        # Extraction is host-only: no replacement runtime can write before the next gate.
+        for name in original.names:
+            missing(original, name)
         disk_gate(
             original,
-            inv["restore_upper"] + growth + REPORT_RESERVE,
+            inv["restore_upper"] + REPORT_RESERVE,
             "before-restore-quarantine-and-extract",
         )
         for relative in ROOTS:

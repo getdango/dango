@@ -531,7 +531,7 @@
       "runtime_memory_mib": 4352,
       "report_copies_reserve": 738197504
     },
-    "fit": "Measure whole topR including quarantine/privatearchive/replacement and all frozen image copies; measured archive/expansion upper plus remaining runtime and reports BEFORE copying. No compression/hardlink/reflink credit. Actualdf gates throughout.",
+    "fit": "Measure whole topR including retained quarantine/privatearchive/replacement and all frozen image copies. Archive upper+reports before coldtar; full replacement upper+reports before host-only extraction with all services absent. Actual replacement+tree/rights/key/inode validation then replacement-runtime growth+reports before services. Only frozen driver/Garage/canvas fresh-acquisition terms are subtracted from original runtime growth for R4-R7; original setup gates unchanged. No compression/hardlink/reflink credit. Hard30GB and actualdf gates throughout.",
     "outputs": "Sanitized restore-*.json and shared commands only; no private archive/key files or rawPG/Garage data upload.",
     "limits": "Same runner/resource replacement, not crosshost recovery/versionupgrade or integratedDango. Eleven reviewed groups preserved; no source/lock/native artifact change."
   }
