@@ -18,6 +18,8 @@ from typing import Any
 from dango.logging import get_logger
 from dango.utils.dango_db import connect
 from dango.utils.dbt_escaping import needs_identifier_quoting, neutralize_jinja
+from dango.utils.inferred_tests import has_not_null_test as _has_not_null_test
+from dango.utils.inferred_tests import inferred_not_null_test, is_customized_model
 from dango.utils.redact import redact_project_text
 from dango.validation import validate_identifier
 
@@ -26,16 +28,6 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # dbt test helpers
 # ---------------------------------------------------------------------------
-
-
-def _has_not_null_test(tests: list) -> bool:
-    """Check if a not_null test already exists in any form (string or dict)."""
-    for test in tests:
-        if test == "not_null":
-            return True
-        if isinstance(test, dict) and "not_null" in test:
-            return True
-    return False
 
 
 # ---------------------------------------------------------------------------
@@ -444,9 +436,11 @@ def dispatch_post_sync_hooks(
 def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
     """Enrich existing staging schema.yml files with ``not_null`` tests from profiling.
 
-    After profiling runs, columns with 0% null rate can safely receive a
-    ``not_null`` test.  This handles the first-sync case where profiling data
-    was not available during initial model generation.
+    After profiling runs, columns with 0% null rate receive a ``not_null`` test.  This
+    handles the first-sync case where profiling data was not available during initial
+    model generation.  The test is inferred from a sample, so only key columns get a
+    blocking one; every other column gets ``severity: warn``.  Models whose SQL the user
+    has customized are left alone.
 
     Queries profiling stats per model/table to avoid cross-table column name
     collisions (e.g. ``customer_id`` might be nullable in one table but not
@@ -481,6 +475,9 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
                 table_name = model_name[len(prefix) :] if model_name.startswith(prefix) else None
                 if not table_name:
                     continue
+                # A model whose SQL the user took over keeps its YAML untouched.
+                if is_customized_model(staging_dir, model_name):
+                    continue
 
                 # Deduplicate tests: if a column has both a plain "not_null"
                 # and a configured {"not_null": {...}}, keep only the configured one.
@@ -509,7 +506,7 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
                     if col["name"] in zero_null_cols:
                         tests = col.get("tests", [])
                         if not _has_not_null_test(tests):
-                            tests.append("not_null")
+                            tests.append(inferred_not_null_test(col["name"]))
                             col["tests"] = tests
                             changed = True
                         # Generic tests build "select <col> ..."; keyword names need quoting.

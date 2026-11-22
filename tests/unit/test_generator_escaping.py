@@ -309,4 +309,6 @@ class TestPostSyncEnrichmentWithDelimiters:
         with patch("dango.utils.post_sync.connect", return_value=mock_conn):
             _enrich_staging_tests(tmp_path, ["shop"])
         data = yaml.safe_load((staging_dir / "stg_shop.yml").read_text())
-        assert data["models"][0]["columns"][0]["tests"] == ["not_null"]
+        assert data["models"][0]["columns"][0]["tests"] == [
+            {"not_null": {"config": {"severity": "warn"}}}
+        ]

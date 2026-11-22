@@ -626,7 +626,8 @@ ingestion/dlt_runner.py: run_sync()
       → _run_profiling(project_root, sources)
           → Column stats (row count, null %, distinct count) cached in dango.db
       → _enrich_staging_tests(project_root, sources)
-          → Adds not_null dbt tests to columns with 0% null rate
+          → Adds not_null dbt tests to columns with 0% null rate: blocking on key columns (id/uuid/key),
+            severity: warn on every other column (inferred from a sample); customized models are left alone
       → _run_pii_scan(project_root, sources)
           → governance/pii_detector.py: scan_sources_for_pii()
           → PII findings stored in dango.db, webhook if configured

@@ -12,6 +12,9 @@
 # EDITING THIS FILE:
 # - Update descriptions as you learn about the data
 # - Add tests (unique, not_null, accepted_values, etc.)
+# - not_null checks on ordinary columns were inferred from a sample of your data and only
+#   warn (severity: warn); checks on key columns (id) block. Change severity or delete a
+#   test if the sample was not representative.
 # - This file will not be overwritten if you customize it
 
 version: 2
@@ -32,7 +35,15 @@ models:
 {% if column.tests %}
         tests:
 {% for test in column.tests %}
+{% if test is string %}
           - {{ test }}
+{% else %}
+{% for test_name, test_body in test.items() %}
+          - {{ test_name }}:
+              config:
+                severity: {{ test_body.config.severity }}
+{% endfor %}
+{% endif %}
 {% endfor %}
 {% endif %}
 {% endfor %}

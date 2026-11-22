@@ -162,19 +162,19 @@ class TestEnrichColumnsFromProfiling:
     """_enrich_columns_from_profiling adds not_null from profiling data."""
 
     def test_adds_not_null_for_zero_null_columns(self, tmp_path):
-        """Columns with 0% null rate should get not_null test."""
+        """Zero-null columns get not_null: blocking on a key, warn-only otherwise."""
         gen = DbtModelGenerator(tmp_path)
 
         mock_conn = MagicMock()
         mock_conn.execute.return_value.fetchall.return_value = [
-            ("order_id",),
+            ("id",),
             ("status",),
         ]
         mock_conn.__enter__ = MagicMock(return_value=mock_conn)
         mock_conn.__exit__ = MagicMock(return_value=False)
 
         columns = [
-            {"name": "order_id", "tests": ["unique"]},
+            {"name": "id", "tests": ["unique"]},
             {"name": "status", "tests": []},
             {"name": "notes", "tests": []},
         ]
@@ -182,11 +182,11 @@ class TestEnrichColumnsFromProfiling:
         with patch("dango.utils.dango_db.connect", return_value=mock_conn):
             gen._enrich_columns_from_profiling("shopify", "orders", columns)
 
-        # order_id already had unique, now also has not_null
+        # id already had unique, now also has a blocking not_null
         assert "not_null" in columns[0]["tests"]
         assert "unique" in columns[0]["tests"]
-        # status gets not_null
-        assert "not_null" in columns[1]["tests"]
+        # status is an ordinary column: the sample-derived not_null only warns
+        assert columns[1]["tests"] == [{"not_null": {"config": {"severity": "warn"}}}]
         # notes was not in profiling results — no change
         assert "not_null" not in columns[2]["tests"]
 
@@ -255,7 +255,7 @@ class TestPostSyncEnrichStagingTests:
     """Post-sync _enrich_staging_tests updates existing schema.yml."""
 
     def test_enriches_existing_schema_yml(self, tmp_path):
-        """Should add not_null to columns with 0% null rate."""
+        """Should add not_null to columns with 0% null rate (warn-only off the key)."""
         from dango.utils.post_sync import _enrich_staging_tests
 
         # Create staging dir with a schema file
@@ -268,7 +268,7 @@ class TestPostSyncEnrichStagingTests:
                 {
                     "name": "stg_shopify__orders",
                     "columns": [
-                        {"name": "order_id", "tests": ["unique"]},
+                        {"name": "id", "tests": ["unique"]},
                         {"name": "customer_name"},
                     ],
                 }
@@ -280,7 +280,7 @@ class TestPostSyncEnrichStagingTests:
 
         # Mock connect to return profiling data
         mock_conn = MagicMock()
-        mock_conn.execute.return_value.fetchall.return_value = [("order_id",)]
+        mock_conn.execute.return_value.fetchall.return_value = [("id",), ("customer_name",)]
         mock_conn.__enter__ = MagicMock(return_value=mock_conn)
         mock_conn.__exit__ = MagicMock(return_value=False)
 
@@ -289,9 +289,9 @@ class TestPostSyncEnrichStagingTests:
 
         # Verify the file was updated
         updated = yaml.safe_load(schema_file.read_text())
-        order_col = updated["models"][0]["columns"][0]
-        assert "not_null" in order_col["tests"]
-        assert "unique" in order_col["tests"]
+        id_col, name_col = updated["models"][0]["columns"]
+        assert id_col["tests"] == ["unique", "not_null"]
+        assert name_col["tests"] == [{"not_null": {"config": {"severity": "warn"}}}]
 
     def test_skips_when_no_schema_file(self, tmp_path):
         """Should not fail when staging schema file doesn't exist."""

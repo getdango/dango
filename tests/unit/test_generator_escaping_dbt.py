@@ -123,7 +123,7 @@ class TestGenericTestsOnKeywordColumns:
         with patch("dango.utils.post_sync.connect", return_value=mock_conn):
             _enrich_staging_tests(tmp_path, ["shop"])
         col = yaml.safe_load((staging_dir / "stg_shop.yml").read_text())["models"][0]["columns"][0]
-        assert col["tests"] == ["not_null"]
+        assert col["tests"] == [{"not_null": {"config": {"severity": "warn"}}}]
         assert col["quote"] is True
 
 

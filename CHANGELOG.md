@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Generated staging checks no longer fail a later run when the data changes.** A `not_null` check that Dango inferred from the first sync of a column with no blanks now only warns (`severity: warn`) instead of failing `dango run`; checks on key columns (`id`, `uuid`, `key`) and on columns the warehouse declares NOT NULL still fail the run. `dango run` now says so when a build succeeds with warnings. Post-sync enrichment no longer touches the schema file of a staging model whose SQL you have customized. Existing projects keep the checks already written to `dbt/models/staging/stg_<source>.yml`: to switch one to a warning, add `config: {severity: warn}` to it, or delete the file and run `dango sync` to regenerate it (this discards any edits you made to that file).
+
 ## [1.0.14] - 2026-11-13
 
 This release hardens access control, backups, cloud servers and the Metabase and notebook paths. Read "Upgrade" before installing.

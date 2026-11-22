@@ -19,16 +19,11 @@ from dango.utils.dbt_escaping import (
     neutralize_jinja,
     yaml_scalar,
 )
-
-
-def _has_not_null_test(tests: list) -> bool:
-    """Check if a not_null test already exists in any form (string or dict)."""
-    for test in tests:
-        if test == "not_null":
-            return True
-        if isinstance(test, dict) and "not_null" in test:
-            return True
-    return False
+from dango.utils.inferred_tests import (
+    KEY_COLUMN_NAMES,
+    inferred_not_null_test,
+)
+from dango.utils.inferred_tests import has_not_null_test as _has_not_null_test
 
 
 def _quote_column_name(name: str) -> str:
@@ -160,7 +155,7 @@ class DbtModelGenerator:
 
                     # Common patterns for unique columns (exact primary key names only;
                     # _id suffix columns are typically foreign keys and NOT unique)
-                    if column_name.lower() in ["id", "uuid", "key"]:
+                    if column_name.lower() in KEY_COLUMN_NAMES:
                         tests.append("unique")
 
                     columns.append(
@@ -450,6 +445,7 @@ class DbtModelGenerator:
     ) -> None:
         """Add ``not_null`` tests for columns with 0% null rate from profiling stats.
 
+        Key columns get a blocking test; others get ``severity: warn`` (sample-derived).
         Mutates *columns* in place.
 
         Args:
@@ -473,7 +469,7 @@ class DbtModelGenerator:
 
         for col in columns:
             if col["name"] in zero_null_cols and not _has_not_null_test(col.get("tests", [])):
-                col.setdefault("tests", []).append("not_null")
+                col.setdefault("tests", []).append(inferred_not_null_test(col["name"]))
 
     def generate_staging_schema_yml(
         self,

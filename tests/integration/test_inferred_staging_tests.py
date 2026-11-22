@@ -183,7 +183,7 @@ def test_duplicate_key_still_fails_build(tmp_path: Path) -> None:
     _sync(root)
     result, statuses = _dbt_build(root, tmp_path)
     assert result.returncode != 0
-    # The raw-table uniqueness check fails first and the dependent staging check is skipped.
+    # The raw-table uniqueness check fails first; the dependent staging check never runs.
     assert statuses["source_unique_shop_orders_id"] == "fail"
 
 
@@ -224,3 +224,11 @@ def test_customized_model_yaml_is_not_rewritten(tmp_path: Path) -> None:
     _run_profiling(root, [SOURCE])
     _enrich_staging_tests(root, [SOURCE])
     assert schema.read_bytes() == before
+
+
+def test_repeated_sync_does_not_change_the_schema_file(tmp_path: Path) -> None:
+    root = _make_project(tmp_path)
+    _sync(root)
+    first = _schema_file(root).read_bytes()
+    _sync(root)
+    assert _schema_file(root).read_bytes() == first
