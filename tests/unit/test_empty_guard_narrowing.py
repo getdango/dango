@@ -7,7 +7,11 @@ Real dlt + DuckDB through both `_run_dlt_native_source` and `_run_dlt_source`.
 
 from __future__ import annotations
 
+import re
+from unittest.mock import patch
+
 import dlt
+import duckdb
 import pytest
 
 from dango.ingestion.dlt_runner import EMPTY_REPLACE_PROTECTION_ERROR_TYPE, DltPipelineRunner
@@ -110,3 +114,52 @@ class TestNarrowedSelection:
         assert full["status"] == "success", full.get("error")
         after = snapshot(runner, "m")
         assert [[r[0] for r in after[k]] for k in "abc"] == [[30, 31]] * 3
+
+    def test_a_chosen_table_that_never_held_rows_does_not_block_on_the_others(
+        self, tmp_path, method
+    ):
+        """0 rows loaded in total, but the only table this run writes has nothing to lose."""
+        runner = DltPipelineRunner(tmp_path)
+        assert sync(runner, method, "m", tables(["a", "b", "c"], 1, empty=["a"]))["status"] == (
+            "success"
+        )
+        before = snapshot(runner, "m")
+        result = sync(runner, method, "m", tables(["a"], 2, empty=["a"]))
+        assert result["status"] == "success", result.get("error")
+        assert result["rows_loaded"] == 0
+        assert untouched(before, snapshot(runner, "m"), ["b", "c"])
+
+    def test_a_zero_row_load_report_counts_and_names_only_the_chosen_tables(self, tmp_path, method):
+        """The post-load 0-row check (reached when the load reports 0 rows) is scoped the same way."""
+        runner, before = seeded(tmp_path, method)
+        with patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}):
+            result = sync(runner, method, "m", tables(["a"], 2))
+        assert result["status"] == "failed"
+        assert result["error_type"] == EMPTY_REPLACE_PROTECTION_ERROR_TYPE
+        assert "existing 2 rows preserved" in result["error"]
+        assert "replace-mode table(s): a." in result["error"]
+        assert untouched(before, snapshot(runner, "m"), ["b", "c"])
+
+    def test_the_per_table_check_after_the_load_names_only_the_chosen_tables(
+        self, tmp_path, method
+    ):
+        """A destination that ends up empty is caught for the tables this run writes, not for others."""
+        runner, _ = seeded(tmp_path, method)
+        real_load = runner._load_with_lock
+
+        def _load_then_empty(*args, **kwargs):
+            info = real_load(*args, **kwargs)
+            con = duckdb.connect(str(runner.duckdb_path))
+            try:
+                for table in ("a", "b"):
+                    con.execute(f'DELETE FROM "raw_m"."{table}"')
+            finally:
+                con.close()
+            return info
+
+        with patch.object(runner, "_load_with_lock", side_effect=_load_then_empty):
+            result = sync(runner, method, "m", tables(["a"], 2))
+        assert result["status"] == "failed"
+        assert result["error_type"] == EMPTY_REPLACE_PROTECTION_ERROR_TYPE
+        assert "2 rows" in result["error"]
+        assert re.search(r"\ba\b", result["error"]) and not re.search(r"\bb\b", result["error"])
