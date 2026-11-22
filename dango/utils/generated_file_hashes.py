@@ -32,6 +32,10 @@ def _read_records(project_root: Path) -> dict[str, str]:
     """The recorded hashes; empty when the record is missing or unreadable."""
     try:
         data = json.loads(_sidecar(project_root).read_text(encoding="utf-8"))
+        version = data.get("version") if isinstance(data, dict) else None
+        # Exactly the integer 1 (not True, 1.0 or "1"): any other record format is untrusted.
+        if type(version) is not int or version != 1:
+            return {}
         files = data["files"]
         return {str(k): str(v) for k, v in files.items()}
     except (OSError, ValueError, KeyError, AttributeError, TypeError):
