@@ -6,6 +6,7 @@ from typing import List, Iterable
 from dlt.sources import DltResource
 
 from .helpers import get_endpoint
+from .._replay import replayable
 
 
 @dlt.source
@@ -26,8 +27,9 @@ def strapi_source(
         DltResource: Data resources from the specified collections.
     """
     for endpoint in endpoints:
+        # Dango change: replayable() passes dlt a generator function, not a generator object, so a retried extract can run again.
         yield dlt.resource(  # type: ignore
-            get_endpoint(api_secret_key, domain, endpoint),
+            replayable(get_endpoint, api_secret_key, domain, endpoint),
             name=endpoint,
             write_disposition="replace",
         )

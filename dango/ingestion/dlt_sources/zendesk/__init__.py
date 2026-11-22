@@ -15,6 +15,7 @@ from .helpers.api_helpers import process_ticket, process_ticket_field
 from .helpers.talk_api import PaginationType, ZendeskAPIClient
 from .helpers.credentials import TZendeskCredentials, ZendeskCredentialsOAuth
 from .helpers import make_date_ranges
+from .._replay import replayable
 
 from .settings import (
     DEFAULT_START_DATE,
@@ -56,8 +57,10 @@ def zendesk_talk(
 
     # regular endpoints
     for key, talk_endpoint, item_name, cursor_paginated in TALK_ENDPOINTS:
+        # Dango change: replayable() passes dlt a generator function, not a generator object, so a retried extract can run again.
         yield dlt.resource(
-            talk_resource(
+            replayable(
+                talk_resource,
                 zendesk_client,
                 key,
                 item_name or talk_endpoint,
@@ -82,7 +85,7 @@ def zendesk_talk(
                 "updated_at",
                 initial_value=start_date_obj.isoformat(),
                 end_value=end_date_obj.isoformat() if end_date_obj else None,
-                allow_external_schedulers=True,
+                # Dango: no allow_external_schedulers here; dlt >= 1.26 raises when no external scheduler interval exists, which fails every sync outside Airflow.
             ),
         )
 
@@ -178,7 +181,6 @@ def zendesk_chat(
             "update_timestamp|updated_timestamp",
             initial_value=start_date_obj.isoformat(),
             end_value=end_date_obj.isoformat() if end_date_obj else None,
-            allow_external_schedulers=True,
         ),
     )
 
@@ -261,7 +263,6 @@ def zendesk_support(
             "timestamp",
             initial_value=start_date_ts,
             end_value=end_date_ts,
-            allow_external_schedulers=True,
         ),
     ) -> Iterator[TDataItem]:
         # URL For ticket events
@@ -295,7 +296,6 @@ def zendesk_support(
             "updated_at",
             initial_value=start_date_obj,
             end_value=end_date_obj,
-            allow_external_schedulers=True,
         ),
     ) -> Iterator[TDataItem]:
         """
@@ -341,7 +341,6 @@ def zendesk_support(
             "time",
             initial_value=start_date_iso_str,
             end_value=end_date_iso_str,
-            allow_external_schedulers=True,
         ),
     ) -> Iterator[TDataItem]:
         """
@@ -424,10 +423,15 @@ def zendesk_support(
     if load_all:
         resources_to_be_loaded.extend(SUPPORT_EXTRA_ENDPOINTS)
     for resource, endpoint_url, data_key, cursor_paginated in resources_to_be_loaded:
+        # Dango change: replayable() passes dlt a generator function, not a generator object, so a retried extract can run again.
         resource_list.append(
             dlt.resource(
-                basic_resource(
-                    zendesk_client, endpoint_url, data_key or resource, cursor_paginated
+                replayable(
+                    basic_resource,
+                    zendesk_client,
+                    endpoint_url,
+                    data_key or resource,
+                    cursor_paginated,
                 ),
                 name=resource,
                 write_disposition="replace",

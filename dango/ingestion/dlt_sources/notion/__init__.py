@@ -3,6 +3,7 @@
 from typing import List, Dict, Optional, Iterator
 
 import dlt
+from .._replay import replayable
 from dlt.common.typing import TDataItems
 from dlt.sources import DltResource
 
@@ -76,8 +77,9 @@ def notion_databases(
             database["use_name"] = details["title"][0]["plain_text"]
 
         notion_database = NotionDatabase(database["id"], notion_client)
+        # Dango change: replayable() passes dlt a generator function, not a generator object, so a retried extract can run again.
         yield dlt.resource(  # type: ignore
-            notion_database.query(),
+            replayable(notion_database.query),
             primary_key="id",
             name=database["use_name"],
             write_disposition="replace",

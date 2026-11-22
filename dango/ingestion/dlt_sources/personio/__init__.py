@@ -33,10 +33,11 @@ def personio_source(
 
     @dlt.resource(primary_key="id", write_disposition="merge")
     def employees(
+        # Dango: no allow_external_schedulers here; dlt >= 1.26 raises when no external scheduler interval exists, which fails every sync outside Airflow.
         updated_at: dlt.sources.incremental[
             pendulum.DateTime
         ] = dlt.sources.incremental(
-            "last_modified_at", initial_value=None, allow_external_schedulers=True
+            "last_modified_at", initial_value=None
         ),
         items_per_page: int = items_per_page,
     ) -> Iterable[TDataItem]:
@@ -102,7 +103,7 @@ def personio_source(
         updated_at: dlt.sources.incremental[
             pendulum.DateTime
         ] = dlt.sources.incremental(
-            "updated_at", initial_value=None, allow_external_schedulers=True
+            "updated_at", initial_value=None
         ),
         items_per_page: int = items_per_page,
     ) -> Iterable[TDataItem]:
@@ -148,7 +149,7 @@ def personio_source(
         updated_at: dlt.sources.incremental[
             pendulum.DateTime
         ] = dlt.sources.incremental(
-            "updated_at", initial_value=None, allow_external_schedulers=True
+            "updated_at", initial_value=None
         ),
         items_per_page: int = items_per_page,
     ) -> Iterable[TDataItem]:

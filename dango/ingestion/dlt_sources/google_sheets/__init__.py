@@ -8,6 +8,7 @@ from dlt.sources import DltResource
 from dlt.sources.credentials import GcpOAuthCredentials, GcpServiceAccountCredentials
 
 from .helpers import api_calls
+from .._replay import replayable
 from .helpers.api_calls import api_auth
 from .helpers.data_processing import (
     get_data_types,
@@ -151,8 +152,9 @@ def google_spreadsheet(
 
         data_types = get_data_types(data_row_metadata)
 
+        # Dango change: replayable() passes dlt a generator function, not a generator object, so a retried extract can run again.
         yield dlt.resource(
-            process_range(rows_data, headers=headers, data_types=data_types),
+            replayable(process_range, rows_data, headers=headers, data_types=data_types),
             name=name,
             write_disposition="replace",
         )
