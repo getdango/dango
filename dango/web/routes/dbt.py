@@ -6,10 +6,8 @@ dbt model endpoints and dbt docs proxy.
 import asyncio
 import logging
 import subprocess
-import sys
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -142,15 +140,13 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
         logger.warning(f"Could not acquire dbt lock for {model_name}: {e}")
         return
 
-    from dango.transformation import _dbt_telemetry_env
+    from dango.transformation import _dbt_telemetry_env, _get_dbt_executable
     from dango.utils.activity_log import log_activity
 
     log_activity(project_root, "info", f"dbt:{model_name}", f"dbt run started: {model_name}")
 
     # Get dbt executable path (from venv or system PATH)
-    python_bin_dir = Path(sys.executable).parent
-    dbt_path = python_bin_dir / "dbt"
-    dbt_cmd = str(dbt_path) if dbt_path.exists() else "dbt"
+    dbt_cmd = _get_dbt_executable()
 
     try:
         # Build the dbt command

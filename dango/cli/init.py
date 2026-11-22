@@ -1213,11 +1213,9 @@ on-run-end:
         Returns:
             True if successful, False if generation failed
         """
-        import shutil
         import subprocess
-        import sys
 
-        from dango.transformation import _dbt_telemetry_env
+        from dango.transformation import _dbt_telemetry_env, _get_dbt_executable
 
         console.print("Generating dbt documentation...")
 
@@ -1225,11 +1223,7 @@ on-run-end:
 
         # Find dbt command - prefer venv's dbt to avoid using system dbt
         # (system dbt may use ~/.dbt/profiles.yml which won't have this project's profile)
-        venv_dbt = Path(sys.executable).parent / "dbt"
-        if venv_dbt.exists():
-            dbt_cmd = str(venv_dbt)
-        else:
-            dbt_cmd = shutil.which("dbt") or "dbt"
+        dbt_cmd = _get_dbt_executable()
 
         try:
             # Run dbt docs generate
