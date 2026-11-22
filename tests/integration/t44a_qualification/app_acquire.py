@@ -159,10 +159,16 @@ def critical(project, lock):
 
 def main():
     """Follow the proven diagnostic with bounded public acquisition, then stop."""
-    root, baseline = [Path(p).resolve() for p in sys.argv[1:]]
+    root, baseline = [Path(p).resolve() for p in sys.argv[1:3]]
+    assert sys.argv[3:] in [[], ["--filesystem-probe"]]
     assert platform.system() == "Linux" and platform.machine() == "x86_64"
-    require_acquisition_prerequisite(root)
-    require_early(root)
+    if sys.argv[3:] == ["--filesystem-probe"]:
+        from filesystem_probe import require_preparation
+
+        require_preparation(root, baseline)
+    else:
+        require_acquisition_prerequisite(root)
+        require_early(root)
     assert not any(p.is_file() for p in (root / "secrets").rglob("*")), "Prior secret cleanup"
     base = baseline / "tests/integration/lightdash_probe"
     assert sha((base / "runtime.py").read_bytes()) == PINS["baseline_runtime_sha256"]
@@ -170,6 +176,7 @@ def main():
     sys.path.insert(0, str(base))
     runtime = importlib.import_module("runtime")
     rig = runtime.Rig(root, {})
+    rig.filesystem_probe = sys.argv[3:] == ["--filesystem-probe"]
     rig.receipts = json.loads((root / "evidence/commands.json").read_text())
     rig.docker_root = Path(
         json.loads(rig.call(["docker", "info", "--format", "{{json .DockerRootDir}}"]).stdout)

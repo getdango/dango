@@ -55,19 +55,23 @@ def disk_gate(rig, remaining, reason):
     )
     free = min(shutil.disk_usage(p).free for p in [rig.root, rig.docker_root])
     headroom = PINS["limits"]["headroom_bytes"]
+    filesystem = getattr(rig, "filesystem_probe", False)
+    assert type(filesystem) is bool, "Explicit filesystem diagnostic mode required"
+    task_limit = PINS["limits"]["task_bytes"]
+    if filesystem:
+        task_limit = min(task_limit, 30_000_000_000)
     row = {
         "gate": reason,
         "owned": owned,
         "all_planned_image_bound": images,
         "remaining": remaining,
         "headroom": headroom,
+        "task_bytes_limit": task_limit,
         "actual_df_min": free,
     }
     rig.receipts.append(row)
     rig.save()
-    assert owned + images + remaining + headroom <= PINS["limits"]["task_bytes"], (
-        "Approved remote task disk bound"
-    )
+    assert owned + images + remaining + headroom <= task_limit, "Approved remote task disk bound"
     assert images + remaining + headroom <= free, "Actual runner df bound"
 
 

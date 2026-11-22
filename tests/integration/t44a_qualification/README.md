@@ -544,3 +544,23 @@ Actual owned/image/remaining allocations plus 2 GiB headroom must fit the approv
 owned cleanup remain in force. All N3 native assertions remain unrun until CI.
 
 Replacement restore mode (`replacement-restore`) is a qualification candidate until actual CI and independent review. It stops original writers, inventories final objects, cold-copies the entire PG cluster and runtime/data/Garage/config/key closure, removes original containers and quarantines their roots, then uses independent extracted roots and new container IDs. The restored app uses saved users/project/private chart, fresh native350/filter300 queries and private403; Garage starts without bootstrap. The whole top task root, both copies, image bounds, future growth and2GiB headroom must fit40e9 and actual runner free space. Archive/private keys and both trees are removed only after exact container absence. No integrated Dango restore, cross-host portability, or new release/shipping claim.
+
+### Filesystem-only N4 setup discriminator (not restore admission)
+
+The temporary `filesystem-probe` workflow mode uses an explicit pinned diagnostic
+bootstrap, not a claimed dbt/producer PASS or a recreated warehouse. This temporary
+diagnostic alone has a hard30,000,000,000-byte inclusive ceiling, including owned
+data, all planned images, remaining growth and2GiB headroom, at every preparation,
+acquisition and install gate; actual runner free space is independently checked.
+The later 16 November native qualification allowance remains 40,000,000,000 bytes,
+superseding the earlier 1 November 30GB grant. Ordinary
+acquisition admission remains unchanged. It reuses standard full fetch, measured
+fit/license gates, the populated installer smoke and frozen offline install; it
+stops before every `BUILD_COMMANDS` target, app startup and native warehouse work.
+`filesystem-probe.json` distinguishes lexical closure membership from realpath
+traversal, includes the Node shim/raw target and every relevant parent, and lists
+all observed closure failures. Errors, bounds overflow or secret exposure mark
+it incomplete. Even a complete observation is never N4 PASS. The scanner never
+repairs/deletes a link; exact owned containers/images are cleaned by the existing
+installer, then installed roots/private mask are removed only after canonical
+container absence. The normal cold-restore refusal/removal contract is unchanged.

@@ -199,9 +199,16 @@ def build_outputs(project, engine=False):
 
 def main():
     """Reuse the original bounded installer and capture before exact owned cleanup."""
-    root, baseline = [Path(p).resolve() for p in sys.argv[1:]]
+    root, baseline = [Path(p).resolve() for p in sys.argv[1:3]]
+    assert sys.argv[3:] in [[], ["--filesystem-probe"]]
+    filesystem = sys.argv[3:] == ["--filesystem-probe"]
     engine_mode = engine_reserve(root) > 0
     expected = "PASS_NORMAL_SELECTED_CLIENT_BUILD" if engine_mode else "PASS_COMPLETE_NORMAL_BUILD"
+    if filesystem:
+        from filesystem_probe import require_preparation
+
+        require_preparation(root, baseline)
+        expected = "COMPLETE_FILESYSTEM_OBSERVATION_NOT_N4"
     previous = json.loads((root / "evidence/app-acquisition.json").read_text())
     assert previous["status"] == "PASS_FULL_DEV_ACQUISITION_ONLY"
     data = (root / "evidence/app-package-inventory.json").read_bytes()
@@ -213,7 +220,10 @@ def main():
     sys.path.insert(0, str(base))
     runtime = importlib.import_module("runtime")
     rig = build_rig(runtime.Rig)(root, {})
+    rig.filesystem_probe = filesystem
     rig.label = "t44a03-build-" + str(time.time_ns())
+    if filesystem:
+        rig.secrets = {"probe_guard": (root / "probe-mask").read_text()}
     rig.receipts = json.loads((root / "evidence/commands.json").read_text())
     rig.docker_root = Path(
         json.loads(rig.call(["docker", "info", "--format", "{{json .DockerRootDir}}"]).stdout)
@@ -327,7 +337,8 @@ def main():
         result["install"] = "PASS_OFFLINE_FULL_NO_LIFECYCLES"
         project = target / "project"
         assert critical(project, lock) == before
-        for command in BUILD_COMMANDS[:3] if engine_mode else BUILD_COMMANDS:
+        commands = [] if filesystem else BUILD_COMMANDS[:3] if engine_mode else BUILD_COMMANDS
+        for command in commands:
             disk_gate(rig, remaining, "before-normal-" + command)
             build = pnpm + " run " + command
             if command == "backend-build":
@@ -348,11 +359,22 @@ def main():
             assert {
                 name: sha((project / name).read_bytes()) for name in source_before
             } == source_before
-        result["outputs"] = build_outputs(project, engine_mode)
+        if filesystem:
+            from filesystem_links import export_observation
+
+            disk_gate(rig, 32 * 1024**2, "before-filesystem-only-observation")
+            result["outputs"] = export_observation(rig)
+            assert result["outputs"]["complete"], "Filesystem observation incomplete"
+        else:
+            result["outputs"] = build_outputs(project, engine_mode)
         disk_gate(rig, 0, "after-complete-normal-app-build")
         result["status"] = expected
         result["full_app"] = (
-            "UNRUN_SELECTED_CLIENT_ONLY" if engine_mode else "BUILD_PASS_RUNTIME_UNRUN"
+            "UNRUN_FILESYSTEM_ONLY"
+            if filesystem
+            else "UNRUN_SELECTED_CLIENT_ONLY"
+            if engine_mode
+            else "BUILD_PASS_RUNTIME_UNRUN"
         )
         result["lifecycles"] = (
             "Dependency install lifecycles unexecuted; normal upstream build commands and their pre/post hooks execute offline. No canvas/Cypress/legacy DuckDB install/rebuild. App runtime native initialization remains UNRUN."
