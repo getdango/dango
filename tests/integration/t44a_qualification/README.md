@@ -453,12 +453,13 @@ Named business-calendar DATE/hour/offset columns are computed by normal dbt SQL 
 instants and compared with independent calendar values. Dynamic report/session timezone support
 is not proved by this mode. Raw native numeric strings are decoded strictly; NULL never becomes0.
 
-The 16 November adapted-continuation grant permits a **remote dedicated Ubuntu CI** ceiling of
-40,000,000,000 inclusive bytes only with actual runner capacity and >=2GiB headroom. CPU4/RAM4.5GiB
+The historical 16 November adapted-continuation grant permitted a **remote dedicated Ubuntu CI** ceiling of
+40,000,000,000 inclusive bytes. The current 22 November full-run ceiling is30,000,000,000 bytes,
+with actual runner capacity and >=2GiB headroom. CPU4/RAM4.5GiB
 and synthetic-secret/owned cleanup gates are unchanged. Semantic originals, export copies,
 current targets, reports and fixture growth reserve832MiB before acquisition/install/runtime.
 Prior full-app measured conservative29,329,207,716 plus832MiB gives30,201,622,948 bytes; this is a
-projection, not current measured usage. Every actual phase and export still measures owned bytes,
+historical projection above the current ceiling, not current admission evidence. Every actual phase and export still measures owned bytes,
 all frozen image bounds, remaining peak and free disk before accepting. Historical30GB figures
 and separate notebook overage remain historical; no simultaneous all-app fit is claimed.
 Released dlt1.32.0 still excludes DuckDB2; only exact upstream PR4600 commit
@@ -512,7 +513,7 @@ No new dependency, artifact pin, runtime profile or service is introduced. Build
 (3.75CPU/3840MiB). Reserve1280MiB for both sets of four-stage artifacts, current targets, reports,
 owned temp/data and Garage growth. Conservative prior peak plus this reserve is30,955,749,796
 bytes, a projection only; fresh PG/WAL/driver/setup growth is charged separately. Every actual
-phase still measures inclusive40e9 fit, all planned images, remaining copies and >=2GiB headroom
+phase measures inclusive30e9 fit, all planned images, remaining copies and >=2GiB headroom
 against real runner free space. Native G10 results and scoped acceptance remain pending.
 
 
@@ -539,11 +540,11 @@ Physical-file refusal does not prove PG catalog incompatibility.
 The additional 768 MiB reservation covers the old wheel, isolated install/unpack,
 physical files and backups, clone growth, spill/WAL and both complete report copies.
 Actual owned/image/remaining allocations plus 2 GiB headroom must fit the approved
-40,000,000,000-byte ceiling and actual runner free space before each phase. Existing
+30,000,000,000-byte ceiling and actual runner free space before each phase. Existing
 4 CPU/4.5 GiB hard container bounds, numeric-user/loopback/secret guards and exact
 owned cleanup remain in force. All N3 native assertions remain unrun until CI.
 
-Replacement restore mode (`replacement-restore`) is a qualification candidate until actual CI and independent review. It stops original writers, inventories final objects, cold-copies the entire PG cluster and runtime/data/Garage/config/key closure, removes original containers and quarantines their roots, then uses independent extracted roots and new container IDs. The restored app uses saved users/project/private chart, fresh native350/filter300 queries and private403; Garage starts without bootstrap. The whole top task root, both copies, image bounds, future growth and2GiB headroom must fit40e9 and actual runner free space. Archive/private keys and both trees are removed only after exact container absence. No integrated Dango restore, cross-host portability, or new release/shipping claim.
+Replacement restore mode (`replacement-restore`) is a qualification candidate until actual CI and independent review. It stops original writers, inventories final objects, cold-copies the entire PG cluster and runtime/data/Garage/config/key closure, removes original containers and quarantines their roots, then uses independent extracted roots and new container IDs. The restored app uses saved users/project/private chart, fresh native350/filter300 queries and private403; Garage starts without bootstrap. The whole top task root, both copies, image bounds, future growth and2GiB headroom must fit30e9 and actual runner free space. Archive/private keys and both trees are removed only after exact container absence. No integrated Dango restore, cross-host portability, or new release/shipping claim.
 
 ### Filesystem-only N4 setup discriminator (not restore admission)
 
@@ -552,8 +553,8 @@ bootstrap, not a claimed dbt/producer PASS or a recreated warehouse. This tempor
 diagnostic alone has a hard30,000,000,000-byte inclusive ceiling, including owned
 data, all planned images, remaining growth and2GiB headroom, at every preparation,
 acquisition and install gate; actual runner free space is independently checked.
-The later 16 November native qualification allowance remains 40,000,000,000 bytes,
-superseding the earlier 1 November 30GB grant. Ordinary
+The current 22 November full qualification ceiling is 30,000,000,000 bytes,
+superseding the 16 November 40GB allowance. Ordinary
 acquisition admission remains unchanged. It reuses standard full fetch, measured
 fit/license gates, the populated installer smoke and frozen offline install; it
 stops before every `BUILD_COMMANDS` target, app startup and native warehouse work.

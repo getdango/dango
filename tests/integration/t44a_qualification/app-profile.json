@@ -4,7 +4,7 @@
   "limits": {
     "cpus": 4,
     "memory_MiB": 4608,
-    "task_bytes": 40000000000,
+    "task_bytes": 30000000000,
     "headroom_bytes": 2147483648
   },
   "lightdash": {
@@ -472,6 +472,7 @@
     }
   },
   "resource_authority_20261116": "DANGO110-T44A-ADAPTED-CONTINUATION-20261116-12: dedicated Ubuntu CI only,40e9 inclusive with >=2GiB measured headroom/actualdf before and during growth;4CPU/4.5GiB unchanged. Historical30GB projections retained below.",
+  "resource_authority_20261122": "Current direct user approval supersedes the 16 November 40e9 allowance for this full T44A qualification: dedicated Ubuntu CI only,30,000,000,000 bytes inclusive with >=2GiB measured headroom and actualdf checks before and during growth;4CPU/4.5GiB unchanged. Historical evidence remains historical, not a current budget grant.",
   "semantic_matrix": {
     "status": "NATIVE_UNRUN_LOCAL_CANDIDATE",
     "fixture": "Eight fixed aware events; genuine dbt normal run + actual duplicate/orphan dbt tests; selected source/capture/actor catalogs invariant",
@@ -502,7 +503,7 @@
       },
       "last_measured_fullapp_conservative_inclusive": 29613572516,
       "projection_not_measurement": 30955749796,
-      "runtime_fresh_fixture": "Existing PG/WAL/dbt/driver/image/Garage staging additionally charged before growth; measured40e9 whole-owned + all planned images + remaining +2GiB AND actualdf before install/each compiler/runtime/native phase/export."
+      "runtime_fresh_fixture": "Existing PG/WAL/dbt/driver/image/Garage staging additionally charged before growth; current30e9 whole-owned + all planned images + remaining +2GiB AND actualdf before install/each compiler/runtime/native phase/export. Historical N2 projection above30e9 is not current admission evidence."
     },
     "reuse_limits": "N1 scoped15queries and named-zone calendar evidence valid; old SDK S3 proof separate; unsupported parallel2-thread DDL remains unresolved. G10 still UNRUN until native evidence and serial independent reviews."
   },
@@ -524,7 +525,7 @@
     "mode": "replacement-restore",
     "method": "Whole clean frozenPGcluster plus complete runtime/data/Garage/config/key mount closure coldtar, then newIDs and independenthostroots; no originalservice/root mount or key fallback. Plain restoredGarage/no initialization and existingBIusers/project/chart only.",
     "resources": {
-      "task_bytes": 40000000000,
+      "task_bytes": 30000000000,
       "headroom_bytes": 2147483648,
       "cpu": 4,
       "runtime_memory_mib": 4352,
