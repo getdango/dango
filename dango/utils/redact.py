@@ -2,7 +2,7 @@
 
 Shared secret redaction for log text served by the web API and the MCP tools.
 
-Level 0 module (standard library, ``toml`` and ``dango.utils.env_file`` only; ``tomllib`` is 3.11+). Exact known secret values are replaced with
+Level 0 module (standard library, ``toml``, ``dango.utils.env_file`` and ``dango.utils.dlt_error_text`` only; ``tomllib`` is 3.11+). Exact known secret values are replaced with
 ``[REDACTED]``; secret-looking patterns (key=value pairs, URL credentials, auth headers,
 signed query parameters, chat webhook URLs) are masked even when the value is not known.
 """
@@ -15,6 +15,7 @@ from typing import Any
 
 import toml
 
+from dango.utils.dlt_error_text import rewrite_dlt_advice
 from dango.utils.env_file import parse_env_file
 
 REDACTED = "[REDACTED]"
@@ -73,13 +74,17 @@ def redact_patterns(text: str) -> str:
 def redact_text(text: str, secrets: frozenset[str]) -> str:
     """Replace known secret values, URL userinfo, auth header values and token-like params.
 
+    dlt's command-line advice after a failed load is replaced by Dango's wording too: every
+    error text that is stored, printed or sent passes through here.
+
     Known values shorter than ``MIN_SECRET_LENGTH`` are ignored. Longer values are replaced
     longest first so a value containing another one is removed whole.
     """
     for value in sorted(secrets, key=len, reverse=True):
         if len(value) >= MIN_SECRET_LENGTH:
             text = text.replace(value, REDACTED)
-    return redact_patterns(text)
+    # last, so the raw passage that reaches the debug log is already redacted
+    return rewrite_dlt_advice(redact_patterns(text))
 
 
 def redact_nested(value: Any, secrets: frozenset[str]) -> Any:

@@ -4,6 +4,7 @@ CLI display helpers and project context utilities.
 """
 
 import subprocess
+import sys
 from pathlib import Path
 
 import click
@@ -43,6 +44,20 @@ def check_v01x_project() -> None:
             "See https://docs.getdango.dev for the migration guide."
         )
         raise click.Abort()
+
+
+def stdin_is_interactive() -> bool:
+    """True when a person can answer a prompt: stdin is open and is a terminal.
+
+    Used for a destructive confirmation that has a ``--yes`` flag, where waiting on a pipe or a
+    closed stream would hang a script. It is not a general "no prompts" check: ``click.prompt``
+    reads piped answers and raises on EOF, and other prompts rely on that.
+    """
+    stream = sys.stdin
+    try:
+        return stream is not None and not stream.closed and bool(stream.isatty())
+    except (ValueError, OSError, AttributeError):
+        return False
 
 
 def require_project_context(ctx: click.Context) -> Path:

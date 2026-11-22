@@ -37,6 +37,7 @@ from dango.ingestion.empty_guard import (
     truncate_message,
     zero_rows_message,
 )
+from dango.ingestion.interrupts import interrupts_stay_interrupts
 from dango.ingestion.sources.registry import get_source_metadata
 from dango.utils.docker_hints import DOCKER_UNAVAILABLE_ERROR, note_metabase_skipped
 from dango.utils.duckdb_lock_text import rewrite_lock_text
@@ -1485,7 +1486,8 @@ class DltPipelineRunner:
 
             # Phase 2: Normalize (in-memory, NO LOCK)
             console.print("  ⏳ Normalizing data...")
-            norm_info = pipeline.normalize()
+            with interrupts_stay_interrupts():
+                norm_info = pipeline.normalize()
 
             # Pre-load empty-replace protection (1.0.10-S13): abort BEFORE any DuckDB
             # write if a replace-mode table with existing data is about to be emptied.
@@ -1968,7 +1970,8 @@ class DltPipelineRunner:
 
             # Phase 2: Normalize (in-memory, NO LOCK)
             console.print("  ⏳ Normalizing data...")
-            norm_info = pipeline.normalize()
+            with interrupts_stay_interrupts():
+                norm_info = pipeline.normalize()
 
             # Pre-load empty-replace protection (1.0.10-S13): abort BEFORE any DuckDB
             # write if a replace-mode table with existing data is about to be emptied.
@@ -2203,8 +2206,9 @@ class DltPipelineRunner:
                     try:
                         partial_source = source.with_resources(*remaining)
                         # Split phases: extract, normalize, lock+load
-                        pipeline.extract(partial_source)
-                        pipeline.normalize()
+                        with interrupts_stay_interrupts():
+                            pipeline.extract(partial_source)
+                            pipeline.normalize()
                         load_info = self._load_with_lock(pipeline, source_name, max_lock_wait)
                         stats = self._extract_load_stats(load_info)
                         self._cleanup_state_backup(state_backup)
@@ -3061,7 +3065,8 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 _LOCK_RETRY_WAIT = 10  # seconds
                 for _attempt in range(_LOCK_MAX_RETRIES):
                     try:
-                        load_info = pipeline.load()
+                        with interrupts_stay_interrupts():
+                            load_info = pipeline.load()
                         _prune_loaded_packages(pipeline)
                         return load_info
                     except PipelineStepFailed as _exc:
@@ -3125,7 +3130,8 @@ Need help? Visit: https://github.com/getdango/dango/issues
                         message=r".*[Pp]aginator.*",
                         category=UserWarning,
                     )
-                    pipeline.extract(source)
+                    with interrupts_stay_interrupts():
+                        pipeline.extract(source)
                 return
 
             except Exception as e:
@@ -3361,7 +3367,8 @@ Need help? Visit: https://github.com/getdango/dango/issues
 
             # Phase 2: Normalize (in-memory, NO LOCK)
             console.print("  ⏳ Normalizing data...")
-            norm_info = staging_pipeline.normalize()
+            with interrupts_stay_interrupts():
+                norm_info = staging_pipeline.normalize()
 
             staged_counts = {
                 k: v for k, v in norm_info.row_counts.items() if not k.startswith("_dlt")
@@ -3786,6 +3793,11 @@ def run_sync(
             max_lock_wait=max_lock_wait,
         )
         results.append(result)
+
+        if result.get("status") == "interrupted":
+            # Ctrl+C stops the whole sync: no further sources, no dbt, no post-sync hooks. The
+            # source's history entry (status "interrupted") is already written by run_source.
+            raise KeyboardInterrupt
 
         if result.get("status") == "success":
             success_sources.append(source_config.name)

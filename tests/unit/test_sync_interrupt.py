@@ -168,9 +168,7 @@ class TestRunSyncStopsOnInterrupt:
         dbt.assert_not_called()
         hooks.assert_not_called()
 
-    def test_interrupt_during_dbt_skips_the_hooks_and_releases_the_lock(
-        self, tmp_path: Path
-    ) -> None:
+    def test_interrupt_during_dbt_runs_no_hooks_and_releases_the_lock(self, tmp_path: Path) -> None:
         runner = self._mock_runner(["success"])
         hooks = MagicMock()
         lock = MagicMock()

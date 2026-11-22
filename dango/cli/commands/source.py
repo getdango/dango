@@ -11,7 +11,7 @@ import click
 from rich.markup import escape
 
 from dango.cli import console
-from dango.cli.utils import safe_confirm
+from dango.cli.utils import safe_confirm, stdin_is_interactive
 from dango.config.helpers import (
     check_unreferenced_custom_sources,
     format_unreferenced_sources_warning,
@@ -1023,6 +1023,15 @@ def sync(
 
             console.print(f"Syncing {len(sources_to_sync)} enabled source(s)")
 
+        # --full-refresh drops data and asks first. With no terminal to answer (a script, an
+        # agent, a pipe nobody closes) the prompt would wait forever: say how to proceed instead.
+        if full_refresh and not yes and not stdin_is_interactive():
+            console.print(
+                "[red]Error:[/red] --full-refresh needs confirmation: "
+                "run it in a terminal or add --yes"
+            )
+            raise click.Abort()
+
         # Guard rail: on first sync, confirm scope
         # Placed before lock so user doesn't wait for lock if they'll cancel.
         if not yes and not dry_run:
@@ -1130,7 +1139,8 @@ def sync(
         except KeyboardInterrupt:
             console.print("\n[yellow]Sync interrupted — progress saved.[/yellow]")
             console.print("[green]Resume with the same command.[/green]")
-            return
+            # 130 = 128 + SIGINT, the shell convention: a script can tell this from success
+            raise click.exceptions.Exit(130) from None
 
         # Refresh Metabase's connection before triggering schema sync. On cloud,
         # _load_with_lock() already stopped/started Metabase around the write phase;
@@ -1178,7 +1188,7 @@ def sync(
             print_failed_sources(summary, project_root)
             raise click.Abort()
 
-    except click.Abort:
+    except (click.Abort, click.exceptions.Exit):
         raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
