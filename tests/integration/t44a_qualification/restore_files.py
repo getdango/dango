@@ -13,7 +13,7 @@ import tarfile
 from pathlib import Path, PurePosixPath
 
 ROOTS = ("pgdata", "source", "tools", "scripts", "work", "home", "fixture", "secrets")
-REPORT_BOUND = 128 * 1024**2
+REPORT_BOUND = 160 * 1024**2
 
 
 def digest(data):
