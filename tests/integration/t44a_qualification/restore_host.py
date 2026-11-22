@@ -256,7 +256,10 @@ def run(original, names, result, growth):
         report["phase"] = "cold-copy"
         disk_gate(original, growth + REPORT_RESERVE, "before-restore-cold-inventory")
         inv = private_inventory(original, top, top, backup / "original-inventory.json")
-        remaining = inv["archive_upper"] + inv["restore_upper"] + growth + REPORT_RESERVE
+        # No runtime or replacement writes overlap this cold, host-only archive phase.
+        for name in original.names:
+            missing(original, name)
+        remaining = inv["archive_upper"] + REPORT_RESERVE
         report["copy_bounds"] = {k: inv[k] for k in ["archive_upper", "restore_upper"]}
         disk_gate(original, remaining, "before-restore-cold-archive")
         archive = backup / "runtime.tar"
@@ -277,7 +280,8 @@ def run(original, names, result, growth):
             timeout=600,
         )
         original.call(["sudo", "chown", f"{top.stat().st_uid}:{top.stat().st_gid}", str(archive)])
-        assert archive.stat().st_blocks * 512 <= inv["archive_upper"]
+        report["archive_allocated_bytes"] = archive.stat().st_blocks * 512
+        assert report["archive_allocated_bytes"] <= inv["archive_upper"]
         report["archive_sha256"] = file_hash(archive)
         audit_archive(archive, inv)
         private_inventory(original, top, top, backup / "original-inventory.json", True)

@@ -218,9 +218,16 @@ def main():
         output.write_bytes(body)
         output.chmod(0o600)
         os.chown(output, root.stat().st_uid, root.stat().st_gid)
+    file_rows = [row for row in report["rows"].values() if row["kind"] == "file"]
+    groups = {(row["device"], row["inode"]): row["bytes"] for row in file_rows}
     print(
         json.dumps(
             {
+                "file_entries": len(file_rows),
+                "file_inode_groups": len(groups),
+                "file_hardlink_aliases": len(file_rows) - len(groups),
+                "unique_file_logical_bytes": sum(groups.values()),
+                "all_file_logical_bytes": sum(row["bytes"] for row in file_rows),
                 "sha256": digest(body),
                 "bytes": len(body),
                 "entries": len(report["rows"]),

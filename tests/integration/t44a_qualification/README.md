@@ -553,6 +553,13 @@ covers other report originals/exports, for704MiB total charged before inventory/
 copy phases. Actual archive/replacement bounds, the hard30GB ceiling and actual
 runner free-space checks still decide future fit. Inventory refusal reports only
 numeric bytes/limit/count; new or larger inventories remain fail-closed.
+The unchanged hard30GB and actual free-space checks apply before each write phase.
+The host-only cold archive phase reserves its conservative archive upper bound
+plus reports, after exact original service absence. It records allocated archive
+bytes/hash and numeric file/inode-group counts without relaxing either copy bound.
+The full replacement upper bound plus runtime growth and reports must still fit
+before any original root moves. Archive completion alone is not N4 PASS, and
+quarantined originals remain until final cleanup.
 
 ### Filesystem-only N4 setup discriminator (not restore admission)
 
