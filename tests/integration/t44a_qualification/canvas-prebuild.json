@@ -1,0 +1,603 @@
+{
+  "package": "canvas@3.2.1",
+  "url": "https://github.com/Automattic/node-canvas/releases/download/v3.2.1/canvas-v3.2.1-napi-v7-linux-x64.tar.gz",
+  "file": "canvas-v3.2.1-napi-v7-linux-x64.tar.gz",
+  "sha256": "a2311aa496861fb0582877c343bbfaaeca7f218ff66198e5f167c8c1e2291fb0",
+  "compressed": 8760133,
+  "logical": 24044237,
+  "allocated_upper": 24248320,
+  "directories": [
+    "build",
+    "build/Release"
+  ],
+  "members": {
+    "build/config.gypi": {
+      "sha256": "ab6cd3970c76b0a57cf145c0842ef1529e0ce93ebdcc39ac0abc4adef119466a",
+      "bytes": 15454,
+      "mode": 420
+    },
+    "build/binding.Makefile": {
+      "sha256": "e694313e858af9fc94a5f329ecc3aca1eb9b31f8640f42d44cd3aab7443cb5bc",
+      "bytes": 114,
+      "mode": 420
+    },
+    "build/Release/libpangocairo-1.0.so.0": {
+      "sha256": "1baef52af372ecc33936a8657a8753a59f404545b8e341679fcf0219f75147ac",
+      "bytes": 73760,
+      "mode": 493,
+      "needed": [
+        "libpango-1.0.so.0",
+        "libpangoft2-1.0.so.0",
+        "libm.so.6",
+        "libglib-2.0.so.0",
+        "libgobject-2.0.so.0",
+        "libfontconfig.so.1",
+        "libcairo.so.2",
+        "libc.so.6"
+      ],
+      "component": "pango"
+    },
+    "build/Release/libjpeg.so.62": {
+      "sha256": "4cbfdd4bb21716a6b0edd9857902e72818ec7c935615ba2e1e1cc541f63233e0",
+      "bytes": 604840,
+      "mode": 420,
+      "needed": [
+        "libc.so.6"
+      ],
+      "component": "libjpeg-turbo"
+    },
+    "build/Release/libpixman-1.so.0": {
+      "sha256": "104443eda3694914fdd36f487cbe6dbb5c2e954faacf4fa1102f03e5ffe2a2f5",
+      "bytes": 688160,
+      "mode": 493,
+      "needed": [
+        "libm.so.6",
+        "libpthread.so.0",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2"
+      ],
+      "component": "pixman"
+    },
+    "build/Release/libfribidi.so.0": {
+      "sha256": "8d08bbfea4786e15a47faf8f158886aa42c4a7a573e7b36a09e806c4d4a1ac01",
+      "bytes": 123128,
+      "mode": 493,
+      "needed": [
+        "libc.so.6"
+      ],
+      "component": "fribidi"
+    },
+    "build/Release/libgobject-2.0.so.0": {
+      "sha256": "48040d686365fc5db454127be06d2ef9b8eab622caec1ee61a8a994d0d2d71c9",
+      "bytes": 404840,
+      "mode": 493,
+      "needed": [
+        "libglib-2.0.so.0",
+        "libffi.so.7",
+        "libc.so.6"
+      ],
+      "component": "glib"
+    },
+    "build/Release/libpcre.so.1": {
+      "sha256": "3eedb5be4036f5a312269c883ee150750b926159063ce73da1c3cae67c35821e",
+      "bytes": 290296,
+      "mode": 493,
+      "needed": [
+        "libc.so.6"
+      ],
+      "component": "pcre"
+    },
+    "build/Release/libpangoft2-1.0.so.0": {
+      "sha256": "1c4068a5012bac06325ca93e0986fa2cae83764d11bd2fd2fe82a40432ba5e7c",
+      "bytes": 110328,
+      "mode": 493,
+      "needed": [
+        "libpango-1.0.so.0",
+        "libglib-2.0.so.0",
+        "libgobject-2.0.so.0",
+        "libgio-2.0.so.0",
+        "libharfbuzz.so.0",
+        "libfontconfig.so.1",
+        "libfreetype.so.6",
+        "libc.so.6"
+      ],
+      "component": "pango"
+    },
+    "build/Release/canvas.node": {
+      "sha256": "7ee0ce2b2e307816c246c72e0d6a86ba7c2d9bb286915079ed8b92b2353af07e",
+      "bytes": 971088,
+      "mode": 493,
+      "needed": [
+        "libpixman-1.so.0",
+        "libcairo.so.2",
+        "libpng16.so.16",
+        "libz.so.1",
+        "libpangocairo-1.0.so.0",
+        "libpango-1.0.so.0",
+        "libgobject-2.0.so.0",
+        "libglib-2.0.so.0",
+        "libharfbuzz.so.0",
+        "libfreetype.so.6",
+        "librsvg-2.so.2",
+        "libgio-2.0.so.0",
+        "libgdk_pixbuf-2.0.so.0",
+        "libjpeg.so.62",
+        "libgif.so.7",
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libpthread.so.0",
+        "libc.so.6"
+      ],
+      "component": "canvas"
+    },
+    "build/Release/libfreetype.so.6": {
+      "sha256": "dcf22e30bf1559943a56f0495f40910f6bd47735f2454e093afecec2292652df",
+      "bytes": 717928,
+      "mode": 493,
+      "needed": [
+        "libpng16.so.16",
+        "libm.so.6",
+        "libz.so.1",
+        "libc.so.6"
+      ],
+      "component": "freetype"
+    },
+    "build/Release/libxml2.so.2": {
+      "sha256": "ec28ed78bf4db969e6ab29785cc301d49689e6140e6f681694505b1af2bd5548",
+      "bytes": 1482032,
+      "mode": 493,
+      "needed": [
+        "libdl.so.2",
+        "libz.so.1",
+        "libm.so.6",
+        "libc.so.6"
+      ],
+      "component": "libxml2"
+    },
+    "build/Release/libffi.so.7": {
+      "sha256": "3870efb30ca3cfc0c75ee99f5025effb48ec69dc6a858389784e7a689ee6930b",
+      "bytes": 49248,
+      "mode": 493,
+      "needed": [
+        "libc.so.6"
+      ],
+      "component": "libffi"
+    },
+    "build/Release/libpng16.so.16": {
+      "sha256": "6fa30a8559bfcdf216403026928af443883b53a295700e44d069bc5954114c18",
+      "bytes": 218912,
+      "mode": 493,
+      "needed": [
+        "libz.so.1",
+        "libm.so.6",
+        "libc.so.6"
+      ],
+      "component": "libpng"
+    },
+    "build/Release/librsvg-2.so.2": {
+      "sha256": "6335c9030aed066641b5d65d921834e180eda216382a0df44fc9c3a276fe6357",
+      "bytes": 9757208,
+      "mode": 493,
+      "needed": [
+        "libcairo-gobject.so.2",
+        "libgdk_pixbuf-2.0.so.0",
+        "libgio-2.0.so.0",
+        "libxml2.so.2",
+        "libpangocairo-1.0.so.0",
+        "libcairo.so.2",
+        "libpthread.so.0",
+        "libpixman-1.so.0",
+        "librt.so.1",
+        "libpangoft2-1.0.so.0",
+        "libpango-1.0.so.0",
+        "libgobject-2.0.so.0",
+        "libharfbuzz.so.0",
+        "libglib-2.0.so.0",
+        "libfontconfig.so.1",
+        "libexpat.so.1",
+        "libuuid.so.1",
+        "libfreetype.so.6",
+        "libpng16.so.16",
+        "libz.so.1",
+        "libm.so.6",
+        "libdl.so.2",
+        "libgcc_s.so.1",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2"
+      ],
+      "component": "librsvg"
+    },
+    "build/Release/libcairo.so.2": {
+      "sha256": "7d9eaea3a091ee4de49a5fc2831fc60d0222b207fa35da9ae7cae15b1a9b8f26",
+      "bytes": 994216,
+      "mode": 493,
+      "needed": [
+        "libpthread.so.0",
+        "libpixman-1.so.0",
+        "libfontconfig.so.1",
+        "libfreetype.so.6",
+        "libpng16.so.16",
+        "libz.so.1",
+        "librt.so.1",
+        "libm.so.6",
+        "libc.so.6"
+      ],
+      "component": "cairo"
+    },
+    "build/Release/libgif.so.7": {
+      "sha256": "31eab479561751e9db27b68cb9f91cc08c21a9832ec76ac832794f721eac3448",
+      "bytes": 41024,
+      "mode": 493,
+      "needed": [
+        "libc.so.6"
+      ],
+      "component": "giflib"
+    },
+    "build/Release/libexpat.so.1": {
+      "sha256": "c1713793be20b4fd200af782edc543279757750a22740dc13ee45b78624046fc",
+      "bytes": 246648,
+      "mode": 493,
+      "needed": [
+        "libc.so.6"
+      ],
+      "component": "expat"
+    },
+    "build/Release/libgdk_pixbuf-2.0.so.0": {
+      "sha256": "5ac2c46a8ace8643d7ba09842e148bbe3f05adaccc8747fc5a273a9208d60053",
+      "bytes": 162520,
+      "mode": 493,
+      "needed": [
+        "libm.so.6",
+        "libglib-2.0.so.0",
+        "libgobject-2.0.so.0",
+        "libgmodule-2.0.so.0",
+        "libgio-2.0.so.0",
+        "libpthread.so.0",
+        "libc.so.6"
+      ],
+      "component": "gdk-pixbuf"
+    },
+    "build/Release/libfontconfig.so.1": {
+      "sha256": "976981a113969b7e1a663aa650de950e96d87f87ea9476ef1be3ddc0ca206b99",
+      "bytes": 284744,
+      "mode": 493,
+      "needed": [
+        "libfreetype.so.6",
+        "libpng16.so.16",
+        "libm.so.6",
+        "libz.so.1",
+        "libexpat.so.1",
+        "libuuid.so.1",
+        "libpthread.so.0",
+        "libc.so.6"
+      ],
+      "component": "fontconfig"
+    },
+    "build/Release/libharfbuzz.so.0": {
+      "sha256": "dfd799d31ea158a2523260719be6611eda4c2b9093c879e61d9126d505a6c321",
+      "bytes": 1102560,
+      "mode": 493,
+      "needed": [
+        "libm.so.6",
+        "libglib-2.0.so.0",
+        "libfreetype.so.6",
+        "libc.so.6"
+      ],
+      "component": "harfbuzz"
+    },
+    "build/Release/libstdc++.so.6": {
+      "sha256": "e3c68d010a7b3dd73dcc98e8a3b4e0336538896648602269b1111825f2ed7563",
+      "bytes": 1873184,
+      "mode": 420,
+      "needed": [
+        "libm.so.6",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2",
+        "libgcc_s.so.1"
+      ],
+      "component": "gcc-runtime"
+    },
+    "build/Release/libgio-2.0.so.0": {
+      "sha256": "4d673bbf01681cdc38b5a1d7ef009595baf9a2babea4a02e253e6aa543ef9a45",
+      "bytes": 1997896,
+      "mode": 493,
+      "needed": [
+        "libglib-2.0.so.0",
+        "libgobject-2.0.so.0",
+        "libgmodule-2.0.so.0",
+        "libz.so.1",
+        "libresolv.so.2",
+        "libc.so.6"
+      ],
+      "component": "glib"
+    },
+    "build/Release/libpango-1.0.so.0": {
+      "sha256": "16ed14b553429c6cd525c2ad9eec28ab277b62d8b2f8a81822d9fa450ba5f0f3",
+      "bytes": 341336,
+      "mode": 493,
+      "needed": [
+        "libm.so.6",
+        "libglib-2.0.so.0",
+        "libgobject-2.0.so.0",
+        "libgio-2.0.so.0",
+        "libfribidi.so.0",
+        "libharfbuzz.so.0",
+        "libc.so.6"
+      ],
+      "component": "pango"
+    },
+    "build/Release/libgmodule-2.0.so.0": {
+      "sha256": "f8f555c7007cda9b4ac207123e44b93e090b81e20bf12077b291fbc3c263ccaf",
+      "bytes": 23816,
+      "mode": 493,
+      "needed": [
+        "libglib-2.0.so.0",
+        "libdl.so.2",
+        "libc.so.6"
+      ],
+      "component": "glib"
+    },
+    "build/Release/libz.so.1": {
+      "sha256": "b5d454cf4d16dc749038fbd3a82e07c7ecdecc1c72497d834016ac47bda0a772",
+      "bytes": 119608,
+      "mode": 493,
+      "needed": [
+        "libc.so.6"
+      ],
+      "component": "zlib"
+    },
+    "build/Release/libglib-2.0.so.0": {
+      "sha256": "757b492a069a5d9ce8bf872259b3261c7ca8881c54d501c9d5f6d6f5bcf49c56",
+      "bytes": 1279640,
+      "mode": 493,
+      "needed": [
+        "libpcre.so.1",
+        "libpthread.so.0",
+        "libc.so.6"
+      ],
+      "component": "glib"
+    },
+    "build/Release/libcairo-gobject.so.2": {
+      "sha256": "66ecc066d78b8c5cb5661946ee2c43246b013e294dbbb2d2ae1328be304b1ecb",
+      "bytes": 49896,
+      "mode": 493,
+      "needed": [
+        "libcairo.so.2",
+        "libpthread.so.0",
+        "libpixman-1.so.0",
+        "libfontconfig.so.1",
+        "libfreetype.so.6",
+        "libpng16.so.16",
+        "libz.so.1",
+        "libgobject-2.0.so.0",
+        "libglib-2.0.so.0",
+        "librt.so.1",
+        "libm.so.6",
+        "libc.so.6"
+      ],
+      "component": "cairo"
+    },
+    "build/Makefile": {
+      "sha256": "23c35cc2bd326279f74d163f8b1813e070e6afa503a26bbda51c2a093884671d",
+      "bytes": 13706,
+      "mode": 420
+    },
+    "build/canvas.target.mk": {
+      "sha256": "8aee58703e81438c584c854feeac7e1e175c9471461db46bcee00ed8783fd960",
+      "bytes": 6107,
+      "mode": 420
+    }
+  },
+  "components": {
+    "canvas": {
+      "files": [
+        "canvas.node"
+      ],
+      "upstream_recipe_version": "3.2.1",
+      "license": "MIT",
+      "source_or_license_url": "https://github.com/Automattic/node-canvas/tree/v3.2.1"
+    },
+    "pixman": {
+      "files": [
+        "libpixman-1.so.0"
+      ],
+      "upstream_recipe_version": "0.40.0",
+      "license": "MIT",
+      "source_or_license_url": "https://www.cairographics.org/releases/pixman-0.40.0.tar.gz"
+    },
+    "cairo": {
+      "files": [
+        "libcairo.so.2",
+        "libcairo-gobject.so.2"
+      ],
+      "upstream_recipe_version": "1.16.0",
+      "license": "LGPL-2.1-only OR MPL-1.1",
+      "source_or_license_url": "https://cairographics.org/releases/cairo-1.16.0.tar.xz"
+    },
+    "libpng": {
+      "files": [
+        "libpng16.so.16"
+      ],
+      "upstream_recipe_version": "1.6.37",
+      "license": "Libpng-2.0",
+      "source_or_license_url": "https://download.sourceforge.net/libpng/libpng-1.6.37.tar.gz"
+    },
+    "zlib": {
+      "files": [
+        "libz.so.1"
+      ],
+      "upstream_recipe_version": "1.2.11",
+      "license": "Zlib",
+      "source_or_license_url": "https://zlib.net/fossils/zlib-1.2.11.tar.gz"
+    },
+    "pango": {
+      "files": [
+        "libpango-1.0.so.0",
+        "libpangocairo-1.0.so.0",
+        "libpangoft2-1.0.so.0"
+      ],
+      "upstream_recipe_version": "1.48.0",
+      "license": "LGPL-2.1-or-later",
+      "source_or_license_url": "https://download.gnome.org/sources/pango/1.48/pango-1.48.0.tar.xz"
+    },
+    "glib": {
+      "files": [
+        "libglib-2.0.so.0",
+        "libgobject-2.0.so.0",
+        "libgio-2.0.so.0",
+        "libgmodule-2.0.so.0"
+      ],
+      "upstream_recipe_version": "2.67.1",
+      "license": "LGPL-2.1-or-later",
+      "source_or_license_url": "https://download.gnome.org/sources/glib/2.67/glib-2.67.1.tar.xz"
+    },
+    "harfbuzz": {
+      "files": [
+        "libharfbuzz.so.0"
+      ],
+      "upstream_recipe_version": "2.7.4",
+      "license": "MIT",
+      "source_or_license_url": "https://github.com/harfbuzz/harfbuzz/releases/download/2.7.4/harfbuzz-2.7.4.tar.xz"
+    },
+    "freetype": {
+      "files": [
+        "libfreetype.so.6"
+      ],
+      "upstream_recipe_version": "2.10.4",
+      "license": "FTL OR GPL-2.0-only",
+      "source_or_license_url": "https://download.sourceforge.net/freetype/freetype-2.10.4.tar.gz"
+    },
+    "librsvg": {
+      "files": [
+        "librsvg-2.so.2"
+      ],
+      "upstream_recipe_version": "2.52.8",
+      "license": "LGPL-2.1-or-later",
+      "source_or_license_url": "https://download.gnome.org/sources/librsvg/2.52/librsvg-2.52.8.tar.xz"
+    },
+    "gdk-pixbuf": {
+      "files": [
+        "libgdk_pixbuf-2.0.so.0"
+      ],
+      "upstream_recipe_version": "2.42.2",
+      "license": "LGPL-2.1-or-later",
+      "source_or_license_url": "https://download.gnome.org/sources/gdk-pixbuf/2.42/gdk-pixbuf-2.42.2.tar.xz"
+    },
+    "libjpeg-turbo": {
+      "files": [
+        "libjpeg.so.62"
+      ],
+      "upstream_recipe_version": "2.0.6",
+      "license": "IJG AND BSD-3-Clause AND Zlib",
+      "source_or_license_url": "https://github.com/libjpeg-turbo/libjpeg-turbo/archive/2.0.6.tar.gz"
+    },
+    "giflib": {
+      "files": [
+        "libgif.so.7"
+      ],
+      "upstream_recipe_version": "5.2.1",
+      "license": "MIT",
+      "source_or_license_url": "https://download.sourceforge.net/giflib/giflib-5.2.1.tar.gz"
+    },
+    "gcc-runtime": {
+      "files": [
+        "libstdc++.so.6"
+      ],
+      "upstream_recipe_version": null,
+      "license": "GPL-3.0-or-later WITH GCC-exception-3.1",
+      "source_or_license_url": "https://gcc.gnu.org/onlinedocs/libstdc++/manual/license.html"
+    },
+    "fontconfig": {
+      "files": [
+        "libfontconfig.so.1"
+      ],
+      "upstream_recipe_version": "2.13.1",
+      "license": "MIT",
+      "source_or_license_url": "https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.13.1.tar.bz2"
+    },
+    "expat": {
+      "files": [
+        "libexpat.so.1"
+      ],
+      "upstream_recipe_version": "2.2.10",
+      "license": "MIT",
+      "source_or_license_url": "https://github.com/libexpat/libexpat/releases/download/R_2_2_10/expat-2.2.10.tar.gz"
+    },
+    "libffi": {
+      "files": [
+        "libffi.so.7"
+      ],
+      "upstream_recipe_version": "3.3",
+      "license": "MIT",
+      "source_or_license_url": "https://github.com/libffi/libffi/releases/download/v3.3/libffi-3.3.tar.gz"
+    },
+    "libxml2": {
+      "files": [
+        "libxml2.so.2"
+      ],
+      "upstream_recipe_version": "2.9.10",
+      "license": "MIT",
+      "source_or_license_url": "https://download.gnome.org/sources/libxml2/2.9/libxml2-2.9.10.tar.xz"
+    },
+    "fribidi": {
+      "files": [
+        "libfribidi.so.0"
+      ],
+      "upstream_recipe_version": "1.0.10",
+      "license": "LGPL-2.1-or-later",
+      "source_or_license_url": "https://github.com/fribidi/fribidi/releases/download/v1.0.10/fribidi-1.0.10.tar.xz"
+    },
+    "pcre": {
+      "files": [
+        "libpcre.so.1"
+      ],
+      "upstream_recipe_version": "8.44",
+      "license": "BSD-3-Clause",
+      "source_or_license_url": "https://downloads.sourceforge.net/project/pcre/pcre/8.44/pcre-8.44.tar.bz2"
+    }
+  },
+  "image_provided_sonames": [
+    "ld-linux-x86-64.so.2",
+    "libc.so.6",
+    "libdl.so.2",
+    "libgcc_s.so.1",
+    "libm.so.6",
+    "libpthread.so.0",
+    "libresolv.so.2",
+    "librt.so.1",
+    "libuuid.so.1"
+  ],
+  "image_provided_basis": "Existing exact frozen Node Debian image, not downloaded or replaced by this correction; actual offline load test must establish resolution. glibc LGPL-2.1-or-later; GCC runtime GPL-3.0-or-later WITH GCC-exception-3.1; util-linux libuuid BSD-3-Clause.",
+  "provenance": {
+    "publisher_release_digest": "sha256:a2311aa496861fb0582877c343bbfaaeca7f218ff66198e5f167c8c1e2291fb0",
+    "successful_build_run": 20884637402,
+    "builder_source_commit": "a292af33330c9a3bea98bb80d5e5ab6fb98a4cb2",
+    "builder_source_url": "https://github.com/Automattic/node-canvas/tree/a292af33330c9a3bea98bb80d5e5ab6fb98a4cb2/prebuild/Linux",
+    "qualification": "Exact published binary identities are frozen. Component licenses/recipe versions describe the upstream release recipe; no reproducible source-build or exact unpinned builder-image identity claim. No app binaries will be published."
+  },
+  "installer": {
+    "package": "prebuild-install@7.1.3",
+    "archive_sha256": "6741b8ecf3c24c0a652748ca362560405b38797c760ccff531ab61f14930f9ab",
+    "runtime": "napi",
+    "local_prebuilds": "/work/canvas-prebuild",
+    "source_contract": "rc.js supports --local-prebuilds; util.localPrebuild selects exact release filename; download.js uses this archive before any request. Run offline with no node-gyp fallback.",
+    "file_sha256": {
+      "LICENSE": "0aa9add6a9158efad3e6649e3affd607c7e2629f6677af19f9988c8fbb0757b0",
+      "asset.js": "7d45fb08fb0829581dd00268f1d98f147b659d1cdd8b293d0ddd26fbda941a25",
+      "bin.js": "27e6a2d2e63549eb0b3c2d9a9067b7646f9157a120b7f345a12a1e20c997a998",
+      "download.js": "91663d22ce22740be17b6f22868e3d2687ea5a759c50b75322f597f0f6ccfb15",
+      "error.js": "0df3fa571a7fb2563113d8a7ea83c79e769830abbe7b5d5d9cd430c3ea893f68",
+      "index.js": "51c1dae166a7da3717cc50ba36118c12f5351ff07a7d23d6dd53828bd857f5b6",
+      "log.js": "0bf1d515cc020b8f18cfd91783b2905034cc6886b18a774a615eddfd96580bd9",
+      "proxy.js": "ead9b672f19d036389a4d7c2e8712314f200837e8428402f4a0dad5d19cb744f",
+      "rc.js": "a112308f308c194b38f0e5084b12e4b52779d7f3101b0471e01bc3fa66d60cda",
+      "util.js": "587f23cf9216dfa7e162d83d9760a2daf2744623c38f5576fb3e5ef6d21d6c6c",
+      "package.json": "d8502f5ce977ea10cc7e91e95b595ce845e838cf412801230e9a2f211ad68039",
+      "CHANGELOG.md": "7e4c2d7091ded670df5a2ee11eec9e04308a734aa14dc5f03aad2aa3f760ad0c",
+      "CONTRIBUTING.md": "e65a6c8971149d9c0bc4721cedcf99f86ec37df9fa7bdf28858ee4d59383c7bb",
+      "README.md": "56e2065c004fadd2ff5f78c02daab3db47d8477a7bf97ff87f815971839ee25b",
+      "help.txt": "e8e4b86f73fedb870c61bb8ebebe03ca817f33ff75f7bf75ba158e69224d52d6"
+    }
+  }
+}

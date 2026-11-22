@@ -1,0 +1,15 @@
+# tests/integration/t44a_qualification/garage.toml
+# Proposed single owned Garage2.5.0 profile; synthetic RPC secret is a mode0600 file.
+metadata_dir = "/work/garage/meta"
+data_dir = "/work/garage/data"
+db_engine = "sqlite"
+replication_factor = 1
+rpc_bind_addr = "127.0.0.1:3901"
+rpc_public_addr = "127.0.0.1:3901"
+rpc_secret_file = "/secrets/garage-rpc"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "127.0.0.1:3900"
+root_domain = ".s3.garage.localhost"
+public_endpoint = "http://127.0.0.1:3900"

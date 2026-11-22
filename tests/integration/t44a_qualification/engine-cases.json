@@ -1,0 +1,128 @@
+{
+  "cases": [
+    {
+      "id": "parser_cte_quoted",
+      "sql": "WITH \"select\"(x) AS (VALUES (2),(3)) SELECT sum(x) AS answer FROM \"select\"",
+      "expected": [
+        [
+          5
+        ]
+      ]
+    },
+    {
+      "id": "lambda_python",
+      "sql": "SELECT CAST(list_transform([1,2,3], lambda x: x+1) AS VARCHAR) AS answer",
+      "expected": [
+        [
+          "[2, 3, 4]"
+        ]
+      ]
+    },
+    {
+      "id": "lambda_arrow_refused",
+      "sql": "SELECT list_transform([1,2,3], x -> x+1) AS answer",
+      "error": {
+        "native_type": "Binder",
+        "message_contains": "Deprecated lambda arrow (->) detected.",
+        "not_accepted": [
+          "successful rows",
+          "generic parser or validation failure",
+          "credentials/bootstrap failure"
+        ]
+      }
+    },
+    {
+      "id": "integer_arithmetic",
+      "sql": "SELECT 5 // 2 AS integer_division, 5 % 2 AS modulo, 5 / 2 AS float_division",
+      "expected": [
+        [
+          2,
+          1,
+          2.5
+        ]
+      ]
+    },
+    {
+      "id": "integer_division_zero",
+      "sql": "SELECT 1 // 0 AS answer",
+      "error": {
+        "native_type": "Invalid Input",
+        "message_contains": "Division by zero in expression",
+        "not_accepted": [
+          "NULL",
+          "infinity",
+          "client SQL validation rejection",
+          "credentials/bootstrap failure"
+        ]
+      }
+    },
+    {
+      "id": "integer_modulo_zero",
+      "sql": "SELECT 1 % 0 AS answer",
+      "error": {
+        "native_type": "Invalid Input",
+        "message_contains": "Division by zero in expression",
+        "not_accepted": [
+          "NULL",
+          "infinity",
+          "client SQL validation rejection",
+          "credentials/bootstrap failure"
+        ]
+      }
+    },
+    {
+      "id": "explicit_try_zero",
+      "sql": "SELECT TRY(1 // 0) AS integer_division, TRY(1 % 0) AS modulo",
+      "expected": [
+        [
+          null,
+          null
+        ]
+      ]
+    },
+    {
+      "id": "timestamp_types",
+      "sql": "SELECT typeof(DATE '1970-01-01') AS date_type, typeof(TIMESTAMP '1970-01-01 00:00:00') AS naive_type, typeof(TIMESTAMPTZ '1970-01-01 00:00:00+00') AS aware_type, epoch_us(TIMESTAMP '1970-01-01 00:00:00.123456') AS naive_us, epoch_us(TIMESTAMPTZ '1970-01-01 01:00:00.123456+01') AS aware_us",
+      "expected": [
+        [
+          "DATE",
+          "TIMESTAMP",
+          "TIMESTAMP WITH TIME ZONE",
+          123456,
+          123456
+        ]
+      ]
+    },
+    {
+      "id": "timestamp_precision",
+      "sql": "SELECT CAST(TIMESTAMP_NS '1970-01-01 00:00:00.123456789' AS VARCHAR) AS nanoseconds, CAST(TIMESTAMP '1970-01-01 00:00:00.123456789' AS VARCHAR) AS microseconds",
+      "expected": [
+        [
+          "1970-01-01 00:00:00.123456789",
+          "1970-01-01 00:00:00.123456"
+        ]
+      ]
+    },
+    {
+      "id": "selected_catalog_control",
+      "sql": "SELECT sum(amount) AS total FROM lake.sales.orders",
+      "expected": [
+        [
+          350
+        ]
+      ]
+    }
+  ],
+  "s3": {
+    "uri": "s3://t44a-results/synthetic-readiness",
+    "body": "t44a-owned-storage-readiness\n",
+    "sha256": "edd71ee1b47735939426b5bb5f87ccd37bf1617887d1d94e3717f2e02582c7a1",
+    "bytes": 29,
+    "sql": "SELECT sha256(content) AS body_sha256, octet_length(content) AS body_bytes FROM read_blob('s3://t44a-results/synthetic-readiness')"
+  },
+  "limits": {
+    "extra_peak": 1342177280,
+    "stage_artifact": 33554432,
+    "report": 16777216
+  }
+}
