@@ -10,8 +10,10 @@ import logging
 from collections.abc import Iterator
 from io import StringIO
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import dlt
 import pytest
 from dlt.common.pipeline import LoadInfo
 from dlt.destinations.exceptions import DestinationConnectionError
@@ -19,6 +21,7 @@ from dlt.pipeline.exceptions import PipelineStepFailed
 from rich.console import Console
 
 from dango.cli.sync_report import print_failed_sources
+from dango.ingestion.dlt_runner import DltPipelineRunner
 from dango.utils.error_text import redacted_error_text, rich_error_text
 from dango.utils.redact import redact_error_fields, redact_nested, redact_text
 from dango.utils.sync_history import load_sync_history
@@ -272,3 +275,75 @@ def test_the_pipeline_failed_line_names_the_source(project: Path, out: StringIO)
     _run(project, "dlt", _step_failed(), ("native",))
     line = out.getvalue().split("❌ Pipeline failed:")[1].split("Dango could not write")[0]
     assert "`dango sync native`" in line.replace("\n", " ")
+
+
+STAGED = "nothing was swapped in"
+
+
+def _failed_staged_refresh(project: Path, exc: Exception) -> dict[str, Any]:
+    pipeline = MagicMock(spec=dlt.Pipeline)
+    pipeline.extract.return_value = None
+    pipeline.normalize.side_effect = exc
+    runner = DltPipelineRunner(project)
+    with (
+        patch("dlt.pipeline", return_value=pipeline),
+        patch("dango.ingestion.dlt_runner._connect_with_lock_retry"),
+        patch.object(DltPipelineRunner, "_clear_local_pipeline_cache"),
+    ):
+        return runner._full_refresh_via_staging(
+            source=MagicMock(),
+            source_name="native",
+            dataset_name="raw_native",
+            pipeline_name="native",
+            max_lock_wait=1,
+            uses_replace_mode=False,
+        )
+
+
+class TestFailedStagedFullRefresh:
+    """The staging pipeline is cleared after a failure: its data is not kept for a next run."""
+
+    def test_the_advice_says_what_happened_not_that_the_data_is_kept(
+        self, project: Path, out: StringIO
+    ) -> None:
+        result = _failed_staged_refresh(project, _step_failed())
+        assert result["status"] == "failed"
+        for text in (result["error"], out.getvalue()):
+            flat = " ".join(text.split())
+            assert "Its data is kept" not in flat and "next run loads it" not in flat
+            assert STAGED in flat and "existing tables are unchanged" in flat
+            assert "staged data was discarded" in flat
+            assert "run the same command again" in flat
+            assert CAUSE in flat  # the real cause stays visible
+            for words in DLT_WORDS:
+                assert words not in flat
+
+    def test_a_partly_loaded_staging_package_is_described_the_same_way(
+        self, project: Path, out: StringIO
+    ) -> None:
+        result = _failed_staged_refresh(project, _step_failed(partially_loaded=True))
+        flat = " ".join(result["error"].split())
+        assert "Part of the previous load was written to the warehouse" not in flat
+        assert "existing tables are unchanged" in flat and "dlthub.com" not in flat
+
+    def test_an_ordinary_load_failure_keeps_its_own_wording(self) -> None:
+        text = redacted_error_text(None, _step_failed(), "native")
+        assert "Its data is kept and the next run loads it" in text
+        assert STAGED not in text
+
+
+def test_a_known_secret_on_the_rewritten_line_is_masked_before_the_rewrite(
+    tmp_path: Path,
+) -> None:
+    """Redaction runs first. A project secret that overlaps the start of dlt's sentence is masked
+    in the original text, so the sentence is left redacted, not replaced; swapping the two steps
+    would let the rewrite decide what is a secret."""
+    secret = "Pending packages are left"
+    (tmp_path / ".env").write_text(f"SOME_TOKEN={secret}\n", encoding="utf-8")
+    for text in (
+        redacted_error_text(tmp_path, _step_failed(), "native"),
+        rich_error_text(tmp_path, _step_failed(), "native"),
+    ):
+        assert secret not in text
+        assert "[REDACTED] in the pipeline" in text
+        assert EXPECTED not in text  # the masked line no longer matches the rewrite
