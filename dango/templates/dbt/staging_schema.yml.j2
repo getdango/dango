@@ -12,10 +12,12 @@
 # EDITING THIS FILE:
 # - Update descriptions as you learn about the data
 # - Add tests (unique, not_null, accepted_values, etc.)
-# - not_null checks on ordinary columns were inferred from a sample of your data and only
-#   warn (severity: warn); checks on key columns (id) block. Change severity or delete a
-#   test if the sample was not representative.
-# - This file will not be overwritten if you customize it
+# - After a sync, Dango adds not_null checks inferred from a sample of your data, but only
+#   to a file you have not edited since Dango last wrote it. Once you edit this file Dango
+#   leaves it alone. To get Dango's checks again, delete the file and run `dango sync`.
+# - Inferred not_null checks on ordinary columns only warn (severity: warn). Checks on
+#   columns named id, uuid or key, and on columns the warehouse declares NOT NULL, fail the
+#   run. Change the severity or delete a check if the sample was not representative.
 
 version: 2
 

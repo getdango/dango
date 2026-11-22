@@ -41,6 +41,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
     from dango.transformation import _dbt_telemetry_env, _get_dbt_executable
     from dango.transformation.build_finalize import finalize_dbt_build, summarize_run_results
     from dango.utils import DbtLock, DbtLockError
+    from dango.utils.inferred_tests import failures_are_only_staging_not_null
 
     from ..scaffold import enforce_scaffold
     from ..utils import require_project_context
@@ -122,6 +123,16 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
             console.print(f"\n[red]dbt build failed with exit code {result.returncode}[/red]")
             if busy := lock_message_since(dbt_dir, log_offset):
                 console.print(f"[yellow]{escape(busy)}[/yellow]")
+            failed = (summarize_run_results(project_root, since=build_started) or {}).get(
+                "failed", []
+            )
+            if failures_are_only_staging_not_null(project_root, failed):
+                console.print(
+                    "\nThese checks may have been generated from a sample of your data. To make "
+                    "them warnings instead, add `config: {severity: warn}` to each one in "
+                    "dbt/models/staging/stg_<source>.yml, or delete the check.",
+                    highlight=False,
+                )
             raise click.Abort()
 
         warned = [
@@ -134,9 +145,10 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
         if warned:
             console.print(
                 f"\n[yellow]Note:[/yellow] the build succeeded. {len(warned)} data check(s) "
-                "raised a warning, which does not stop the run: "
-                f"{escape(', '.join(warned))}. Checks Dango inferred from a sample of your data "
-                "only warn; review them in dbt/models/staging/."
+                "raised a warning (warnings do not stop the run): "
+                f"{escape(', '.join(warned))}. Checks Dango generated from a sample of your "
+                "data are warn-only; they are in dbt/models/staging/.",
+                highlight=False,
             )
 
         # Metabase is restarted after the dbt write phase, so it's available

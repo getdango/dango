@@ -122,8 +122,10 @@ def test_deleted_check_does_not_come_back(tmp_path: Path) -> None:
     root = _make_project(tmp_path)
     _sync(root)
     data = yaml.safe_load(_schema(root).read_text(encoding="utf-8"))
-    for col in data["models"][0]["columns"]:
+    orders = next(m for m in data["models"] if m["name"] == "stg_shop__orders")
+    for col in orders["columns"]:
         if col["name"] == "status":
+            assert col["tests"]
             del col["tests"]  # the user decides status needs no check
     _schema(root).write_text(
         yaml.dump(data, sort_keys=False) + "# status may be blank on purpose\n",

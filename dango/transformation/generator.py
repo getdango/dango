@@ -19,6 +19,7 @@ from dango.utils.dbt_escaping import (
     neutralize_jinja,
     yaml_scalar,
 )
+from dango.utils.generated_file_hashes import record_current
 from dango.utils.inferred_tests import (
     KEY_COLUMN_NAMES,
     inferred_not_null_test,
@@ -742,6 +743,9 @@ class DbtModelGenerator:
                     if not staging_schema_file.exists():
                         with open(staging_schema_file, "w", encoding="utf-8", newline="\n") as f:
                             f.write(staging_schema_yml)
+                        # Later post-sync enrichment may change the file only while it is
+                        # still exactly these bytes.
+                        record_current(self.project_root, staging_schema_file)
 
                 if generated_models:
                     summary["generated"].append(

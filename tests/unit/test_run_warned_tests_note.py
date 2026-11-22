@@ -185,11 +185,22 @@ def test_hint_when_every_failure_is_a_staging_not_null_on_a_non_key_column(tmp_p
         _test(f"unique_{MODEL}_id", "fail", "id", kind="unique"),
         _test(f"not_null_{MODEL}_id", "fail", "id"),
         _test(f"not_null_{MODEL}_key", "fail", "key"),
+        _test(f"unique_{MODEL}_customer_id", "fail", "customer_id", kind="unique"),
+        _test(f"accepted_values_{MODEL}_status", "fail", "status", kind="accepted_values"),
         _test("not_null_order_count_n", "fail", "n", attached="order_count"),
         _test("source_not_null_shop_orders_status", "fail", "status", attached="orders"),
         _model("order_count", "error"),
     ],
-    ids=["unique", "key-id", "key-key", "mart-test", "source-test", "model-error"],
+    ids=[
+        "unique-key",
+        "key-id",
+        "key-key",
+        "unique-ordinary",
+        "accepted-values",
+        "mart-test",
+        "source-test",
+        "model-error",
+    ],
 )
 def test_no_hint_when_any_other_failure_exists(tmp_path: Path, extra: dict[str, Any]) -> None:
     result = _invoke(

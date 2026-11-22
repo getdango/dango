@@ -18,6 +18,7 @@ from typing import Any
 from dango.logging import get_logger
 from dango.utils.dango_db import connect
 from dango.utils.dbt_escaping import needs_identifier_quoting, neutralize_jinja
+from dango.utils.generated_file_hashes import is_unmodified, record_current
 from dango.utils.inferred_tests import has_not_null_test as _has_not_null_test
 from dango.utils.inferred_tests import inferred_not_null_test, is_customized_model
 from dango.utils.redact import redact_project_text
@@ -460,6 +461,10 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
         schema_file = staging_dir / f"stg_{source}.yml"
         if not schema_file.exists():
             continue
+        if not is_unmodified(project_root, schema_file):
+            # Edited since Dango wrote it, or written by an earlier version: user-owned.
+            logger.debug("staging_tests_user_owned_file_left_alone", source=source)
+            continue
 
         try:
             content = schema_file.read_text(encoding="utf-8")
@@ -525,6 +530,7 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
                 header = "".join(header_lines)
                 yml_body = yaml.dump(data, default_flow_style=False, sort_keys=False)
                 schema_file.write_text(header + yml_body, encoding="utf-8", newline="\n")
+                record_current(project_root, schema_file)
                 logger.debug("staging_tests_enriched", source=source)
         except Exception:
             logger.warning("staging_test_enrichment_error", source=source, exc_info=True)

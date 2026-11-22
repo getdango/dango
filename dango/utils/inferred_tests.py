@@ -8,6 +8,7 @@ later data legitimately differs from the first snapshot.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,38 @@ def inferred_not_null_test(column_name: str) -> str | dict[str, Any]:
     Key columns get a blocking ``not_null``; every other column gets a warn-only one.
     """
     return "not_null" if is_key_column(column_name) else warn_not_null_test()
+
+
+def failures_are_only_staging_not_null(project_root: Path, failed: list[dict[str, Any]]) -> bool:
+    """True when every failed node is a not_null test on a non-key column of a staging model.
+
+    ``failed`` are the failed nodes of a ``summarize_run_results`` summary; the test details
+    come from the manifest dbt wrote for the same build. False when anything else failed
+    (a model, another kind of test, a key column, a test outside staging) or nothing can be read.
+    """
+    if not failed:
+        return False
+    try:
+        manifest = json.loads(
+            (project_root / "dbt" / "target" / "manifest.json").read_text(encoding="utf-8")
+        )
+        nodes = manifest["nodes"]
+        for item in failed:
+            node = nodes[item["unique_id"]]
+            attached = str(node.get("attached_node") or "")
+            column = node.get("column_name")
+            if (
+                node.get("resource_type") != "test"
+                or (node.get("test_metadata") or {}).get("name") != "not_null"
+                or not attached.startswith("model.")
+                or not attached.rsplit(".", 1)[-1].startswith("stg_")
+                or not column
+                or is_key_column(str(column))
+            ):
+                return False
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return False
+    return True
 
 
 def is_customized_model(staging_dir: Path, model_name: str) -> bool:
