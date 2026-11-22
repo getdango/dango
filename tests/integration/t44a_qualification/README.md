@@ -546,6 +546,13 @@ owned cleanup remain in force. All N3 native assertions remain unrun until CI.
 
 Replacement restore mode (`replacement-restore`) is a qualification candidate until actual CI and independent review. It stops original writers, inventories final objects, cold-copies the entire PG cluster and runtime/data/Garage/config/key closure, removes original containers and quarantines their roots, then uses independent extracted roots and new container IDs. The restored app uses saved users/project/private chart, fresh native350/filter300 queries and private403; Garage starts without bootstrap. The whole top task root, both copies, image bounds, future growth and2GiB headroom must fit30e9 and actual runner free space. Archive/private keys and both trees are removed only after exact container absence. No integrated Dango restore, cross-host portability, or new release/shipping claim.
 
+Each private cold inventory is capped at128MiB. The original and replacement maps
+plus their exported copies reserve4x128MiB; another64MiB covers other report
+originals/exports, for576MiB total charged before inventory/copy phases. The
+actual archive/replacement bounds, hard30GB ceiling and actual runner free-space
+checks still decide fit. Inventory refusal reports only numeric bytes/limit/count;
+128MiB sufficiency for this fixture remains unproved until actual execution.
+
 ### Filesystem-only N4 setup discriminator (not restore admission)
 
 The temporary `filesystem-probe` workflow mode uses an explicit pinned diagnostic

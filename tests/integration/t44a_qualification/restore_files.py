@@ -13,7 +13,7 @@ import tarfile
 from pathlib import Path, PurePosixPath
 
 ROOTS = ("pgdata", "source", "tools", "scripts", "work", "home", "fixture", "secrets")
-REPORT_BOUND = 64 * 1024**2
+REPORT_BOUND = 128 * 1024**2
 
 
 def digest(data):
@@ -208,7 +208,10 @@ def main():
     assert output.parent == root / "restore-backup" and output.exists() == verify
     report = inventory(source)
     body = json.dumps(report, sort_keys=True, separators=(",", ":")).encode() + b"\n"
-    assert len(body) <= REPORT_BOUND, "Private inventory bound"
+    assert len(body) <= REPORT_BOUND, (
+        f"Private inventory bound: bytes={len(body)} limit={REPORT_BOUND} "
+        f"entries={len(report['rows'])}"
+    )
     if verify:
         assert output.read_bytes() == body, "Original cold tree changed during archive"
     else:

@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from held_reader import pg_snapshot
-from restore_files import ROOTS, audit_archive, compare
+from restore_files import REPORT_BOUND, ROOTS, audit_archive, compare
 from run import disk_gate
 
 STATUS = "PASS_REPLACEMENT_RESTORE_350_300_PRIVATE_403"
@@ -22,7 +22,8 @@ FILES = [
     "restore_actor.cjs",
     "app_runtime_profiles.py",
 ]
-REPORT_RESERVE = 320 * 1024**2
+# Original/replacement inventories and both exported copies, plus64MiB other reports.
+REPORT_RESERVE = 4 * REPORT_BOUND + 64 * 1024**2
 HERE = Path(__file__).resolve().parent
 
 

@@ -529,7 +529,7 @@
       "headroom_bytes": 2147483648,
       "cpu": 4,
       "runtime_memory_mib": 4352,
-      "report_copies_reserve": 335544320
+      "report_copies_reserve": 603979776
     },
     "fit": "Measure whole topR including quarantine/privatearchive/replacement and all frozen image copies; measured archive/expansion upper plus remaining runtime and reports BEFORE copying. No compression/hardlink/reflink credit. Actualdf gates throughout.",
     "outputs": "Sanitized restore-*.json and shared commands only; no private archive/key files or rawPG/Garage data upload.",
