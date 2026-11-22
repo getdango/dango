@@ -227,3 +227,27 @@ def test_header_states_what_is_true(tmp_path: Path) -> None:
     assert "will not be overwritten if you customize it" not in header
     for word in ("id", "uuid", "key", "NOT NULL", "severity: warn", "have not edited"):
         assert word in header
+
+
+@pytest.mark.parametrize(
+    "new_sql",
+    [
+        "-- Mine\nselect id, sku from {{ source('shop', 'items') }}\n",
+        "-- Mine\nselect id, sku, size as item_size from {{ source('shop', 'items') }}\n",
+    ],
+    ids=["column-dropped", "column-renamed"],
+)
+def test_customized_model_gets_no_check_while_the_unedited_file_is_enriched(
+    tmp_path: Path, new_sql: str
+) -> None:
+    """The file is still Dango's, but a model whose SQL the user took over gains no check."""
+    root = _make_project(tmp_path)
+    _sync(root)
+    (_schema(root).parent / "stg_shop__items.sql").write_text(
+        new_sql, encoding="utf-8", newline="\n"
+    )
+    items_before = _columns(root, "stg_shop__items")
+    _resync_after_fill(root)
+    assert _columns(root, "stg_shop__orders")["note"] != []  # the file itself was enriched
+    assert _columns(root, "stg_shop__items") == items_before
+    assert _columns(root, "stg_shop__items")["size"] == []

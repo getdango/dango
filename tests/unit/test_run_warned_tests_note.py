@@ -45,7 +45,7 @@ def _test(
         "manifest": {
             "resource_type": "test",
             "column_name": column,
-            "attached_node": f"model.proj.{attached}",
+            "attached_node": attached if "." in attached else f"model.proj.{attached}",
             "test_metadata": {"name": kind},
         },
     }
@@ -61,6 +61,7 @@ def _invoke(
     *,
     returncode: int = 0,
     stale: bool = False,
+    manifest: str = "ok",
 ) -> Result:
     """Run `dango run` with a fake dbt that writes run_results.json (older than the run if stale)."""
     target = tmp_path / "dbt" / "target"
@@ -70,8 +71,11 @@ def _invoke(
         results = [{"unique_id": n["uid"], "status": n["status"], "message": None} for n in nodes]
         path = target / "run_results.json"
         path.write_text(json.dumps({"results": results}), encoding="utf-8", newline="\n")
-        manifest = {"nodes": {n["uid"]: n["manifest"] for n in nodes}}
-        (target / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8", newline="\n")
+        nodes_json = json.dumps({"nodes": {n["uid"]: n["manifest"] for n in nodes}})
+        if manifest == "corrupt":
+            nodes_json = nodes_json[: len(nodes_json) // 2]
+        if manifest != "missing":
+            (target / "manifest.json").write_text(nodes_json, encoding="utf-8", newline="\n")
         if stale:
             old = time.time() - 3600
             os.utime(path, (old, old))
@@ -187,6 +191,8 @@ def test_hint_when_every_failure_is_a_staging_not_null_on_a_non_key_column(tmp_p
         _test(f"not_null_{MODEL}_key", "fail", "key"),
         _test(f"unique_{MODEL}_customer_id", "fail", "customer_id", kind="unique"),
         _test(f"accepted_values_{MODEL}_status", "fail", "status", kind="accepted_values"),
+        _test("not_null_stg_seed_x", "fail", "x", attached="seed.proj.stg_seed"),
+        _test("not_null_stg_snap_x", "fail", "x", attached="snapshot.proj.stg_snap"),
         _test("not_null_order_count_n", "fail", "n", attached="order_count"),
         _test("source_not_null_shop_orders_status", "fail", "status", attached="orders"),
         _model("order_count", "error"),
@@ -197,6 +203,8 @@ def test_hint_when_every_failure_is_a_staging_not_null_on_a_non_key_column(tmp_p
         "key-key",
         "unique-ordinary",
         "accepted-values",
+        "seed-test",
+        "snapshot-test",
         "mart-test",
         "source-test",
         "model-error",
@@ -234,5 +242,18 @@ def test_no_hint_from_stale_run_results(tmp_path: Path) -> None:
 @pytest.mark.unit
 def test_no_hint_when_the_build_has_no_results_at_all(tmp_path: Path) -> None:
     result = _invoke(tmp_path, [], returncode=1)
+    assert result.exit_code == 1
+    assert HINT not in _plain(result.output)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("manifest", ["missing", "corrupt"])
+def test_no_hint_when_the_manifest_cannot_be_read(tmp_path: Path, manifest: str) -> None:
+    result = _invoke(
+        tmp_path,
+        [_test(f"not_null_{MODEL}_customer_id", "fail", "customer_id")],
+        returncode=1,
+        manifest=manifest,
+    )
     assert result.exit_code == 1
     assert HINT not in _plain(result.output)
