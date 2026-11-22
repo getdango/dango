@@ -373,9 +373,9 @@ class DltPipelineRunner:
         except ConfigNotFoundError:
             return PlatformSettings().min_free_disk_gb
 
-    def _rich_err(self, error: object, source_name: str | None = None) -> str:
+    def _rich_err(self, error: object, source_name: str | None = None, *, kept: bool = True) -> str:
         """Redacted, Rich-escaped error text for ``console.print`` (tolerates a bare instance)."""
-        return rich_error_text(getattr(self, "project_root", None), error, source_name)
+        return rich_error_text(getattr(self, "project_root", None), error, source_name, kept=kept)
 
     def _failure_text(self, error: object, source_name: str) -> str:
         """Stored text of a failed source; dlt's raw advice (if any) goes to the debug log once."""
@@ -3563,11 +3563,16 @@ Need help? Visit: https://github.com/getdango/dango/issues
             return result
 
         except Exception as e:
-            console.print(f"  ❌ Full refresh staging failed: {self._rich_err(e, source_name)}")
+            # kept=False: the staging pipeline is cleared just below, so dlt's "pending packages
+            # will be re-tried" does not apply; nothing was swapped in.
+            console.print(
+                f"  ❌ Full refresh staging failed: {self._rich_err(e, source_name, kept=False)}"
+            )
             _cleanup_staging(staging_pipeline)
             error_msg = (
                 f"Full refresh failed during staging — the existing destination data "
-                f"was never touched: {redacted_error_text(self.project_root, e, source_name)}"
+                f"was never touched: "
+                f"{redacted_error_text(self.project_root, e, source_name, kept=False)}"
             )
             return {
                 "status": "failed",

@@ -20,8 +20,14 @@ _PENDING = re.compile(r"Pending packages are left in the pipeline[^\n]*")
 _PARTIAL = re.compile(r"WARNING: package `[^`\n]*` is partially loaded[^\n]*")
 
 
-def pending_advice(source_name: str | None = None) -> str:
-    """The replacement for dlt's pending-package advice (names the source when it is known)."""
+def pending_advice(source_name: str | None = None, *, kept: bool = True) -> str:
+    """The replacement for dlt's pending-package advice (names the source when it is known).
+
+    ``kept=False`` is for a failed staged full refresh: Dango clears the staging pipeline after
+    the failure, so the staged data is not kept for a next run; nothing was swapped in.
+    """
+    if not kept:
+        return STAGED_PENDING_TEXT
     command = f"`dango sync {source_name}`" if source_name else "the same command"
     return (
         "This load did not finish. Its data is kept and the next run loads it, so running "
@@ -35,11 +41,26 @@ PARTIAL_TEXT = (
     "load's data. Run the same command again to finish it."
 )
 
+# A failed staged full refresh: the swap never happened and the staging pipeline was cleared.
+STAGED_PENDING_TEXT = (
+    "This full refresh did not finish: nothing was swapped in, the existing tables are unchanged "
+    "and the staged data was discarded. Fix the cause above (a permissions or disk-space problem, "
+    "for example), then run the same command again."
+)
+STAGED_PARTIAL_TEXT = (
+    "The staged data was only partly loaded and was discarded: nothing was swapped in and the "
+    "existing tables are unchanged. Fix the cause above, then run the same command again."
+)
 
-def rewrite_dlt_advice(text: str, source_name: str | None = None) -> str:
-    """*text* with dlt's pending-package and partial-load advice replaced by Dango's wording."""
+
+def rewrite_dlt_advice(text: str, source_name: str | None = None, *, kept: bool = True) -> str:
+    """*text* with dlt's pending-package and partial-load advice replaced by Dango's wording.
+
+    ``kept=False`` is for the error of a failed staged full refresh (see ``pending_advice``).
+    """
     if "Pending packages" not in text and "partially loaded" not in text:
         return text
-    advice = pending_advice(source_name)
+    advice = pending_advice(source_name, kept=kept)
+    partial = PARTIAL_TEXT if kept else STAGED_PARTIAL_TEXT
     text = _PENDING.sub(lambda _match: advice, text)
-    return _PARTIAL.sub(lambda _match: PARTIAL_TEXT, text)
+    return _PARTIAL.sub(lambda _match: partial, text)
