@@ -75,3 +75,25 @@ def count(runner, name, table) -> int:
         return con.execute(f'SELECT COUNT(*) FROM "raw_{name}"."{table}"').fetchone()[0]
     finally:
         con.close()
+
+
+def snapshot(runner, name) -> dict[str, list[tuple]]:
+    """Every table of `raw_<name>` with all columns (incl. `_dlt_load_id`, `_dlt_id`), rows sorted."""
+    con = duckdb.connect(str(runner.duckdb_path), read_only=True)
+    try:
+        tables = [
+            t
+            for (t,) in con.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = ? "
+                "AND table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'",
+                [f"raw_{name}"],
+            ).fetchall()
+        ]
+        return {
+            t: sorted(
+                con.execute(f'SELECT * FROM "raw_{name}"."{t}"').fetchall(), key=lambda r: repr(r)
+            )
+            for t in tables
+        }
+    finally:
+        con.close()
