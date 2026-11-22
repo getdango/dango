@@ -23,6 +23,11 @@ from dango.ingestion.empty_guard import (
 NO_SCHEMA = SimpleNamespace(default_schema=SimpleNamespace(tables={}))
 
 
+COMPUTED = SimpleNamespace(
+    name="dyn", table_name=lambda item: "t", write_disposition="replace", selected=True
+)
+
+
 def _schema(tables):
     return SimpleNamespace(default_schema=SimpleNamespace(tables=tables))
 
@@ -97,9 +102,12 @@ class TestResourceDispositions:
 
 @pytest.mark.unit
 class TestReplaceProtectedTables:
-    def test_unknown_table_is_protected(self):
+    def test_unknown_table_of_an_unrecognised_source_is_protected(self):
+        assert replace_protected_tables(object(), NO_SCHEMA, ["orphan"]) == {"orphan"}
+
+    def test_a_table_no_resource_can_write_is_not_protected(self):
         source = SimpleNamespace(resources={})
-        assert replace_protected_tables(source, NO_SCHEMA, ["orphan"]) == {"orphan"}
+        assert replace_protected_tables(source, NO_SCHEMA, ["orphan"]) == set()
 
     def test_schema_answers_for_a_table_no_resource_names(self):
         tables = {
@@ -107,7 +115,7 @@ class TestReplaceProtectedTables:
             "dyn_a__items": {"parent": "dyn_a"},
             "dyn_b": {"write_disposition": "replace"},
         }
-        source = SimpleNamespace(resources={})
+        source = SimpleNamespace(resources={"dyn": COMPUTED})
         got = replace_protected_tables(source, _schema(tables), ["dyn_a", "dyn_a__items", "dyn_b"])
         assert got == {"dyn_b"}
 
@@ -124,7 +132,8 @@ class TestReplaceProtectedTables:
 
     def test_parent_cycle_does_not_loop(self):
         tables = {"a": {"parent": "b"}, "b": {"parent": "a"}}
-        got = replace_protected_tables(SimpleNamespace(resources={}), _schema(tables), ["a"])
+        source = SimpleNamespace(resources={"dyn": COMPUTED})
+        got = replace_protected_tables(source, _schema(tables), ["a"])
         assert got == {"a"}
 
 

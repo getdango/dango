@@ -274,7 +274,10 @@ class TestRunSync:
 
     def test_full_refresh_warning(self, project: Path, fake_sync: FakeSync) -> None:
         result = mcp_operations.run_sync("orders", full_refresh=True)
-        assert "Full refresh: existing data will be dropped and reloaded" in result["warnings"]
+        assert (
+            "Full refresh: the tables each source loads will be dropped and reloaded; "
+            "tables it does not load stay untouched"
+        ) in result["warnings"]
 
 
 @pytest.mark.unit

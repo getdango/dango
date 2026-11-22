@@ -27,8 +27,11 @@ def resource(name, rows, disposition, **hints):
     return _gen()
 
 
-def sync(runner, method, name, source, **kwargs) -> dict[str, Any]:
-    """Run one sync of `source` through the chosen method (real dlt, real DuckDB)."""
+def sync(runner, method, name, source, native=None, **kwargs) -> dict[str, Any]:
+    """Run one sync of `source` through the chosen method (real dlt, real DuckDB).
+
+    `native` adds fields (e.g. `pipeline_name`, `dataset_name`) to the dlt_native config.
+    """
     if method == "dlt":
         config = DataSource(name=name, type=SourceType.CHESS)
         with (
@@ -46,7 +49,10 @@ def sync(runner, method, name, source, **kwargs) -> dict[str, Any]:
         name=name,
         type=SourceType.DLT_NATIVE,
         dlt_native=DltNativeConfig(
-            source_module="fixture_module", source_function="make", function_kwargs={}
+            source_module="fixture_module",
+            source_function="make",
+            function_kwargs={},
+            **(native or {}),
         ),
     )
     module = types.SimpleNamespace(make=lambda: source)
@@ -73,5 +79,27 @@ def count(runner, name, table) -> int:
     con = duckdb.connect(str(runner.duckdb_path), read_only=True)
     try:
         return con.execute(f'SELECT COUNT(*) FROM "raw_{name}"."{table}"').fetchone()[0]
+    finally:
+        con.close()
+
+
+def snapshot(runner, name) -> dict[str, list[tuple]]:
+    """Every table of `raw_<name>` with all columns (incl. `_dlt_load_id`, `_dlt_id`), rows sorted."""
+    con = duckdb.connect(str(runner.duckdb_path), read_only=True)
+    try:
+        tables = [
+            t
+            for (t,) in con.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = ? "
+                "AND table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'",
+                [f"raw_{name}"],
+            ).fetchall()
+        ]
+        return {
+            t: sorted(
+                con.execute(f'SELECT * FROM "raw_{name}"."{t}"').fetchall(), key=lambda r: repr(r)
+            )
+            for t in tables
+        }
     finally:
         con.close()

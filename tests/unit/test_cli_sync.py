@@ -391,6 +391,31 @@ class TestSyncGuardRails:
             plain = _ANSI_RE.sub("", result.output)
             assert "This will sync" not in plain
 
+    def test_full_refresh_prompt_says_which_tables_are_dropped_and_which_stay(self) -> None:
+        """The prompt must not claim that all data is dropped: tables the sync does not load stay."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            (tmp_path / "data").mkdir()
+            (tmp_path / "data" / "warehouse.duckdb").touch()
+            patches = _patch_sync_prereqs()
+            patches[0] = patch("dango.cli.utils.require_project_context", return_value=tmp_path)
+            runner = CliRunner()
+            for p in patches:
+                p.start()
+            try:
+                result = runner.invoke(
+                    sync, ["--full-refresh"], obj={"project_root": str(tmp_path)}, input="n\n"
+                )
+            finally:
+                for p in patches:
+                    p.stop()
+            plain = " ".join(_ANSI_RE.sub("", result.output).split())
+            assert "existing data will be dropped" not in plain
+            assert "reload all data" not in plain
+            assert "the tables each source loads this run will be dropped and reloaded" in plain
+            assert "tables it does not load stay untouched" in plain
+            assert "Full refresh will reload the tables each source loads. Continue?" in plain
+
 
 @pytest.fixture(autouse=True)
 def _scaffold_not_under_test(monkeypatch: pytest.MonkeyPatch) -> None:
