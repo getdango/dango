@@ -97,9 +97,9 @@ class TestSyncFailureOutput:
         assert result.exit_code == 1
         assert "Error: disk exploded" in result.output
 
-    def test_keyboard_interrupt_unchanged(self) -> None:
+    def test_keyboard_interrupt_message_unchanged_and_exit_is_130(self) -> None:
         result = _invoke_sync(["--yes"], MagicMock(side_effect=KeyboardInterrupt()))
-        assert result.exit_code == 0
+        assert result.exit_code == 130
         assert "Sync interrupted" in result.output
         assert "Error" not in result.output
 

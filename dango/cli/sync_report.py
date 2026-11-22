@@ -24,5 +24,7 @@ def print_failed_sources(summary: dict[str, Any], project_root: Path) -> None:
     for item in failed:
         name = item.get("name", "unknown") if isinstance(item, dict) else str(item)
         reason = item.get("error") if isinstance(item, dict) else None
-        text = rich_error_text(project_root, reason or "Unknown error")
+        text = rich_error_text(
+            project_root, reason or "Unknown error", None if name == "unknown" else str(name)
+        )
         console.print(f"  - {escape(str(name))}: {text}")

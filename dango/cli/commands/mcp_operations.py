@@ -190,6 +190,9 @@ def run_sync(
             allow_schema_changes=allow_schema_changes,
             allow_empty_replace=allow_empty_replace,
         )
+    except KeyboardInterrupt:
+        # never let it reach the server's event loop
+        return {"status": "interrupted", "error": "Sync interrupted before it finished"}
     except Exception as e:
         return {"status": "failed", "error": redact_project_text(project_root, str(e))}
     if not isinstance(summary, dict):
@@ -215,7 +218,9 @@ def run_sync(
         except Exception:
             summary["metabase"] = "not_running"
 
-    if failed_count == 0:
+    if summary.get("interrupted"):
+        summary["status"] = "interrupted"
+    elif failed_count == 0:
         summary["status"] = "completed"
     elif summary.get("success_count", 0) == 0:
         summary["status"] = "failed"

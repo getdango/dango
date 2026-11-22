@@ -2,7 +2,7 @@
 
 Shared secret redaction for log text served by the web API and the MCP tools.
 
-Level 0 module (standard library, ``toml`` and ``dango.utils.env_file`` only; ``tomllib`` is 3.11+). Exact known secret values are replaced with
+Level 0 module (standard library, ``toml``, ``dango.utils.env_file`` and ``dango.utils.dlt_error_text`` only; ``tomllib`` is 3.11+). Exact known secret values are replaced with
 ``[REDACTED]``; secret-looking patterns (key=value pairs, URL credentials, auth headers,
 signed query parameters, chat webhook URLs) are masked even when the value is not known.
 """
@@ -15,6 +15,7 @@ from typing import Any
 
 import toml
 
+from dango.utils.dlt_error_text import rewrite_dlt_advice
 from dango.utils.env_file import parse_env_file
 
 REDACTED = "[REDACTED]"
@@ -155,10 +156,29 @@ def redact_project_text(project_root: Path | None, text: str) -> str:
     return redact_text(text, secrets)
 
 
-def redact_error_fields(project_root: Path | None, record: dict[str, Any]) -> dict[str, Any]:
-    """A copy of *record* with every value whose key contains ``error`` redacted."""
+def _rewrite_nested(value: Any, source_name: str | None) -> Any:
+    if isinstance(value, str):
+        return rewrite_dlt_advice(value, source_name)
+    if isinstance(value, dict):
+        return {k: _rewrite_nested(v, source_name) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_rewrite_nested(v, source_name) for v in value]
+    return value
+
+
+def redact_error_fields(
+    project_root: Path | None, record: dict[str, Any], source_name: str | None = None
+) -> dict[str, Any]:
+    """A copy of *record* with every value whose key contains ``error`` redacted.
+
+    Error fields are where stored failure text lives (sync history, schedule records), so dlt's
+    command-line advice is replaced by Dango's wording here too: entries written before the
+    wording changed read back with it. Log text goes through ``redact_text`` instead, unchanged.
+    """
     secrets = load_secret_values(project_root) if project_root is not None else frozenset()
     return {
-        key: redact_nested(value, secrets) if "error" in key.lower() else value
+        key: _rewrite_nested(redact_nested(value, secrets), source_name)
+        if "error" in key.lower()
+        else value
         for key, value in record.items()
     }

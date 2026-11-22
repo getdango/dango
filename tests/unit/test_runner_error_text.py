@@ -92,13 +92,15 @@ def _run(
     pipeline_extra: dict[str, Any] | None = None,
     health: Any = None,
     full_refresh: bool = False,
+    source: Any = None,
 ) -> dict[str, Any]:
     """Run ``run_sync`` over failing sources of one kind with extract raising *exc*."""
     pipeline = _failing_pipeline(exc)
     for attr, value in (pipeline_extra or {}).items():
         getattr(pipeline, attr).side_effect = value
     module = MagicMock()
-    module.fake_fn.return_value = MagicMock()
+    the_source = source if source is not None else MagicMock()
+    module.fake_fn.return_value = the_source
     meta = {"dlt_package": "dlt.sources.test", "dlt_function": "fake_fn"}
     runner_patches = {
         "_check_dependencies": (True, []),
@@ -110,7 +112,7 @@ def _run(
         "_inject_oauth_credentials": {},
         "_get_dataset_name": "raw_x",
         "_build_source_config": {},
-        "_load_dlt_source": MagicMock(),
+        "_load_dlt_source": the_source,
     }
     with (
         patch("dlt.pipeline", return_value=pipeline),

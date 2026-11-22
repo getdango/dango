@@ -176,6 +176,25 @@ def run_manual_sync(
 
     _progress("starting", "Initializing sync")
 
+    def _stopped(source_name: Any = None) -> dict[str, Any]:
+        """Record a sync a signal stopped before it finished (a failed sync with a clear reason).
+
+        The source's own history entry (status "interrupted") is written by the runner; this adds
+        none, so a stopped sync has one entry. The status file and the execution record reach a
+        terminal state, so a poller does not treat the process as crashed.
+        """
+        where = f" (source '{source_name}')" if source_name else ""
+        msg = f"Sync stopped by a signal before it finished{where}"
+        record_failure(db_path, record_id, msg)
+        _progress("failed", msg, error=msg)
+        return {
+            "record_id": record_id,
+            "status": "failed",
+            "duration_seconds": round(time.time() - start_time, 1),
+            "error": msg,
+            "interrupted": True,
+        }
+
     # --- OAuth validation (before lock) ---
     try:
         from dango.exceptions import OAuthTokenExpiredError, OAuthTokenRevokedError
@@ -278,6 +297,9 @@ def run_manual_sync(
             sync_result.get("failed_sources", []) if isinstance(sync_result, dict) else []
         )
 
+        if isinstance(sync_result, dict) and sync_result.get("interrupted"):
+            return _stopped(sync_result.get("interrupted_source"))
+
         if _dbt_failed:
             error_msg = "dbt models failed"
             record_failure(db_path, record_id, error_msg)
@@ -333,6 +355,9 @@ def run_manual_sync(
             "duration_seconds": duration,
             "rows_loaded": rows_loaded,
         }
+    except KeyboardInterrupt:
+        # A signal that reached this process outside a source's own handling (dbt, hooks, setup)
+        return _stopped()
     except Exception as exc:
         logger.warning("manual_sync_failed", error=str(exc), exc_info=True)
         error_msg = redact_project_text(project_root, str(exc))
