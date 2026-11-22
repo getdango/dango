@@ -58,12 +58,26 @@ def discard_broken_node_shim(root):
     )
     target = os.readlink(path)
     expected = "work/app/project/node_modules/node/bin/node"
-    assert not target.startswith("/") and linked_target(name, target) == expected, (
-        "Unexpected Node shim target"
-    )
+    assert linked_target(name, target) == expected, "Unexpected Node shim target: " + target
+    if target.startswith("/"):
+        assert target.startswith("/work/"), "Node shim uses a non-work absolute target"
+        mapped = root / target.lstrip("/")
+    else:
+        mapped = path.parent / target
     destination = root / expected
-    assert destination.resolve().is_relative_to(root), "Node shim target escapes owned root"
-    assert not os.path.lexists(destination), "Node shim executable exists; retain it"
+    for raw in [mapped, destination]:
+        for end in range(len(root.parts) + 1, len(raw.parts)):
+            parent = Path(*raw.parts[:end])
+            assert not parent.is_symlink() and parent.resolve().is_relative_to(root), (
+                "Node shim traverses an intermediate symlink or escapes owned root"
+            )
+    resolved = destination.resolve()
+    assert resolved.is_relative_to(root) and mapped.resolve() == resolved, (
+        "Node shim raw target escapes or differs from exact owned destination"
+    )
+    assert not os.path.lexists(destination) and not os.path.lexists(mapped), (
+        "Node shim executable exists; retain it"
+    )
     current = path.lstat()
     assert (current.st_dev, current.st_ino, current.st_mode, current.st_uid, current.st_gid) == (
         before.st_dev,
