@@ -97,6 +97,30 @@ class TestAtATerminal:
         run_sync.assert_not_called()
 
 
+class TestFirstSyncScopePrompt:
+    def test_without_a_terminal_it_is_not_asked_and_defaults_to_yes(self) -> None:
+        result, run_sync = _invoke([])
+        assert result.exit_code == 0, result.output
+        assert "Continue?" not in result.output
+        run_sync.assert_called_once()
+
+    def test_a_piped_no_is_not_read_either(self) -> None:
+        result, run_sync = _invoke([], input_text="no\n")
+        assert "Continue?" not in result.output
+        run_sync.assert_called_once()
+
+    def test_at_a_terminal_it_still_asks(self) -> None:
+        result, run_sync = _invoke([], input_text="no\n", interactive=True)
+        assert "This will sync 1 source(s). Continue?" in result.output
+        assert result.exit_code == 1
+        run_sync.assert_not_called()
+
+    def test_at_a_terminal_yes_continues(self) -> None:
+        result, run_sync = _invoke([], input_text="yes\n", interactive=True)
+        assert result.exit_code == 0, result.output
+        run_sync.assert_called_once()
+
+
 class _Stream:
     def __init__(self, tty: bool, closed: bool = False) -> None:
         self._tty, self.closed = tty, closed
@@ -138,7 +162,7 @@ class TestStdinIsInteractive:
         assert stdin_is_interactive() is False
 
 
-def _project(root: Path) -> Path:
+def _project(root: Path, *, warehouse: bool = True) -> Path:
     dango_dir = root / ".dango"
     dango_dir.mkdir(parents=True)
     project = {"project": {"name": "T", "created_by": "t@example.com", "purpose": "tests"}}
@@ -149,7 +173,8 @@ def _project(root: Path) -> Path:
     }
     (dango_dir / "sources.yml").write_text(yaml.safe_dump(sources), encoding="utf-8")
     (root / "data" / "csv").mkdir(parents=True)
-    (root / "data" / "warehouse.duckdb").write_bytes(b"")  # not a first sync: no scope prompt
+    if warehouse:  # without one this is a first sync and `dango sync` asks for the scope
+        (root / "data" / "warehouse.duckdb").write_bytes(b"")
     (dango_dir / "auth.db").write_bytes(b"")  # a v1 project (not read as a v0.1 one)
     (root / "dbt").mkdir()
     for name in ("dbt_project.yml", "profiles.yml"):
@@ -171,9 +196,16 @@ def _child_env(tmp_path: Path) -> dict[str, str]:
 class TestRealCommandLine:
     """The real CLI in a child process with the stdin a script or agent would give it."""
 
-    def _run(self, tmp_path: Path, stdin: int) -> tuple[subprocess.CompletedProcess[str], str]:
-        project = _project(tmp_path / "proj")
-        cmd = [sys.executable, "-m", "dango.cli.main", "sync", "--full-refresh"]
+    def _run(
+        self,
+        tmp_path: Path,
+        stdin: int,
+        args: tuple[str, ...] = ("--full-refresh",),
+        *,
+        warehouse: bool = True,
+    ) -> tuple[subprocess.CompletedProcess[str], str]:
+        project = _project(tmp_path / "proj", warehouse=warehouse)
+        cmd = [sys.executable, "-m", "dango.cli.main", "sync", *args]
         proc = subprocess.Popen(
             cmd,
             cwd=project,
@@ -209,3 +241,19 @@ class TestRealCommandLine:
         done, out = self._run(tmp_path, subprocess.PIPE)
         assert done.returncode == 1, out
         assert NEEDS in out and "--yes" in out
+
+    def test_message_puts_yes_first_and_does_not_claim_there_is_no_terminal(
+        self, tmp_path: Path
+    ) -> None:
+        done, out = self._run(tmp_path, subprocess.DEVNULL)
+        assert done.returncode == 1, out
+        flat = " ".join(out.split())
+        assert flat.index("--yes") < flat.index("terminal")
+        assert "run it in a terminal" not in flat
+        assert "interactive terminal" in flat
+
+    def test_first_sync_scope_prompt_does_not_wait_on_an_open_pipe(self, tmp_path: Path) -> None:
+        """A fresh project asks "This will sync N source(s). Continue?"; no one can answer."""
+        done, out = self._run(tmp_path, subprocess.PIPE, args=(), warehouse=False)
+        assert "Continue?" not in out, out  # defaults to yes without asking, like EOF does
+        assert done.returncode is not None  # it ended on its own: nothing waited for an answer

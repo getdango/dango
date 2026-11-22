@@ -57,6 +57,14 @@ def _wrapped_interrupt() -> PipelineStepFailed:
     return PipelineStepFailed(pipeline, "extract", "L1", KeyboardInterrupt(), None)
 
 
+def _returns(call: Any, *args: Any, **kwargs: Any) -> Any:
+    """Call *call*; a KeyboardInterrupt escaping it is a test failure, not the end of the session."""
+    try:
+        return call(*args, **kwargs)
+    except KeyboardInterrupt:
+        pytest.fail("a KeyboardInterrupt escaped; run_sync must return an interrupted summary")
+
+
 def _source(name: str) -> MagicMock:
     src = MagicMock()
     src.name = name
@@ -93,6 +101,36 @@ class TestCommandExitCode:
     def test_a_failed_sync_still_exits_1(self) -> None:
         result = self._invoke(RuntimeError("boom"))
         assert result.exit_code == 1
+
+    def test_the_interrupted_flag_gives_the_same_message_and_exit_130(self) -> None:
+        summary = {
+            "interrupted": True,
+            "interrupted_source": "s",
+            "failed_count": 1,
+            "success_count": 0,
+            "failed_sources": [{"name": "s", "error": "Sync interrupted before it finished"}],
+            "oauth_warnings": [],
+        }
+        result = self._invoke_returning(summary)
+        assert result.exit_code == 130, result.output
+        assert MESSAGE in result.output and RESUME in result.output
+        assert "Sync failed" not in result.output  # not reported as an ordinary failure
+        assert "Error:" not in result.output
+
+    def _invoke_returning(self, summary: dict[str, Any]):
+        patches = [
+            *_patch_sync_prereqs(),
+            patch("dango.ingestion.run_sync", MagicMock(return_value=summary)),
+            patch("dango.oauth.validation.validate_before_sync"),
+            patch("dango.cli.scaffold.enforce_scaffold"),
+        ]
+        for p in patches:
+            p.start()
+        try:
+            return CliRunner().invoke(sync, ["--yes"], obj={"project_root": "/tmp"})
+        finally:
+            for p in patches:
+                p.stop()
 
 
 _CHILD = """
@@ -162,11 +200,26 @@ class TestRunSyncStopsOnInterrupt:
             patch("dango.utils.post_sync.dispatch_post_sync_hooks", hooks),
             patch("dango.ingestion.dlt_runner.console"),
         ):
-            with pytest.raises(KeyboardInterrupt):
-                run_sync(tmp_path, [_source("s0"), _source("s1"), _source("s2")])
+            summary = _returns(run_sync, tmp_path, [_source("s0"), _source("s1"), _source("s2")])
         assert runner.run_source.call_count == 2  # the third source was never started
         dbt.assert_not_called()
         hooks.assert_not_called()
+        # callers outside the CLI do not expect a KeyboardInterrupt: it is a flag on the summary
+        assert summary["interrupted"] is True
+        assert summary["interrupted_source"] == "s1"
+        assert summary["success_sources"] == ["s0"]
+        assert summary["failed_count"] == 1  # an unaware caller sees a failure, never a success
+        assert summary["failed_sources"][0]["name"] == "s1"
+        assert summary["transform_status"] == "skipped"
+
+    def test_an_ordinary_sync_summary_is_not_flagged(self, tmp_path: Path) -> None:
+        runner = self._mock_runner(["failed"])
+        with (
+            patch("dango.ingestion.dlt_runner.DltPipelineRunner", return_value=runner),
+            patch("dango.ingestion.dlt_runner.console"),
+        ):
+            summary = _returns(run_sync, tmp_path, [_source("s0")])
+        assert not summary.get("interrupted")
 
     def test_interrupt_during_dbt_runs_no_hooks_and_releases_the_lock(self, tmp_path: Path) -> None:
         runner = self._mock_runner(["success"])
@@ -248,14 +301,63 @@ class TestInterruptInsideDltSteps:
     ) -> None:
         exc = _wrapped_interrupt() if wrapped else KeyboardInterrupt()
         extra = {"extract": None, "normalize": None, step: exc}
-        with pytest.raises(KeyboardInterrupt):
-            _run(project, kind, RuntimeError("unused"), ("src_a", "src_b"), pipeline_extra=extra)
+        summary = _returns(
+            _run, project, kind, RuntimeError("unused"), ("src_a", "src_b"), pipeline_extra=extra
+        )
+        assert summary["interrupted"] is True
+        assert summary["interrupted_source"] == "src_a"
         printed = out.getvalue()
         assert "Unknown error" not in printed
         assert "Retrying" not in printed
         history = load_sync_history(project, "src_a")
         assert history and history[0]["status"] == "interrupted"
         assert load_sync_history(project, "src_b") == []  # the next source never started
+
+    def test_partial_resume_interrupt_is_an_interrupt_not_a_failed_resume(
+        self,
+        project: Path,
+        out: Any,
+    ) -> None:
+        """Ctrl+C while the failing resource is being skipped must stop the sync."""
+        source = MagicMock()
+        source.resources = {"a": MagicMock(), "b": MagicMock()}
+        failing = RuntimeError("Error in a: boom")
+        extra = {"extract": [failing, failing, failing, _wrapped_interrupt()]}
+        summary = _returns(
+            _run,
+            project,
+            "dlt",
+            RuntimeError("unused"),
+            ("src_a", "src_b"),
+            pipeline_extra=extra,
+            source=source,
+        )
+        assert summary["interrupted"] is True
+        assert "Partial sync also failed" not in out.getvalue()
+        history = load_sync_history(project, "src_a")
+        assert history and history[0]["status"] == "interrupted"
+
+    def test_staging_reload_interrupt_is_an_interrupt(self, project: Path, out: Any) -> None:
+        """The full-refresh staging pipeline's normalize step is covered like the others."""
+        pipeline = MagicMock(spec=dlt.Pipeline)
+        pipeline.extract.return_value = None
+        pipeline.normalize.side_effect = _wrapped_interrupt()
+        runner = DltPipelineRunner(project)
+        with (
+            patch("dlt.pipeline", return_value=pipeline),
+            patch("dango.ingestion.dlt_runner._connect_with_lock_retry"),
+            patch.object(DltPipelineRunner, "_clear_local_pipeline_cache"),
+            patch("dango.ingestion.dlt_runner.console"),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            runner._full_refresh_via_staging(
+                source=MagicMock(),
+                source_name="s",
+                dataset_name="raw_s",
+                pipeline_name="s",
+                max_lock_wait=1,
+                uses_replace_mode=False,
+            )
 
     def test_load_phase_interrupt_is_an_interrupt(self, tmp_path: Path) -> None:
         pipeline = MagicMock(spec=dlt.Pipeline)
