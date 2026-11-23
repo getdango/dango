@@ -76,9 +76,10 @@ def _invoke(
             nodes_json = nodes_json[: len(nodes_json) // 2]
         if manifest != "missing":
             (target / "manifest.json").write_text(nodes_json, encoding="utf-8", newline="\n")
-        if stale:
-            old = time.time() - 3600
-            os.utime(path, (old, old))
+        # Pin the mtime: a coarse filesystem clock can stamp a just-written file slightly
+        # before the build start that the CLI recorded.
+        when = time.time() - 3600 if stale else time.time() + 60
+        os.utime(path, (when, when))
 
     if stale:
         write_results()
