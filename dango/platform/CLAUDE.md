@@ -387,6 +387,11 @@ original indexed file hashes and separately bound exported-byte hashes. Selectio
 unneeded members without inventing response bodies. The anchor is reviewed export
 integrity, not a signature, remote re-attestation, a new native run or shipping approval.
 
+Direct model validation separately binds the oracle tree's reviewed nested keys,
+positional lengths and exact Python scalar types, and rejects nonfinite values.
+Verified evidence is retained as immutable bytes; every exposed model is a fresh view,
+so changing a receipt or nested oracle view cannot change authenticated consumption.
+
 `assert_live_lightdash` in the same test module is a future opt-in entrypoint for one
 captured-input total-350 submit/poll assertion. A future owner must independently verify
 the exact installed profile and captured input, authorize an already running owned

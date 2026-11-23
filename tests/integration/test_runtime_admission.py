@@ -1,7 +1,6 @@
 """tests/integration/test_runtime_admission.py
 
 Verify reviewed native development exports offline; never admit a product runtime.
-The explicit live entrypoint requires a separately authorized, already running owned profile.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 import pytest
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator
 
 from dango.platform.bundle import (
     BundleComponent,
@@ -32,6 +31,7 @@ pytestmark = pytest.mark.unit
 FIXTURE = Path(__file__).parents[1] / "fixtures/runtime_profiles.json"
 PROFILE_ID = "t44a-python314-duckdb2-linux-amd64-development"
 FIXTURE_SHA256 = "b6879d50f7220b8afa1a1b6b6266e27db6c3492a8fa2bc71747656c6411af449"
+ORACLE_SHAPE_SHA256 = "41afe61f31991acc1aedc0d0443085cef163ae879a872357f9b7fb24c674aac4"
 Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 Text = Annotated[str, Field(min_length=1, pattern=r"\S")]
 Counter = Annotated[int, Field(ge=0)]
@@ -130,9 +130,26 @@ class Evidence(Record):
     groups: list[Group]
     exports: list[Export]
     unsupported: list[Unsupported]
-    oracles: dict[str, Any]
+    oracles: dict[str, JsonValue]
     live_case: LiveCase
     evidence_policy: Text
+
+    @field_validator("oracles", mode="before")
+    @classmethod
+    def closed_oracles(cls, value):
+        """Bind reviewed nested keys, positional lengths and exact Python scalar types."""
+
+        def shape(item):
+            if type(item) is dict:
+                return {key: shape(item[key]) for key in sorted(item)}
+            if type(item) is list:
+                return [shape(child) for child in item]
+            return type(item).__name__
+
+        json.dumps(value, allow_nan=False)
+        if digest(json.dumps(shape(value), sort_keys=True).encode()) != ORACLE_SHAPE_SHA256:
+            raise ValueError("invalid_oracle_shape")
+        return value
 
     @field_validator("observed_at")
     @classmethod
@@ -149,11 +166,9 @@ def digest(value: bytes) -> str:
 
 def strict_json(value: str | bytes) -> Any:
     def pairs(items):
-        result = {}
-        for key, item in items:
-            if key in result:
-                raise ValueError("duplicate key")
-            result[key] = item
+        result = dict(items)
+        if len(result) != len(items):
+            raise ValueError("duplicate key")
         return result
 
     def finite(value):
@@ -165,7 +180,18 @@ def strict_json(value: str | bytes) -> Any:
     return json.loads(value, object_pairs_hook=pairs, parse_constant=finite, parse_float=finite)
 
 
-def retained_evidence(raw: bytes, profile_id: str) -> Evidence:
+class Snapshot(bytes):
+    """Immutable authenticated bytes; exposed models are disposable fresh views."""
+
+    __slots__ = ()
+
+    def __getattr__(self, name):
+        if digest(self) != FIXTURE_SHA256:
+            raise EvidenceError("changed_evidence")
+        return getattr(Evidence.model_validate(strict_json(self)), name)
+
+
+def retained_evidence(raw: bytes, profile_id: str) -> Snapshot:
     """Verify the reviewed immutable export before interpreting native payloads."""
     if profile_id != PROFILE_ID:
         raise EvidenceError("unsupported_profile")
@@ -174,53 +200,22 @@ def retained_evidence(raw: bytes, profile_id: str) -> Evidence:
         evidence = Evidence.model_validate(strict_json(raw))
         if digest(raw) != FIXTURE_SHA256:
             raise EvidenceError("changed_evidence")
-        for index in evidence.indexes.values():
-            if digest(index.content.encode()) != index.sha256:
-                raise EvidenceError("index_mismatch")
-        for receipt in evidence.receipts.values():
-            entries = strict_json(evidence.indexes[receipt.run_id].content)
-            entries = entries.get("files", entries)
-            if isinstance(entries, list):
-                entries = {entry["name"]: entry for entry in entries}
-            entry = entries[receipt.file]
-            expected = entry if isinstance(entry, str) else entry["sha256"]
-            if receipt.source_sha256 != expected:
-                raise EvidenceError("receipt_mismatch")
-            payload = receipt.payload.encode()
-            if digest(payload) != receipt.payload_sha256:
-                raise EvidenceError("payload_mismatch")
-            if receipt.encoding == "original_utf8" and (
-                digest(payload) != receipt.source_sha256 or len(payload) != receipt.source_bytes
-            ):
-                raise EvidenceError("original_bytes_mismatch")
-            strict_json(payload)
-        for export in evidence.exports:
-            if any(evidence.sources[path] != sha for path, sha in export.source_files.items()):
-                raise EvidenceError("export_mismatch")
-            if any(ref not in evidence.receipts for ref in export.receipt_ids):
-                raise EvidenceError("missing_receipt")
-        for group in evidence.groups:
-            if not group.receipt_ids or any(
-                ref not in evidence.receipts for ref in group.receipt_ids
-            ):
-                raise EvidenceError("missing_receipt")
         manifest = load_bundle_manifest()
         declared = next(p for p in manifest.profiles if p.profile_id == PROFILE_ID)
         components = {c.component_id: c for c in manifest.components}
         if declared != evidence.profile or declared.status != "candidate":
             raise EvidenceError("profile_mismatch")
-        if [a.component.component_id for a in evidence.artifacts] != declared.component_ids:
+        expected = [components[cid] for cid in declared.component_ids]
+        if [a.component for a in evidence.artifacts] != expected:
             raise EvidenceError("artifact_mismatch")
-        if any(components[a.component.component_id] != a.component for a in evidence.artifacts):
-            raise EvidenceError("artifact_mismatch")
-        return evidence
+        return Snapshot(raw)
     except (ValueError, KeyError, TypeError, StopIteration, RecursionError):
         raise EvidenceError("invalid_retained_evidence") from None
 
 
-def native(evidence: Evidence, receipt_id: str, pointer: str = "") -> Any:
+def native(evidence: Snapshot, receipt_id: str, pointer: str = "") -> Any:
     """Read only authenticated original values; selections use explicit JSON pointers."""
-    receipt = evidence.receipts[receipt_id]
+    receipt = Snapshot(evidence).receipts[receipt_id]
     value = strict_json(receipt.payload)
     if receipt.encoding == "json_pointer_values":
         prefix = max((p for p in value if pointer == p or pointer.startswith(p + "/")), key=len)
@@ -249,19 +244,8 @@ def assert_live_lightdash(
     owned_profile: OwnedLiveProfile | None = None,
     session_cookie: str | None = None,
 ) -> dict[str, str]:
-    """Opt in to one real submit/poll assertion; starts/installs nothing.
-
-    Future owned-run caller supplies explicit scoped authorization, independently
-    verified exact artifacts, original captured-input binding and an ordinary actor
-    session. No authorization/profile/session means UNRUN, never success or pytest skip.
-    A selected live pass is not full qualification; errors omit transport details.
-    """
-    if (
-        not authorization
-        or not authorization.strip()
-        or owned_profile is None
-        or not session_cookie
-    ):
+    """Submit/poll one authorized owned case; absent authority/profile/session is UNRUN."""
+    if not (authorization and authorization.strip() and owned_profile and session_cookie):
         return {"status": "UNRUN", "code": "authorization_profile_or_session_absent"}
     evidence = retained_evidence(FIXTURE.read_bytes(), owned_profile.profile_id)
     profile = OwnedLiveProfile.model_validate(owned_profile.model_dump())
@@ -279,16 +263,9 @@ def assert_live_lightdash(
         data = None if body is None else json.dumps(body, allow_nan=False).encode()
         connection = HTTPConnection("127.0.0.1", parsed.port, timeout=15)
         try:
-            connection.request(
-                method,
-                path,
-                body=data,
-                headers={
-                    "Cookie": session_cookie,
-                    "Content-Type": "application/json",
-                    "Origin": profile.base_url,
-                },
-            )
+            headers = {"Cookie": session_cookie, "Content-Type": "application/json"}
+            headers["Origin"] = profile.base_url
+            connection.request(method, path, body=data, headers=headers)
             response = connection.getresponse()
             raw = response.read(2 * 1024 * 1024 + 1)
             if response.status != 200 or len(raw) > 2 * 1024 * 1024:
@@ -306,11 +283,8 @@ def assert_live_lightdash(
             raise EvidenceError("wrong_native_actor")
         query = native(evidence, "restore-api", "/restoreIdentity")["metricQuery"]
         base = "/api/v2/projects/" + profile.project_uuid + "/query/"
-        job = request(
-            "POST",
-            base + "metric-query",
-            {"query": query, "context": "exploreView", "invalidateCache": True},
-        )
+        body = {"query": query, "context": "exploreView", "invalidateCache": True}
+        job = request("POST", base + "metric-query", body)
         query_id = job["queryUuid"]
         if not isinstance(query_id, str) or str(UUID(query_id)) != query_id:
             raise EvidenceError("invalid_native_query_id")
@@ -349,21 +323,11 @@ def test_profile_pins_all_admitted_artifacts(evidence):
         assert component.version and component.sha256
         assert component.artifact_ref and component.license_expression
         assert component.status == "observed_component" and "latest" not in component.artifact_ref
-    assert {a.kind for a in evidence.artifacts} >= {
-        "image",
-        "extension",
-        "python",
-        "driver",
-        "adapted source",
-    }
-    assert {u.target for u in evidence.unsupported} >= {
-        "python315",
-        "windows",
-        "macos-arm64",
-        "production-distribution",
-        "released-dlt132",
-        "python-models",
-    }
+    kinds = {"image", "extension", "python", "driver", "adapted source"}
+    targets = {"python315", "windows", "macos-arm64", "production-distribution"}
+    targets.update({"released-dlt132", "python-models"})
+    assert {a.kind for a in evidence.artifacts} >= kinds
+    assert {u.target for u in evidence.unsupported} >= targets
 
 
 def test_receipt_hashes_match_exact_bundle(evidence):
@@ -371,14 +335,35 @@ def test_receipt_hashes_match_exact_bundle(evidence):
     for recipe in evidence.recipes.values():
         assert evidence.sources[recipe.source_path] == recipe.sha256
         assert len(recipe.content.splitlines()) == recipe.last_line - recipe.first_line + 1
+    for index in evidence.indexes.values():
+        assert digest(index.content.encode()) == index.sha256
     for receipt in evidence.receipts.values():
+        index = evidence.indexes[receipt.run_id]
+        entries = strict_json(index.content)
+        entries = entries.get("files", entries)
+        if isinstance(entries, list):
+            entries = {entry["name"]: entry for entry in entries}
+        entry = entries[receipt.file]
+        assert receipt.source_sha256 == (entry if isinstance(entry, str) else entry["sha256"])
+        payload = receipt.payload.encode()
+        assert digest(payload) == receipt.payload_sha256
         assert receipt.selection and receipt.source_bytes > 0
-        assert evidence.indexes[receipt.run_id].run_url.endswith("/" + receipt.run_id)
+        assert index.run_url.endswith("/" + receipt.run_id)
+        if receipt.encoding == "original_utf8":
+            assert digest(payload) == receipt.source_sha256 and len(payload) == receipt.source_bytes
+        strict_json(payload)
+    for export in evidence.exports:
+        assert all(evidence.sources[path] == sha for path, sha in export.source_files.items())
+    for scope in [*evidence.exports, *evidence.groups]:
+        assert scope.receipt_ids and set(scope.receipt_ids) <= evidence.receipts.keys()
 
 
 def test_native_changed_seams_match_independent_oracles(evidence):
     def n(rid, pointer=""):
         return native(evidence, rid, pointer)
+
+    def query_totals(result):
+        return [int(q["result"]["rows"][0]["orders_total_amount"]["value"]["raw"]) for q in result]
 
     rows = evidence.oracles["orders"]
     assert sum(row[2] for row in rows) == 350
@@ -386,15 +371,10 @@ def test_native_changed_seams_match_independent_oracles(evidence):
     assets = n("dbt-assets")
     assert all(v["exit"] == (1 if k == "python" else 0) for k, v in assets["stages"].items())
     sql = " ".join(assets["incremental_native_sql"]).lower().replace('"', "")
-    assert (
-        "delete from lake.assets.asset_incremental" in sql
-        and "insert into lake.assets.asset_incremental" in sql
-    )
+    for action in ["delete from", "insert into"]:
+        assert action + " lake.assets.asset_incremental" in sql
     for rid in ["ordinary-bi", "identity-bi"]:
-        assert [
-            int(q["result"]["rows"][0]["orders_total_amount"]["value"]["raw"])
-            for q in n(rid)["queries"]
-        ] == [350, 300]
+        assert query_totals(n(rid)["queries"]) == [350, 300]
         assert n(rid)["privateResult"]["editorStatus"] == 403
     for rid, pointer, expected in evidence.oracles["native_answers"]:
         assert n(rid, pointer) == expected
@@ -434,10 +414,7 @@ def test_native_changed_seams_match_independent_oracles(evidence):
                 assert case["error"]["message_contains"] in message
     for rid in ["n3-refuse-old", "n3-catalog-down", "n3-catalog-up"]:
         assert n(rid, "/before") == n(rid, "/after")
-    assert [
-        int(q["result"]["rows"][0]["orders_total_amount"]["value"]["raw"])
-        for q in n("restore")["restored"]["queries"]
-    ] == [350, 300]
+    assert query_totals(n("restore")["restored"]["queries"]) == [350, 300]
 
 
 def test_unqualified_or_missing_profile_not_passed(evidence):
@@ -452,15 +429,9 @@ def test_unqualified_or_missing_profile_not_passed(evidence):
     for target in ["", "missing", "python-3-15-duckdb-2-target", "dated-macos-arm64-candidate"]:
         with pytest.raises(EvidenceError):
             retained_evidence(FIXTURE.read_bytes(), target)
-    assert (
-        assert_live_lightdash(owned_profile=OwnedLiveProfile.model_construct())["status"] == "UNRUN"
-    )
-    assert (
-        assert_live_lightdash(authorization="future owned run", session_cookie="synthetic-unrun")[
-            "status"
-        ]
-        == "UNRUN"
-    )
+    no_authority = assert_live_lightdash(owned_profile=OwnedLiveProfile.model_construct())
+    no_profile = assert_live_lightdash(authorization="future owned run", session_cookie="unrun")
+    assert no_authority["status"] == no_profile["status"] == "UNRUN"
     data = strict_json(FIXTURE.read_bytes())
     for mutation in [
         lambda d: d["receipts"].pop("held"),
@@ -476,6 +447,35 @@ def test_unqualified_or_missing_profile_not_passed(evidence):
             retained_evidence(json.dumps(changed).encode(), PROFILE_ID)
     with pytest.raises(ValidationError):
         Evidence.model_validate({**data, "observed_at": "2026-11-23T00:00:00"})
+
+
+def test_oracle_schema_rejects_malformed_values_directly():
+    for mutate in [
+        lambda o: o.update(unexpected=1),
+        lambda o: o.pop("orders"),
+        lambda o: o["orders"][0].append(1),
+        lambda o: o["orders"][0].__setitem__(2, True),
+        lambda o: o["orders"][0].__setitem__(2, 100.0),
+        lambda o: o["orders"][0].__setitem__(1, 20260901),
+        lambda o: o["native_answers"][20][2]["editor"].update(unexpected=1),
+        lambda o: o["native_answers"][17].__setitem__(2, 0),
+        lambda o: o["native_answers"][20][2].__setitem__("owner", float("inf")),
+        lambda o: o["semantic_cases"][0]["expected"][0].__setitem__(0, float("nan")),
+    ]:
+        data = strict_json(FIXTURE.read_bytes())
+        mutate(data["oracles"])
+        with pytest.raises(ValidationError):
+            Evidence.model_validate(data)
+
+
+def test_verified_snapshot_views_cannot_replace_proof_or_answers(evidence):
+    replacement = {**evidence.receipts["held"].model_dump(), "payload": '{"total":999}'}
+    evidence.receipts["held"] = Receipt.model_validate(replacement)
+    evidence.oracles["orders"][0][2] = 999
+    assert native(evidence, "held", "/held/total") == 350
+    assert evidence.oracles["orders"][0][2] == 100
+    with pytest.raises(AttributeError):
+        evidence.raw = b"synthetic"
 
 
 def test_api_fixtures_are_redacted_and_version_bound(evidence):
