@@ -92,7 +92,9 @@ def make_matrix_project(root: Path, variant: str) -> Path:
     if variant == "test_error":  # a singular test on the leaf model whose own SQL errors
         (dbt_dir / "tests").mkdir()
         (dbt_dir / "tests" / "leaf_test_with_bad_sql.sql").write_text(
-            f"{_BAD_SQL} from {{{{ ref('order_count') }}}}\n", encoding="utf-8", newline="\n"
+            "select n from {{ ref('order_count') }} where cast('abc' as integer) = n\n",
+            encoding="utf-8",
+            newline="\n",
         )
     if variant in _SCHEMA:
         (models / "schema.yml").write_text(_SCHEMA[variant], encoding="utf-8", newline="\n")

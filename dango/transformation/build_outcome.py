@@ -70,21 +70,22 @@ def _names(names: tuple[str, ...]) -> str:
 
 
 def failure_notes(verdict: BuildVerdict) -> list[str]:
-    """Lines naming the errored/skipped nodes and failed tests of a failed build."""
+    """Lines naming the failed/skipped nodes and failed tests of a failed build."""
     notes: list[str] = []
     if verdict.errored:
         notes.append(
-            f"{NOTICE_PREFIX}models with errors ({len(verdict.errored)}): {_names(verdict.errored)}"
+            f"{NOTICE_PREFIX}failed models, seeds, snapshots or hooks ({len(verdict.errored)}): "
+            f"{_names(verdict.errored)}"
         )
     if verdict.skipped:
-        what = "models" if verdict.skipped_models else "data tests"
+        what = "models" if verdict.skipped_models else "tests"
         notes.append(
             f"{NOTICE_PREFIX}{what} skipped because something they depend on failed "
             f"({len(verdict.skipped)}): {_names(verdict.skipped)}"
         )
     if verdict.tests_failed:
         notes.append(
-            f"{NOTICE_PREFIX}data tests failed ({len(verdict.tests_failed)}): "
+            f"{NOTICE_PREFIX}tests failed ({len(verdict.tests_failed)}): "
             f"{_names(verdict.tests_failed)}"
         )
     return notes
@@ -93,7 +94,7 @@ def failure_notes(verdict: BuildVerdict) -> list[str]:
 def tests_only_note(verdict: BuildVerdict) -> str:
     """The line appended to the output of a build whose only problem was failed data tests."""
     return (
-        f"{NOTICE_PREFIX}models were built, but data tests failed "
+        f"{NOTICE_PREFIX}models were built, but tests failed "
         f"({len(verdict.tests_failed)}): {_names(verdict.tests_failed)}"
     )
 
@@ -106,3 +107,8 @@ def notes_in(output: str) -> list[str]:
             text = line[len(NOTICE_PREFIX) :].strip()
             found.append(text[:1].upper() + text[1:])
     return found
+
+
+def without_notes(output: str) -> str:
+    """``output`` minus the lines of this module (to print them once, separately)."""
+    return "\n".join(ln for ln in output.splitlines() if not ln.startswith(NOTICE_PREFIX))

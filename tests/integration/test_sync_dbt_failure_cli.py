@@ -7,6 +7,7 @@ stop the build are shown as a note.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -38,7 +39,8 @@ def isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def _sync(root: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Result, str]:
     monkeypatch.chdir(root)
     result = CliRunner().invoke(sync, ["--yes"], obj={"project_root": root})
-    return result, " ".join(result.output.split())
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    return result, " ".join(plain.split())
 
 
 def test_clean_sync_exits_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -64,7 +66,7 @@ def test_sync_that_skips_models_exits_one_and_names_them(
     assert "Staging/marts tables were not created" not in text
     assert "stg_shop__shop" in text and "order_count" in text
     assert "source_unique_shop_shop_id" in text
-    assert text.count("tests failed (1)") == 1  # the notes are printed once, not twice
+    assert text.lower().count("tests failed (1)") == 1  # the notes are printed once, not twice
 
 
 def test_failed_check_that_skipped_nothing_is_shown_and_exits_zero(

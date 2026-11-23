@@ -15,6 +15,7 @@ from pathlib import Path
 from rich.console import Console
 
 from dango.exceptions import format_structured_error
+from dango.utils.duckdb_lock_text import is_lock_error_text
 
 console = Console()
 
@@ -62,6 +63,18 @@ def _get_dbt_executable() -> str:
         return found
 
     return "dbt"
+
+
+def _is_corruption_text(output_lower: str) -> bool:
+    """True for DuckDB's wording of a damaged warehouse file (lower-cased dbt output)."""
+    return any(
+        marker in output_lower
+        for marker in (
+            "corrupt database file",
+            "database file is corrupt",
+            "not a valid duckdb database file",
+        )
+    )
 
 
 def installed_dbt_version() -> str:
@@ -141,12 +154,24 @@ def run_dbt_models(
             update_model_status(project_root)
             return (True, f"{output}\n{tests_only_note(verdict)}\n")
         output_lower = output.lower()
-        if verdict.usable and verdict.tests_failed and not verdict.errored:
-            causes = ["A data test failed, so dbt skipped the models that depend on it"]
+        if is_lock_error_text(output) or _is_corruption_text(output_lower):
+            causes = [
+                "DuckDB write lock held by another process",
+                "Database file corrupted",
+            ]
+            fix = "Stop other syncs, then retry: dango run"
+        elif verdict.usable and verdict.tests_failed and not verdict.errored:
+            causes = ["A test failed, so dbt skipped the models that depend on it"]
             fix = (
                 "Fix the data behind the failing test named below (often duplicate or blank "
                 "key values in the source), then run: dango run"
             )
+        elif verdict.errored:
+            causes = [
+                "A model, seed, snapshot or hook named below failed: usually an SQL error "
+                "or a value that does not convert",
+            ]
+            fix = "Fix the node named below (dbt's error is in the output), then run: dango run"
         elif "compilation error" in output_lower or "parsing error" in output_lower:
             causes = [
                 "SQL syntax error in a dbt model",
@@ -154,12 +179,6 @@ def run_dbt_models(
                 "Undefined macro",
             ]
             fix = "Check the dbt model file indicated in the error output above"
-        elif "database error" in output_lower or "duckdb" in output_lower:
-            causes = [
-                "DuckDB write lock held by another process",
-                "Database file corrupted",
-            ]
-            fix = "Stop other syncs, then retry: dango run"
         else:
             causes = ["dbt model logic error", "Missing dependency or configuration"]
             fix = "Review the error output and check dbt model files in dbt/models/"
@@ -240,7 +259,7 @@ def run_dbt_snapshots(
                 "Invalid snapshot configuration",
             ]
             fix = "Check the snapshot SQL file indicated in the error output"
-        elif "database error" in output_lower or "duckdb" in output_lower:
+        elif is_lock_error_text(output) or _is_corruption_text(output_lower):
             causes = [
                 "DuckDB write lock held by another process",
                 "Database file corrupted",
