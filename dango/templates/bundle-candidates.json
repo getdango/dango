@@ -240,6 +240,930 @@
       "license_expression": null,
       "evidence_refs": [],
       "status": "candidate"
+    },
+    {
+      "component_id": "t44a-dbt_oss-2.0.8-cp310-abi3-manylinux_2_28_x86_64.whl",
+      "version": "2.0.8",
+      "artifact_ref": "https://github.com/dbt-labs/dbt/releases/download/v2.0.8/dbt_oss-2.0.8-cp310-abi3-manylinux_2_28_x86_64.whl",
+      "sha256": "6a9df409a6953b33af6f9827d8663e5b55a84b5ae84b2a453154a9c58097f9e6",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0 (exact OSS source LICENSE)",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-duckdb-2.0.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "2.0.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/cc/33/01ad2535ee897db2bad70cbc800655167c53afd0b955eed84f0759c2f417/duckdb-2.0.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "ab51ec57d329d6f3df37c0287b55d71c3fc07bb54b61d1afed09104f953b1431",
+      "edition": "development qualification only",
+      "license_expression": "MIT + bundled notices",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-mashumaro-3.23-py3-none-any.whl",
+      "version": "3.23",
+      "artifact_ref": "https://files.pythonhosted.org/packages/4e/eb/2c5e2b0df54c9c979d45bfa4820687ab24797fe1ad42d4fdfc0c8ece59f1/mashumaro-3.23-py3-none-any.whl",
+      "sha256": "a671279ce93119d41c54adcd767753ae68adb32b9473de2f9d5d1720d2376231",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-msgpack-1.2.4-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "1.2.4",
+      "artifact_ref": "https://files.pythonhosted.org/packages/39/8f/bf975b5d2111e4954a0f8567fc6b60bab22c8766dd4fa509af1334c91a4f/msgpack-1.2.4-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "5d65b791ce4283e02b6267742ad540899155e1b32887b9cbdda47f38f5a076b5",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-typing_extensions-4.16.0-py3-none-any.whl",
+      "version": "4.16.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl",
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+      "edition": "development qualification only",
+      "license_expression": "PSF-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-pytz-2026.6-py2.py3-none-any.whl",
+      "version": "2026.6",
+      "artifact_ref": "https://files.pythonhosted.org/packages/b6/25/564f3fc5b70c1398d706c51f2b1470d0ea0b1b2f96fee67877b6f5bdf3b6/pytz-2026.6-py2.py3-none-any.whl",
+      "sha256": "7fed3fee8fd6bd4a2b7b75a8d56021d0624127bf69bd5691f115db929ac570b3",
+      "edition": "development qualification only",
+      "license_expression": "MIT (exact wheel LICENSE.txt); bundled timezone data",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-cpython-3.14.10+20261026-x86_64-unknown-linux-gnu-install_only.tar.gz",
+      "version": "3.14.10",
+      "artifact_ref": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10%2B20261026-x86_64-unknown-linux-gnu-install_only.tar.gz",
+      "sha256": "1b38024924eb7f4cf0cab45d7b871d1f1991354190fccd2625ac7529a43786e2",
+      "edition": "development qualification only",
+      "license_expression": "PSF-2.0 + bundled component notices",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-dbc-linux-amd64-0.3.1.tar.gz",
+      "version": "0.3.1",
+      "artifact_ref": "https://github.com/columnar-tech/dbc/releases/download/v0.3.1/dbc-linux-amd64-0.3.1.tar.gz",
+      "sha256": "d394fe15226c3db4a980568f2b3aff049c58ef2badea6cbb711bc4cf3b7b2ed7",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-duckdb_linux_amd64_v2.0.0.tar.gz",
+      "version": "2.0.0",
+      "artifact_ref": "https://dbc-cdn.columnar.tech/duckdb/v2.0.0/duckdb_linux_amd64_v2.0.0.tar.gz",
+      "sha256": "3320bb08fa1654bfbd41a8fde4043785e9859efda3fb0d7bd0469788984a7da2",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-dlt-d220927d13a79740ac799419d08ed9847f7b5069.tar.gz",
+      "version": "1.32.0+d220927d13a79740ac799419d08ed9847f7b5069",
+      "artifact_ref": "https://codeload.github.com/dlt-hub/dlt/tar.gz/d220927d13a79740ac799419d08ed9847f7b5069",
+      "sha256": "e387800c06da45fe2e8e5b72c93f58335a8935a88f5172a54bab215aff7d82b1",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-certifi-2026.10.23-py3-none-any.whl",
+      "version": "2026.10.23",
+      "artifact_ref": "https://files.pythonhosted.org/packages/32/d1/a3652fe2c19134d0d15922177821d863cbd7e842d53a21bbe7e8e3a1b5ac/certifi-2026.10.23-py3-none-any.whl",
+      "sha256": "e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1",
+      "edition": "development qualification only",
+      "license_expression": "MPL-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-charset_normalizer-3.5.2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "3.5.2",
+      "artifact_ref": "https://files.pythonhosted.org/packages/18/24/bad3ac4271589df29cf5ce2f5ae490518a5739358052bd0d61209e6fea54/charset_normalizer-3.5.2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "34276fd796040bf0993ab33a369aa572e6979c7aab225a88893667ad8eac8f7a",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-click-8.5.1-py3-none-any.whl",
+      "version": "8.5.1",
+      "artifact_ref": "https://files.pythonhosted.org/packages/31/7d/164b7ffc8624fe9efb4221bf9af485d5c1e41b9ae118045d2b6dc5457d8b/click-8.5.1-py3-none-any.whl",
+      "sha256": "8bb5376d2006950386f8c6427613334a2acadc5f559cb80e638d00b4df957e37",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-croniter-7.0.0-py3-none-any.whl",
+      "version": "7.0.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/4c/89/10f9987ebdef47dbe9db94e9c00dcbd91a6ff1aa46ad58bee5b50fa454c9/croniter-7.0.0-py3-none-any.whl",
+      "sha256": "92090bce3cef195a037a46b78430c4cdd6250e90671d9d7dcd9e486147daaca4",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-fsspec-2026.9.0-py3-none-any.whl",
+      "version": "2026.9.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/6c/c0/a98505f18594f1bce828bb159cec0fcf9860562f1a2c85913409fc8f3d9e/fsspec-2026.9.0-py3-none-any.whl",
+      "sha256": "8dd6e646e99ea382bd85f97a45e6b526a442d79423a7dc673f1e2756d05fcb5f",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-gitdb-4.0.12-py3-none-any.whl",
+      "version": "4.0.12",
+      "artifact_ref": "https://files.pythonhosted.org/packages/a0/61/5c78b91c3143ed5c14207f463aecfc8f9dbb5092fb2869baf37c273b2705/gitdb-4.0.12-py3-none-any.whl",
+      "sha256": "67073e15955400952c6565cc3e707c554a4eea2e428946f7a4c162fab9bd9bcf",
+      "edition": "development qualification only",
+      "license_expression": "BSD License",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-gitpython-3.2.1-py3-none-any.whl",
+      "version": "3.2.1",
+      "artifact_ref": "https://files.pythonhosted.org/packages/6b/50/2a923c4dc02522ff9567f07c67ed1deca6d5fa9474f4708168b8088dfa37/gitpython-3.2.1-py3-none-any.whl",
+      "sha256": "d66b0832aa8755c1a84892937282df0befb16c97e5a64aeebd68be9c5e323f53",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-giturlparse-0.16.0-py2.py3-none-any.whl",
+      "version": "0.16.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/59/70/fe161143f513a7c2eb087d6b16d59f67f25df3be2f0e12e8e76d5af5da60/giturlparse-0.16.0-py2.py3-none-any.whl",
+      "sha256": "c4812b7227991d23ada03bc06b34c001de74907a5ea6e293e087d881b348d4bc",
+      "edition": "development qualification only",
+      "license_expression": "Apache v2",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-hatchling-1.33.0-py3-none-any.whl",
+      "version": "1.33.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/32/64/4afe5dd77b2939a93e8c9513f8082dbd049ecba9c1484a379a0f6ae29d6b/hatchling-1.33.0-py3-none-any.whl",
+      "sha256": "415290b84f464d2884303fca8974d38e7b85579069fab02a15db0828fbb1446d",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-humanize-4.17.0-py3-none-any.whl",
+      "version": "4.17.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/0c/74/bb970f876202aa0e8c4a1e9904f0b3482e73c752512962b7e957091d5acf/humanize-4.17.0-py3-none-any.whl",
+      "sha256": "02d0899527760efe18011944f882df4970943b4cdff7b5a0ba7fed43a576ef98",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-idna-3.20-py3-none-any.whl",
+      "version": "3.20",
+      "artifact_ref": "https://files.pythonhosted.org/packages/58/a2/bb081bab032533a855d44de1d56f8e8426114ff1ba5d1f07a438a0a654f8/idna-3.20-py3-none-any.whl",
+      "sha256": "ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-jsonpath_ng-1.16.0-py3-none-any.whl",
+      "version": "1.16.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/59/a7/189b9c567504a84670cac5375bac7a1a1e2e2de260caae4298bbfc9b3168/jsonpath_ng-1.16.0-py3-none-any.whl",
+      "sha256": "c5e28ddd70ebcaeba9af3c2b880933fbfeb108b5e68c9edb84e1b57803091218",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-markdown_it_py-4.3.0-py3-none-any.whl",
+      "version": "4.3.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/c9/31/5f0ac2f1a1c67423c995c731a11cd4ad05d081a2be969d74f868bdb9cc70/markdown_it_py-4.3.0-py3-none-any.whl",
+      "sha256": "7aa1511a46c39138de78d9eba92ce47e63124d8003fc98b3a351909e04239efa",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-mdurl-0.1.2-py3-none-any.whl",
+      "version": "0.1.2",
+      "artifact_ref": "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl",
+      "sha256": "84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-orjson-3.13.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "version": "3.13.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/25/de/a82acf93bdcca0c79ccff25ef0c6868d24ccbc2e72f21fae39c8cabce4f1/orjson-3.13.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "58a9619d88f8818d9ab6b39d70d203789457ba13c1ed5d274f33ce9ae7e81a36",
+      "edition": "development qualification only",
+      "license_expression": "MPL-2.0 AND (Apache-2.0 OR MIT)",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-packaging-26.3-py3-none-any.whl",
+      "version": "26.3",
+      "artifact_ref": "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl",
+      "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0 OR BSD-2-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-pathspec-1.1.1-py3-none-any.whl",
+      "version": "1.1.1",
+      "artifact_ref": "https://files.pythonhosted.org/packages/f1/d9/7fb5aa316bc299258e68c73ba3bddbc499654a07f151cba08f6153988714/pathspec-1.1.1-py3-none-any.whl",
+      "sha256": "a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189",
+      "edition": "development qualification only",
+      "license_expression": "MPL-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-pathvalidate-3.3.1-py3-none-any.whl",
+      "version": "3.3.1",
+      "artifact_ref": "https://files.pythonhosted.org/packages/9a/70/875f4a23bfc4731703a5835487d0d2fb999031bd415e7d17c0ae615c18b7/pathvalidate-3.3.1-py3-none-any.whl",
+      "sha256": "5263baab691f8e1af96092fa5137ee17df5bdfbd6cff1fcac4d6ef4bc2e1735f",
+      "edition": "development qualification only",
+      "license_expression": "MIT License",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-pendulum-3.3.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "version": "3.3.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/fe/d2/72b1bf19cf3c164a600bd1211b18f7bea4b648a05b1d512a9e61b8c36ce8/pendulum-3.3.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "b8339476d0f9ac97e1099a2307c456afab719f6bf22eebec183f4faaf8d156f4",
+      "edition": "development qualification only",
+      "license_expression": "MIT License",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-pluggy-1.7.0-py3-none-any.whl",
+      "version": "1.7.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/40/9e/2b38731e0fc536806f16490e1a12d7f0dc2a1235aa8cc07bcc75416a7daa/pluggy-1.7.0-py3-none-any.whl",
+      "sha256": "7dd7b0d8832ba3cb632c306926ded123429211b83641b35dc5c41ad2d34f9bec",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-pyarrow-26.0.1-cp314-cp314-manylinux_2_28_x86_64.whl",
+      "version": "26.0.1",
+      "artifact_ref": "https://files.pythonhosted.org/packages/f3/57/755a1b54d37c2a9e2c283d8bc648a50aa4ce57f977ce6a4b1d65eba29f51/pyarrow-26.0.1-cp314-cp314-manylinux_2_28_x86_64.whl",
+      "sha256": "7ae48ab53610b85e004b03bccff593fbdf22186d0ab48ed42c90797915dac814",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-pygments-2.21.0-py3-none-any.whl",
+      "version": "2.21.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/71/46/17f022dd3e953bf20a04a028a21ec746d942f8d2af30fa0f124fa0e6a684/pygments-2.21.0-py3-none-any.whl",
+      "sha256": "2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9",
+      "edition": "development qualification only",
+      "license_expression": "BSD-2-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-python_dateutil-4.0.0-py3-none-any.whl",
+      "version": "4.0.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/2f/a9/52b89563d154433d79b51ed1eb4842bf7334cb2696891a7fe135618853d7/python_dateutil-4.0.0-py3-none-any.whl",
+      "sha256": "a5e246f79eb80475e691bf93862cead98decd8a498cf53ba0516fcdc0f50dc1c",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-pyyaml-6.0.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "6.0.3",
+      "artifact_ref": "https://files.pythonhosted.org/packages/88/f9/16491d7ed2a919954993e48aa941b200f38040928474c9e85ea9e64222c3/pyyaml-6.0.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "c458b6d084f9b935061bc36216e8a69a7e293a2f1e68bf956dcd9e6cbcd143f5",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-requests-2.34.2-py3-none-any.whl",
+      "version": "2.34.2",
+      "artifact_ref": "https://files.pythonhosted.org/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a/requests-2.34.2-py3-none-any.whl",
+      "sha256": "2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-requirements_parser-0.13.1-py3-none-any.whl",
+      "version": "0.13.1",
+      "artifact_ref": "https://files.pythonhosted.org/packages/bb/f9/15b44d5e4401b0013bbcefe3c09d7bfddcce28cc3d41b1d3077bcedf5b1f/requirements_parser-0.13.1-py3-none-any.whl",
+      "sha256": "6e385663eb32589d16e5b22bb6e5251a57908e73803ffff438b53cd6ea2056e0",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-rich-15.0.0-py3-none-any.whl",
+      "version": "15.0.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/82/3b/64d4899d73f91ba49a8c18a8ff3f0ea8f1c1d75481760df8c68ef5235bf5/rich-15.0.0-py3-none-any.whl",
+      "sha256": "33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-rich_argparse-1.8.0-py3-none-any.whl",
+      "version": "1.8.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/0b/35/1cceccc5fcb50fa2ed53e2aa278cd032f3902682a73e763fb1ac3be8e6fa/rich_argparse-1.8.0-py3-none-any.whl",
+      "sha256": "d2a3ce7854654e2253c578763ab0a32f05016f23a55fadba7b9a91b6c0e92142",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-semver-3.1.1-py3-none-any.whl",
+      "version": "3.1.1",
+      "artifact_ref": "https://files.pythonhosted.org/packages/57/1d/793b054cbd0a2e0b4694dacc22bad066d6635ce85dd6cdd1f98d95169e9b/semver-3.1.1-py3-none-any.whl",
+      "sha256": "c00cf7dac88a352bc6a4a997d6ac0bf95ba835c589bc0c54f7b76f9e2a45123a",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-setuptools-84.2.1-py3-none-any.whl",
+      "version": "84.2.1",
+      "artifact_ref": "https://files.pythonhosted.org/packages/ef/55/6dc6d6bb953bdfc52519a0059592c52b6e3b8ad51cf8256dffceb55b0610/setuptools-84.2.1-py3-none-any.whl",
+      "sha256": "ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-simplejson-4.3.0-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+      "version": "4.3.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/e2/01/2e202a5dda101b0bdc3cdef4e76d635e602efef8293e80c9c9b6570b56a0/simplejson-4.3.0-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+      "sha256": "c0eb226f43b76c1056d90b7e6998d5be3ed3f29e4467ecc4ee50c30d73c27fec",
+      "edition": "development qualification only",
+      "license_expression": "MIT OR AFL-2.1",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-smmap-5.0.3-py3-none-any.whl",
+      "version": "5.0.3",
+      "artifact_ref": "https://files.pythonhosted.org/packages/c1/d4/59e74daffcb57a07668852eeeb6035af9f32cbfd7a1d2511f17d2fe6a738/smmap-5.0.3-py3-none-any.whl",
+      "sha256": "c106e05d5a61449cf6ba9a1e650227ecfb141590d2a98412103ff35d89fc7b2f",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-sqlglot-30.31.0-py3-none-any.whl",
+      "version": "30.31.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/92/68/e351109f7732f193133c67fbf104178f79b534a925db8f69c074fd190c2c/sqlglot-30.31.0-py3-none-any.whl",
+      "sha256": "51a876a43edecf8ee6fd4c872cf6713d899c4234256bba0be96a8c7c8d8781e8",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-tenacity-9.2.1-py3-none-any.whl",
+      "version": "9.2.1",
+      "artifact_ref": "https://files.pythonhosted.org/packages/d6/26/1ff2b0721ac66a3ec5b1402b333110b352ab0a8724052ac279a7b82d40c4/tenacity-9.2.1-py3-none-any.whl",
+      "sha256": "9e56f17539296baab7beabb08b92f6ee3d7be92d8be72d763360677c2ad6580e",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-tomlkit-0.15.2-py3-none-any.whl",
+      "version": "0.15.2",
+      "artifact_ref": "https://files.pythonhosted.org/packages/da/46/7d84138a60a8bd796825b2d38ebe92d0d16501ca57d501b7c5d677401bbc/tomlkit-0.15.2-py3-none-any.whl",
+      "sha256": "05562412163a3037b94497385fb7f9204c637bc605af7a48199e41cf2272f437",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-trove_classifiers-2026.9.21.13-py3-none-any.whl",
+      "version": "2026.9.21.13",
+      "artifact_ref": "https://files.pythonhosted.org/packages/30/81/0da8afb52a71d0a4f2bd3152357b1a441e393b286374802b9d3addab4ab5/trove_classifiers-2026.9.21.13-py3-none-any.whl",
+      "sha256": "8b1ff4f9c191b1040b71c37f1e445ab99732911e3cd91de52838453a854d7a17",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-tzdata-2026.6-py2.py3-none-any.whl",
+      "version": "2026.6",
+      "artifact_ref": "https://files.pythonhosted.org/packages/0a/66/9a06c2227fedfd4919f0eaaa8b94377d9730882a7e4f95823c9a331ab5e1/tzdata-2026.6-py2.py3-none-any.whl",
+      "sha256": "0a10eec6e13ef16b627fabed9a5f2ba61a62b1c67f327305f4e7e412a70b4aec",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-urllib3-2.8.0-py3-none-any.whl",
+      "version": "2.8.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/92/9d/c4e665119135114480843e7ab388fa94d8480650450e6f8e26b70d323a4c/urllib3-2.8.0-py3-none-any.whl",
+      "sha256": "0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/dlt-source-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-anyio-4.16.0-py3-none-any.whl",
+      "version": "4.16.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/a9/16/7757fb84c819accc7d7e9af5291b261e4abb8627ee040f99e7d35ef2457a/anyio-4.16.0-py3-none-any.whl",
+      "sha256": "c66ae634e0b8228396b801741beb3294326d4b6102f7bba4041c0dfb58c29026",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-docutils-0.23-py3-none-any.whl",
+      "version": "0.23",
+      "artifact_ref": "https://files.pythonhosted.org/packages/32/91/30151a39f7570f448ed84529390628a651d7f27c87d73c9b887f8189695e/docutils-0.23-py3-none-any.whl",
+      "sha256": "25d013af9bf23bc1c7b2b093dff4208166c53a94786c9e447808335ef1185fea",
+      "edition": "development qualification only",
+      "license_expression": "Public-domain dominant; bundled BSD-0/BSD-2/GPL-3 notices retained, no blanket public-domain claim",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-h11-0.16.0-py3-none-any.whl",
+      "version": "0.16.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl",
+      "sha256": "63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-itsdangerous-2.2.0-py3-none-any.whl",
+      "version": "2.2.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/04/96/92447566d16df59b2a776c0fb82dbc4d9e07cd95062562af01e408583fc4/itsdangerous-2.2.0-py3-none-any.whl",
+      "sha256": "c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause verified LICENSE.txt",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-jedi-0.20.1-py2.py3-none-any.whl",
+      "version": "0.20.1",
+      "artifact_ref": "https://files.pythonhosted.org/packages/be/c7/71eb0d51cdcbb63b857c931aa4e9218b078b5d9f8ecd383b234f28fe7b0f/jedi-0.20.1-py2.py3-none-any.whl",
+      "sha256": "0fb16d86c4a4c73c37ba518c77419975e30fcc620658a8d14fbb5720cdd34142",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-loro-1.17.1-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "version": "1.17.1",
+      "artifact_ref": "https://files.pythonhosted.org/packages/31/ff/f56b5ab5e36c84f250e49e4e04bc11779e78cd98d70f86f4a2d14e627643/loro-1.17.1-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "e41abe03d999fd312e7f7252a2b63143db33ae5bfe3e240c9d41ca4b8a65cacf",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-marimo-0.25.2-py3-none-any.whl",
+      "version": "0.25.2",
+      "artifact_ref": "https://files.pythonhosted.org/packages/06/5c/c26a57aefe28fceab762ad104744c1af18a4b62809629897722c866bbd2f/marimo-0.25.2-py3-none-any.whl",
+      "sha256": "7acb7a433755c6d965c03e07725477ab63804f6667ba9e37e4da582f358018c7",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-markdown-3.11.3-py3-none-any.whl",
+      "version": "3.11.3",
+      "artifact_ref": "https://files.pythonhosted.org/packages/81/6f/1fa8970e960e5c832874399e6efa564870ade8206d57fef5d5e296b834f5/markdown-3.11.3-py3-none-any.whl",
+      "sha256": "e1a31a112232504d753e5c01bb8c2de90d3f0ba986b063e10770cf7695b09e73",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-msgspec-0.22.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "0.22.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/63/ba/a8d390d5bd4c7d9ccde87c95cf071ada934cc9ca2c6af4d3d50b38f2d718/msgspec-0.22.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "5e4f7e09cceac7dbf4c0761b8ae7df51c55b5df5e9af7aff2c895aac1ebea015",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-narwhals-2.28.0-py3-none-any.whl",
+      "version": "2.28.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/cf/82/8ef9c7e0f50493307a49c09cfa7f00c5a778b6d1921f7b2dabe1d3a5809e/narwhals-2.28.0-py3-none-any.whl",
+      "sha256": "1f69d6385ec30e2fa6e1fdeb37c562ecabd0f713f6f3e3b58a668c5c9df9567f",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-parso-0.8.7-py2.py3-none-any.whl",
+      "version": "0.8.7",
+      "artifact_ref": "https://files.pythonhosted.org/packages/99/5d/8268b644392ee874ee82a635cd0df1773de230bde356c38de28e298392cc/parso-0.8.7-py2.py3-none-any.whl",
+      "sha256": "a8926eb2a1b915486941fdbd31e86a4baf88fe8c210f25f2f35ecec5b574ca1c",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-psutil-7.2.2-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "7.2.2",
+      "artifact_ref": "https://files.pythonhosted.org/packages/b5/70/5d8df3b09e25bce090399cf48e452d25c935ab72dad19406c77f4e828045/psutil-7.2.2-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "076a2d2f923fd4821644f5ba89f059523da90dc9014e85f8e45a5774ca5bc6f9",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-pymdown_extensions-11.0.2-py3-none-any.whl",
+      "version": "11.0.2",
+      "artifact_ref": "https://files.pythonhosted.org/packages/a6/43/9f45ec4d14e596efc32c925a78104934790438b0c0628b70d741016734ad/pymdown_extensions-11.0.2-py3-none-any.whl",
+      "sha256": "259910762019732caa1dfd76f3faa62c59f191d46573e80bcb1d13c0f675bbe5",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-python_multipart-0.0.33-py3-none-any.whl",
+      "version": "0.0.33",
+      "artifact_ref": "https://files.pythonhosted.org/packages/dd/1b/6b1b4164ec734cac911460ab599bfbe46afedd42c5c9627fe4235942c314/python_multipart-0.0.33-py3-none-any.whl",
+      "sha256": "8f16c07b36add9da6b2ee87d3efcaf0a45a6de9c3d0a5dd94e9ccf7675a7bc45",
+      "edition": "development qualification only",
+      "license_expression": "Apache-2.0",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-pyzmq-27.3.0-cp312-abi3-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "27.3.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/2c/62/e4721d8b8b9de685323717489a408521067a786cabc2b73ccd91aa9b9077/pyzmq-27.3.0-cp312-abi3-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "858fe25231e0fd8612da142efde019faa5ef63fa150a821a27870e791b38c798",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-starlette-1.10.0-py3-none-any.whl",
+      "version": "1.10.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl",
+      "sha256": "478c0ab3b4ced6e82719849c118fa406f0278a3499c1a898cd15cd31bdc38ce4",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-uvicorn-0.54.0-py3-none-any.whl",
+      "version": "0.54.0",
+      "artifact_ref": "https://files.pythonhosted.org/packages/38/0c/b54a4fdd7f90a3af8b02ebc9ce6712c2c208b7926a2f7bad95c33ebbe943/uvicorn-0.54.0-py3-none-any.whl",
+      "sha256": "505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-websockets-17.4-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+      "version": "17.4",
+      "artifact_ref": "https://files.pythonhosted.org/packages/c1/24/d203439f909ffbf37260ca28a3432381412d2e79912ebf98be572e63055e/websockets-17.4-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+      "sha256": "ef03fb4b3685df0ed9dc6a074a090f030345cad2c23c61818da3e08e693a9caa",
+      "edition": "development qualification only",
+      "license_expression": "BSD-3-Clause",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/notebook-pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-image-node",
+      "version": "digest-pinned image; upstream patch not separately asserted",
+      "artifact_ref": "node@sha256:e1582112fb9f152ed38eefcd712efc93fee1becb519fdfa57574d5e07eaa5e7d",
+      "sha256": "e1582112fb9f152ed38eefcd712efc93fee1becb519fdfa57574d5e07eaa5e7d",
+      "edition": "development qualification only",
+      "license_expression": "MIT / Debian package licenses",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-image-postgres",
+      "version": "digest-pinned image; upstream patch not separately asserted",
+      "artifact_ref": "postgres@sha256:8d5f8486c9be456cedd25c7acff28cb9ed8f3f23bf9c865a5f899d6ea8efadf0",
+      "sha256": "8d5f8486c9be456cedd25c7acff28cb9ed8f3f23bf9c865a5f899d6ea8efadf0",
+      "edition": "development qualification only",
+      "license_expression": "PostgreSQL / Debian package licenses",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-extension-ducklake",
+      "version": "1.1",
+      "artifact_ref": "https://extensions.duckdb.org/v2.0.0/linux_amd64/ducklake.duckdb_extension.gz",
+      "sha256": "ff1c730a5d5a7cb14ed9547ba15c259c24805eb4cf12c17727c2a4faffe1ada7",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-extension-postgres_scanner",
+      "version": "2.0.0",
+      "artifact_ref": "https://extensions.duckdb.org/v2.0.0/linux_amd64/postgres_scanner.duckdb_extension.gz",
+      "sha256": "54b3d751cafc9ffa439886b1607d0ee758dab4dc070f0171e779b95f2f3e554f",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-extension-httpfs",
+      "version": "2.0.0",
+      "artifact_ref": "https://extensions.duckdb.org/v2.0.0/linux_amd64/httpfs.duckdb_extension.gz",
+      "sha256": "ee6c7d7e60a5da1b6f6bf6156b4298b55ddce0496a5bfe628bd6ab6d47eb8e3e",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/pins.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-lightdash-adapted",
+      "version": "3.86.0+duckdb2",
+      "artifact_ref": "https://codeload.github.com/lightdash/lightdash/tar.gz/a0b53b468314ebb6e42b68c67f1a196f64c00454",
+      "sha256": "f8f1eea1be992c62feb2d8973a24c0cbc11cdd6cd40ffbc283dd25091ccc7eef",
+      "edition": "development qualification only",
+      "license_expression": "Root MIT excludes backend/src/ee. Retain separate development/testing license; no enterprise license/features or compiled distribution.",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/app-profile.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-garage",
+      "version": "2.5.0",
+      "artifact_ref": "https://garagehq.deuxfleurs.fr/_releases/v2.5.0/x86_64-unknown-linux-musl/garage",
+      "sha256": "2ff667286217cd73ebcb1c03af993822365000441dfe31a80cb64c5189a9dea8",
+      "edition": "development qualification only",
+      "license_expression": "AGPL-3.0; exact source LICENSE retained with source/Cargo.lock; bundled dependency notices must remain available",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/app-profile.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-canvas-prebuild",
+      "version": "canvas@3.2.1",
+      "artifact_ref": "https://github.com/Automattic/node-canvas/releases/download/v3.2.1/canvas-v3.2.1-napi-v7-linux-x64.tar.gz",
+      "sha256": "a2311aa496861fb0582877c343bbfaaeca7f218ff66198e5f167c8c1e2291fb0",
+      "edition": "development qualification only",
+      "license_expression": "(BSD-3-Clause) AND (FTL OR GPL-2.0-only) AND (GPL-3.0-or-later WITH GCC-exception-3.1) AND (IJG AND BSD-3-Clause AND Zlib) AND (LGPL-2.1-only OR MPL-1.1) AND (LGPL-2.1-or-later) AND (Libpng-2.0) AND (MIT) AND (Zlib)",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/blob/957df45d7889a8ef47de14715a23887fb38ec531/tests/integration/t44a_qualification/canvas-prebuild.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-@duckdb/node-api@2.0.0-r.1",
+      "version": "2.0.0-r.1",
+      "artifact_ref": "https://registry.npmjs.org/@duckdb/node-api/-/node-api-2.0.0-r.1.tgz",
+      "sha256": "cc2090aa0b63970f661e4d6579f8f29f48ff8c776ee0b666bbdaa653f64efd70",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/actions/runs/45057086489#app-package-inventory.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-@duckdb/node-bindings-linux-x64@2.0.0-r.1",
+      "version": "2.0.0-r.1",
+      "artifact_ref": "https://registry.npmjs.org/@duckdb/node-bindings-linux-x64/-/node-bindings-linux-x64-2.0.0-r.1.tgz",
+      "sha256": "2f9b6e86ad150db10be37ba9488840ef80d13e5bc19cc9c38a67f0969ef3e556",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/actions/runs/45057086489#app-package-inventory.json"
+      ],
+      "status": "observed_component"
+    },
+    {
+      "component_id": "t44a-@duckdb/node-bindings@2.0.0-r.1",
+      "version": "2.0.0-r.1",
+      "artifact_ref": "https://registry.npmjs.org/@duckdb/node-bindings/-/node-bindings-2.0.0-r.1.tgz",
+      "sha256": "d6f8399d36c5a7325b5fc05500e7f4a27ad945eea395faf8c9370f79f31f0b36",
+      "edition": "development qualification only",
+      "license_expression": "MIT",
+      "evidence_refs": [
+        "https://github.com/getdango/dango/actions/runs/45057086489#app-package-inventory.json"
+      ],
+      "status": "observed_component"
     }
   ],
   "profiles": [
@@ -327,6 +1251,92 @@
         "ducklake-target",
         "dbt-adbc-target",
         "dagster-target"
+      ],
+      "status": "candidate",
+      "qualification_receipt": null
+    },
+    {
+      "profile_id": "t44a-python314-duckdb2-linux-amd64-development",
+      "os": "linux",
+      "architecture": "x86_64",
+      "component_ids": [
+        "t44a-dbt_oss-2.0.8-cp310-abi3-manylinux_2_28_x86_64.whl",
+        "t44a-duckdb-2.0.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+        "t44a-mashumaro-3.23-py3-none-any.whl",
+        "t44a-msgpack-1.2.4-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "t44a-typing_extensions-4.16.0-py3-none-any.whl",
+        "t44a-pytz-2026.6-py2.py3-none-any.whl",
+        "t44a-cpython-3.14.10+20261026-x86_64-unknown-linux-gnu-install_only.tar.gz",
+        "t44a-dbc-linux-amd64-0.3.1.tar.gz",
+        "t44a-duckdb_linux_amd64_v2.0.0.tar.gz",
+        "t44a-dlt-d220927d13a79740ac799419d08ed9847f7b5069.tar.gz",
+        "t44a-certifi-2026.10.23-py3-none-any.whl",
+        "t44a-charset_normalizer-3.5.2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "t44a-click-8.5.1-py3-none-any.whl",
+        "t44a-croniter-7.0.0-py3-none-any.whl",
+        "t44a-fsspec-2026.9.0-py3-none-any.whl",
+        "t44a-gitdb-4.0.12-py3-none-any.whl",
+        "t44a-gitpython-3.2.1-py3-none-any.whl",
+        "t44a-giturlparse-0.16.0-py2.py3-none-any.whl",
+        "t44a-hatchling-1.33.0-py3-none-any.whl",
+        "t44a-humanize-4.17.0-py3-none-any.whl",
+        "t44a-idna-3.20-py3-none-any.whl",
+        "t44a-jsonpath_ng-1.16.0-py3-none-any.whl",
+        "t44a-markdown_it_py-4.3.0-py3-none-any.whl",
+        "t44a-mdurl-0.1.2-py3-none-any.whl",
+        "t44a-orjson-3.13.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+        "t44a-packaging-26.3-py3-none-any.whl",
+        "t44a-pathspec-1.1.1-py3-none-any.whl",
+        "t44a-pathvalidate-3.3.1-py3-none-any.whl",
+        "t44a-pendulum-3.3.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+        "t44a-pluggy-1.7.0-py3-none-any.whl",
+        "t44a-pyarrow-26.0.1-cp314-cp314-manylinux_2_28_x86_64.whl",
+        "t44a-pygments-2.21.0-py3-none-any.whl",
+        "t44a-python_dateutil-4.0.0-py3-none-any.whl",
+        "t44a-pyyaml-6.0.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "t44a-requests-2.34.2-py3-none-any.whl",
+        "t44a-requirements_parser-0.13.1-py3-none-any.whl",
+        "t44a-rich-15.0.0-py3-none-any.whl",
+        "t44a-rich_argparse-1.8.0-py3-none-any.whl",
+        "t44a-semver-3.1.1-py3-none-any.whl",
+        "t44a-setuptools-84.2.1-py3-none-any.whl",
+        "t44a-simplejson-4.3.0-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+        "t44a-smmap-5.0.3-py3-none-any.whl",
+        "t44a-sqlglot-30.31.0-py3-none-any.whl",
+        "t44a-tenacity-9.2.1-py3-none-any.whl",
+        "t44a-tomlkit-0.15.2-py3-none-any.whl",
+        "t44a-trove_classifiers-2026.9.21.13-py3-none-any.whl",
+        "t44a-tzdata-2026.6-py2.py3-none-any.whl",
+        "t44a-urllib3-2.8.0-py3-none-any.whl",
+        "t44a-anyio-4.16.0-py3-none-any.whl",
+        "t44a-docutils-0.23-py3-none-any.whl",
+        "t44a-h11-0.16.0-py3-none-any.whl",
+        "t44a-itsdangerous-2.2.0-py3-none-any.whl",
+        "t44a-jedi-0.20.1-py2.py3-none-any.whl",
+        "t44a-loro-1.17.1-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+        "t44a-marimo-0.25.2-py3-none-any.whl",
+        "t44a-markdown-3.11.3-py3-none-any.whl",
+        "t44a-msgspec-0.22.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+        "t44a-narwhals-2.28.0-py3-none-any.whl",
+        "t44a-parso-0.8.7-py2.py3-none-any.whl",
+        "t44a-psutil-7.2.2-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl",
+        "t44a-pymdown_extensions-11.0.2-py3-none-any.whl",
+        "t44a-python_multipart-0.0.33-py3-none-any.whl",
+        "t44a-pyzmq-27.3.0-cp312-abi3-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl",
+        "t44a-starlette-1.10.0-py3-none-any.whl",
+        "t44a-uvicorn-0.54.0-py3-none-any.whl",
+        "t44a-websockets-17.4-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+        "t44a-image-node",
+        "t44a-image-postgres",
+        "t44a-extension-ducklake",
+        "t44a-extension-postgres_scanner",
+        "t44a-extension-httpfs",
+        "t44a-lightdash-adapted",
+        "t44a-garage",
+        "t44a-canvas-prebuild",
+        "t44a-@duckdb/node-api@2.0.0-r.1",
+        "t44a-@duckdb/node-bindings-linux-x64@2.0.0-r.1",
+        "t44a-@duckdb/node-bindings@2.0.0-r.1"
       ],
       "status": "candidate",
       "qualification_receipt": null
