@@ -1,6 +1,6 @@
 """tests/unit/test_validate_dbt_timeout.py
 
-`dango validate` checks `dbt --version`. A slow but working dbt (first run, cold disk, antivirus)
+`dango validate` starts `dbt --help` (no network). A slow but working dbt (first run, cold disk, antivirus)
 must pass; a dbt that hangs past the limit must still fail with a message that says what happened.
 """
 
@@ -34,7 +34,7 @@ def _check(tmp_path: Path, fake_run: Any) -> Any:
 
 
 def _taking(seconds: float) -> Any:
-    """A subprocess.run stand-in for a dbt that needs `seconds` to print its version."""
+    """A subprocess.run stand-in for a dbt that needs `seconds` to start."""
 
     def fake_run(cmd: list[str], *args: Any, **kwargs: Any) -> SimpleNamespace:
         limit = kwargs.get("timeout")
@@ -48,7 +48,7 @@ def _taking(seconds: float) -> Any:
 def test_a_dbt_that_needs_seven_seconds_passes(tmp_path: Path) -> None:
     result = _check(tmp_path, _taking(7))
     assert result.status == "pass"
-    assert "installed: 1.10.20" in result.message or "Core" in result.message
+    assert result.message.startswith("dbt-core ")
 
 
 def test_a_dbt_that_needs_twenty_five_seconds_passes(tmp_path: Path) -> None:
@@ -92,4 +92,4 @@ def test_a_failing_dbt_still_fails_and_a_missing_dbt_is_reported(tmp_path: Path)
 def test_a_fast_dbt_reports_its_version_line(tmp_path: Path) -> None:
     result = _check(tmp_path, _taking(0.1))
     assert result.status == "pass"
-    assert result.message == "Core:"
+    assert result.message.startswith("dbt-core ")

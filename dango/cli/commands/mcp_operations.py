@@ -49,7 +49,8 @@ def run_sync(
 
     Returns dict with: status (completed/partial/failed/dry_run), the sync summary
     keys (success_count, failed_count, ...), warnings, metabase
-    (refreshed/not_running), or error.
+    (refreshed/not_running), or error. status is "failed" also when the data loaded but the
+    dbt transform failed (transform_status "failed"; transform_error says why).
     """
     from datetime import datetime, timedelta
 
@@ -220,6 +221,8 @@ def run_sync(
 
     if summary.get("interrupted"):
         summary["status"] = "interrupted"
+    elif summary.get("transform_status") == "failed":
+        summary["status"] = "failed"  # the data loaded but dbt failed: `dango sync` exits 1 too
     elif failed_count == 0:
         summary["status"] = "completed"
     elif summary.get("success_count", 0) == 0:

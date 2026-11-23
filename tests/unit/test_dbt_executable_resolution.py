@@ -121,9 +121,9 @@ class TestCallSitesUseResolvedDbt:
             validator._validate_dbt_models()
             validator._check_dependencies()
 
-        heads = {c[1]: c[0] for c in calls if len(c) > 1 and c[1] in ("parse", "--version")}
+        heads = {c[1]: c[0] for c in calls if len(c) > 1 and c[1] in ("parse", "--help")}
         assert heads.get("parse") == str(venv_bin / DBT_NAME)
-        assert heads.get("--version") == str(venv_bin / DBT_NAME)
+        assert heads.get("--help") == str(venv_bin / DBT_NAME)
 
     def test_watcher_command_uses_venv_dbt(self, venv_bin: Path, tmp_path: Path) -> None:
         from dango.platform.local.watcher_runner import run_dbt_command

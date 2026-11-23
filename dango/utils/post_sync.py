@@ -842,7 +842,10 @@ def _send_sync_notification(
             return
 
         failed = sync_result.get("failed_count", 0)
-        event_type = EventType.SYNC_FAILED if failed > 0 else EventType.SYNC_COMPLETED
+        transform_failed = sync_result.get("transform_status") == "failed"
+        event_type = (
+            EventType.SYNC_FAILED if failed > 0 or transform_failed else EventType.SYNC_COMPLETED
+        )
         if not should_notify(event_type, config):
             return
 
@@ -855,6 +858,10 @@ def _send_sync_notification(
         if failed > 0:
             failed_names = [f.get("name", "?") for f in sync_result.get("failed_sources", [])]
             error_msg = f"Failed sources: {', '.join(failed_names)}"
+        if transform_failed:
+            # transform_error is redacted and cut by run_sync, like the scheduler's text
+            transform_msg = sync_result.get("transform_error") or "dbt transform failed"
+            error_msg = f"{error_msg}; {transform_msg}" if error_msg else transform_msg
 
         payload = WebhookPayload(
             event_type=event_type,

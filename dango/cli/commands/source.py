@@ -1202,6 +1202,14 @@ def sync(
             print_failed_sources(summary, project_root)
             raise click.Abort()
 
+        # Data loaded, but dbt skipped or failed models: scripts must see a failure too.
+        if summary.get("transform_status") == "failed":
+            console.print(
+                "[red]Error:[/red] the data was loaded, but the dbt transform failed (details above), "
+                "so some tables may be missing or out of date"
+            )
+            raise click.Abort()
+
     except (click.Abort, click.exceptions.Exit):
         raise
     except Exception as e:

@@ -8,7 +8,7 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
-| `__init__.py` | dbt CLI execution functions | `run_dbt_models`, `run_dbt_snapshots`, `generate_dbt_docs`, `_get_dbt_executable`, `_dbt_telemetry_env` |
+| `__init__.py` | dbt CLI execution functions | `run_dbt_models`, `run_dbt_snapshots`, `generate_dbt_docs`, `installed_dbt_version`, `_get_dbt_executable`, `_dbt_telemetry_env` |
 | `generator.py` | Auto-generates dbt staging models from data sources. Quotes DuckDB keywords/digit-leading column names; data-derived text goes through `dango/utils/dbt_escaping.py` filters so dbt never renders it as Jinja | `DbtModelGenerator`, `generate_staging_models`, `_quote_column_name` |
 | `model_service.py` | Non-interactive create/update/remove of dbt models (naming, lineage validation, SQL rendering, `dbt parse` gate with rollback, `DbtLock`-guarded table drop); used by the model wizard, `dango model remove`, and MCP model tools | `create_model`, `update_model`, `remove_model`, `validate_model_sql`, `render_model_sql`, `extract_refs`, `find_model`, `list_models`, `parse_project`, `ModelServiceError` |
 | `model_common.py` | Shared types (`ModelServiceError`, `ModelChangeResult`), naming normalisation and recursive model lookup | `normalize_model_name`, `find_model`, `list_models` |
@@ -17,6 +17,7 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 | `model_sql_functions.py` | Function allow-list for the guard: `duckdb_function_allowlist.txt` (built-in DuckDB functions, regenerate with `scripts/generate_duckdb_function_allowlist.py` after a DuckDB upgrade) minus the deny set, plus parser-level syntax names | `function_error`, `is_denied_function`, `load_function_allowlist` |
 | `model_docs_guard.py` | Fail-closed check of service/agent-written docs (no Jinja; built-in tests with SQL-free arguments only); called from `validate_column_entries` | `check_docs_input` |
 | `model_docs.py` | schema.yml helpers that preserve every other key (tests, config, other models, top-level keys) | `locate_model_docs`, `upsert_model_docs`, `remove_model_docs`, `resolve_docs_path` |
+| `build_outcome.py` | Decides from this build's `run_results.json` whether a non-zero `dbt build` still transformed the data (only failed data tests with nothing skipped or errored); fails closed when results are missing, stale or unreadable; words the skipped/errored models and failed tests as `dango: ...` lines in the `run_dbt_models` output. Never raises | `assess_failed_build`, `BuildVerdict`, `failure_notes`, `tests_only_note`, `notes_in`, `without_notes` |
 | `build_finalize.py` | Shared post-`dbt build` steps and run_results summary; used by `dango run` and MCP `run_transform`. Model status always; schema.yml sync (nested models) + Metabase refresh only on success. Never raises | `finalize_dbt_build`, `summarize_run_results` |
 
 ## Common Tasks
@@ -34,6 +35,7 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 **Imports from:**
 - `dango/config/models.py` — `DataSource`, `SourceType`, `DeduplicationStrategy`
 - `dango/utils/dbt_status.py` — `update_model_status` (lazy import in `run_dbt_models` and `build_finalize.py`)
+- `build_outcome.py` imports `build_finalize.summarize_run_results`; `run_dbt_models` imports `build_outcome` lazily
 - `dango/cli/schema_manager.py`, `dango/visualization/metabase.py` — lazy imports in `build_finalize.py`
 
 **Used by:**
