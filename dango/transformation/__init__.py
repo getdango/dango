@@ -72,6 +72,9 @@ def _is_corruption_text(output_lower: str) -> bool:
         for marker in (
             "corrupt database file",
             "database file is corrupt",
+            "database file appears to be corrupted",
+            "corrupt wal",
+            "corrupt encrypted wal",
             "not a valid duckdb database file",
         )
     )
