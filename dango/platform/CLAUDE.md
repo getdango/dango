@@ -367,11 +367,48 @@ Post-deployment hardening (not automated by Dango):
 ## Testing
 
 - **Bundle manifest:** `pytest tests/unit/test_bundle_manifest.py` — strict schema, qualification refusal/fixtures, import safety, and direct wheel/zip resource loading. Candidate validity and a nonempty receipt reference do not authenticate evidence or establish native runtime compatibility.
+- **Retained native development evidence:** `pytest tests/integration/test_runtime_admission.py -m unit -q` verifies `tests/fixtures/runtime_profiles.json` offline against its reviewed SHA-256 anchor, original run indexes, selected native JSON member hashes, exact artifacts/licenses and independent expected answers. It starts no services and is included in ordinary CI.
+
 - **Scheduling:** `pytest tests/unit/test_scheduler.py tests/unit/test_scheduler_resilience.py tests/unit/test_execution_history.py tests/unit/test_sync_jobs.py tests/unit/test_sync_trigger.py`
 - **Notifications:** `pytest tests/unit/test_webhook.py tests/unit/test_slack_formatter.py`
 - **Local platform:** `pytest tests/unit/test_platform_startup.py tests/unit/test_watcher_lifecycle.py`
 - **Cloud modules:** `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py tests/unit/test_ssh_manager.py tests/unit/test_ssh_sftp.py tests/unit/test_provisioning.py tests/unit/test_firewall.py tests/unit/test_server_setup.py tests/unit/test_domain.py tests/unit/test_backup.py tests/unit/test_file_sync.py tests/unit/test_deployer.py tests/unit/test_deployer_push.py tests/unit/test_deploy_journal.py tests/unit/test_scheduled_backup.py tests/unit/test_resize.py tests/unit/test_migrate.py tests/unit/test_upgrade.py`
 - **Manual:** `dango start` (local platform), `dango deploy` (cloud provisioning)
+
+### Development evidence and runtime admission
+
+`t44a-python314-duckdb2-linux-amd64-development` in the actual packaged
+`bundle-candidates.json` remains **candidate**, with no qualification receipt. The
+resolver must refuse it. Its separate test fixture records twelve scoped T44A groups,
+five consumer exports, immutable source/run references and explicit unsupported targets;
+a schema-valid manifest or nonempty receipt reference cannot authenticate native proof.
+Original UTF-8 exports and explicit JSON-pointer selections are distinguished, with
+original indexed file hashes and separately bound exported-byte hashes. Selection omits
+unneeded members without inventing response bodies. The anchor is reviewed export
+integrity, not a signature, remote re-attestation, a new native run or shipping approval.
+
+Direct model validation separately binds the oracle tree's reviewed nested keys,
+positional lengths and exact Python scalar types, and rejects nonfinite values.
+Verified evidence is retained as immutable bytes; every exposed model is a fresh view,
+so changing a receipt or nested oracle view cannot change authenticated consumption.
+
+`assert_live_lightdash` in the same test module is a future opt-in entrypoint for one
+captured-input total-350 submit/poll assertion. A future owner must independently verify
+the exact installed profile and captured input, authorize an already running owned
+loopback project, and supply its ordinary actor session through `OwnedLiveProfile` and
+the explicit function arguments. Missing authorization/profile/session returns `UNRUN`.
+There is no default live invocation or startup/install path. A selected live assertion
+cannot qualify the bundle; product admission/distribution remains the installer gate.
+The current batch checks only offline evidence and absence-of-authority behavior.
+
+The profile uses unreleased pinned dlt source and a two-file Lightdash dependency
+adaptation. Preserve native Python-model refusal, serial dbt DDL, separate app/notebook
+runs, named calendar columns and same-runner restore limits. Marimo's unused bundled
+LSP/Copilot license provenance is limited; headless development results do not authorize
+redistribution. T04A/T04B/T05, T06A/T06B, T08B, T09C and T10 retain the missing integrated
+catalog/lifecycle, parser/invocation, paging/cancellation/reauthorization, identity/recovery
+and definition-completion work respectively. Historical native cleanup belongs to its
+original run owner; these offline checks create no native resources or cleanup authority.
 
 ## Don't Modify
 
