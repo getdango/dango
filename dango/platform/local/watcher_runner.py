@@ -150,6 +150,18 @@ def run_dbt_command(project_root: Path, changed_files: list[Any] | None = None) 
         lock.release()
 
 
+def regenerate_dbt_docs(project_root: Path) -> bool:
+    """Regenerate dbt docs under the dbt lock; a busy warehouse only prints a warning."""
+    from dango.transformation.docs_locked import generate_dbt_docs_locked
+
+    success, output = generate_dbt_docs_locked(project_root, source="watcher")
+    if success:
+        print("[FileWatcher] ✓ dbt docs regenerated")
+    else:
+        print(f"[FileWatcher] ⚠ dbt docs generation failed: {output}")
+    return success
+
+
 def run_validate_command(project_root: Path) -> bool:
     """Execute dango validate command"""
     print(f"[FileWatcher] Triggering validation at {datetime.now().isoformat()}")
@@ -285,13 +297,7 @@ def main() -> None:
 
         # Auto-regenerate dbt docs after sources.yml changes
         print("[FileWatcher] Regenerating dbt docs after sources.yml changes...")
-        from dango.transformation import generate_dbt_docs
-
-        success, output = generate_dbt_docs(project_root)
-        if success:
-            print("[FileWatcher] ✓ dbt docs regenerated")
-        else:
-            print(f"[FileWatcher] ⚠ dbt docs generation failed: {output}")
+        regenerate_dbt_docs(project_root)
 
     multi_watcher.add_watch_target(
         name="sources_config",

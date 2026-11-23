@@ -17,7 +17,7 @@ Covers two fixes combined in one call site (BUGS-FOUND.md):
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 import pytest
 
@@ -42,7 +42,11 @@ class TestMetabaseRefreshDispatch:
         with patch("dango.web.routes.initial_sync._check_disk_usage", return_value=None):
             await mod._run_initial_sync(tmp_path, [{"name": "hubspot", "type": "hubspot"}])
 
-        mock_to_thread.assert_called_once_with(mod._refresh_metabase, tmp_path)
+        # docs generation (it may wait for the dbt lock) and the Metabase refresh, in this order
+        assert mock_to_thread.call_args_list == [
+            call(mod._generate_dbt_docs, tmp_path),
+            call(mod._refresh_metabase, tmp_path),
+        ]
 
 
 @pytest.mark.unit

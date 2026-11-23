@@ -85,7 +85,7 @@ def test_failed_source_remove_names_the_env_keys_it_left(
 
     project = _project(tmp_path, sample_config)
     monkeypatch.chdir(project)
-    monkeypatch.setattr("dango.transformation.generate_dbt_docs", lambda *_a, **_k: None)
+    monkeypatch.setattr("dango.transformation.generate_dbt_docs", lambda *_a, **_k: (True, ""))
     with patch.object(Path, "unlink", _stuck("sources_orders.yml")):
         result = CliRunner().invoke(cli, ["source", "remove", "orders", "--yes"])
     out = " ".join(result.output.split())

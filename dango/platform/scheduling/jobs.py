@@ -292,6 +292,10 @@ def _check_freshness(
 
 _PENDING_DBT_FILE = ".dango/state/pending_dbt_sources.json"
 
+#: Seconds the coalesced dbt run waits for the DuckDB writer lock (the wait each scheduled
+#: source sync uses for its load).
+_DBT_LOCK_WAIT_SECONDS = 300
+
 
 def _add_pending_dbt_source(project_root: Path, source_name: str) -> None:
     """Atomically add a source to the pending dbt list."""
@@ -335,6 +339,38 @@ def _consume_pending_dbt_sources(project_root: Path) -> list[str]:
     return list(data)
 
 
+def _restore_pending_dbt_sources(project_root: Path, sources: list[str]) -> None:
+    """Put consumed sources back, ahead of any added meanwhile (de-duplicated).
+
+    Same file and lock as ``_add_pending_dbt_source`` / ``_consume_pending_dbt_sources``.
+    """
+    path = project_root / _PENDING_DBT_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+", encoding="utf-8", newline="\n") as f:
+        if sys.platform == "win32":
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0)
+        try:
+            current = json.load(f)
+        except (json.JSONDecodeError, ValueError):
+            current = []
+        merged = list(dict.fromkeys([*sources, *current]))
+        f.seek(0)
+        f.truncate()
+        json.dump(merged, f)
+
+
+def _put_back_pending_dbt_sources(project_root: Path, sources: list[str]) -> None:
+    """Restore consumed sources; a failure here is logged and never replaces the run's outcome."""
+    try:
+        _restore_pending_dbt_sources(project_root, sources)
+    except Exception:
+        logger.warning("pending_dbt_sources_restore_failed", sources=sources, exc_info=True)
+
+
 def _get_coalesce_seconds(project_root: Path) -> int:
     """Read dbt_coalesce_seconds from config."""
     try:
@@ -346,8 +382,38 @@ def _get_coalesce_seconds(project_root: Path) -> int:
         return 10
 
 
+def _run_dbt_under_lock(project_root: Path, select_criteria: str) -> tuple[bool, str]:
+    """Run dbt for ``select_criteria`` holding the dbt lock, Metabase stopped around the write.
+
+    Raises ``DbtLockError`` if the lock is not free within ``_DBT_LOCK_WAIT_SECONDS``.
+    """
+    from dango.platform.common.metabase_lifecycle import (
+        start_metabase_after_writes,
+        stop_metabase_for_writes,
+    )
+    from dango.transformation import run_dbt_models
+    from dango.utils.dbt_lock import DbtLock
+
+    metabase_was_stopped = stop_metabase_for_writes(project_root)
+    try:
+        lock = DbtLock(project_root, source="scheduler", operation="coalesced dbt run")
+        try:
+            lock.acquire(timeout=_DBT_LOCK_WAIT_SECONDS)
+            return run_dbt_models(project_root, select=select_criteria)
+        finally:
+            lock.release()
+    finally:
+        if metabase_was_stopped:
+            start_metabase_after_writes(project_root)
+
+
 def _run_coalesced_dbt(project_root: Path) -> bool:
     """Run dbt for all pending sources, plus dbt docs and Metabase refresh.
+
+    dbt runs under the dbt lock. The pending sources are consumed up front; if dbt never got to
+    run (lock timeout, exception) they are put back for the next run. A dbt run that completed,
+    even with a failure, is not repeated: the failure is logged, and the failed source is queued
+    again by its own next sync (restoring it would fail every later run for unrelated sources).
 
     Returns True if dbt succeeded (or no pending sources), False on failure.
     """
@@ -359,7 +425,8 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
     if not pending:
         return True
 
-    from dango.transformation import generate_dbt_docs, run_dbt_models
+    from dango.exceptions import DbtLockError
+    from dango.transformation.docs_locked import generate_dbt_docs_locked
     from dango.utils.activity_log import log_activity as log_activity_fn
 
     select_criteria = " ".join(f"source:{s}+" for s in pending)
@@ -370,7 +437,22 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
         f"dbt:{select_criteria}",
         f"Coalesced dbt starting for sources: {', '.join(pending)}",
     )
-    dbt_success, _dbt_output = run_dbt_models(project_root, select=select_criteria)
+    try:
+        dbt_success, _dbt_output = _run_dbt_under_lock(project_root, select_criteria)
+    except DbtLockError as exc:
+        reason = str(exc).splitlines()[0] if str(exc) else "dbt lock unavailable"
+        log_activity_fn(
+            project_root,
+            "error",
+            f"dbt:{select_criteria}",
+            f"Coalesced dbt failed for sources: {', '.join(pending)}. {reason}",
+        )
+        logger.error("coalesced_dbt_lock_timeout", sources=pending, select=select_criteria)
+        _put_back_pending_dbt_sources(project_root, pending)
+        return False
+    except BaseException:
+        _put_back_pending_dbt_sources(project_root, pending)
+        raise
 
     if dbt_success:
         log_activity_fn(
@@ -380,7 +462,7 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
             f"Coalesced dbt completed for sources: {', '.join(pending)}",
         )
         # Generate docs and refresh Metabase (mirrors run_sync post-dbt steps)
-        generate_dbt_docs(project_root)
+        generate_dbt_docs_locked(project_root, source="scheduler")
         try:
             from dango.visualization.metabase import (
                 refresh_metabase_connection,
@@ -522,7 +604,7 @@ def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: A
                 full_refresh=full_refresh,
                 skip_dbt=True,
                 source_label="scheduler",
-                max_lock_wait=300,
+                max_lock_wait=_DBT_LOCK_WAIT_SECONDS,
             )
 
             success, _result = poll_sync_status_blocking(

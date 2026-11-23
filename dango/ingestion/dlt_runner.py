@@ -4152,9 +4152,9 @@ def run_sync(
 
                 # Generate dbt docs
                 console.print("[dim]Generating dbt documentation...[/dim]")
-                from dango.transformation import generate_dbt_docs
+                from dango.transformation.docs_locked import generate_dbt_docs_locked
 
-                docs_success, docs_output = generate_dbt_docs(project_root)
+                docs_success, docs_output = generate_dbt_docs_locked(project_root, source="sync")
 
                 # Restore build results (with test data) after docs generate
                 if build_results_backup.exists():

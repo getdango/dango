@@ -282,7 +282,7 @@ async def _run_initial_sync(project_root: Path, sources: list[dict[str, str]]) -
         # dbt docs
         _sync_state.phase = SyncPhase.DBT_DOCS
         await _save_and_broadcast()
-        _generate_dbt_docs(project_root)
+        await asyncio.to_thread(_generate_dbt_docs, project_root)
 
         # Metabase refresh
         _sync_state.phase = SyncPhase.METABASE
@@ -320,9 +320,9 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
 def _generate_dbt_docs(project_root: Path) -> None:
     """Generate dbt documentation after sync."""
     try:
-        from dango.transformation import generate_dbt_docs
+        from dango.transformation.docs_locked import generate_dbt_docs_locked
 
-        generate_dbt_docs(project_root)
+        generate_dbt_docs_locked(project_root, source="initial_sync")
     except Exception:
         logger.warning("initial_sync_dbt_docs_failed", exc_info=True)
 

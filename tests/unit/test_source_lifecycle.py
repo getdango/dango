@@ -345,7 +345,7 @@ class TestReviewFollowUps:
         _write(project, "dbt/models/marts/fct_o.sql", "select * from {{ ref('stg_orders__t') }}")
         _write(project, ".env", "ORDERS_KEY=v\nORDERS_EU_KEY=w\n")
         monkeypatch.chdir(project)
-        monkeypatch.setattr("dango.transformation.generate_dbt_docs", lambda *_a, **_k: None)
+        monkeypatch.setattr("dango.transformation.generate_dbt_docs", lambda *_a, **_k: (True, ""))
         runner = CliRunner()
         declined = runner.invoke(cli, ["source", "remove", "orders"], input="n\n")
         assert "marts.fct_o" in declined.output and "will break" in declined.output
