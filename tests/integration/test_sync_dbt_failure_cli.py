@@ -46,7 +46,7 @@ def test_clean_sync_exits_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     result, text = _sync(root, monkeypatch)
     assert result.exit_code == 0, result.output
     assert "dbt models executed successfully" in text
-    assert "data tests failed" not in text
+    assert "tests failed" not in text
 
 
 def test_sync_that_skips_models_exits_one_and_names_them(
@@ -64,6 +64,7 @@ def test_sync_that_skips_models_exits_one_and_names_them(
     assert "Staging/marts tables were not created" not in text
     assert "stg_shop__shop" in text and "order_count" in text
     assert "source_unique_shop_shop_id" in text
+    assert text.count("tests failed (1)") == 1  # the notes are printed once, not twice
 
 
 def test_failed_check_that_skipped_nothing_is_shown_and_exits_zero(
@@ -72,5 +73,5 @@ def test_failed_check_that_skipped_nothing_is_shown_and_exits_zero(
     root = make_csv_project(tmp_path / "proj", CLEAN_CSV, failing_leaf_test=True)
     result, text = _sync(root, monkeypatch)
     assert result.exit_code == 0, result.output
-    assert "data tests failed" in text
+    assert "tests failed" in text
     assert "accepted_values_order_count_n" in text

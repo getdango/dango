@@ -96,8 +96,8 @@ def test_failing_test_with_nothing_skipped_is_success_and_names_the_test(
 ) -> None:
     out = outcomes["test_only"]
     assert out.ok is True
-    assert any("data tests failed" in n and "accepted_values_order_count_n" in n for n in out.notes)
-    assert not any("skipped" in n or "errors" in n for n in out.notes)
+    assert any("tests failed" in n and "accepted_values_order_count_n" in n for n in out.notes)
+    assert not any("skipped" in n or "failed models" in n for n in out.notes)
     assert not any("__98" in n for n in out.notes)  # the warn-only test is not a failure
     assert any("(1)" in n for n in out.notes)
 
@@ -110,7 +110,12 @@ def test_warn_only_build_is_success_without_a_failure_note(outcomes: dict[str, O
 def test_model_sql_error_fails_and_names_the_model(outcomes: dict[str, Outcome]) -> None:
     out = outcomes["model_error"]
     assert out.ok is False
-    assert any("models with errors" in n and "broken_mart" in n for n in out.notes)
+    assert any(
+        "failed models, seeds, snapshots or hooks" in n and "broken_mart" in n for n in out.notes
+    )
+    # the cause is the failed node, not the DuckDB lock text that matched every dbt-duckdb run
+    assert "write lock" not in out.output
+    assert "Possible causes" in out.output and "named below failed" in out.output
 
 
 def test_skipped_models_fail_and_name_models_and_the_failing_test(
@@ -119,8 +124,23 @@ def test_skipped_models_fail_and_name_models_and_the_failing_test(
     out = outcomes["skipped"]
     assert out.ok is False
     assert any("skipped" in n and "order_count" in n for n in out.notes)
-    assert any("data tests failed" in n and "unique_stg_orders_id" in n for n in out.notes)
+    assert any("tests failed" in n and "unique_stg_orders_id" in n for n in out.notes)
     assert "dbt build failed" in out.output
+
+
+def test_failed_hook_beside_a_failing_leaf_test_fails_the_build(
+    outcomes: dict[str, Outcome],
+) -> None:
+    out = outcomes["hook_and_test"]
+    assert out.ok is False
+    assert any("failed models, seeds, snapshots or hooks" in n for n in out.notes)
+    assert not any("skipped" in n for n in out.notes)  # nothing skipped: the hook alone fails it
+
+
+def test_test_whose_own_sql_errors_is_a_success_with_a_note(outcomes: dict[str, Outcome]) -> None:
+    out = outcomes["test_error"]
+    assert out.ok is True
+    assert any("tests failed" in n and "leaf_test_with_bad_sql" in n for n in out.notes)
 
 
 def test_genuine_results_with_skipped_nodes_fail_even_with_old_success_text(
@@ -135,7 +155,7 @@ def test_genuine_test_only_results_keep_the_build_a_success(
 ) -> None:
     ok, output = _fake_dbt_run(bare_project, results=outcomes["test_only"].results)
     assert ok is True
-    assert "data tests failed" in output
+    assert "tests failed" in output
 
 
 def test_nonzero_exit_without_results_fails_despite_completed_with_test_text(
@@ -163,3 +183,25 @@ def test_nonzero_exit_that_no_node_explains_fails_closed(
 ) -> None:
     ok, _ = _fake_dbt_run(bare_project, results=outcomes["clean"].results)
     assert ok is False
+
+
+def test_a_held_warehouse_lock_still_gets_the_lock_advice(tmp_path: Path) -> None:
+    """A real DuckDB lock conflict (this process holds the file open) keeps the lock cause."""
+    import duckdb
+
+    mp = pytest.MonkeyPatch()
+    mp.setenv("HOME", str(tmp_path))
+    mp.setenv("DBT_SEND_ANONYMOUS_USAGE_STATS", "False")
+    mp.setenv("DO_NOT_TRACK", "1")
+    try:
+        root = make_matrix_project(tmp_path / "proj", "clean")
+        holder = duckdb.connect(str(root / "data" / "warehouse.duckdb"))
+        try:
+            ok, output = run_dbt_models(root)
+        finally:
+            holder.close()
+    finally:
+        mp.undo()
+    assert ok is False
+    assert "lock" in output.lower()
+    assert "DuckDB write lock held by another process" in output

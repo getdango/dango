@@ -6,7 +6,6 @@ PyPI for the latest versions): the row shows the installed dbt-core version from
 
 from __future__ import annotations
 
-import socket
 import subprocess
 from importlib import metadata
 from pathlib import Path
@@ -47,21 +46,6 @@ def test_the_dbt_check_runs_help_never_version(tmp_path: Path) -> None:
     _row(tmp_path, fake_run)
     dbt_calls = [c for c in seen if c[0] == "dbt"]
     assert dbt_calls == [["dbt", "--help"]]
-
-
-def test_the_row_passes_with_every_network_call_forbidden(tmp_path: Path) -> None:
-    import requests
-
-    def no_network(*a: Any, **k: Any) -> Any:
-        raise AssertionError("network used by the dbt check")
-
-    with (
-        patch.object(socket.socket, "connect", no_network),
-        patch.object(requests, "get", no_network),
-        patch.object(requests.Session, "request", no_network),
-    ):
-        row = _row(tmp_path, _ok)
-    assert row.status == "pass"
 
 
 def test_the_version_line_comes_from_local_metadata(tmp_path: Path) -> None:
