@@ -15,10 +15,12 @@ VARIANTS = ("clean", "test_only", "warn_only", "model_error", "skipped")
 _PROJECT_YML = "name: t\nversion: '1.0.0'\nprofile: t\nmodel-paths: [models]\n"
 
 _SCHEMA = {
-    # the leaf model's own test fails; nothing runs downstream of it
+    # the leaf model's own test fails (plus a warn-only one); nothing runs downstream of it
     "test_only": (
         "version: 2\nmodels:\n  - name: order_count\n    columns:\n      - name: n\n"
         "        tests:\n          - accepted_values:\n              values: [99]\n"
+        "          - accepted_values:\n              values: [98]\n"
+        "              config:\n                severity: warn\n"
     ),
     "warn_only": (
         "version: 2\nmodels:\n  - name: order_count\n    columns:\n      - name: n\n"

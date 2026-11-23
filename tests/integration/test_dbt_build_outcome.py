@@ -98,6 +98,8 @@ def test_failing_test_with_nothing_skipped_is_success_and_names_the_test(
     assert out.ok is True
     assert any("data tests failed" in n and "accepted_values_order_count_n" in n for n in out.notes)
     assert not any("skipped" in n or "errors" in n for n in out.notes)
+    assert not any("__98" in n for n in out.notes)  # the warn-only test is not a failure
+    assert any("(1)" in n for n in out.notes)
 
 
 def test_warn_only_build_is_success_without_a_failure_note(outcomes: dict[str, Outcome]) -> None:

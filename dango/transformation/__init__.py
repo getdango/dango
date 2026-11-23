@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from rich.console import Console
@@ -63,6 +64,16 @@ def _get_dbt_executable() -> str:
     return "dbt"
 
 
+def installed_dbt_version() -> str:
+    """The installed dbt-core version for display, from local package metadata (no network)."""
+    from importlib import metadata
+
+    try:
+        return f"dbt-core {metadata.version('dbt-core')}"
+    except metadata.PackageNotFoundError:
+        return "dbt CLI starts (dbt-core version not found in package metadata)"
+
+
 def run_dbt_models(
     project_root: Path,
     select: str | None = None,
@@ -80,12 +91,20 @@ def run_dbt_models(
     Returns:
         Tuple of (success, output)
     """
+    from dango.transformation.build_outcome import (
+        assess_failed_build,
+        failure_notes,
+        tests_only_note,
+    )
     from dango.utils.dbt_status import update_model_status
 
     dbt_dir = project_root / "dbt"
 
     # Get dbt executable path
     dbt_cmd = _get_dbt_executable()
+
+    # Taken before dbt starts: a run_results.json older than this belongs to an earlier build.
+    build_started = time.time()
 
     # Build dbt command with optional selection
     cmd = [dbt_cmd, "build", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)]
@@ -114,13 +133,21 @@ def run_dbt_models(
             update_model_status(project_root)
             return (True, output)
 
-        # dbt build returns non-zero if tests fail, even when models succeed.
-        # Treat test-only failures as success (data was transformed correctly).
-        if "Completed with" in output and "test" in output.lower():
+        # dbt build exits non-zero when any test fails, and then SKIPS everything downstream of
+        # the failure. Decide from this build's run_results.json, never from the output text:
+        # only failed tests with nothing skipped or errored mean the data was transformed.
+        verdict = assess_failed_build(project_root, since=build_started)
+        if verdict.transformed:
             update_model_status(project_root)
-            return (True, output)
+            return (True, f"{output}\n{tests_only_note(verdict)}\n")
         output_lower = output.lower()
-        if "compilation error" in output_lower or "parsing error" in output_lower:
+        if verdict.usable and verdict.tests_failed and not verdict.errored:
+            causes = ["A data test failed, so dbt skipped the models that depend on it"]
+            fix = (
+                "Fix the data behind the failing test named below (often duplicate or blank "
+                "key values in the source), then run: dango run"
+            )
+        elif "compilation error" in output_lower or "parsing error" in output_lower:
             causes = [
                 "SQL syntax error in a dbt model",
                 "Missing ref() or source() target",
@@ -139,7 +166,12 @@ def run_dbt_models(
         structured = format_structured_error(
             what_failed="dbt build failed", causes=causes, suggested_fix=fix
         )
-        return (False, f"{structured}\n\nFull output:\n{output}")
+        detail = "\n".join(failure_notes(verdict)) or (
+            "dango: the dbt build exited with an error that its run results do not explain (they are "
+            "missing, stale, unreadable or show no failed node), so the build is treated as "
+            "failed."
+        )
+        return (False, f"{structured}\n\n{detail}\n\nFull output:\n{output}")
 
     except subprocess.TimeoutExpired:
         return (

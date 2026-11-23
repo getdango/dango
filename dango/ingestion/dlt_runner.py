@@ -4093,6 +4093,7 @@ def run_sync(
                 progress_callback("dbt_started", "Running dbt models")
             console.print("🔄 [bold]Running dbt models...[/bold]\n")
             from dango.transformation import run_dbt_models
+            from dango.transformation.build_outcome import notes_in
 
             # Build source-based selection criteria
             # Format: "source:source1+ source:source2+" (runs models dependent on these sources)
@@ -4133,6 +4134,11 @@ def run_sync(
                 # Parse and display dbt model execution details
                 _display_dbt_output(dbt_output)
                 console.print("[green]✓ dbt models executed successfully[/green]")
+                for note in notes_in(dbt_output):
+                    console.print(
+                        f"[yellow]{rich_error_text(project_root, note)} "
+                        "(details: dango run)[/yellow]"
+                    )
 
                 # Preserve build results before docs generate (dbt overwrites
                 # run_results.json on every command including docs generate)
@@ -4185,8 +4191,13 @@ def run_sync(
                     progress_callback("dbt_failed", "dbt run failed")
                 _logging.getLogger(__name__).error("dbt_transform_failed: %s", transform_error_msg)
                 console.print("[red bold]✗ dbt transform failed[/red bold]")
-                console.print(f"[red]{dbt_output}[/red]")
-                console.print("[yellow]⚠️  Staging/marts tables were not created[/yellow]")
+                console.print(f"[red]{rich_error_text(project_root, dbt_output)}[/red]")
+                for note in notes_in(dbt_output):
+                    console.print(f"[yellow]{rich_error_text(project_root, note)}[/yellow]")
+                console.print(
+                    "[yellow]Tables of models that were skipped or failed were not rebuilt "
+                    "and may be missing or out of date[/yellow]"
+                )
                 # Update sync history with transform error
                 from dango.utils.sync_history import update_last_sync_entry
 

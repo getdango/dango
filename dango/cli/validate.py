@@ -779,7 +779,7 @@ class ProjectValidator:
 
     def _check_dependencies(self):
         """Check if required Python packages are installed"""
-        from dango.transformation import _get_dbt_executable
+        from dango.transformation import _get_dbt_executable, installed_dbt_version
 
         required_packages = [
             ("duckdb", "DuckDB"),
@@ -812,10 +812,11 @@ class ProjectValidator:
                     )
                 )
 
-        # Check dbt CLI
+        # Check dbt CLI. `dbt --help` proves the executable starts and is purely local;
+        # `dbt --version` also asks PyPI for the latest dbt versions (two requests).
         try:
             result = subprocess.run(
-                [_get_dbt_executable(), "--version"],
+                [_get_dbt_executable(), "--help"],
                 capture_output=True,
                 text=True,
                 timeout=DBT_VERSION_TIMEOUT_SECONDS,
@@ -823,9 +824,7 @@ class ProjectValidator:
                 errors="replace",
             )
             if result.returncode == 0:
-                # Extract version from output
-                version_line = result.stdout.split("\n")[0]
-                self.results.append(ValidationResult("CLI: dbt", "pass", version_line))
+                self.results.append(ValidationResult("CLI: dbt", "pass", installed_dbt_version()))
             else:
                 self.results.append(ValidationResult("CLI: dbt", "fail", "dbt command failed"))
         except FileNotFoundError:
@@ -835,7 +834,7 @@ class ProjectValidator:
                 ValidationResult(
                     "CLI: dbt",
                     "fail",
-                    f"dbt --version timed out after {DBT_VERSION_TIMEOUT_SECONDS} seconds. "
+                    f"dbt --help timed out after {DBT_VERSION_TIMEOUT_SECONDS} seconds. "
                     "A first run or a busy disk can be slow: run 'dango validate' again, and if "
                     "it persists check that dbt starts quickly in this environment.",
                 )

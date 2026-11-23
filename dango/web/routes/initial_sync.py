@@ -312,6 +312,9 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
     failed = result.get("failed_sources", [])
     if failed:
         raise RuntimeError(failed[0].get("error", "Sync failed"))
+    if result.get("transform_status") == "failed":
+        # transform_error is already redacted and cut by run_sync
+        raise RuntimeError(result.get("transform_error") or "dbt transform failed")
 
 
 def _generate_dbt_docs(project_root: Path) -> None:
