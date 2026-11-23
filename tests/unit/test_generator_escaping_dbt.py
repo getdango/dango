@@ -19,6 +19,7 @@ import yaml
 
 from dango.config.models import DataSource, SourceType
 from dango.transformation.generator import DbtModelGenerator
+from dango.utils.generated_file_hashes import record_current
 
 CANARY_VALUE = "CANARY_SECRET_9f3a"
 
@@ -116,6 +117,7 @@ class TestGenericTestsOnKeywordColumns:
         (staging_dir / "stg_shop.yml").write_text(
             yaml.dump({"models": [{"name": "stg_shop__o", "columns": [{"name": "order"}]}]})
         )
+        record_current(tmp_path, staging_dir / "stg_shop.yml")
         mock_conn = MagicMock()
         mock_conn.execute.return_value.fetchall.return_value = [("order",)]
         mock_conn.__enter__ = MagicMock(return_value=mock_conn)
@@ -123,7 +125,7 @@ class TestGenericTestsOnKeywordColumns:
         with patch("dango.utils.post_sync.connect", return_value=mock_conn):
             _enrich_staging_tests(tmp_path, ["shop"])
         col = yaml.safe_load((staging_dir / "stg_shop.yml").read_text())["models"][0]["columns"][0]
-        assert col["tests"] == ["not_null"]
+        assert col["tests"] == [{"not_null": {"config": {"severity": "warn"}}}]
         assert col["quote"] is True
 
 

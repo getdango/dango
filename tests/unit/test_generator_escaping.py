@@ -19,6 +19,7 @@ import yaml
 
 from dango.config.models import DataSource, SourceType
 from dango.transformation.generator import DbtModelGenerator, _quote_column_name
+from dango.utils.generated_file_hashes import record_current
 
 CANARY_VALUE = "CANARY_SECRET_9f3a"
 HOSTILE_NAMES = [
@@ -302,6 +303,7 @@ class TestPostSyncEnrichmentWithDelimiters:
                 }
             )
         )
+        record_current(tmp_path, staging_dir / "stg_shop.yml")
         mock_conn = MagicMock()
         mock_conn.execute.return_value.fetchall.return_value = [(hostile,)]
         mock_conn.__enter__ = MagicMock(return_value=mock_conn)
@@ -309,4 +311,6 @@ class TestPostSyncEnrichmentWithDelimiters:
         with patch("dango.utils.post_sync.connect", return_value=mock_conn):
             _enrich_staging_tests(tmp_path, ["shop"])
         data = yaml.safe_load((staging_dir / "stg_shop.yml").read_text())
-        assert data["models"][0]["columns"][0]["tests"] == ["not_null"]
+        assert data["models"][0]["columns"][0]["tests"] == [
+            {"not_null": {"config": {"severity": "warn"}}}
+        ]

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Generated staging checks no longer fail a later run when the data changes.** A `not_null` check that Dango inferred from the first sync of a column with no blanks now only warns (`severity: warn`) instead of failing `dango run`. Checks on columns named `id`, `uuid` or `key`, and on columns the warehouse declares NOT NULL, still fail `dango run`; `dango sync` does not report dbt data-test failures as a failed sync, so run `dango run` to see them. `dango run` now says when a build succeeded with warned checks, and when every failure is a generated `not_null` on an ordinary column it tells you how to make those checks warnings.
+- **Dango no longer rewrites a staging schema file you edited.** After a sync it adds inferred checks only to `dbt/models/staging/stg_<source>.yml` files that are still exactly what Dango last wrote (it keeps a SHA-256 of them in `.dango/state/staging_yaml_hashes.json`). A file you changed (a comment, a deleted check, any edit), and every file written by an earlier Dango version, is never touched, and a check you deleted stays deleted. Existing projects keep the checks already on disk: to make one a warning add `config: {severity: warn}` to it, or delete the file and run `dango sync` to regenerate it (this discards your edits to that file).
+
 ## [1.0.14] - 2026-11-13
 
 This release hardens access control, backups, cloud servers and the Metabase and notebook paths. Read "Upgrade" before installing.

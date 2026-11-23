@@ -18,6 +18,9 @@ from typing import Any
 from dango.logging import get_logger
 from dango.utils.dango_db import connect
 from dango.utils.dbt_escaping import needs_identifier_quoting, neutralize_jinja
+from dango.utils.generated_file_hashes import is_unmodified, record_current
+from dango.utils.inferred_tests import has_not_null_test as _has_not_null_test
+from dango.utils.inferred_tests import inferred_not_null_test, is_customized_model
 from dango.utils.redact import redact_project_text
 from dango.validation import validate_identifier
 
@@ -26,16 +29,6 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # dbt test helpers
 # ---------------------------------------------------------------------------
-
-
-def _has_not_null_test(tests: list) -> bool:
-    """Check if a not_null test already exists in any form (string or dict)."""
-    for test in tests:
-        if test == "not_null":
-            return True
-        if isinstance(test, dict) and "not_null" in test:
-            return True
-    return False
 
 
 # ---------------------------------------------------------------------------
@@ -444,9 +437,11 @@ def dispatch_post_sync_hooks(
 def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
     """Enrich existing staging schema.yml files with ``not_null`` tests from profiling.
 
-    After profiling runs, columns with 0% null rate can safely receive a
-    ``not_null`` test.  This handles the first-sync case where profiling data
-    was not available during initial model generation.
+    After profiling runs, columns with 0% null rate receive a ``not_null`` test.  This
+    handles the first-sync case where profiling data was not available during initial
+    model generation.  The test is inferred from a sample, so only key columns get a
+    blocking one; every other column gets ``severity: warn``.  Models whose SQL the user
+    has customized are left alone.
 
     Queries profiling stats per model/table to avoid cross-table column name
     collisions (e.g. ``customer_id`` might be nullable in one table but not
@@ -466,6 +461,10 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
         schema_file = staging_dir / f"stg_{source}.yml"
         if not schema_file.exists():
             continue
+        if not is_unmodified(project_root, schema_file):
+            # Edited since Dango wrote it, or written by an earlier version: user-owned.
+            logger.debug("staging_tests_user_owned_file_left_alone", source=source)
+            continue
 
         try:
             content = schema_file.read_text(encoding="utf-8")
@@ -480,6 +479,9 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
                 prefix = f"stg_{source}__"
                 table_name = model_name[len(prefix) :] if model_name.startswith(prefix) else None
                 if not table_name:
+                    continue
+                # A model whose SQL the user took over keeps its YAML untouched.
+                if is_customized_model(staging_dir, model_name):
                     continue
 
                 # Deduplicate tests: if a column has both a plain "not_null"
@@ -509,7 +511,7 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
                     if col["name"] in zero_null_cols:
                         tests = col.get("tests", [])
                         if not _has_not_null_test(tests):
-                            tests.append("not_null")
+                            tests.append(inferred_not_null_test(col["name"]))
                             col["tests"] = tests
                             changed = True
                         # Generic tests build "select <col> ..."; keyword names need quoting.
@@ -528,6 +530,7 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
                 header = "".join(header_lines)
                 yml_body = yaml.dump(data, default_flow_style=False, sort_keys=False)
                 schema_file.write_text(header + yml_body, encoding="utf-8", newline="\n")
+                record_current(project_root, schema_file)
                 logger.debug("staging_tests_enriched", source=source)
         except Exception:
             logger.warning("staging_test_enrichment_error", source=source, exc_info=True)
