@@ -19,6 +19,7 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 | `model_docs.py` | schema.yml helpers that preserve every other key (tests, config, other models, top-level keys) | `locate_model_docs`, `upsert_model_docs`, `remove_model_docs`, `resolve_docs_path` |
 | `build_outcome.py` | Decides from this build's `run_results.json` whether a non-zero `dbt build` still transformed the data (only failed data tests with nothing skipped or errored); fails closed when results are missing, stale or unreadable; words the skipped/errored models and failed tests as `dango: ...` lines in the `run_dbt_models` output. Never raises | `assess_failed_build`, `BuildVerdict`, `failure_notes`, `tests_only_note`, `notes_in`, `without_notes` |
 | `build_finalize.py` | Shared post-`dbt build` steps and run_results summary; used by `dango run` and MCP `run_transform`. Model status always; schema.yml sync (nested models) + Metabase refresh only on success. Never raises | `finalize_dbt_build`, `summarize_run_results` |
+| `docs_locked.py` | `dbt docs generate` under `DbtLock` for callers that run it outside any other lock holder (scheduler coalesced run, sync, initial sync, file watcher, `source remove`). Never raises: a busy warehouse logs one warning and returns `(False, message)`. Callers already inside a lock (MCP `generate_docs`) call `generate_dbt_docs` directly | `generate_dbt_docs_locked`, `DOCS_LOCK_WAIT_SECONDS` |
 
 ## Common Tasks
 

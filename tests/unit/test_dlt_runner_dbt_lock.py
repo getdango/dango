@@ -96,7 +96,7 @@ class TestRunSyncDbtLock:
                 side_effect=_track_dbt,
             ),
             patch(
-                "dango.transformation.generate_dbt_docs",
+                "dango.transformation.docs_locked.generate_dbt_docs_locked",
                 return_value=(True, ""),
             ),
             patch(
@@ -181,7 +181,7 @@ class TestRunSyncDbtLock:
                 return_value=(False, "dbt error"),
             ),
             patch(
-                "dango.transformation.generate_dbt_docs",
+                "dango.transformation.docs_locked.generate_dbt_docs_locked",
                 return_value=(True, ""),
             ),
             patch(

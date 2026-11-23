@@ -320,9 +320,9 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
 def _generate_dbt_docs(project_root: Path) -> None:
     """Generate dbt documentation after sync."""
     try:
-        from dango.transformation import generate_dbt_docs
+        from dango.transformation.docs_locked import generate_dbt_docs_locked
 
-        generate_dbt_docs(project_root)
+        generate_dbt_docs_locked(project_root, source="initial_sync")
     except Exception:
         logger.warning("initial_sync_dbt_docs_failed", exc_info=True)
 

@@ -144,7 +144,7 @@ def test_source_remove_cli_does_not_claim_success_when_a_file_stays(
 
     project = _project_with_source(tmp_path, sample_config)
     monkeypatch.chdir(project)
-    monkeypatch.setattr("dango.transformation.generate_dbt_docs", lambda *_a, **_k: None)
+    monkeypatch.setattr("dango.transformation.generate_dbt_docs", lambda *_a, **_k: (True, ""))
     with patch.object(Path, "unlink", _failing_unlink("sources_orders.yml")):
         result = CliRunner().invoke(cli, ["source", "remove", "orders", "--yes"])
 

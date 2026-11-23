@@ -152,6 +152,9 @@ def test_coalesced_run_reports_the_queue_message_and_keeps_its_sources(
 ) -> None:
     monkeypatch.setattr(jobs, "_DBT_LOCK_WAIT_SECONDS", 1, raising=False)
 
+    results = project / "dbt" / "target" / "run_results.json"
+    stamp_before = results.stat().st_mtime_ns
+
     ok = jobs._run_coalesced_dbt(project)
 
     assert ok is False
@@ -159,7 +162,7 @@ def test_coalesced_run_reports_the_queue_message_and_keeps_its_sources(
     assert any(QUEUE_MESSAGE in message for message in errors), errors
     assert not any(text in " ".join(errors) for text in RAW_DUCKDB_LOCK_TEXT)
     assert _pending(project) == ["shop"]  # the next run still transforms them
-    assert not _mart_exists(project)  # dbt never started against the other writer's warehouse
+    assert results.stat().st_mtime_ns == stamp_before  # dbt never started against the other writer
 
 
 def test_dbt_lock_is_held_while_the_coalesced_dbt_runs(
