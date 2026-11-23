@@ -282,7 +282,7 @@ async def _run_initial_sync(project_root: Path, sources: list[dict[str, str]]) -
         # dbt docs
         _sync_state.phase = SyncPhase.DBT_DOCS
         await _save_and_broadcast()
-        _generate_dbt_docs(project_root)
+        await asyncio.to_thread(_generate_dbt_docs, project_root)
 
         # Metabase refresh
         _sync_state.phase = SyncPhase.METABASE

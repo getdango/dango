@@ -363,6 +363,14 @@ def _restore_pending_dbt_sources(project_root: Path, sources: list[str]) -> None
         json.dump(merged, f)
 
 
+def _put_back_pending_dbt_sources(project_root: Path, sources: list[str]) -> None:
+    """Restore consumed sources; a failure here is logged and never replaces the run's outcome."""
+    try:
+        _restore_pending_dbt_sources(project_root, sources)
+    except Exception:
+        logger.warning("pending_dbt_sources_restore_failed", sources=sources, exc_info=True)
+
+
 def _get_coalesce_seconds(project_root: Path) -> int:
     """Read dbt_coalesce_seconds from config."""
     try:
@@ -402,8 +410,10 @@ def _run_dbt_under_lock(project_root: Path, select_criteria: str) -> tuple[bool,
 def _run_coalesced_dbt(project_root: Path) -> bool:
     """Run dbt for all pending sources, plus dbt docs and Metabase refresh.
 
-    dbt runs under the dbt lock. The pending sources are consumed up front; if the run does not
-    succeed (lock timeout, dbt failure, exception) they are put back for the next run.
+    dbt runs under the dbt lock. The pending sources are consumed up front; if dbt never got to
+    run (lock timeout, exception) they are put back for the next run. A dbt run that completed,
+    even with a failure, is not repeated: the failure is logged, and the failed source is queued
+    again by its own next sync (restoring it would fail every later run for unrelated sources).
 
     Returns True if dbt succeeded (or no pending sources), False on failure.
     """
@@ -427,24 +437,22 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
         f"dbt:{select_criteria}",
         f"Coalesced dbt starting for sources: {', '.join(pending)}",
     )
-    restore_pending = True
     try:
-        try:
-            dbt_success, _dbt_output = _run_dbt_under_lock(project_root, select_criteria)
-        except DbtLockError as exc:
-            reason = str(exc).splitlines()[0] if str(exc) else "dbt lock unavailable"
-            log_activity_fn(
-                project_root,
-                "error",
-                f"dbt:{select_criteria}",
-                f"Coalesced dbt failed for sources: {', '.join(pending)}. {reason}",
-            )
-            logger.error("coalesced_dbt_lock_timeout", sources=pending, select=select_criteria)
-            return False
-        restore_pending = not dbt_success
-    finally:
-        if restore_pending:
-            _restore_pending_dbt_sources(project_root, pending)
+        dbt_success, _dbt_output = _run_dbt_under_lock(project_root, select_criteria)
+    except DbtLockError as exc:
+        reason = str(exc).splitlines()[0] if str(exc) else "dbt lock unavailable"
+        log_activity_fn(
+            project_root,
+            "error",
+            f"dbt:{select_criteria}",
+            f"Coalesced dbt failed for sources: {', '.join(pending)}. {reason}",
+        )
+        logger.error("coalesced_dbt_lock_timeout", sources=pending, select=select_criteria)
+        _put_back_pending_dbt_sources(project_root, pending)
+        return False
+    except BaseException:
+        _put_back_pending_dbt_sources(project_root, pending)
+        raise
 
     if dbt_success:
         log_activity_fn(
