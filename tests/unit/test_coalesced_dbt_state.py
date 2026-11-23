@@ -1,7 +1,8 @@
 """tests/unit/test_coalesced_dbt_state.py
 
 The scheduler's coalesced dbt run: it holds the dbt lock around dbt, and the pending sources it
-consumed are put back (merged with any added meanwhile) whenever the run does not succeed.
+consumed are put back (merged with any added meanwhile) when dbt did not get to run (lock timeout,
+exception); a dbt run that completed, even with a failure, is not repeated for later schedules.
 """
 
 from __future__ import annotations
@@ -71,9 +72,45 @@ def test_source_added_during_a_successful_run_stays_pending(root: Path) -> None:
     assert _pending(root) == ["late"]
 
 
-def test_failed_dbt_puts_the_sources_back(root: Path) -> None:
+def test_a_dbt_run_that_failed_is_not_restored(root: Path) -> None:
     assert _run(root, lambda *_a, **_k: (False, "boom")) is False
-    assert _pending(root) == ["shop", "crm"]
+    assert _pending(root) == []  # the failure is logged; the source's next sync adds it again
+
+
+def test_a_failed_dbt_run_keeps_only_sources_added_meanwhile(root: Path) -> None:
+    def dbt(*_a: object, **_k: object) -> tuple[bool, str]:
+        jobs._add_pending_dbt_source(root, "late")
+        return (False, "boom")
+
+    assert _run(root, dbt) is False
+    assert _pending(root) == ["late"]
+
+
+def test_one_failing_source_does_not_fail_later_runs_of_other_sources(tmp_path: Path) -> None:
+    selected: list[str] = []
+
+    def dbt(_root: Path, select: str | None = None, **_k: object) -> tuple[bool, str]:
+        selected.append(select or "")
+        return ("stripe" not in (select or ""), "out")
+
+    with (
+        patch.object(jobs, "_get_coalesce_seconds", return_value=0),
+        patch("dango.transformation.run_dbt_models", side_effect=dbt),
+        patch("dango.transformation.generate_dbt_docs", return_value=(True, "")),
+        patch(
+            "dango.visualization.metabase.refresh_metabase_connection",
+            return_value=(False, None, None),
+        ),
+    ):
+        jobs._add_pending_dbt_source(tmp_path, "stripe")
+        assert jobs._run_coalesced_dbt(tmp_path) is False  # stripe's model is broken
+        jobs._add_pending_dbt_source(tmp_path, "hubspot")
+        assert jobs._run_coalesced_dbt(tmp_path) is True
+        jobs._add_pending_dbt_source(tmp_path, "hubspot")
+        assert jobs._run_coalesced_dbt(tmp_path) is True
+
+    assert selected == ["source:stripe+", "source:hubspot+", "source:hubspot+"]
+    assert _pending(tmp_path) == []
 
 
 def test_exception_puts_the_sources_back_and_propagates(root: Path) -> None:
@@ -96,16 +133,42 @@ def test_lock_timeout_fails_with_the_queue_message_and_puts_the_sources_back(
     assert any(e["level"] == "error" and QUEUE_MESSAGE in e["message"] for e in entries)
 
 
-def test_failed_run_merges_with_sources_added_meanwhile(root: Path) -> None:
-    def dbt(*_a: object, **_k: object) -> tuple[bool, str]:
+def test_interrupted_run_merges_with_sources_added_meanwhile(root: Path) -> None:
+    def busy(*_a: object, **_k: object) -> bool:
         jobs._add_pending_dbt_source(root, "late")
         jobs._add_pending_dbt_source(root, "shop")  # also consumed: must not be duplicated
-        return (False, "boom")
+        raise DbtLockError(QUEUE_MESSAGE)
 
-    assert _run(root, dbt) is False
+    with patch.object(DbtLock, "acquire", side_effect=busy):
+        assert _run(root, MagicMock(return_value=(True, "ok"))) is False
+
     assert _pending(root) == ["shop", "crm", "late"]
     path = root / ".dango" / "state" / "pending_dbt_sources.json"
     assert isinstance(json.loads(path.read_text(encoding="utf-8")), list)
+
+
+def test_exception_merges_with_sources_added_meanwhile(root: Path) -> None:
+    def dbt(*_a: object, **_k: object) -> tuple[bool, str]:
+        jobs._add_pending_dbt_source(root, "late")
+        raise RuntimeError("kaput")
+
+    with pytest.raises(RuntimeError, match="kaput"):
+        _run(root, dbt)
+    assert _pending(root) == ["shop", "crm", "late"]
+
+
+def test_a_failing_restore_does_not_replace_a_lock_timeout_result(root: Path) -> None:
+    with (
+        patch.object(DbtLock, "acquire", side_effect=DbtLockError(QUEUE_MESSAGE)),
+        patch.object(jobs, "_restore_pending_dbt_sources", side_effect=OSError("disk full")),
+    ):
+        assert _run(root, MagicMock(return_value=(True, "ok"))) is False
+
+
+def test_a_failing_restore_does_not_replace_the_runs_own_exception(root: Path) -> None:
+    with patch.object(jobs, "_restore_pending_dbt_sources", side_effect=OSError("disk full")):
+        with pytest.raises(RuntimeError, match="kaput"):
+            _run(root, MagicMock(side_effect=RuntimeError("kaput")))
 
 
 def test_the_lock_is_held_while_dbt_runs(root: Path) -> None:

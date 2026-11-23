@@ -211,3 +211,31 @@ def test_sync_docs_run_under_the_lock_after_the_dbt_lock_is_released(tmp_path: P
         run_sync(project_root=tmp_path, sources=[source], max_lock_wait=5)
 
     assert seen == [True]
+
+
+@pytest.mark.anyio
+async def test_initial_sync_docs_do_not_run_on_the_event_loop_thread(tmp_path: Path) -> None:
+    import threading
+    from unittest.mock import AsyncMock
+
+    import dango.web.routes.initial_sync as mod
+
+    loop_thread = threading.get_ident()
+    docs_threads: list[int] = []
+    mod._sync_state = mod.InitialSyncState()
+
+    with (
+        patch.object(mod, "_save_and_broadcast", new_callable=AsyncMock),
+        patch.object(mod, "_sync_single_source", new_callable=AsyncMock),
+        patch.object(mod, "_check_disk_usage", return_value=None),
+        patch.object(mod, "_refresh_metabase"),
+        patch.object(
+            mod,
+            "_generate_dbt_docs",
+            side_effect=lambda *_a: docs_threads.append(threading.get_ident()),
+        ),
+    ):
+        await mod._run_initial_sync(tmp_path, [{"name": "hubspot", "type": "hubspot"}])
+
+    assert len(docs_threads) == 1
+    assert docs_threads[0] != loop_thread
