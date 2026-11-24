@@ -4094,7 +4094,8 @@ def run_sync(
                 progress_callback("dbt_started", "Running dbt models")
             console.print("🔄 [bold]Running dbt models...[/bold]\n")
             from dango.transformation import run_dbt_models
-            from dango.transformation.build_outcome import notes_in, without_notes
+            from dango.transformation.build_outcome import notes_in
+            from dango.transformation.failure_report import describe_failure, reason_line
 
             # Build source-based selection criteria
             # Format: "source:source1+ source:source2+" (runs models dependent on these sources)
@@ -4190,16 +4191,22 @@ def run_sync(
                 transform_error_msg = redacted_error_text(project_root, dbt_output)[:500]
                 if progress_callback is not None:
                     progress_callback("dbt_failed", "dbt run failed")
-                _logging.getLogger(__name__).error("dbt_transform_failed: %s", transform_error_msg)
+                # The terminal shows log records of WARNING and above: the short record carries no
+                # reason (it is printed below once); the reason goes to the log file at INFO.
+                _log = _logging.getLogger(__name__)
+                _log.error("dbt_transform_failed: sources=%s", ", ".join(success_sources))
+                _log.info("dbt_transform_failed_reason: %s", reason_line(project_root, dbt_output))
+                failure = describe_failure(project_root, dbt_output)
                 console.print("[red bold]✗ dbt transform failed[/red bold]")
-                console.print(
-                    f"[red]{rich_error_text(project_root, without_notes(dbt_output))}[/red]"
-                )
-                for note in notes_in(dbt_output):
-                    console.print(f"[yellow]{rich_error_text(project_root, note)}[/yellow]")
+                if failure.raw:
+                    # no usable reason: dbt's own output is the only cause there is
+                    console.print(f"[red]{failure.raw}[/red]")
+                for line in failure.reason:
+                    console.print(f"[yellow]{line}[/yellow]")
                 console.print(
                     "[yellow]Tables of models that were skipped or failed were not rebuilt "
-                    "and may be missing or out of date[/yellow]"
+                    "and may be missing or out of date"
+                    f"{'' if failure.raw else ' (details: dango run)'}[/yellow]"
                 )
                 # Update sync history with transform error
                 from dango.utils.sync_history import update_last_sync_entry

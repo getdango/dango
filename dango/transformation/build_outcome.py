@@ -12,6 +12,12 @@ from pathlib import Path
 from dango.transformation.build_finalize import summarize_run_results
 
 NOTICE_PREFIX = "dango: "
+# The note of a failed build whose run results explain nothing (also tells callers there is no cause).
+UNEXPLAINED_NOTE = (
+    f"{NOTICE_PREFIX}the dbt build exited with an error that its run results do not explain (they "
+    "are missing, stale, unreadable or show no failed node), so the build is treated as failed."
+)
+ERRORED_NOTE_START = f"{NOTICE_PREFIX}failed models, seeds, snapshots or hooks"
 _NAME_CAP = 5
 _TEST_TYPES = frozenset({"test", "unit_test"})
 _ERROR_STATUSES = frozenset({"error", "runtime error"})
@@ -73,10 +79,7 @@ def failure_notes(verdict: BuildVerdict) -> list[str]:
     """Lines naming the failed/skipped nodes and failed tests of a failed build."""
     notes: list[str] = []
     if verdict.errored:
-        notes.append(
-            f"{NOTICE_PREFIX}failed models, seeds, snapshots or hooks ({len(verdict.errored)}): "
-            f"{_names(verdict.errored)}"
-        )
+        notes.append(f"{ERRORED_NOTE_START} ({len(verdict.errored)}): {_names(verdict.errored)}")
     if verdict.skipped:
         what = "models" if verdict.skipped_models else "tests"
         notes.append(
