@@ -56,6 +56,7 @@ def dashboard_provision(
     from rich.panel import Panel
     from rich.table import Table
 
+    from dango.platform.common.printed_errors import error_lines
     from dango.visualization import provision_dashboard
 
     project_root = ctx.obj["project_root"]
@@ -203,10 +204,11 @@ def dashboard_provision(
                 console.print()
 
             # Show errors if any
-            if result["errors"]:
+            warnings = error_lines(project_root, result.get("errors"))
+            if warnings:
                 console.print("[yellow]⚠️  Warnings:[/yellow]")
-                for error in result["errors"]:
-                    console.print(f"  • {error}")
+                for line in warnings:
+                    console.print(f"  • {line}")
                 console.print()
 
             # Next steps
@@ -219,10 +221,11 @@ def dashboard_provision(
         else:
             console.print("[red]❌ Dashboard provisioning failed[/red]\n")
 
-            if result["errors"]:
+            failures = error_lines(project_root, result.get("errors"))
+            if failures:
                 console.print("[red]Errors:[/red]")
-                for error in result["errors"]:
-                    console.print(f"  • {error}")
+                for line in failures:
+                    console.print(f"  • {line}")
                 console.print()
 
             console.print("[yellow]Troubleshooting:[/yellow]")

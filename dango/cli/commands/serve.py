@@ -50,6 +50,7 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
     from dango.platform.common.metabase_credential_migration import (
         complete_metabase_credential_migration,
     )
+    from dango.platform.common.printed_errors import bounded_error_text, error_lines
     from dango.platform.common.startup import (
         apply_metabase_duckdb_lock_if_needed,
         ensure_duckdb_driver,
@@ -235,8 +236,8 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
     try:
         setup_result = setup_metabase_if_needed(project_root, project_name, organization)
         if not setup_result.get("success") and not setup_result.get("skipped"):
-            errors = setup_result.get("errors") or []
-            error_str = "; ".join(str(e) for e in errors) if errors else "unknown"
+            error_str = "; ".join(error_lines(project_root, setup_result.get("errors"), rich=False))
+            error_str = error_str or "unknown"
             print(
                 f"WARNING: Metabase setup incomplete: {error_str}. "
                 "Continuing without Metabase — retry on next restart.",
@@ -244,7 +245,7 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
             )
     except Exception as exc:
         print(
-            f"WARNING: Metabase setup failed: {exc}. "
+            f"WARNING: Metabase setup failed: {bounded_error_text(project_root, exc)}. "
             "Continuing without Metabase — retry on next restart.",
             file=sys.stderr,
         )
