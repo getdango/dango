@@ -181,7 +181,7 @@ jobs:
             for image in "${NEW_IMAGES[@]}"; do docker image rm "$image" >/dev/null || failure=1; done
             if mountpoint -q "$PAYLOAD"; then
               # Only fixed safe report allowlist is retained; no raw SQL, credentials or container logs.
-              for report in native-result.json smoke-result.json acquisition.json acquisition-stage.json; do
+              for report in native-result.json smoke-result.json native-diagnostic.json acquisition.json acquisition-stage.json; do
                 test ! -f "$PAYLOAD/work/$report" || cp "$PAYLOAD/work/$report" "$TASK_ROOT/evidence/$report"
               done
               umount "$PAYLOAD" || failure=1
@@ -367,6 +367,105 @@ jobs:
           IMPORT_PINS
           stage pinned_artifacts_acquisition
           /usr/bin/python3 "$SOURCE/tests/integration/native_catalog_bindings.py" --acquire "$PAYLOAD"
+          cat > "$PAYLOAD/tools/native_diagnostic.py" <<'NATIVE_DIAGNOSTIC'
+          """Test-only failure classifier; no SQL, exception messages, payloads or traceback output."""
+
+          import json
+          import runpy
+          import sys
+          from pathlib import Path
+
+          TARGET = "/source/tests/integration/native_catalog_bindings.py"
+
+
+          def classify(error):
+              """Inspect the private suppressed chain and return only finite safe labels."""
+              result = {"operation": "unclassified", "exception": "unclassified", "sqlstate": None}
+              try:
+                  catalogs = sys.modules["dango.storage.catalogs"]
+                  ownership = sys.modules["dango.storage.catalog_ownership"]
+                  seen = set()
+                  for _ in range(8):
+                      if id(error) in seen:
+                          return result
+                      seen.add(id(error))
+                      inner = BaseException.__dict__["__cause__"].__get__(error)
+                      if inner is None:
+                          inner = BaseException.__dict__["__context__"].__get__(error)
+                      if inner is None:
+                          break
+                      error = inner
+                  else:
+                      return result
+                  kinds = {
+                      catalogs.CatalogError: "CatalogError",
+                      ownership.OwnershipError: "OwnershipError",
+                      ValueError: "ValueError",
+                      TypeError: "TypeError",
+                      RuntimeError: "RuntimeError",
+                      AssertionError: "AssertionError",
+                      OSError: "OSError",
+                      PermissionError: "PermissionError",
+                      FileNotFoundError: "FileNotFoundError",
+                      InterruptedError: "InterruptedError",
+                  }
+                  names = (
+                      "IOException BinderException CatalogException ParserException InvalidInputException "
+                      "PermissionException ConstraintException ConversionException TransactionException"
+                  )
+                  native = vars(sys.modules["duckdb"])
+                  kinds.update({native[name]: name for name in names.split() if name in native})
+                  result["exception"] = next(
+                      (name for kind, name in kinds.items() if type(error) is kind), "unclassified"
+                  )
+                  operations = (
+                      "_connect _postgres _query _execute _evidence prepare attach inspect_owned _files "
+                      "_access allocate reconcile remove_owned begin checkpoint ready inventory delete_owned_files"
+                  ).split()
+                  trace = BaseException.__dict__["__traceback__"].__get__(error)
+                  for _ in range(64):
+                      if trace is None:
+                          break
+                      code = trace.tb_frame.f_code
+                      if (
+                          code.co_filename in (catalogs.__file__, ownership.__file__)
+                          and code.co_name in operations
+                      ):
+                          result["operation"] = operations[operations.index(code.co_name)]
+                      trace = trace.tb_next
+                  state = dict.get(BaseException.__dict__["__dict__"].__get__(error), "sqlstate")
+                  if type(state) is str and state in "28000 28P01 42501 42P01 42P06 42710 XX000".split():
+                      result["sqlstate"] = state
+              except BaseException:
+                  pass
+              return result
+
+
+          def main():
+              """Launch the unchanged entrypoint and re-raise the same exit after best-effort evidence."""
+              sys.argv[0] = TARGET
+              sys.path[0] = str(Path(TARGET).parent)
+              try:
+                  runpy.run_path(TARGET, run_name="__main__")
+              except BaseException as failure:
+                  try:
+                      code = (
+                          SystemExit.__dict__["code"].__get__(failure)
+                          if isinstance(failure, SystemExit)
+                          else 1
+                      )
+                      success = code is None or (type(code) in (int, bool) and code == 0)
+                      if not success:
+                          with Path("/work/native-diagnostic.json").open("x") as output:
+                              json.dump(classify(failure), output)
+                  except BaseException:
+                      pass
+                  raise
+
+
+          if __name__ == "__main__":
+              main()
+          NATIVE_DIAGNOSTIC
           export PAYLOAD
           /usr/bin/python3 - <<'PY'
           import json, os, secrets
@@ -406,7 +505,7 @@ jobs:
             --mount="type=bind,src=$PAYLOAD/gate,dst=/gate,readonly" \
             --env=HOME=/work --env=TMPDIR=/work/tmp --env=PYTHONDONTWRITEBYTECODE=1 --env=PYTHONPATH=/work/site:/source \
             --env=AWS_EC2_METADATA_DISABLED=true --env=GCE_METADATA_DISABLED=true --env="TASK_COMMIT=$COMMIT" --workdir=/work \
-            --entrypoint=/bin/sh "$CLIENT_IMAGE" -ec 'while [ ! -f /gate/client ]; do sleep .1; done; mkdir /work/tmp; /tools/python/bin/python3.14 -m pip install --no-index --no-deps --no-cache-dir --no-compile --target /work/site /tools/artifacts/*.whl > /work/install.log 2>&1; /tools/python/bin/python3.14 -m pip check > /work/dependency-check.log 2>&1; exec /tools/python/bin/python3.14 /source/tests/integration/native_catalog_bindings.py --task-root /work/task --commit "$TASK_COMMIT"')
+            --entrypoint=/bin/sh "$CLIENT_IMAGE" -ec 'while [ ! -f /gate/client ]; do sleep .1; done; mkdir /work/tmp; /tools/python/bin/python3.14 -m pip install --no-index --no-deps --no-cache-dir --no-compile --target /work/site /tools/artifacts/*.whl > /work/install.log 2>&1; /tools/python/bin/python3.14 -m pip check > /work/dependency-check.log 2>&1; exec /tools/python/bin/python3.14 /tools/native_diagnostic.py --task-root /work/task --commit "$TASK_COMMIT"')
           inspect_limits() {
             local id=$1 memory=$2 cpus=$3 user=$4 network=$5
             local image=$CLIENT_IMAGE
@@ -505,7 +604,7 @@ jobs:
               if mountpoint -q "$payload"; then
                 test -n "$loop" && test "$(findmnt -n -o SOURCE -T "$payload")" = "$loop"
                 mkdir -p "$TASK_ROOT/evidence"
-                for report in native-result.json smoke-result.json acquisition.json acquisition-stage.json; do
+                for report in native-result.json smoke-result.json native-diagnostic.json acquisition.json acquisition-stage.json; do
                   test ! -f "$payload/work/$report" || cp "$payload/work/$report" "$TASK_ROOT/evidence/$report"
                 done
                 umount "$payload"
