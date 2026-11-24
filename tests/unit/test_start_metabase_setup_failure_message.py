@@ -40,6 +40,7 @@ def _run_start(
     project_root: Path,
     setup_result: dict[str, Any],
     console: Console | None = None,
+    import_result: dict[str, Any] | None = None,
 ) -> tuple[Result, MagicMock]:
     """Run the real `dango start` command with every external service replaced by fakes.
 
@@ -67,7 +68,7 @@ def _run_start(
         ),
         patch(f"{_STARTUP}.setup_metabase_if_needed", return_value=setup_result),
         patch(f"{_STARTUP}.apply_metabase_duckdb_lock_if_needed", lock_step),
-        patch(f"{_STARTUP}.import_dashboards", return_value=None),
+        patch(f"{_STARTUP}.import_dashboards", return_value=import_result),
         patch("dango.cli.helpers.process_manager.start_fastapi_server", return_value=None),
         patch("dango.platform.watcher_lifecycle.kill_orphan_watchers", return_value=0),
         patch("dango.config.credentials.ensure_sensitive_artifact_gitignores", return_value=False),
