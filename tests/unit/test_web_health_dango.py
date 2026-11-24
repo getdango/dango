@@ -22,7 +22,7 @@ from fastapi.routing import iter_route_contexts
 from fastapi.testclient import TestClient
 
 from dango.web.app import app as real_app
-from tests.factories.auth_app_factories import build_client
+from tests.factories.auth_app_factories import AuthProject, build_client
 
 _DOCKER_PS = "dango.platform.docker.DockerManager.is_docker_daemon_running"
 _USES_HELPER = "dango.platform.compose_exec.uses_helper"
@@ -218,19 +218,25 @@ def test_hung_docker_answers_within_the_time_bound_as_unknown(
 ) -> None:
     double = make_double("ok")
     gate = threading.Event()
+    real_app.state.project_root = _project(tmp_path, double.url)
 
     def slow_docker(*_: Any, **__: Any) -> bool:
         gate.wait(10)
         return True
 
-    client = _client(_project(tmp_path, double.url))
-    try:
-        with patch(_DOCKER_PS, side_effect=slow_docker):
+    async def timed_request() -> tuple[httpx.Response, float]:
+        # One event loop for the whole call: the time measured is the response, not loop teardown.
+        transport = httpx.ASGITransport(app=real_app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             started = time.monotonic()
-            resp = client.get("/api/health")
-            elapsed = time.monotonic() - started
-    finally:
-        gate.set()
+            try:
+                resp = await client.get("/api/health")
+                return resp, time.monotonic() - started
+            finally:
+                gate.set()
+
+    with patch(_DOCKER_PS, side_effect=slow_docker):
+        resp, elapsed = asyncio.run(timed_request())
     assert resp.status_code == 200
     assert resp.json()["components"]["docker"] == "unknown"
     assert resp.json()["components"]["metabase"] == "ok"
@@ -392,18 +398,22 @@ def test_probe_sends_no_dango_credentials_to_metabase(
 
 
 @pytest.mark.unit
-def test_public_without_credentials_while_other_health_routes_stay_private(
+def test_only_the_basic_health_route_is_public_under_the_auth_middleware(
     tmp_path: Path, make_double: Callable[[str], MetabaseDouble]
 ) -> None:
-    """Under the real AuthMiddleware an unauthenticated caller reaches only /api/health."""
+    """The unauthenticated answer is reachable without credentials; the detailed routes are not."""
+    from dango.web.middleware.auth import AuthMiddleware
     from dango.web.routes.health import router as health_router
 
     double = make_double("ok")
     root = _project(tmp_path, double.url)
+    AuthProject(root).create_db()
     client = build_client(root, health_router)
     assert client.get("/api/health").status_code == 200
-    assert client.get("/api/health/platform").status_code in (401, 403)
-    assert client.get("/api/status").status_code in (401, 403)
+    middleware = AuthMiddleware(lambda *_: None, project_root=root, idle_timeout_minutes=60)
+    assert middleware._is_public_route("/api/health")
+    assert not middleware._is_public_route("/api/health/platform")
+    assert not middleware._is_public_route("/api/status")
 
 
 @pytest.mark.unit
@@ -422,3 +432,11 @@ def test_metabase_proxy_router_no_longer_owns_api_health() -> None:
     from dango.web.routes.metabase_proxy import router
 
     assert "/api/health" not in {getattr(r, "path", None) for r in router.routes}
+
+
+@pytest.mark.unit
+def test_response_budget_fits_inside_dango_start_poll_timeout() -> None:
+    """`dango start` polls /api/health with a 1 second client timeout."""
+    from dango.web import health_probe
+
+    assert health_probe.RESPONSE_BUDGET_SECONDS <= 0.9

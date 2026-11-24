@@ -780,11 +780,37 @@ def _create_archive(
     return archive_path, manifest
 
 
-def verify_health(ssh: SSHManager, timeout: int = 90) -> bool:
-    """Poll the health endpoint until it responds OK or timeout."""
+def metabase_component_state(body: str) -> str | None:
+    """The ``components.metabase`` state in a ``/api/health`` body, or None if it has none.
+
+    None means an older server that still proxies Metabase's own health (or an unreadable
+    body): there a 200 response already meant Metabase answered.
+    """
+    try:
+        parsed = json.loads(body)
+    except ValueError:
+        return None
+    components = parsed.get("components") if isinstance(parsed, dict) else None
+    state = components.get("metabase") if isinstance(components, dict) else None
+    return state if isinstance(state, str) else None
+
+
+def _metabase_reported_ok(body: str) -> bool:
+    state = metabase_component_state(body)
+    return state is None or state == "ok"
+
+
+def verify_health(ssh: SSHManager, timeout: int = 90, *, require_metabase: bool = False) -> bool:
+    """Poll Dango's ``/api/health`` until it answers 200 or timeout.
+
+    200 means Dango's own web server is up; it does not wait for Metabase. Callers that need
+    Metabase usable afterwards (restores, upgrades, anything that gates removing a server) pass
+    ``require_metabase=True`` and wait for the ``metabase`` component to report ``ok``.
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if ssh.exec_command("curl -sf http://localhost:8800/api/health", timeout=10).success:
+        result = ssh.exec_command("curl -sf http://localhost:8800/api/health", timeout=10)
+        if result.success and (not require_metabase or _metabase_reported_ok(result.stdout)):
             return True
         time.sleep(5)
     return False
@@ -1176,7 +1202,7 @@ def restore_from_archive(
         _notify(on_progress, "start_services", "done")
 
     _notify(on_progress, "verify_health", "running")
-    health_ok = verify_health(ssh)
+    health_ok = verify_health(ssh, require_metabase=True)
     if not health_ok:
         warnings.append("Health check did not pass within 90 seconds")
     _notify(on_progress, "verify_health", "done")

@@ -9,23 +9,38 @@ GET /api/health
 ```
 
 - **Public** — no authentication required
-- **Minimal response** — returns `{"status": "ok"}` (no sensitive info)
-- **Load-balancer friendly** — returns 200 when the server is healthy
+- **Dango's own health** — answers from the Dango web server itself, not from Metabase, so a slow or restarting Metabase never makes it fail
+- **Coarse states only** — no versions, paths, hostnames or error text
+- **Load-balancer friendly** — returns 200 whenever the Dango web server is up (GET only; HEAD and OPTIONS return 405)
 
 ### Example Response
 
 ```json
 {
-  "status": "ok"
+  "status": "ok",
+  "components": {
+    "dango": "ok",
+    "metabase": "ok",
+    "docker": "ok"
+  }
 }
 ```
+
+| Field | Values |
+|-------|--------|
+| `status` | `ok`, or `degraded` when Dango cannot find its project |
+| `components.dango` | `ok`, `degraded` |
+| `components.metabase` | `ok`, `starting` (Metabase is initializing), `unavailable`, `unknown` |
+| `components.docker` | `ok`, `unavailable`, `not_applicable` (cloud servers, where Dango has no Docker access by design), `unknown` |
+
+Component states come from short, cached checks (Metabase about 5 seconds, Docker about 15 seconds), so monitoring this endpoint does not load Metabase or Docker. A component state is information: it never changes the HTTP status. To alert on Metabase, match `"metabase":"ok"` in the body. Signed-in users can still reach Metabase's own health at `/metabase/api/health`.
 
 ### Status Codes
 
 | Code | Meaning |
 |------|---------|
-| 200 | Server is healthy and responding |
-| 503 | Server is unhealthy or starting up |
+| 200 | The Dango web server is up and responding |
+| other / no response | The Dango web server is down or unreachable |
 
 ## Uptime Monitoring Setup
 

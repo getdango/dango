@@ -141,7 +141,7 @@ def remote_power_on(ctx: click.Context, yes: bool) -> None:
         try:
             reconcile_size(client, cloud_cfg, project_root, ssh)
             start_services(ssh)
-            healthy = verify_health(ssh)
+            healthy = verify_health(ssh, require_metabase=True)
         finally:
             ssh.disconnect()
     except Exception as exc:

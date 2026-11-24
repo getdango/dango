@@ -334,7 +334,7 @@ def resize_droplet(
     _notify(on_progress, "start_services", "done")
 
     _notify(on_progress, "verify_health", "running")
-    health_ok = verify_health(ssh)
+    health_ok = verify_health(ssh, require_metabase=True)
     if not health_ok:
         warnings.append("Health check did not pass within 90 seconds.")
     _notify(on_progress, "verify_health", "done")

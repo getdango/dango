@@ -1299,7 +1299,10 @@ def _wait_for_metabase(ssh: Any, timeout: int = 180) -> bool:
 
 
 def _health_check(url: str, timeout: int = 60, interval: int = 5) -> bool:
-    """Poll server health endpoint until it responds 200.
+    """Poll the server's ``/api/health`` until it responds 200.
+
+    200 means Dango's own web server is up; Metabase is reported as a component and is waited
+    for separately (``_wait_for_metabase``).
 
     Returns:
         True if healthy, False if timeout.

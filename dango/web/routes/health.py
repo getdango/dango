@@ -16,6 +16,7 @@ import dango
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
 from dango.oauth.storage import OAuthStorage
+from dango.web.health_probe import BasicHealth, collect_health
 from dango.web.helpers import (
     check_service_status_async,
     get_duckdb_path,
@@ -29,6 +30,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
 
 _BACKUP_STALENESS_HOURS = 36
+
+
+@router.get("/api/health", response_model=BasicHealth)
+async def get_basic_health(request: Request) -> BasicHealth:
+    """Dango's own health: public, GET only, always 200 while the web server is up.
+
+    The body carries coarse component states (Dango, Metabase, Docker) from bounded, cached
+    probes. It never contains versions, paths, hostnames, counts or error text. HEAD and
+    OPTIONS answer 405 (unchanged); a degraded Dango still answers 200 with
+    ``"status": "degraded"`` because every consumer only needs to know the server is reachable.
+    """
+    root: Path | None = getattr(request.app.state, "project_root", None)
+    if root is None:
+        try:
+            root = get_project_root()
+        except Exception:
+            root = None
+    return await collect_health(root)
 
 
 @router.get("/api/status", response_model=ServiceHealth)

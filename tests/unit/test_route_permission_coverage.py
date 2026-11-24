@@ -41,7 +41,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     (
         "*",
         "/api/health",
-    ): "public liveness probe; also the Metabase API proxy catch for /api/health",
+    ): "public liveness probe: Dango's own state, coarse component states only",
     # --- HTML shells and API docs: no data, the pages call permission-checked APIs ---
     ("GET", "/"): "HTML shell, redirects/renders UI only",
     ("GET", "/api"): "static API info document",

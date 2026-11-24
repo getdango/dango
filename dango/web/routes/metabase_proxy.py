@@ -374,12 +374,6 @@ def _build_response(proxy_response: httpx.Response) -> Response:
 # ==============================================================================
 
 
-@router.get("/api/health")
-async def metabase_api_health(request: Request) -> Response:
-    """Proxy the Metabase health check (GET only; the route is public, so no session is sent)."""
-    return await proxy_to_metabase(request, "/api/health")
-
-
 @router.api_route("/api/session", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 async def metabase_api_session(request: Request) -> Response:
     """Proxy Metabase session API."""

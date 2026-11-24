@@ -163,16 +163,15 @@ def test_metabase_proxy_sends_no_cookie_without_a_metabase_session(tmp_path: Pat
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
-def test_api_health_is_get_only(tmp_path: Path, method: str) -> None:
-    """The unauthenticated health route reaches Metabase for GET only."""
+@pytest.mark.parametrize("method", ["GET", "POST", "PUT", "PATCH", "DELETE"])
+def test_api_health_is_not_a_metabase_proxy_route(tmp_path: Path, method: str) -> None:
+    """/api/health is Dango's own route now: the Metabase proxy never forwards it."""
     seen: list[httpx.Request] = []
     client = TestClient(_metabase_app(tmp_path, seen), raise_server_exceptions=False)
     with patch(_GET_MB_URL, return_value="http://mb:3000"):
         resp = client.request(method, "/api/health", content=b"{}")
-        assert resp.status_code == 405
-        assert client.get("/api/health").status_code == 200
-    assert [r.method for r in seen] == ["GET"]
+    assert resp.status_code in (404, 405)
+    assert seen == []
 
 
 @pytest.mark.unit
