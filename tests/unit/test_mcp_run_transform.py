@@ -25,10 +25,19 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _write_fresh_results(project: Path, payload: str) -> None:
-    """What dbt does during a build: write run_results.json (after the build started)."""
+    """What dbt does during a build: write run_results.json (after the build started).
+
+    The mtime is stamped explicitly, clear of file-system clock granularity.
+    """
+    import os
+    import time
+
     target = project / "dbt" / "target"
     target.mkdir(parents=True, exist_ok=True)
-    (target / "run_results.json").write_text(payload)
+    path = target / "run_results.json"
+    path.write_text(payload)
+    fresh = time.time() + 5
+    os.utime(path, (fresh, fresh))
 
 
 @pytest.mark.unit

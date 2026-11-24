@@ -24,6 +24,9 @@ from tests.integration.dbt_outcome_support import VARIANTS, make_matrix_project
 
 pytestmark = pytest.mark.integration
 
+# A results file the fake dbt "wrote during the build" is stamped this far after the real clock.
+_FRESH_MARGIN_SECONDS = 5
+
 COMPLETED_TEXT = (
     "Completed with 1 error, 0 partial successes, and 0 warnings:\n"
     "Failure in test not_null_x (models/schema.yml)\n"
@@ -72,9 +75,12 @@ def _fake_dbt_run(
             path = root / "dbt" / "target" / "run_results.json"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(results)
-            if age_seconds:
-                old = time.time() - age_seconds
-                os.utime(path, (old, old))
+            # Stamp the mtime explicitly so freshness never depends on the file-system clock
+            # granularity: unambiguously after the build started, or `age_seconds` before it.
+            stamp = (
+                time.time() - age_seconds if age_seconds else time.time() + _FRESH_MARGIN_SECONDS
+            )
+            os.utime(path, (stamp, stamp))
         return SimpleNamespace(returncode=returncode, stdout=stdout, stderr="")
 
     with patch("dango.transformation.subprocess.run", side_effect=fake_run):
@@ -115,6 +121,10 @@ def _build_clock_ahead(seconds: float = 1.0) -> Iterator[None]:
 def bare_project(tmp_path: Path) -> Path:
     (tmp_path / "dbt").mkdir()
     return tmp_path
+
+
+def _notes(output: str) -> list[str]:
+    return [ln for ln in output.splitlines() if ln.startswith("dango: ")]
 
 
 def test_clean_build_succeeds_with_no_notes(outcomes: dict[str, Outcome]) -> None:
@@ -177,43 +187,74 @@ def test_test_whose_own_sql_errors_is_a_success_with_a_note(outcomes: dict[str, 
 def test_genuine_results_with_skipped_nodes_fail_even_with_old_success_text(
     outcomes: dict[str, Outcome], bare_project: Path
 ) -> None:
-    ok, _ = _fake_dbt_run(bare_project, results=outcomes["skipped"].results)
+    ok, output, verdict = _fake_dbt_run_with_verdict(
+        bare_project, results=outcomes["skipped"].results
+    )
     assert ok is False
+    # the verdict comes from the results (not from an unreadable or stale file)
+    assert verdict.usable is True
+    assert verdict.skipped_models is True and "order_count" in verdict.skipped
+    assert "unique_stg_orders_id" in verdict.tests_failed
+    assert build_outcome.UNEXPLAINED_NOTE not in output
+    notes = [n for n in output.splitlines() if n.startswith("dango: ")]
+    assert any("skipped" in n and "order_count" in n for n in notes)
+    assert any("tests failed" in n and "unique_stg_orders_id" in n for n in notes)
 
 
 def test_genuine_test_only_results_keep_the_build_a_success(
     outcomes: dict[str, Outcome], bare_project: Path
 ) -> None:
-    ok, output = _fake_dbt_run(bare_project, results=outcomes["test_only"].results)
+    ok, output, verdict = _fake_dbt_run_with_verdict(
+        bare_project, results=outcomes["test_only"].results
+    )
     assert ok is True
-    assert "tests failed" in output
+    assert verdict.transformed is True
+    assert any("tests failed" in n and "accepted_values_order_count_n" in n for n in _notes(output))
+    assert build_outcome.UNEXPLAINED_NOTE not in output
 
 
 def test_nonzero_exit_without_results_fails_despite_completed_with_test_text(
     bare_project: Path,
 ) -> None:
-    ok, output = _fake_dbt_run(bare_project, results=None)
+    ok, output, verdict = _fake_dbt_run_with_verdict(bare_project, results=None)
     assert ok is False
+    assert verdict.usable is False
     assert "Full output:" in output
+    assert build_outcome.UNEXPLAINED_NOTE in output
 
 
 def test_nonzero_exit_with_stale_results_fails_closed(
     outcomes: dict[str, Outcome], bare_project: Path
 ) -> None:
-    ok, _ = _fake_dbt_run(bare_project, results=outcomes["test_only"].results, age_seconds=3600)
+    ok, output, verdict = _fake_dbt_run_with_verdict(
+        bare_project, results=outcomes["test_only"].results, age_seconds=3600
+    )
     assert ok is False
+    assert verdict.usable is False  # the file exists and parses; only its age rules it out
+    assert build_outcome.UNEXPLAINED_NOTE in output
 
 
 def test_nonzero_exit_with_unparseable_results_fails_closed(bare_project: Path) -> None:
-    ok, _ = _fake_dbt_run(bare_project, results=b'{"results": [ not json')
+    with patch("dango.transformation.build_finalize.logger") as log:
+        ok, output, verdict = _fake_dbt_run_with_verdict(
+            bare_project, results=b'{"results": [ not json'
+        )
     assert ok is False
+    assert verdict.usable is False
+    # the file was read and rejected as unparseable (not skipped as stale)
+    assert [c.args[0] for c in log.warning.call_args_list] == ["run_results_summary_failed"]
+    assert build_outcome.UNEXPLAINED_NOTE in output
 
 
 def test_nonzero_exit_that_no_node_explains_fails_closed(
     outcomes: dict[str, Outcome], bare_project: Path
 ) -> None:
-    ok, _ = _fake_dbt_run(bare_project, results=outcomes["clean"].results)
+    ok, output, verdict = _fake_dbt_run_with_verdict(
+        bare_project, results=outcomes["clean"].results
+    )
     assert ok is False
+    assert verdict.usable is True  # the results were read: they show no failed node
+    assert _notes(output) == [build_outcome.UNEXPLAINED_NOTE]
 
 
 def test_a_held_warehouse_lock_still_gets_the_lock_advice(tmp_path: Path) -> None:
@@ -253,7 +294,7 @@ def test_genuine_results_get_their_own_verdict_when_the_build_clock_runs_ahead(
         ok, output, verdict = _fake_dbt_run_with_verdict(bare_project, results=real.results)
     assert verdict.usable is True
     assert ok is real.ok
-    assert [n for n in output.splitlines() if n.startswith("dango: ")] == real.notes
+    assert _notes(output) == real.notes
     assert build_outcome.UNEXPLAINED_NOTE not in output
 
 
