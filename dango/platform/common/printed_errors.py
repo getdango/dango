@@ -7,7 +7,6 @@ item redacted, flattened to one line, cut, and (for Rich output) escaped, with a
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
 from pathlib import Path
 
 from rich.markup import escape
@@ -21,7 +20,7 @@ MAX_ERROR_CHARS = 500
 MAX_ERROR_ITEMS = 8
 
 # Control characters (ESC, newline, tab, carriage return, C1) and Unicode line separators.
-_CONTROL_RUN = re.compile(r"[\x00-\x1f\x7f-\x9f  ]+")
+_CONTROL_RUN = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]+")
 
 
 def error_items(errors: object) -> list[object]:
@@ -34,8 +33,6 @@ def error_items(errors: object) -> list[object]:
         return []
     if isinstance(errors, (list, tuple, set, frozenset)):
         return [e for e in errors if e]
-    if isinstance(errors, Mapping):
-        return [errors]
     return [errors]
 
 

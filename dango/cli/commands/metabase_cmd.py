@@ -98,32 +98,40 @@ def metabase_save(ctx: click.Context, include_personal: bool, collections: str |
                 console.print("[bold]Dashboards:[/bold]")
                 for item in result["exported_dashboards"]:
                     console.print(
-                        f"  ✓ {item['name']} ({item['cards']} cards) - {item['collection']}"
+                        f"  ✓ {escape(str(item['name']))} ({item['cards']} cards) - {escape(str(item['collection']))}"
                     )
                 console.print()
 
             if result["exported_questions"]:
                 console.print("[bold]Questions:[/bold]")
                 for item in result["exported_questions"]:
-                    console.print(f"  ✓ {item['name']} ({item['type']}) - {item['collection']}")
+                    console.print(
+                        f"  ✓ {escape(str(item['name']))} ({escape(str(item['type']))}) - {escape(str(item['collection']))}"
+                    )
                 console.print()
 
             if result.get("exported_models"):
                 console.print("[bold]Models:[/bold]")
                 for item in result["exported_models"]:
-                    console.print(f"  ✓ {item['name']} ({item['type']}) - {item['collection']}")
+                    console.print(
+                        f"  ✓ {escape(str(item['name']))} ({escape(str(item['type']))}) - {escape(str(item['collection']))}"
+                    )
                 console.print()
 
             if result.get("exported_metrics"):
                 console.print("[bold]Metrics:[/bold]")
                 for item in result["exported_metrics"]:
-                    console.print(f"  ✓ {item['name']} - {item['collection']}")
+                    console.print(
+                        f"  ✓ {escape(str(item['name']))} - {escape(str(item['collection']))}"
+                    )
                 console.print()
 
             if result.get("exported_timelines"):
                 console.print("[bold]Timelines:[/bold]")
                 for item in result["exported_timelines"]:
-                    console.print(f"  ✓ {item['name']} - {item['collection']}")
+                    console.print(
+                        f"  ✓ {escape(str(item['name']))} - {escape(str(item['collection']))}"
+                    )
                 console.print()
 
             if result["skipped_collections"]:
@@ -131,7 +139,7 @@ def metabase_save(ctx: click.Context, include_personal: bool, collections: str |
                     f"[dim]⏭  Skipped {len(result['skipped_collections'])} personal collection(s)[/dim]"
                 )
                 for name in result["skipped_collections"]:
-                    console.print(f"[dim]    • {name}[/dim]")
+                    console.print(f"[dim]    • {escape(str(name))}[/dim]")
                 console.print()
 
             console.print("[bold cyan]Next steps:[/bold cyan]")
@@ -250,42 +258,44 @@ def metabase_load(ctx: click.Context, overwrite: bool, dry_run: bool) -> None:
                     console.print("[bold]Dashboards:[/bold]")
                     for item in result["imported_dashboards"]:
                         status_icon = "?" if dry_run else "✓"
-                        console.print(f"  {status_icon} {item['name']} ({item['cards']} cards)")
+                        console.print(
+                            f"  {status_icon} {escape(str(item['name']))} ({item['cards']} cards)"
+                        )
                     console.print()
 
                 if result["imported_questions"]:
                     console.print("[bold]Questions:[/bold]")
                     for item in result["imported_questions"]:
                         status_icon = "?" if dry_run else "✓"
-                        console.print(f"  {status_icon} {item['name']}")
+                        console.print(f"  {status_icon} {escape(str(item['name']))}")
                     console.print()
 
                 if result.get("imported_models"):
                     console.print("[bold]Models:[/bold]")
                     for item in result["imported_models"]:
                         status_icon = "?" if dry_run else "✓"
-                        console.print(f"  {status_icon} {item['name']}")
+                        console.print(f"  {status_icon} {escape(str(item['name']))}")
                     console.print()
 
                 if result.get("imported_metrics"):
                     console.print("[bold]Metrics:[/bold]")
                     for item in result["imported_metrics"]:
                         status_icon = "?" if dry_run else "✓"
-                        console.print(f"  {status_icon} {item['name']}")
+                        console.print(f"  {status_icon} {escape(str(item['name']))}")
                     console.print()
 
                 if result.get("imported_timelines"):
                     console.print("[bold]Timelines:[/bold]")
                     for item in result["imported_timelines"]:
                         status_icon = "?" if dry_run else "✓"
-                        console.print(f"  {status_icon} {item['name']}")
+                        console.print(f"  {status_icon} {escape(str(item['name']))}")
                     console.print()
 
             if total_skipped > 0:
                 console.print(f"[dim]⏭  Skipped {total_skipped} existing item(s)[/dim]")
                 for item in result["skipped"]:
                     console.print(
-                        f"[dim]    • {item['name']} ({item['type']}) - {item['reason']}[/dim]"
+                        f"[dim]    • {escape(str(item['name']))} ({escape(str(item['type']))}) - {escape(str(item['reason']))}[/dim]"
                     )
                 console.print()
 
@@ -294,7 +304,9 @@ def metabase_load(ctx: click.Context, overwrite: bool, dry_run: bool) -> None:
                     f"[yellow]⚠️  {'Would overwrite' if dry_run else 'Overwrote'} {len(result['would_overwrite'])} existing item(s)[/yellow]"
                 )
                 for item in result["would_overwrite"]:
-                    console.print(f"[yellow]    • {item['name']} ({item['type']})[/yellow]")
+                    console.print(
+                        f"[yellow]    • {escape(str(item['name']))} ({escape(str(item['type']))})[/yellow]"
+                    )
                 console.print()
 
             if dry_run and total_imported > 0:

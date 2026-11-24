@@ -8,6 +8,8 @@ that straddles the 500-character cut of one error item must still be redacted.
 from __future__ import annotations
 
 import io
+import os
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +28,17 @@ from tests.unit.test_metabase_error_printers import (
     _text,
 )
 from tests.unit.test_start_metabase_setup_failure_message import _failed, _run_start
+
+
+@pytest.fixture(autouse=True)
+def _restore_process_environment() -> Iterator[None]:
+    """Undo what the real commands put in ``os.environ`` (``serve`` sets DANGO_PROJECT_ROOT, and
+    the startup prologue loads the project's ``.env``), so later tests in the process see none of it."""
+    saved = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(saved)
+
 
 # A name Rich would reject (unmatched closing tag) and one it would silently swallow (a tag).
 NAMES = ["Q1 [/draft] board", "Sales [beta] board"]
@@ -68,8 +81,9 @@ def test_save_prints_metabase_names_literally(tmp_path: Path, name: str) -> None
 
     out = _flat(_text(console))
     assert code == 0, out
-    assert out.count(name) == 5  # dashboard, question, model, metric, timeline
-    assert f"Coll {name}" in out
+    assert f"\u2713 {name} (2 cards) - Coll {name}" in out
+    assert f"\u2713 {name} (question) - Coll {name}" in out
+    assert f"\u2713 {name} - Coll {name}" in out
     assert f"Personal {name}" in out
     assert "Next steps" in out
 
