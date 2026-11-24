@@ -111,7 +111,7 @@ def test_output_without_any_note_is_shown_raw() -> None:
 def test_rich_markup_is_escaped_in_reason_and_raw() -> None:
     notes = "dango: tests failed (1): [bold]x[/bold]\n"
     reason = describe_failure(None, _output(notes, "raw"))
-    assert reason.reason == ("Tests failed (1): \\[bold]x\\[/bold]",)
+    assert reason.reason[0] == "Tests failed (1): \\[bold]x\\[/bold]"
     raw = describe_failure(None, "odd [red]line[/red]")
     assert "\\[red]line\\[/red]" in raw.raw
 

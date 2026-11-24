@@ -33,6 +33,12 @@ _NOISE_RE = re.compile(
     r"^(?:(?:Database|Runtime|Compilation) Error in |compiled code at |LINE \d+:|\^+$)"
 )
 _CAUSE_RE = re.compile(r"(?:Error in |Error:|timed out|Failure in )")
+# dbt prints a compile, parse, profile or dependency error as `Encountered an error:`, then a bare
+# `<Kind> Error` (or `<Kind> Error in model x (path)`) line and the message on the next line.
+_KIND_HEADER_RE = re.compile(
+    r"^(?:Compilation|Parsing|Runtime|Database|Dependency) Error(?: in .*)?$"
+)
+_FIX_PREFIX = "Suggested fix:"
 
 
 @dataclass(frozen=True)
@@ -99,13 +105,35 @@ def _sentence(note: str) -> str:
     return text[:1].upper() + text[1:]
 
 
+def _suggested_fix(text: str) -> list[str]:
+    """The single `Suggested fix:` line of `run_dbt_models`'s structured block, if there is one."""
+    for line in text.splitlines():
+        if line.startswith(_FIX_PREFIX):
+            # the block puts the reason below the fix; here the reason is printed above it
+            return [line.strip().replace("named below", "named above")]
+    return []
+
+
+def _first_cause(text: str) -> str:
+    """The first line of dbt's output that names an error, with its message line if it has one."""
+    lines = [_unstamped(ln).strip() for ln in text.splitlines()]
+    for i, line in enumerate(lines):
+        if _KIND_HEADER_RE.match(line):
+            message = next((ln for ln in lines[i + 1 :] if ln), "")
+            return f"{line}: {message}" if message else line
+        if _CAUSE_RE.search(line):
+            return line
+    return ""
+
+
 def describe_failure(project_root: Path | None, dbt_output: str) -> FailureText:
     """The printable text of a failed ``run_dbt_models`` output (see ``FailureText``)."""
     redacted = _ANSI_RE.sub("", redacted_error_text(project_root, dbt_output))
     notes = notes_in(redacted)
     details = _error_details(redacted)
     if _is_explained(notes, details):
-        return FailureText(reason=tuple(rich_error_text(None, ln) for ln in [*notes, *details]))
+        shown = [*notes, *details, *_suggested_fix(redacted)]
+        return FailureText(reason=tuple(rich_error_text(None, ln) for ln in shown))
     return FailureText(
         reason=tuple(rich_error_text(None, n) for n in notes),
         raw=rich_error_text(None, without_notes(redacted)),
@@ -124,9 +152,6 @@ def reason_line(project_root: Path | None, dbt_output: str, limit: int = REASON_
     if _is_explained(notes, details):
         parts = [*notes, *details]
     else:
-        cause = next(
-            (_unstamped(ln).strip() for ln in redacted.splitlines() if _CAUSE_RE.search(ln)), ""
-        )
-        parts = [cause or (notes[0] if notes else "dbt exited with an error")]
+        parts = [_first_cause(redacted) or (notes[0] if notes else "dbt exited with an error")]
     text = " ".join("; ".join(parts).split())
     return text if len(text) <= limit else f"{text[: limit - 3]}..."
