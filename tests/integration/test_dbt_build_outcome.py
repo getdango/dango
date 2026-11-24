@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,7 +19,7 @@ from unittest.mock import patch
 
 import pytest
 
-from dango.transformation import run_dbt_models
+from dango.transformation import build_outcome, run_dbt_models
 from tests.integration.dbt_outcome_support import VARIANTS, make_matrix_project
 
 pytestmark = pytest.mark.integration
@@ -78,6 +79,36 @@ def _fake_dbt_run(
 
     with patch("dango.transformation.subprocess.run", side_effect=fake_run):
         return run_dbt_models(root)
+
+
+def _fake_dbt_run_with_verdict(
+    root: Path, *, results: bytes | None, **kwargs: Any
+) -> tuple[bool, str, build_outcome.BuildVerdict]:
+    """`_fake_dbt_run` plus the verdict `run_dbt_models` reached from the results file."""
+    verdicts: list[build_outcome.BuildVerdict] = []
+    real_assess = build_outcome.assess_failed_build
+
+    def spy(project_root: Path, *, since: float) -> build_outcome.BuildVerdict:
+        verdicts.append(real_assess(project_root, since=since))
+        return verdicts[-1]
+
+    with patch.object(build_outcome, "assess_failed_build", side_effect=spy):
+        ok, output = _fake_dbt_run(root, results=results, **kwargs)
+    assert len(verdicts) == 1, "a non-zero exit must reach the results verdict exactly once"
+    return ok, output, verdicts[0]
+
+
+@contextmanager
+def _build_clock_ahead(seconds: float = 1.0) -> Iterator[None]:
+    """The build-start stamp of `run_dbt_models` runs `seconds` ahead of the file-system clock.
+
+    That is the worst case of a coarse file-system timestamp: a results file written right
+    after the build started carries an mtime older than the stamp. Only `run_dbt_models`
+    sees the shifted clock; the test's own `time` is untouched.
+    """
+    real_time = time.time
+    with patch("dango.transformation.time", SimpleNamespace(time=lambda: real_time() + seconds)):
+        yield
 
 
 @pytest.fixture
@@ -205,3 +236,42 @@ def test_a_held_warehouse_lock_still_gets_the_lock_advice(tmp_path: Path) -> Non
     assert ok is False
     assert "lock" in output.lower()
     assert "DuckDB write lock held by another process" in output
+
+
+# Variants whose real dbt run exits non-zero; replaying their genuine results through the fake
+# dbt must reach the same verdict and the same notes as the real run did.
+_FAILING_VARIANTS = ("test_only", "model_error", "skipped", "hook_and_test", "test_error")
+
+
+@pytest.mark.parametrize("variant", _FAILING_VARIANTS)
+def test_genuine_results_get_their_own_verdict_when_the_build_clock_runs_ahead(
+    outcomes: dict[str, Outcome], bare_project: Path, variant: str
+) -> None:
+    """A fresh results file is never judged stale because of file-system timestamp granularity."""
+    real = outcomes[variant]
+    with _build_clock_ahead():
+        ok, output, verdict = _fake_dbt_run_with_verdict(bare_project, results=real.results)
+    assert verdict.usable is True
+    assert ok is real.ok
+    assert [n for n in output.splitlines() if n.startswith("dango: ")] == real.notes
+    assert build_outcome.UNEXPLAINED_NOTE not in output
+
+
+def test_a_build_that_no_node_explains_is_judged_from_its_results_when_the_clock_runs_ahead(
+    outcomes: dict[str, Outcome], bare_project: Path
+) -> None:
+    with _build_clock_ahead():
+        ok, _, verdict = _fake_dbt_run_with_verdict(bare_project, results=outcomes["clean"].results)
+    assert ok is False
+    assert verdict.usable is True  # the results were read: they show no failed node
+
+
+def test_stale_results_are_not_usable_even_when_the_clock_does_not_run_ahead(
+    outcomes: dict[str, Outcome], bare_project: Path
+) -> None:
+    ok, output, verdict = _fake_dbt_run_with_verdict(
+        bare_project, results=outcomes["test_only"].results, age_seconds=3600
+    )
+    assert ok is False
+    assert verdict.usable is False
+    assert build_outcome.UNEXPLAINED_NOTE in output
