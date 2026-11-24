@@ -39,6 +39,7 @@ from dango.ingestion.empty_guard import (
 )
 from dango.ingestion.interrupts import interrupts_stay_interrupts
 from dango.ingestion.sources.registry import get_source_metadata
+from dango.ingestion.status_codes import has_status_code
 from dango.utils.dlt_error_text import rewrite_dlt_advice
 from dango.utils.docker_hints import DOCKER_UNAVAILABLE_ERROR, note_metabase_skipped
 from dango.utils.duckdb_lock_text import rewrite_lock_text
@@ -77,6 +78,19 @@ _DUCKDB_LOCK_KEYWORDS = (
     "file lock",
     "already open",
     "another process",
+)
+
+# The subset of the keywords above that only a DuckDB lock message contains. _analyze_error()
+# checks these before the status-code and word matches below, because a lock message carries a PID
+# and a path. The broader words ("is locked", "already open", "another process") can also appear in
+# a real source's authentication or rate-limit message, so they keep their later position.
+_DUCKDB_LOCK_SPECIFIC_KEYWORDS = (
+    "could not set lock",
+    "conflicting lock",
+    "write lock",
+    "file lock",
+    "file is already open in",
+    "being used by another process",
 )
 
 # error_type value for empty-replace-protection failures (1.0.10-S11). Shared
@@ -2205,7 +2219,9 @@ class DltPipelineRunner:
                     )
 
             # Per-resource error guidance
-            if any(kw in error_str for kw in ("403", "forbidden", "not found", "404")):
+            if has_status_code(error_str, "403", "404") or any(
+                kw in error_str for kw in ("forbidden", "not found")
+            ):
                 console.print(
                     "\n  [yellow]💡 Tip: Some resources may require higher API permissions.[/yellow]"
                 )
@@ -2887,6 +2903,33 @@ class DltPipelineRunner:
         friendly_error = self._analyze_error(error, source_name)
         console.print(f"[red]{escape(rewrite_lock_text(friendly_error))}[/red]")
 
+    @staticmethod
+    def _duckdb_lock_guidance(source_name: str, shown: str) -> str:
+        """The guidance block for a DuckDB write-lock conflict."""
+        return f"""
+DuckDB Lock Error: Database is locked for '{source_name}'
+
+Possible causes:
+  • Another sync is currently running
+  • A Marimo notebook has the database open
+  • Metabase is holding a write lock
+  • A previous process did not release the lock
+
+How to fix:
+  1. Close any open notebooks (Marimo)
+  2. Wait for any running syncs to complete
+  3. Restart Dango if the issue persists
+
+Fix commands:
+  # Check running processes
+  dango status
+
+  # Restart services
+  dango stop && dango start
+
+Error details: {shown}
+"""
+
     def _analyze_error(self, error: Exception, source_name: str) -> str:
         """
         Analyze exception and provide user-friendly error message
@@ -2901,18 +2944,21 @@ class DltPipelineRunner:
         error_str = str(error).lower()
         shown = redacted_error_text(getattr(self, "project_root", None), error, source_name)
 
+        # DuckDB lock messages carry a PID and a file path, so they are recognised before any
+        # status-code or word match can claim them.
+        if any(keyword in error_str for keyword in _DUCKDB_LOCK_SPECIFIC_KEYWORDS):
+            return self._duckdb_lock_guidance(source_name, shown)
+
         # Authentication errors
-        if any(
+        if has_status_code(error_str, "401", "403") or any(
             keyword in error_str
             for keyword in [
                 "unauthorized",
-                "401",
                 "invalid api key",
                 "invalid token",
                 "authentication failed",
                 "invalid credentials",
                 "forbidden",
-                "403",
             ]
         ):
             return f"""
@@ -2937,9 +2983,9 @@ Error details: {shown}
 """
 
         # Rate limit errors
-        if any(
+        if has_status_code(error_str, "429") or any(
             keyword in error_str
-            for keyword in ["rate limit", "429", "too many requests", "quota exceeded", "throttled"]
+            for keyword in ["rate limit", "too many requests", "quota exceeded", "throttled"]
         ):
             return f"""
 Rate Limit Error: API rate limit exceeded for '{source_name}'
@@ -3001,29 +3047,7 @@ Error details: {shown}
         # DuckDB lock errors (must be checked before connection — lock messages
         # contain "connection" which would trigger the wrong handler)
         if any(keyword in error_str for keyword in _DUCKDB_LOCK_KEYWORDS):
-            return f"""
-DuckDB Lock Error: Database is locked for '{source_name}'
-
-Possible causes:
-  • Another sync is currently running
-  • A Marimo notebook has the database open
-  • Metabase is holding a write lock
-  • A previous process did not release the lock
-
-How to fix:
-  1. Close any open notebooks (Marimo)
-  2. Wait for any running syncs to complete
-  3. Restart Dango if the issue persists
-
-Fix commands:
-  # Check running processes
-  dango status
-
-  # Restart services
-  dango stop && dango start
-
-Error details: {shown}
-"""
+            return self._duckdb_lock_guidance(source_name, shown)
 
         # The warehouse could not be opened or written (permissions, full disk, read-only): dlt
         # words this "Connection with ... failed", which is not a network problem.

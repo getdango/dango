@@ -41,6 +41,7 @@ from dango.ingestion.sources.setup_service import (
     write_default_config,
     write_secrets_toml_template,
 )
+from dango.ingestion.status_codes import has_status_code
 from dango.oauth.router import (
     OAUTH_PROVIDER_MAP,
     run_oauth_for_source,
@@ -2318,7 +2319,7 @@ def {module_name}_resource(api_key: str):
             error_str = str(e).lower()
 
             # Provide specific error messages for common issues
-            if "404" in error_str or "not found" in error_str:
+            if has_status_code(error_str, "404") or "not found" in error_str:
                 console.print("\n[red]✗ Spreadsheet not found[/red]")
                 console.print("\n[yellow]Possible causes:[/yellow]")
                 console.print("  • Invalid spreadsheet ID or URL")
@@ -2329,7 +2330,11 @@ def {module_name}_resource(api_key: str):
                 console.print("  2. Make sure the spreadsheet is shared with your Google account")
                 console.print("  3. Your account: check with [bold]dango oauth list[/bold]")
                 raise  # Re-raise to abort wizard
-            elif "403" in error_str or "permission" in error_str or "forbidden" in error_str:
+            elif (
+                has_status_code(error_str, "403")
+                or "permission" in error_str
+                or "forbidden" in error_str
+            ):
                 console.print("\n[red]✗ Permission denied[/red]")
                 console.print("\n[yellow]Possible causes:[/yellow]")
                 console.print("  • You don't have access to this spreadsheet")
@@ -2339,7 +2344,7 @@ def {module_name}_resource(api_key: str):
                 console.print("  2. Or re-authenticate: [bold]dango oauth google_sheets[/bold]")
                 raise  # Re-raise to abort wizard
             elif (
-                "401" in error_str
+                has_status_code(error_str, "401")
                 or "invalid" in error_str
                 or "expired" in error_str
                 or "refresh" in error_str
