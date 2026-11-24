@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,7 +19,7 @@ from unittest.mock import patch
 import pytest
 
 from dango.transformation import build_outcome, run_dbt_models
-from tests.integration.dbt_outcome_support import VARIANTS, make_matrix_project
+from tests.integration.dbt_outcome_support import VARIANTS, build_clock_ahead, make_matrix_project
 
 pytestmark = pytest.mark.integration
 
@@ -102,19 +101,6 @@ def _fake_dbt_run_with_verdict(
         ok, output = _fake_dbt_run(root, results=results, **kwargs)
     assert len(verdicts) == 1, "a non-zero exit must reach the results verdict exactly once"
     return ok, output, verdicts[0]
-
-
-@contextmanager
-def _build_clock_ahead(seconds: float = 1.0) -> Iterator[None]:
-    """The build-start stamp of `run_dbt_models` runs `seconds` ahead of the file-system clock.
-
-    That is the worst case of a coarse file-system timestamp: a results file written right
-    after the build started carries an mtime older than the stamp. Only `run_dbt_models`
-    sees the shifted clock; the test's own `time` is untouched.
-    """
-    real_time = time.time
-    with patch("dango.transformation.time", SimpleNamespace(time=lambda: real_time() + seconds)):
-        yield
 
 
 @pytest.fixture
@@ -290,7 +276,7 @@ def test_genuine_results_get_their_own_verdict_when_the_build_clock_runs_ahead(
 ) -> None:
     """A fresh results file is never judged stale because of file-system timestamp granularity."""
     real = outcomes[variant]
-    with _build_clock_ahead():
+    with build_clock_ahead():
         ok, output, verdict = _fake_dbt_run_with_verdict(bare_project, results=real.results)
     assert verdict.usable is True
     assert ok is real.ok
@@ -301,7 +287,7 @@ def test_genuine_results_get_their_own_verdict_when_the_build_clock_runs_ahead(
 def test_a_build_that_no_node_explains_is_judged_from_its_results_when_the_clock_runs_ahead(
     outcomes: dict[str, Outcome], bare_project: Path
 ) -> None:
-    with _build_clock_ahead():
+    with build_clock_ahead():
         ok, _, verdict = _fake_dbt_run_with_verdict(bare_project, results=outcomes["clean"].results)
     assert ok is False
     assert verdict.usable is True  # the results were read: they show no failed node

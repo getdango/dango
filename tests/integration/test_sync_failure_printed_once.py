@@ -24,7 +24,11 @@ from click.testing import CliRunner, Result
 import dango
 from dango.cli.commands.source import sync
 from dango.platform.scheduling import jobs
-from tests.integration.dbt_outcome_support import make_csv_project, write_orders_csv
+from tests.integration.dbt_outcome_support import (
+    build_clock_ahead,
+    make_csv_project,
+    write_orders_csv,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -244,6 +248,23 @@ def test_unexplained_exit_shows_the_raw_output_once(
     assert text.count("odd dbt line one") == 1
     assert text.count("odd dbt line two") == 1
     assert text.count("dbt transform failed") == 1
+
+
+def test_unparseable_results_are_rejected_as_unparseable_when_the_clock_runs_ahead(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Coarse file timestamps must not turn "unparseable" into "stale": the file is read."""
+    root = _synced_project(tmp_path, monkeypatch)
+    (root / "dbt" / "target" / "run_results.json").unlink(missing_ok=True)
+    with (
+        patch("dango.transformation.build_finalize.logger") as log,
+        build_clock_ahead(),
+        _fake_dbt(root, stdout="odd dbt line one\n", results=b'{"results": [ not json'),
+    ):
+        result, text = _sync(root, monkeypatch)
+    assert result.exit_code == 1, result.output
+    assert [c.args[0] for c in log.warning.call_args_list] == ["run_results_summary_failed"]
+    assert text.count("odd dbt line one") == 1
 
 
 def test_failed_check_that_skipped_nothing_is_shown_once_and_exits_zero(
