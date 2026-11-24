@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      NATIVE_ATTEMPT: '2'
+      NATIVE_ATTEMPT: '3'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -181,7 +181,7 @@ jobs:
             for image in "${NEW_IMAGES[@]}"; do docker image rm "$image" >/dev/null || failure=1; done
             if mountpoint -q "$PAYLOAD"; then
               # Only fixed safe report allowlist is retained; no raw SQL, credentials or container logs.
-              for report in native-result.json acquisition.json; do
+              for report in native-result.json smoke-result.json acquisition.json acquisition-stage.json; do
                 test ! -f "$PAYLOAD/work/$report" || cp "$PAYLOAD/work/$report" "$TASK_ROOT/evidence/$report"
               done
               umount "$PAYLOAD" || failure=1
@@ -227,8 +227,22 @@ jobs:
           test "$(findmnt -n -o SOURCE -T "$PAYLOAD")" = "$LOOP"
           inside_gate 2147483648
           mkdir -m700 "$PAYLOAD/work" "$PAYLOAD/pgdata" "$PAYLOAD/pg-secrets" "$PAYLOAD/client-secrets" "$PAYLOAD/gate"
-          /usr/bin/python3 -c 'import json,runpy,sys; print(json.dumps(runpy.run_path(sys.argv[1])["IMAGES"]))' \
-            "$SOURCE/tests/integration/native_catalog_bindings.py" > "$PAYLOAD/image-pins.json"
+          /usr/bin/python3 - "$SOURCE/tests/fixtures/runtime_profiles.json" > "$PAYLOAD/image-pins.json" <<'IMAGE_PINS'
+          import hashlib, json, sys
+          from pathlib import Path
+          raw = Path(sys.argv[1]).read_bytes()
+          assert hashlib.sha256(raw).hexdigest() == 'b6879d50f7220b8afa1a1b6b6266e27db6c3492a8fa2bc71747656c6411af449'
+          rows = {r['component']['component_id']: r for r in json.loads(raw)['artifacts']}
+          images = {}
+          for name in ('node', 'postgres'):
+              row = rows['t44a-image-' + name]
+              images[name] = {
+                  'ref': row['component']['artifact_ref'],
+                  'config': row['native_hashes']['config'],
+                  'diff_ids': [value for key, value in row['native_hashes'].items() if key != 'config'],
+              }
+          print(json.dumps(images))
+          IMAGE_PINS
           stage pinned_images_acquisition
           for role in node postgres; do
             image=$(jq -r ".$role.ref" "$PAYLOAD/image-pins.json")
@@ -244,6 +258,83 @@ jobs:
               "$PAYLOAD/image-$role.json" >/dev/null
           done
           inside_gate 2147483648
+          # Same approved twelve-wheel actual-import closure; data only, independently hash-checked.
+          cat > "$PAYLOAD/import-pins.json" <<'IMPORT_PINS'
+          [
+            [
+              "pydantic-2.12.4-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/82/2f/e68750da9b04856e2a7ec56fc6f034a5a79775e9b9a81882252789873798/pydantic-2.12.4-py3-none-any.whl",
+              "92d3d202a745d46f9be6df459ac5a064fdaa3c1c4cd8adcfa332ccf3c05f871e",
+              463400
+            ],
+            [
+              "pydantic_core-2.41.5-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+              "https://files.pythonhosted.org/packages/4c/d2/ef2074dc020dd6e109611a8be4449b98cd25e1b9b8a303c2f0fca2f2bcf7/pydantic_core-2.41.5-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+              "22f0fb8c1c583a3b6f24df2470833b40207e907b90c928cc8d3594b76f874375",
+              2064877
+            ],
+            [
+              "annotated_types-0.7.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl",
+              "1f02e8b43a8fbbc3f3e0d4f0f4bfc8131bcb4eebe8849b8e5c773f3a1c582a53",
+              13643
+            ],
+            [
+              "typing_inspection-0.4.2-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl",
+              "4ed1cacbdc298c220f1bd249ed5287caa16f34d44ef4e9c3d0cbad5b521545e7",
+              14611
+            ],
+            [
+              "keyring-24.3.1-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/7c/23/d557507915181687e4a613e1c8a01583fd6d7cb7590e1f039e357fe3b304/keyring-24.3.1-py3-none-any.whl",
+              "df38a4d7419a6a60fea5cef1e45a948a3e8430dd12ad88b0f423c5c143906218",
+              38092
+            ],
+            [
+              "jaraco.classes-3.4.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/7f/66/b15ce62552d84bbfcec9a4873ab79d993a1dd4edb922cbfccae192bd5b5f/jaraco.classes-3.4.0-py3-none-any.whl",
+              "f662826b6bed8cace05e7ff873ce0f9283b5c924470fe664fff1c2f00f581790",
+              6777
+            ],
+            [
+              "more_itertools-10.8.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/a4/8e/469e5a4a2f5855992e425f3cb33804cc07bf18d48f2db061aec61ce50270/more_itertools-10.8.0-py3-none-any.whl",
+              "52d4362373dcf7c52546bc4af9a86ee7c4579df9a8dc268be0a2f949d376cc9b",
+              69667
+            ],
+            [
+              "secretstorage-3.4.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/91/ff/2e2eed29e02c14a5cb6c57f09b2d5b40e65d6cc71f45b52e0be295ccbc2f/secretstorage-3.4.0-py3-none-any.whl",
+              "0e3b6265c2c63509fb7415717607e4b2c9ab767b7f344a57473b779ca13bd02e",
+              15272
+            ],
+            [
+              "jeepney-0.9.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/b2/a3/e137168c9c44d18eff0376253da9f1e9234d0239e0ee230d2fee6cea8e55/jeepney-0.9.0-py3-none-any.whl",
+              "97e5714520c16fc0a45695e5365a2e11b81ea79bba796e26f9f1d178cb182683",
+              49010
+            ],
+            [
+              "cryptography-46.0.3-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+              "https://files.pythonhosted.org/packages/5c/49/498c86566a1d80e978b42f0d702795f69887005548c041636df6ae1ca64c/cryptography-46.0.3-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+              "01ca9ff2885f3acc98c29f1860552e37f6d7c7d013d7334ff2a9de43a449315d",
+              4450807
+            ],
+            [
+              "cffi-2.0.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+              "https://files.pythonhosted.org/packages/47/d9/d83e293854571c877a92da46fdec39158f8d7e68da75bf73581225d28e90/cffi-2.0.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+              "afb8db5439b81cf9c9d0c80404b60c3cc9c3add93e114dcae767f1477cb53775",
+              219244
+            ],
+            [
+              "pycparser-2.23-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/a0/e3/59cd50310fc9b59512193629e1984c1f95e5c8ae6e5d8c69532ccc65a7fe/pycparser-2.23-py3-none-any.whl",
+              "e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934",
+              118140
+            ]
+          ]
+          IMPORT_PINS
           stage pinned_artifacts_acquisition
           /usr/bin/python3 "$SOURCE/tests/integration/native_catalog_bindings.py" --acquire "$PAYLOAD"
           export PAYLOAD
@@ -285,7 +376,7 @@ jobs:
             --mount="type=bind,src=$PAYLOAD/gate,dst=/gate,readonly" \
             --env=HOME=/work --env=TMPDIR=/work/tmp --env=PYTHONDONTWRITEBYTECODE=1 --env=PYTHONPATH=/work/site:/source \
             --env=AWS_EC2_METADATA_DISABLED=true --env=GCE_METADATA_DISABLED=true --env="TASK_COMMIT=$COMMIT" --workdir=/work \
-            --entrypoint=/bin/sh "$CLIENT_IMAGE" -ec 'while [ ! -f /gate/client ]; do sleep .1; done; mkdir /work/tmp; /tools/python/bin/python3.14 -m pip install --no-index --no-deps --no-cache-dir --no-compile --target /work/site /tools/artifacts/*.whl > /work/install.log 2>&1; /tools/python/bin/python3.14 -m pip check > /work/dependency-check.log 2>&1; exec /tools/python/bin/python3.14 /source/tests/integration/native_catalog_bindings.py --native-case smoke --task-root /work/task --commit "$TASK_COMMIT"')
+            --entrypoint=/bin/sh "$CLIENT_IMAGE" -ec 'while [ ! -f /gate/client ]; do sleep .1; done; mkdir /work/tmp; /tools/python/bin/python3.14 -m pip install --no-index --no-deps --no-cache-dir --no-compile --target /work/site /tools/artifacts/*.whl > /work/install.log 2>&1; /tools/python/bin/python3.14 -m pip check > /work/dependency-check.log 2>&1; exec /tools/python/bin/python3.14 /source/tests/integration/native_catalog_bindings.py --task-root /work/task --commit "$TASK_COMMIT"')
           inspect_limits() {
             local id=$1 memory=$2 cpus=$3 user=$4 network=$5
             local image=$CLIENT_IMAGE
@@ -337,7 +428,8 @@ jobs:
           test "$(awk '$1=="oom_kill" {print $2}' "$SLICE/memory.events")" = 0
           test "$(cat "$SLICE/memory.swap.current")" = 0
           inside_gate 0
-          jq -e --arg commit "$COMMIT" '.status=="PASS_NATIVE_ADAPTER_SMOKE" and .commit==$commit and .owned_cleanup==true' "$PAYLOAD/work/native-result.json" >/dev/null
+          jq -e --arg commit "$COMMIT" '.status=="PASS_NATIVE_ADAPTER_SMOKE" and .commit==$commit and .owned_cleanup==true' "$PAYLOAD/work/smoke-result.json"
+          jq -e --arg commit "$COMMIT" '.status=="PASS_NATIVE_ADAPTER_MATRIX" and .commit==$commit and (.cases|all(.=="PASS"))' "$PAYLOAD/work/native-result.json" >/dev/null
           stage completed_native_smoke
           CONTROLLER
       - name: Verify owned cleanup and remove the task slice
@@ -383,7 +475,7 @@ jobs:
               if mountpoint -q "$payload"; then
                 test -n "$loop" && test "$(findmnt -n -o SOURCE -T "$payload")" = "$loop"
                 mkdir -p "$TASK_ROOT/evidence"
-                for report in native-result.json acquisition.json; do
+                for report in native-result.json smoke-result.json acquisition.json acquisition-stage.json; do
                   test ! -f "$payload/work/$report" || cp "$payload/work/$report" "$TASK_ROOT/evidence/$report"
                 done
                 umount "$payload"

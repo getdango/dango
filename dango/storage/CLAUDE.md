@@ -66,6 +66,10 @@ concurrency group and explicit bounded Linux amd64 controls. It is not every-PR 
 Its first smoke verifies the actual adapter under a verified ordinary PostgreSQL role,
 populated sales.orders350/finance.orders7, durable read-only reopen, raw metadata stability,
 actual write denial and populated cleanup. Local doubles do not establish native acceptance.
+The final bounded job gates its finite integration matrix on that smoke's success, then
+checks owned crash recovery, foreign/concurrent additions, current access/refusal and canary
+redaction. It retains separate smoke and per-case PASS/FAIL/UNRUN receipts. Acquisition uses
+the unchanged hash-bound fixture and approved import pins with an identifying request header.
 Supported native-platform evidence is Linux amd64 only; macOS/Windows native behavior is unproved.
 
 ## Don't Modify
