@@ -52,7 +52,8 @@ root device/inode and PostgreSQL namespace owner/token/OID and metadata relation
 Reconciliation resumes only recorded owned phases; ambiguous gaps retain recovery evidence.
 Removal records metadata-bound physical file identities before a single atomic PostgreSQL
 statement locks owned tables, rechecks snapshot/ownership and drops exact tables plus schema
-with RESTRICT. A foreign object makes the statement fail atomically. Physical deletion uses
+with RESTRICT. Its outer SQL body delimiter excludes all quoted path/value contents.
+A foreign object makes the statement fail atomically. Physical deletion uses
 no-follow descriptors and an inventory checkpoint; retries refuse additions/substitutions.
 A redacted tombstone prevents identity reuse. Private roots and the lock coordinate supported
 writers; this does not isolate other programs running as the same operating-system user.

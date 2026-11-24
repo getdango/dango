@@ -422,6 +422,29 @@ def test_destructive_statement_uses_atomic_restrict_and_identity_guards():
     assert "data_path" in sql and "version" in sql
 
 
+@pytest.mark.parametrize("collision", ["$dango$", "$dango$/$dango_1$/$dango_2$"])
+def test_removal_body_delimiter_preserves_valid_punctuation_path(collision):
+    from dango.storage.catalog_ownership import canonical_path
+
+    token = "a" * 32
+    root = "/owned/" + collision + "/quote'-back\\slash/" + token
+    assert canonical_path(root) == root
+    evidence = {
+        "namespace": [[41, "writer", "marker"]],
+        "dependents": "expected",
+        "relations": [[42, "ducklake_metadata", "r"]],
+    }
+    sql = restrict_drop_sql("dango_" + token, token, root, "SELECT 0", "0", evidence, "SELECT ''")
+    tag = sql.split(" ", 2)[1]
+    assert sql.count(tag) == 2 and sql.endswith(" " + tag)
+    body = sql[len("DO " + tag + " ") : -len(" " + tag)]
+    assert tag not in body
+    expected_literal = "'/owned/" + collision + "/quote''-back\\slash/" + token + "'"
+    assert expected_literal in body
+    assert body.startswith("BEGIN LOCK TABLE") and body.endswith(" RESTRICT; END")
+    assert body.count(" RESTRICT;") == 2 and "CASCADE" not in body
+
+
 def test_read_only_intent_cannot_be_coerced(rig):
     allocator, context, port, _, _, _ = rig
     binding = allocator.allocate(context, "one")

@@ -475,8 +475,8 @@ def restrict_drop_sql(
         + ")) <> "
         + str(len(evidence["relations"]))
     )
-    return (
-        "DO $dango$ BEGIN LOCK TABLE "
+    body = (
+        "BEGIN LOCK TABLE "
         + ",".join(tables)
         + " IN ACCESS EXCLUSIVE MODE; IF "
         + guard
@@ -484,5 +484,10 @@ def restrict_drop_sql(
         + ",".join(tables)
         + " RESTRICT; DROP SCHEMA "
         + schema
-        + " RESTRICT; END $dango$"
+        + " RESTRICT; END"
     )
+    tag, index = "$dango$", 0
+    while tag in body:
+        index += 1
+        tag = f"$dango_{index}$"
+    return "DO " + tag + " " + body + " " + tag
