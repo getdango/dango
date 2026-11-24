@@ -787,18 +787,16 @@ def start(ctx: click.Context, yes: bool) -> None:
                     )
                 metabase_configured = True
             else:
-                # Partial success (DuckDB connected, non-critical errors)
-                console.print("[red]✗[/red] Metabase setup failed")
-                if setup_result.get("errors"):
-                    for error in setup_result["errors"]:
-                        console.print(f"[red]  • {error}[/red]")
-                console.print()
-                console.print(
-                    "[yellow]⚠ Metabase partially configured (DuckDB connected, but setup incomplete)[/yellow]"
+                # Setup did not finish; the platform still starts. The report says whether
+                # the warehouse connection succeeded (it does not always).
+                from dango.platform.common.metabase_setup_report import (
+                    metabase_setup_failure_lines,
                 )
-                console.print(
-                    f"[dim]  You can manually complete setup at http://localhost:{platform_config.metabase_port}[/dim]"
-                )
+
+                for line in metabase_setup_failure_lines(
+                    project_root, setup_result, platform_config.metabase_port
+                ):
+                    console.print(line)
                 metabase_configured = True  # Allow platform to start
         except RuntimeError as e:
             # Metabase setup raised — stop Docker and show troubleshooting
