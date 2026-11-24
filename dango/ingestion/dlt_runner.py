@@ -4095,7 +4095,11 @@ def run_sync(
             console.print("🔄 [bold]Running dbt models...[/bold]\n")
             from dango.transformation import run_dbt_models
             from dango.transformation.build_outcome import notes_in
-            from dango.transformation.failure_report import describe_failure, reason_line
+            from dango.transformation.failure_report import (
+                STORED_REASON_CHARS,
+                describe_failure,
+                reason_line,
+            )
 
             # Build source-based selection criteria
             # Format: "source:source1+ source:source2+" (runs models dependent on these sources)
@@ -4187,8 +4191,10 @@ def run_sync(
                     console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")
             else:
                 transform_status = "failed"
-                # redact first, then cut: a secret straddling the cut must not survive
-                transform_error_msg = redacted_error_text(project_root, dbt_output)[:500]
+                # the reason leads (dbt's output starts with boilerplate); redacted before it is cut
+                transform_error_msg = reason_line(
+                    project_root, dbt_output, limit=STORED_REASON_CHARS
+                )
                 if progress_callback is not None:
                     progress_callback("dbt_failed", "dbt run failed")
                 # The terminal shows log records of WARNING and above: the short record carries no

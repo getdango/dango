@@ -1,7 +1,7 @@
 """tests/integration/test_stored_transform_error_reason.py
 
-The `transform_error` a real `run_sync` stores for a failed dbt transform (30+ models skipped
-behind one failed model, real dbt + DuckDB, no Docker) starts with the reason, not with dbt's
+The `transform_error` a real `run_sync` stores for a failed dbt transform (30+ models downstream
+of one failed model, real dbt + DuckDB, no Docker) starts with the reason, not with dbt's
 boilerplate, in sync history and in every non-CLI consumer: the cloud initial sync, the sync
 webhook and the MCP tool.
 """
@@ -26,7 +26,7 @@ from tests.integration.dbt_outcome_support import make_csv_project, write_orders
 
 pytestmark = pytest.mark.integration
 
-SKIPPED_MODELS = 35
+DOWNSTREAM_MODELS = 35
 STORED_LIMIT = 500
 REASON_START = "Failed models, seeds, snapshots or hooks (1): broken"
 
@@ -61,7 +61,7 @@ def failed_sync(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
         encoding="utf-8",
         newline="\n",
     )
-    for i in range(SKIPPED_MODELS):
+    for i in range(DOWNSTREAM_MODELS):
         (marts / f"child_{i:02d}.sql").write_text(
             "select * from {{ ref('broken') }}\n", encoding="utf-8", newline="\n"
         )
