@@ -13,13 +13,14 @@ import keyring
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
 
-from dango.security.token_storage import SecureTokenStorage
+from dango.security.token_storage import SecureTokenStorage, TokenKeyError
 from tests.factories.scripted_keyring import ScriptedKeyring
 
 SERVICE = "dango-oauth"
 KEY_NAME = "master-encryption-key"
 PW1 = "planted-secret-one-7f3a"
 PW2 = "planted-secret-two-91bc"
+PW3 = "planted-secret-three-0e47"
 
 
 @pytest.fixture
@@ -56,6 +57,11 @@ class TestKeyContinuityAcrossKeychainAnswers:
 
         assert _dec(project, enc1) == PW1
         assert _dec(project, enc2) == PW2
+
+        # Back on allow, a new value must use the keychain key, not the file key.
+        enc3 = _enc(project, PW3)
+        _file_key(project).unlink()
+        assert _dec(project, enc3) == PW3
 
     def test_deny_then_allow_reuses_the_file_key_and_adds_no_keychain_key(self, kr, project):
         kr.mode = "deny"
@@ -122,6 +128,112 @@ class TestKeyContinuityAcrossKeychainAnswers:
         shown = capsys.readouterr().out + str(excinfo.value)
         assert "does not match" in shown
         assert "dango auth metabase-repair" in shown
+
+
+def _plant_file_key(project: Path, state: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Leave a key file in an abnormal state (crash mid-write, one-off sudo run, corruption)."""
+    path = _file_key(project)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"" if state == "empty" else b"not-a-fernet-key")
+    if state == "unreadable":
+        real = Path.read_bytes
+
+        def read_bytes(self: Path) -> bytes:
+            if self.name == ".encryption_key":
+                raise PermissionError(13, "Permission denied")
+            return real(self)
+
+        monkeypatch.setattr(Path, "read_bytes", read_bytes)
+
+
+BAD_FILE_STATES = ["empty", "corrupt", "unreadable"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("state", BAD_FILE_STATES)
+class TestAbnormalKeyFileStates:
+    """States the pre-fix code handled must not start failing."""
+
+    def test_keychain_key_decrypts_whatever_the_file_key_state(
+        self, kr, project, monkeypatch, state
+    ):
+        enc1 = _enc(project, PW1)  # key in the keychain
+        _plant_file_key(project, state, monkeypatch)
+
+        assert _dec(project, enc1) == PW1
+
+    def test_encrypt_treats_a_bad_file_key_as_absent_when_the_keychain_is_empty(
+        self, kr, project, monkeypatch, state
+    ):
+        _plant_file_key(project, state, monkeypatch)
+
+        enc = _enc(project, PW1)
+
+        assert (SERVICE, KEY_NAME) in kr.store  # keychain first, as before
+        assert _dec(project, enc) == PW1
+
+    def test_encrypt_replaces_a_bad_file_key_when_the_keychain_is_unreadable(
+        self, kr, project, monkeypatch, state
+    ):
+        kr.mode = "deny"
+        _plant_file_key(project, state, monkeypatch)
+        monkeypatch.undo()  # the replacement file is written normally
+
+        enc = _enc(project, PW1)
+
+        assert _dec(project, enc) == PW1
+
+    def test_bad_key_with_no_other_key_raises_the_honest_error(
+        self, kr, project, monkeypatch, state, capsys
+    ):
+        enc1 = _enc(project, PW1)
+        kr.store.clear()  # the keychain key is gone
+        _plant_file_key(project, state, monkeypatch)
+        capsys.readouterr()
+
+        with pytest.raises(TokenKeyError) as excinfo:
+            _dec(project, enc1)
+
+        assert "dango auth metabase-repair" in str(excinfo.value)
+        assert "Decryption error" in capsys.readouterr().out
+
+    def test_bad_file_key_under_a_denied_keychain_raises_the_honest_error(
+        self, kr, project, monkeypatch, state
+    ):
+        enc1 = _enc(project, PW1)
+        kr.mode = "deny"
+        _plant_file_key(project, state, monkeypatch)
+
+        with pytest.raises(TokenKeyError):
+            _dec(project, enc1)
+
+
+@pytest.mark.unit
+class TestCorruptKeychainValue:
+    def test_garbage_keychain_value_does_not_hide_a_valid_file_key(self, kr, project):
+        kr.mode = "missing"
+        enc1 = _enc(project, PW1)  # file key
+        kr.mode = "allow"
+        kr.store[(SERVICE, KEY_NAME)] = "garbage"
+
+        assert _dec(project, enc1) == PW1
+
+    def test_garbage_keychain_value_alone_raises_the_honest_error(self, kr, project):
+        enc1 = _enc(project, PW1)
+        kr.store[(SERVICE, KEY_NAME)] = "garbage"
+
+        with pytest.raises(TokenKeyError):
+            _dec(project, enc1)
+
+    def test_wrong_keychain_key_with_a_corrupt_file_key_raises_the_honest_error(
+        self, kr, project, monkeypatch
+    ):
+        enc1 = _enc(project, PW1)
+        kr.store[(SERVICE, KEY_NAME)] = Fernet.generate_key().decode("utf-8")
+        _plant_file_key(project, "corrupt", monkeypatch)
+
+        with pytest.raises(TokenKeyError):
+            _dec(project, enc1)
 
 
 @pytest.mark.unit
