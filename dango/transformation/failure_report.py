@@ -21,6 +21,7 @@ from dango.transformation.build_outcome import (
 from dango.utils.error_text import redacted_error_text, rich_error_text
 
 REASON_LOG_CHARS = 300
+STORED_REASON_CHARS = 500  # the stored `transform_error` (sync history, initial sync, webhook)
 _DETAIL_BLOCKS = 3
 _DETAIL_LINES = 3
 _STAMP_RE = re.compile(r"^\d{2}:\d{2}:\d{2}\s{2}")
@@ -153,5 +154,24 @@ def reason_line(project_root: Path | None, dbt_output: str, limit: int = REASON_
         parts = [*notes, *details]
     else:
         parts = [_first_cause(redacted) or (notes[0] if notes else "dbt exited with an error")]
-    text = " ".join("; ".join(parts).split())
-    return text if len(text) <= limit else f"{text[: limit - 3]}..."
+    return _one_line("; ".join(parts), limit)
+
+
+def exception_line(project_root: Path | None, error: object, limit: int = REASON_LOG_CHARS) -> str:
+    """One short plain line for an exception (redacted first, then cut to ``limit``). Never raises.
+
+    An exception whose message is empty or cannot be printed is named by its type instead.
+    """
+    try:
+        redacted = _ANSI_RE.sub("", redacted_error_text(project_root, error))
+        line = _one_line(redacted, limit)
+    except Exception:  # str(error) may raise or return a non-string
+        line = ""
+    if line:
+        return line
+    return type(error).__name__ if isinstance(error, BaseException) else "unknown error"
+
+
+def _one_line(text: str, limit: int) -> str:
+    line = " ".join(text.split())
+    return line if len(line) <= limit else f"{line[: limit - 3]}..."

@@ -552,6 +552,7 @@ def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: A
         launch_sync_subprocess,
         poll_sync_status_blocking,
     )
+    from dango.transformation.failure_report import exception_line
     from dango.utils.activity_log import log_activity
 
     sender = WebhookSender(load_notification_config(project_root))
@@ -902,7 +903,7 @@ def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: A
 
     except Exception as exc:  # noqa: BLE001
         elapsed = time.monotonic() - t0
-        error_msg = str(exc)
+        error_msg = exception_line(project_root, exc)  # redacted, one line, bounded
         log_activity(
             project_root, "error", f"schedule:{schedule_name}", f"Sync failed: {error_msg}"
         )
@@ -997,6 +998,7 @@ def _run_scheduled_dbt_impl(
         WebhookSender,
         load_notification_config,
     )
+    from dango.transformation.failure_report import exception_line, reason_line
     from dango.utils.activity_log import log_activity
     from dango.utils.dbt_lock import DbtLock
 
@@ -1104,27 +1106,29 @@ def _run_scheduled_dbt_impl(
                 dashboard_url=dbt_dashboard_url,
             )
         else:
+            # every sink gets the one redacted, bounded reason line, never dbt's raw output
+            reason = reason_line(project_root, output)
             log_activity(
                 project_root,
                 "error",
                 dbt_label,
-                f"Scheduled dbt failed: {output}",
+                f"Scheduled dbt failed: {reason}",
             )
             _try_finish_record(
-                project_root, schedule_name, record_id, "record_failure", error=output
+                project_root, schedule_name, record_id, "record_failure", error=reason
             )
             _log_execution_event(
                 schedule_name=schedule_name,
                 job_type="dbt",
                 status="failed",
                 duration_seconds=elapsed,
-                error=output,
+                error=reason,
             )
             _broadcast(
                 {
                     "event": "dbt_failed",
                     "schedule": schedule_name,
-                    "error": output,
+                    "error": reason,
                     "timestamp": _ts(),
                 }
             )
@@ -1132,7 +1136,7 @@ def _run_scheduled_dbt_impl(
                 sender,
                 event_type=EventType.SYNC_FAILED,
                 schedule_name=schedule_name,
-                error=output,
+                error=reason,
                 duration_seconds=elapsed,
             )
 
@@ -1184,7 +1188,7 @@ def _run_scheduled_dbt_impl(
 
     except Exception as exc:  # noqa: BLE001
         elapsed = time.monotonic() - t0
-        error_msg = str(exc)
+        error_msg = exception_line(project_root, exc)  # redacted, one line, bounded
         log_activity(project_root, "error", dbt_label, f"Scheduled dbt failed: {error_msg}")
         logger.error(
             "scheduled_dbt_failed",
