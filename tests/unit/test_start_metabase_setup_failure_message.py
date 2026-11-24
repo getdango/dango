@@ -28,7 +28,7 @@ from tests.unit.test_metabase_credential_lifecycle_commands import (
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 _TIMEOUT_ERROR = "Setup error: HTTPConnectionPool(host='localhost', port=3000): Read timed out. (read timeout=10)"
 _CLAIM = "DuckDB connected"
-_RERUN = "running dango start again is safe"
+_RERUN = "running dango start again is safe and retries the setup"
 _MANUAL_URL = "http://localhost:3000"
 
 
@@ -125,7 +125,8 @@ def test_not_connected_says_nothing_is_lost_and_rerun_is_safe_with_manual_url(
     result, _ = _run_start(tmp_path, _failed(False, [_TIMEOUT_ERROR]))
 
     text = _plain(result.output).lower()
-    assert "could not finish connecting it to the warehouse" in text
+    assert "metabase is not connected to the warehouse yet" in text
+    assert "metabase is running" not in text
     assert "nothing is lost" in text
     assert _RERUN in text
     assert _MANUAL_URL in text
@@ -175,6 +176,100 @@ def test_read_timeout_is_explained_once_and_detail_line_is_kept(tmp_path: Path) 
     text = _plain(result.output)
     assert text.count("The request to Metabase timed out") == 1
     assert "Read timed out. (read timeout=10)" in text
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "error",
+    [
+        'Failed to connect DuckDB: {"message":"Timed out after 10.0 s"}',
+        "Metabase not ready after 200 seconds",
+    ],
+)
+def test_metabase_side_timeout_text_does_not_claim_the_request_timed_out(
+    tmp_path: Path, error: str
+) -> None:
+    result, _ = _run_start(tmp_path, _failed(False, [error]))
+
+    text = _plain(result.output)
+    assert "The request to Metabase timed out" not in text
+    assert error.split(": ", 1)[-1][:20] in text
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "error",
+    [
+        "Setup error: HTTPConnectionPool(host='localhost', port=3000): Read timed out. "
+        "(read timeout=10)",
+        "Setup error: HTTPConnectionPool(host='localhost', port=3000): Max retries exceeded "
+        "(Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object>, "
+        "'Connection to localhost timed out. (connect timeout=10)'))",
+    ],
+)
+def test_client_timeout_text_is_explained_once(tmp_path: Path, error: str) -> None:
+    result, _ = _run_start(tmp_path, _failed(False, [error]))
+
+    assert _plain(result.output).count("The request to Metabase timed out") == 1
+
+
+@pytest.mark.unit
+def test_metabase_not_ready_is_not_described_as_running(tmp_path: Path) -> None:
+    result, _ = _run_start(tmp_path, _failed(False, ["Metabase not ready after 200 seconds"]))
+
+    text = _plain(result.output).lower()
+    assert result.exit_code == 0, result.output
+    assert "metabase not ready after 200 seconds" in text
+    assert "metabase is running" not in text
+    assert "is not connected to the warehouse yet" in text
+    assert "retries the connection" not in text
+
+
+@pytest.mark.unit
+def test_admin_credential_failure_does_not_promise_a_connection_retry(tmp_path: Path) -> None:
+    error = (
+        "Metabase already has an administrator account that Dango cannot sign in to. "
+        'Nothing was deleted. Run "dango start" again; if this persists run '
+        '"dango metabase repair-admin".'
+    )
+    result, _ = _run_start(tmp_path, _failed(False, [error]))
+
+    text = _plain(result.output).lower()
+    assert result.exit_code == 0, result.output
+    assert "dango metabase repair-admin" in text
+    assert "retries the connection" not in text
+    assert "retries the setup" in text
+    assert "names a command to run, run that first" in text
+
+
+@pytest.mark.unit
+def test_items_beyond_the_cap_are_summarised(tmp_path: Path) -> None:
+    errors = [f"error-item-{i:02d}" for i in range(12)]
+    result, _ = _run_start(tmp_path, _failed(False, errors))
+
+    flat = _flat(result.output)
+    assert result.exit_code == 0, result.output
+    for i in range(8):
+        assert f"error-item-{i:02d}" in flat
+    for i in range(8, 12):
+        assert f"error-item-{i:02d}" not in flat
+    assert "...and4more" in flat
+
+
+@pytest.mark.unit
+def test_duckdb_lock_passage_is_replaced_by_the_plain_explanation(tmp_path: Path) -> None:
+    lock = (
+        'IO Error: Could not set lock on file "/data/warehouse.duckdb": Conflicting lock is held '
+        "in /usr/bin/python3 (PID 4242) by user ed. See also https://example.invalid/concurrency"
+    )
+    result, _ = _run_start(tmp_path, _failed(False, [f"Failed to connect DuckDB: {lock}"]))
+
+    flat = _flat(result.output)
+    assert result.exit_code == 0, result.output
+    assert "FailedtoconnectDuckDB:" in flat
+    assert "Conflictinglock" not in flat
+    assert "Couldnotsetlock" not in flat
+    assert "AnotherDangoprocessisusingthewarehouse(PID4242)" in flat
 
 
 @pytest.mark.unit
