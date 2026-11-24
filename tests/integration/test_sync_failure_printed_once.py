@@ -124,6 +124,7 @@ def test_real_process_prints_each_fact_once_on_stdout_and_stderr(
     env = {
         **os.environ,
         "PYTHONPATH": os.pathsep.join([package_parent, os.environ.get("PYTHONPATH", "")]),
+        "DANGO_LOG_LEVEL": "INFO",  # CI sets ERROR; the file log must hold the INFO reason record
     }
     proc = subprocess.run(
         [sys.executable, "-m", "dango.cli.main", "sync", "--yes"],
