@@ -552,6 +552,7 @@ def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: A
         launch_sync_subprocess,
         poll_sync_status_blocking,
     )
+    from dango.transformation.failure_report import exception_line
     from dango.utils.activity_log import log_activity
 
     sender = WebhookSender(load_notification_config(project_root))
@@ -902,7 +903,7 @@ def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: A
 
     except Exception as exc:  # noqa: BLE001
         elapsed = time.monotonic() - t0
-        error_msg = str(exc)
+        error_msg = exception_line(project_root, exc)  # redacted, one line, bounded
         log_activity(
             project_root, "error", f"schedule:{schedule_name}", f"Sync failed: {error_msg}"
         )

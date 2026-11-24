@@ -157,10 +157,19 @@ def reason_line(project_root: Path | None, dbt_output: str, limit: int = REASON_
     return _one_line("; ".join(parts), limit)
 
 
-def exception_line(project_root: Path | None, text: object, limit: int = REASON_LOG_CHARS) -> str:
-    """One short plain line for an exception message (redacted first, then cut to ``limit``)."""
-    redacted = _ANSI_RE.sub("", redacted_error_text(project_root, text))
-    return _one_line(redacted, limit) or "unknown error"
+def exception_line(project_root: Path | None, error: object, limit: int = REASON_LOG_CHARS) -> str:
+    """One short plain line for an exception (redacted first, then cut to ``limit``). Never raises.
+
+    An exception whose message is empty or cannot be printed is named by its type instead.
+    """
+    try:
+        redacted = _ANSI_RE.sub("", redacted_error_text(project_root, error))
+        line = _one_line(redacted, limit)
+    except Exception:  # str(error) may raise or return a non-string
+        line = ""
+    if line:
+        return line
+    return type(error).__name__ if isinstance(error, BaseException) else "unknown error"
 
 
 def _one_line(text: str, limit: int) -> str:
