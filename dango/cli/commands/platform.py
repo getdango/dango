@@ -11,6 +11,7 @@ from rich.markup import escape
 
 from dango.cli import console
 from dango.logging import get_logger
+from dango.platform.common.printed_errors import error_items, printable_error_text
 from dango.utils.docker_hints import (
     DockerNotAvailableError,
     docker_binary_present,
@@ -840,10 +841,11 @@ def start(ctx: click.Context, yes: bool) -> None:
                 elif import_result.get("skipped"):
                     console.print("[dim]✓ All dashboards already imported[/dim]")
                 print_collection_repair(console, import_result)
-                if import_result.get("errors"):
+                import_errors = error_items(import_result.get("errors"))
+                if import_errors:
                     console.print(
                         f"[yellow]⚠[/yellow]  Dashboard import incomplete: "
-                        f"{import_result['errors'][0]}"
+                        f"{printable_error_text(project_root, import_errors[0])}"
                     )
         except Exception as e:
             console.print(f"[yellow]⚠[/yellow]  Dashboard import failed: {escape(str(e))}")

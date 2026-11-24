@@ -8,6 +8,7 @@ from rich.markup import escape
 
 from dango.cli import console
 from dango.cli.utils import safe_confirm
+from dango.platform.common.printed_errors import error_lines, printable_error_text
 from dango.security.metabase_config import (
     load_metabase_admin_credentials,
     load_metabase_metadata,
@@ -140,9 +141,8 @@ def metabase_save(ctx: click.Context, include_personal: bool, collections: str |
 
         else:
             console.print("[yellow]⚠️  No assets exported[/yellow]\n")
-            if result["errors"]:
-                for error in result["errors"]:
-                    console.print(f"  [red]•[/red] {error}")
+            for line in error_lines(project_root, result.get("errors")):
+                console.print(f"  [red]•[/red] {line}")
 
     except click.Abort:
         raise
@@ -303,9 +303,8 @@ def metabase_load(ctx: click.Context, overwrite: bool, dry_run: bool) -> None:
 
         else:
             console.print("[yellow]⚠️  Nothing to import[/yellow]\n")
-            if result["errors"]:
-                for error in result["errors"]:
-                    console.print(f"  [red]•[/red] {error}")
+            for line in error_lines(project_root, result.get("errors")):
+                console.print(f"  [red]•[/red] {line}")
 
     except click.Abort:
         raise
@@ -371,7 +370,10 @@ def metabase_refresh(ctx: click.Context) -> None:
         console.print("[cyan]Refreshing Metabase connection...[/cyan]")
         mb_ok, mb_err, mb_session_id = refresh_metabase_connection(project_root, metabase_url)
         if not mb_ok:
-            console.print(f"[red]✗[/red] Could not refresh Metabase connection: {mb_err}")
+            console.print(
+                f"[red]✗[/red] Could not refresh Metabase connection: "
+                f"{printable_error_text(project_root, mb_err)}"
+            )
             raise click.Abort()
 
         # Trigger non-destructive schema sync (handles login, sync, polling,

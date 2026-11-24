@@ -265,7 +265,7 @@ def test_very_long_error_is_cut(tmp_path: Path, site: str) -> None:
     assert "x" * 100 in out
     assert "x" * 500 not in out
     assert "truncated" in out
-    assert len(out) < 3000
+    assert all(len(line) < 700 for line in out.splitlines() if "xxxx" in line)
 
 
 @pytest.mark.unit

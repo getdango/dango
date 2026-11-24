@@ -11,27 +11,15 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from rich.markup import escape
-
-from dango.utils.duckdb_lock_text import rewrite_lock_text
-from dango.utils.error_text import redacted_error_text
+from dango.platform.common.printed_errors import (
+    MAX_ERROR_ITEMS,
+    error_items,
+    printable_error_text,
+)
 
 # The HTTP client's own timeout wording (requests/urllib3). Metabase's own "Timed out after ..." reply
 # is not matched: Metabase did answer in that case.
 _CLIENT_TIMEOUT = re.compile(r"read timed out|\((?:read|connect) timeout=", re.IGNORECASE)
-
-# One printed error line is cut here (the redaction runs first, so a cut never exposes a secret).
-MAX_ERROR_CHARS = 500
-# More error items than this are summarised in one line.
-MAX_ERROR_ITEMS = 8
-
-
-def _printable(project_root: Path | None, error: object) -> str:
-    """One error item as Rich-safe text: redacted, cut to ``MAX_ERROR_CHARS``, then escaped."""
-    text = rewrite_lock_text(redacted_error_text(project_root, error))
-    if len(text) > MAX_ERROR_CHARS:
-        text = f"{text[:MAX_ERROR_CHARS]}... [truncated {len(text) - MAX_ERROR_CHARS} chars]"
-    return escape(text)
 
 
 def metabase_setup_failure_lines(
@@ -48,10 +36,12 @@ def metabase_setup_failure_lines(
     never became ready); it never claims the connection. The wording is plain ASCII (the status marks are the ones the command already
     printed).
     """
-    errors = [e for e in (setup_result.get("errors") or []) if e]
+    errors = error_items(setup_result.get("errors"))
     connected = bool(setup_result.get("duckdb_connected"))
     lines = ["[red]✗[/red] Metabase setup failed"]
-    lines.extend(f"[red]  • {_printable(project_root, e)}[/red]" for e in errors[:MAX_ERROR_ITEMS])
+    lines.extend(
+        f"[red]  • {printable_error_text(project_root, e)}[/red]" for e in errors[:MAX_ERROR_ITEMS]
+    )
     if len(errors) > MAX_ERROR_ITEMS:
         lines.append(f"[red]  • ... and {len(errors) - MAX_ERROR_ITEMS} more[/red]")
     if any(_CLIENT_TIMEOUT.search(str(e)) for e in errors):
