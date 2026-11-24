@@ -438,7 +438,7 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
         f"Coalesced dbt starting for sources: {', '.join(pending)}",
     )
     try:
-        dbt_success, _dbt_output = _run_dbt_under_lock(project_root, select_criteria)
+        dbt_success, dbt_output = _run_dbt_under_lock(project_root, select_criteria)
     except DbtLockError as exc:
         reason = str(exc).splitlines()[0] if str(exc) else "dbt lock unavailable"
         log_activity_fn(
@@ -475,13 +475,18 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
         except Exception:
             logger.warning("metabase_refresh_after_coalesced_dbt_failed", exc_info=True)
     else:
+        from dango.transformation.failure_report import reason_line
+
+        reason = reason_line(project_root, dbt_output)
         log_activity_fn(
             project_root,
             "error",
             f"dbt:{select_criteria}",
-            f"Coalesced dbt failed for sources: {', '.join(pending)}",
+            f"Coalesced dbt failed for sources: {', '.join(pending)}. {reason}",
         )
-        logger.error("coalesced_dbt_run_failed", sources=pending, select=select_criteria)
+        logger.error(
+            "coalesced_dbt_run_failed", sources=pending, select=select_criteria, reason=reason
+        )
 
     return dbt_success
 

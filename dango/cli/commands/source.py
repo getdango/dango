@@ -1208,8 +1208,8 @@ def sync(
         # Data loaded, but dbt skipped or failed models: scripts must see a failure too.
         if summary.get("transform_status") == "failed":
             console.print(
-                "[red]Error:[/red] the data was loaded, but the dbt transform failed (details above), "
-                "so some tables may be missing or out of date"
+                "[red]Error:[/red] the data was loaded, but the transform did not complete, "
+                "so the sync is reported as failed"
             )
             raise click.Abort()
 

@@ -102,7 +102,9 @@ def test_duplicate_key_failure_prints_each_fact_once(
     assert text.count("dbt transform failed") == 1
     assert text.count("source_unique_shop_shop_id") == 1
     assert text.lower().count("tests failed (1)") == 1
-    assert text.count("stg_shop__shop") == 1
+    assert (
+        text.count("stg_shop__shop, order_count") == 1
+    )  # (profiling log lines also name the table)
     assert text.count("order_count") == 1
     assert text.lower().count("models skipped because something they depend on failed") == 1
     assert text.count("Tables of models that were skipped or failed") == 1
@@ -159,7 +161,9 @@ def test_errored_model_shows_dbts_error_once_and_names_the_model_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = _synced_project(tmp_path, monkeypatch)
-    _write_model(root, "broken_mart", "select cast('abc' as integer) as x\n")
+    _write_model(
+        root, "broken_mart", "select cast('abc' as integer) as x from {{ ref('stg_shop__shop') }}\n"
+    )
     result, text = _sync(root, monkeypatch)
     assert result.exit_code == 1, result.output
     assert text.count("Conversion Error") == 1  # the cause stays visible

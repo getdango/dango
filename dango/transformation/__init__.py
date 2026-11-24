@@ -108,6 +108,7 @@ def run_dbt_models(
         Tuple of (success, output)
     """
     from dango.transformation.build_outcome import (
+        UNEXPLAINED_NOTE,
         assess_failed_build,
         failure_notes,
         tests_only_note,
@@ -188,11 +189,7 @@ def run_dbt_models(
         structured = format_structured_error(
             what_failed="dbt build failed", causes=causes, suggested_fix=fix
         )
-        detail = "\n".join(failure_notes(verdict)) or (
-            "dango: the dbt build exited with an error that its run results do not explain (they are "
-            "missing, stale, unreadable or show no failed node), so the build is treated as "
-            "failed."
-        )
+        detail = "\n".join(failure_notes(verdict)) or UNEXPLAINED_NOTE
         return (False, f"{structured}\n\n{detail}\n\nFull output:\n{output}")
 
     except subprocess.TimeoutExpired:
