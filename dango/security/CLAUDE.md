@@ -35,6 +35,16 @@ storage.
 fallback outside the project directory. It must not be redirected to a
 project-local file, sync path, or backup archive.
 
+Both stores keep a keychain copy and a fallback file, and the keychain can answer
+differently between runs (allow, deny, locked). `SecureTokenStorage` therefore
+decrypts with every key it can find (keychain, then `.dlt/.encryption_key`),
+never creates a key while decrypting, and reuses an existing file key before
+generating one. `MetabaseCredentialStore.load()` reads the fallback file when
+the keychain has no entry, a keychain save removes a stale fallback copy once
+the keychain reads back the same value, and `delete()` cleans both places.
+Tests: `tests/unit/test_keychain_*_continuity.py` (scripted keyring in
+`tests/factories/scripted_keyring.py`).
+
 `metabase_config.py` is the only access boundary for project-local Metabase
 metadata and administrator credentials. It preserves a read-only legacy YAML
 password fallback only while lifecycle migration establishes protected storage;

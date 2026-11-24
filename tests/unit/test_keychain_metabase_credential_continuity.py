@@ -80,26 +80,6 @@ class TestCredentialFoundWhereverItWasWritten:
 
         assert _store(root).load() == PW1
 
-    def test_pending_candidate_saved_while_denied_is_found_after_allow(
-        self, kr, root, fallback_dir
-    ):
-        kr.mode = "deny"
-        _store(root).save_pending(PW1)
-        kr.mode = "allow"
-
-        assert _store(root).load_pending() == PW1
-
-    def test_promote_pending_moves_a_file_candidate_into_the_keychain(self, kr, root, fallback_dir):
-        kr.mode = "deny"
-        _store(root).save_pending(PW1)
-        kr.mode = "allow"
-
-        assert _store(root).promote_pending() == PW1
-
-        assert kr.store[(SERVICE, "continuity-project")] == PW1
-        assert _store(root).load_pending() is None
-        assert not _file(fallback_dir, "continuity-project.pending.json").exists()
-
     def test_keychain_value_wins_when_it_exists(self, kr, root, fallback_dir):
         kr.mode = "deny"
         _store(root).save(PW1)
