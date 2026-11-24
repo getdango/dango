@@ -1,0 +1,337 @@
+name: T04A native catalog binding
+
+on:
+  push:
+    branches: [feat/t04a-native-catalog-01]
+    paths:
+      - dango/storage/catalogs.py
+      - dango/storage/catalog_ownership.py
+      - dango/storage/CLAUDE.md
+      - tests/unit/test_catalog_bindings.py
+      - tests/integration/native_catalog_bindings.py
+      - .github/workflows/t04a-native-catalog.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: t04a-native-catalog
+  cancel-in-progress: false
+
+jobs:
+  native-smoke:
+    if: github.repository == 'getdango/dango' && github.ref == 'refs/heads/feat/t04a-native-catalog-01'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      NATIVE_ATTEMPT: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Enforce standard task controls and run only the populated smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$NATIVE_ATTEMPT" -ge 1
+          test "$NATIVE_ATTEMPT" -le 3
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -m)" = x86_64
+          test "$(. /etc/os-release; echo "$VERSION_ID")" = 24.04
+          test "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs
+          for tool in docker jq systemd-run fallocate mkfs.ext4 mount losetup; do command -v "$tool"; done
+          test "$(docker info --format '{{.CgroupDriver}}/{{.CgroupVersion}}')" = systemd/2
+          test "$(/usr/bin/python3 -c 'import sys; print(sys.version_info >= (3,12))')" = True
+          TASK_ROOT="$RUNNER_TEMP/t04a-$GITHUB_RUN_ID"
+          test ! -e "$TASK_ROOT"
+          mkdir -m700 "$TASK_ROOT"
+          printf '%s\n' "$TASK_ROOT" > "$RUNNER_TEMP/t04a-root"
+          test ! -e /run/systemd/system/t04a.slice
+          test "$(systemctl show -p LoadState --value t04a.slice)" = not-found
+          sudo /usr/bin/python3 -c 'import os,sys; fd=os.open("/run/systemd/system/t04a.slice",os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o644); os.write(fd,sys.stdin.buffer.read()); os.close(fd)' <<'UNIT'
+          [Unit]
+          Description=Bounded T04A native catalog task
+          [Slice]
+          CPUAccounting=yes
+          MemoryAccounting=yes
+          CPUQuota=400%
+          MemoryMax=4831838208
+          MemorySwapMax=0
+          UNIT
+          touch "$TASK_ROOT/owns-slice"
+          sudo systemctl daemon-reload
+          sudo systemctl start t04a.slice
+          sudo systemd-run --quiet --wait --pipe --collect --unit=t04acontroller --slice=t04a.slice \
+            --property=Type=exec --setenv="TASK_ROOT=$TASK_ROOT" --setenv="SOURCE=$GITHUB_WORKSPACE" \
+            --setenv="COMMIT=$GITHUB_SHA" --setenv="OWNER=t04a-$GITHUB_RUN_ID" \
+            --setenv="EVIDENCE_UID=$(id -u)" --setenv="EVIDENCE_GID=$(id -g)" \
+            /bin/bash --noprofile --norc -euo pipefail <<'CONTROLLER'
+          export PATH=/usr/bin:/bin LANG=C.UTF-8 DOCKER_CONFIG="$TASK_ROOT/docker-config"
+          mkdir -m700 "$DOCKER_CONFIG" "$TASK_ROOT/evidence"
+          SLICE="/sys/fs/cgroup$(systemctl show -p ControlGroup --value t04a.slice)"
+          test "$(cat "$SLICE/memory.max")" = 4831838208
+          test "$(cat "$SLICE/memory.swap.max")" = 0
+          read -r QUOTA PERIOD < "$SLICE/cpu.max"
+          test "$QUOTA" != max && test "$QUOTA" -gt 0 && test "$QUOTA" -le "$((4 * PERIOD))"
+          test -f "$SLICE/memory.peak"
+          grep -Fq ':/t04a.slice/' "/proc/$$/cgroup"
+          DOCKER_ROOT=$(docker info --format '{{.DockerRootDir}}')
+          DRIVER=$(docker info --format '{{.Driver}}')
+          case "$DRIVER" in overlay2|overlayfs) ;; *) exit 1;; esac
+          BACKING_BYTES=6442450944
+          IMAGE_BOUND=2688958884
+          OUTSIDE_BOUND=268435456
+          HEADROOM=2147483648
+          TOTAL_BOUND=$((BACKING_BYTES + IMAGE_BOUND + OUTSIDE_BOUND))
+          test "$TOTAL_BOUND" -le 10000000000
+          CHECKOUT_BYTES=$(du -sx --block-size=1 "$SOURCE" | cut -f1)
+          test "$CHECKOUT_BYTES" -lt $((128 * 1024 * 1024))
+          BACKING="$TASK_ROOT/payload.ext4"
+          PAYLOAD="$TASK_ROOT/payload"
+          PG='' CLIENT='' LOOP=''
+          NEW_IMAGES=()
+          MIN_FREE=9223372036854775807
+          LOOP_SAMPLED_MAX=0
+          DOCKER_BEFORE=$(du -sx --block-size=1 "$DOCKER_ROOT" | cut -f1)
+          free_bytes() { df --output=avail -B1 "$1" | tail -1 | tr -d ' '; }
+          outside_gate() {
+            local remaining=$1
+            for path in "$TASK_ROOT" "$DOCKER_ROOT" /var/lib/containerd "$SOURCE"; do
+              if test -e "$path"; then
+                free=$(free_bytes "$path")
+                test "$free" -ge "$((remaining + HEADROOM))"
+                test "$free" -ge "$MIN_FREE" || MIN_FREE=$free
+              fi
+            done
+          }
+          inside_gate() {
+            free=$(free_bytes "$PAYLOAD")
+            test "$free" -ge "$((HEADROOM + $1))"
+            test "$free" -ge "$MIN_FREE" || MIN_FREE=$free
+            used=$(du -sx --block-size=1 "$PAYLOAD" | cut -f1)
+            test "$used" -le 4294967296
+            test "$used" -le "$LOOP_SAMPLED_MAX" || LOOP_SAMPLED_MAX=$used
+            outside_gate 0
+          }
+          cleanup() {
+            local failure=0
+            set +e
+            for id in "$CLIENT" "$PG"; do
+              test -z "$id" && continue
+              test "$(docker inspect --format '{{index .Config.Labels "t04a.owner"}}' "$id")" = "$OWNER" || { failure=1; continue; }
+              docker logs "$id" > "$TASK_ROOT/container-$id.log" 2>&1
+              test "$(stat -c %s "$TASK_ROOT/container-$id.log")" -le 16777216 || failure=1
+              docker stop --time=10 "$id" >/dev/null
+              docker rm "$id" >/dev/null || failure=1
+              docker inspect "$id" >/dev/null 2>&1 && failure=1
+            done
+            for image in "${NEW_IMAGES[@]}"; do docker image rm "$image" >/dev/null || failure=1; done
+            if mountpoint -q "$PAYLOAD"; then
+              # Only fixed safe report allowlist is retained; no raw SQL, credentials or container logs.
+              for report in native-result.json acquisition.json; do
+                test ! -f "$PAYLOAD/work/$report" || cp "$PAYLOAD/work/$report" "$TASK_ROOT/evidence/$report"
+              done
+              umount "$PAYLOAD" || failure=1
+            fi
+            if ! mountpoint -q "$PAYLOAD"; then
+              test -z "$LOOP" || losetup -d "$LOOP" || failure=1
+              if test -z "$(losetup -j "$BACKING")"; then
+                test ! -f "$BACKING" || rm "$BACKING" || failure=1
+              else
+                failure=1
+              fi
+            else
+              failure=1
+            fi
+            rm -f "$TASK_ROOT"/container-*.log
+            jq -n --argjson cleanup "$failure" --argjson task_bound "$TOTAL_BOUND" \
+              --argjson checkout "$CHECKOUT_BYTES" --arg driver "$DRIVER" \
+              --argjson observed_min_free "$MIN_FREE" --argjson observed_payload_max "$LOOP_SAMPLED_MAX" \
+              --argjson docker_before "$DOCKER_BEFORE" --argjson docker_after "$(du -sx --block-size=1 "$DOCKER_ROOT" | cut -f1)" \
+              --arg memory_peak "$(cat "$SLICE/memory.peak")" --arg memory_events "$(cat "$SLICE/memory.events")" \
+              --arg cpu_stat "$(cat "$SLICE/cpu.stat")" \
+              '{cleanup_failure:$cleanup,projected_owned_bound:$task_bound,observed_checkout_bytes:$checkout,observed_min_free:$observed_min_free,observed_payload_sampled_max:$observed_payload_max,docker_store_before:$docker_before,docker_store_after:$docker_after,driver:$driver,aggregate_memory_peak:$memory_peak,memory_events:$memory_events,cpu_stat:$cpu_stat,infrastructure:"Existing Docker/containerd/systemd/runner/kernel overhead is outside task slice; separate process RSS samples are not a complete infrastructure memory measurement"}' \
+              > "$TASK_ROOT/evidence/resources.json"
+            ps -eo comm,rss | awk '$1 ~ /^(dockerd|containerd.*|systemd|Runner.Listener|Runner.Worker)$/ {print}' > "$TASK_ROOT/evidence/infrastructure-final.txt"
+            chown -R "$EVIDENCE_UID:$EVIDENCE_GID" "$TASK_ROOT/evidence"
+            test "$failure" = 0
+          }
+          trap cleanup EXIT
+          ps -eo comm,rss | awk '$1 ~ /^(dockerd|containerd.*|systemd|Runner.Listener|Runner.Worker)$/ {print}' > "$TASK_ROOT/evidence/infrastructure-before.txt"
+          outside_gate "$TOTAL_BOUND"
+          test ! -e "$BACKING"
+          (set -o noclobber; : > "$BACKING")
+          fallocate -l "$BACKING_BYTES" "$BACKING"
+          test "$(stat -c %s "$BACKING")" = "$BACKING_BYTES"
+          test "$(( $(stat -c %b "$BACKING") * 512 ))" -ge "$BACKING_BYTES"
+          mkfs.ext4 -q -m0 "$BACKING"
+          mkdir "$PAYLOAD"
+          LOOP=$(losetup --find --show "$BACKING")
+          test "$(losetup -n -O BACK-FILE "$LOOP")" = "$BACKING"
+          mount -o nosuid,nodev "$LOOP" "$PAYLOAD"
+          test "$(findmnt -n -o SOURCE -T "$PAYLOAD")" = "$LOOP"
+          inside_gate 2147483648
+          mkdir -m700 "$PAYLOAD/work" "$PAYLOAD/pgdata" "$PAYLOAD/pg-secrets" "$PAYLOAD/client-secrets" "$PAYLOAD/gate"
+          /usr/bin/python3 -c 'import json,runpy,sys; print(json.dumps(runpy.run_path(sys.argv[1])["IMAGES"]))' \
+            "$SOURCE/tests/integration/native_catalog_bindings.py" > "$PAYLOAD/image-pins.json"
+          for role in node postgres; do
+            image=$(jq -r ".$role.ref" "$PAYLOAD/image-pins.json")
+            if ! docker image inspect "$image" >/dev/null 2>&1; then
+              outside_gate "$IMAGE_BOUND"
+              NEW_IMAGES+=("$image")
+              printf '%s\n' "$image" >> "$TASK_ROOT/new-images"
+              docker pull --platform=linux/amd64 "$image" >/dev/null
+            fi
+            docker image inspect "$image" > "$PAYLOAD/image-$role.json"
+            jq -e --arg role "$role" --slurpfile pins "$PAYLOAD/image-pins.json" \
+              '.[0] as $i | $pins[0][$role] as $p | $i.Os=="linux" and $i.Architecture=="amd64" and $i.RootFS.Layers==$p.diff_ids and ($i.Id==$p.config or ($i.Id==($p.ref|split("@")[1]) and $i.Descriptor.digest==($p.ref|split("@")[1]))) and ($i.RepoDigests|index($p.ref)!=null)' \
+              "$PAYLOAD/image-$role.json" >/dev/null
+          done
+          inside_gate 2147483648
+          /usr/bin/python3 "$SOURCE/tests/integration/native_catalog_bindings.py" --acquire "$PAYLOAD"
+          export PAYLOAD
+          /usr/bin/python3 - <<'PY'
+          import json, os, secrets
+          from pathlib import Path
+          root = Path(os.environ['PAYLOAD'])
+          admin, writer = secrets.token_hex(32), secrets.token_hex(32)
+          values = {
+              'pg-secrets/admin': (admin, 999),
+              'pg-secrets/pgpass': ('*:*:*:postgres:' + admin + '\n', 999),
+              'pg-secrets/setup.sql': ("CREATE ROLE t04a_writer LOGIN PASSWORD '" + writer + "' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;\nCREATE DATABASE t04a_catalog;\nGRANT CONNECT,CREATE ON DATABASE t04a_catalog TO t04a_writer;\n", 999),
+              'client-secrets/catalog.json': (json.dumps(dict(host='127.0.0.1',port='5432',dbname='t04a_catalog',user='t04a_writer',password=writer)), 501),
+          }
+          for name, (value, uid) in values.items():
+              path = root / name
+              path.write_text(value)
+              path.chmod(0o600)
+              os.chown(path, uid, 999 if uid == 999 else 20)
+          PY
+          chown -R 999:999 "$PAYLOAD/pgdata" "$PAYLOAD/pg-secrets"
+          chown -R 501:20 "$PAYLOAD/work" "$PAYLOAD/client-secrets"
+          chmod 755 "$PAYLOAD/gate"
+          PG_IMAGE=$(jq -r '.postgres.ref' "$PAYLOAD/image-pins.json")
+          CLIENT_IMAGE=$(jq -r '.node.ref' "$PAYLOAD/image-pins.json")
+          common=(--platform=linux/amd64 --cgroup-parent=t04a.slice --read-only --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=128 --log-driver=json-file --log-opt=max-size=8m --log-opt=max-file=1 --tmpfs=/tmp:rw,noexec,nosuid,nodev,size=67108864,mode=1777 --label="t04a.owner=$OWNER")
+          PG=$(docker create "${common[@]}" --name "$OWNER-pg" --user=999:999 --cpus=1 --memory=805306368 --memory-swap=805306368 --network=none \
+            --tmpfs=/var/run/postgresql:rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999 \
+            --mount="type=bind,src=$PAYLOAD/pgdata,dst=/var/lib/postgresql/data" \
+            --mount="type=bind,src=$PAYLOAD/pg-secrets,dst=/secrets,readonly" \
+            --mount="type=bind,src=$PAYLOAD/gate,dst=/gate,readonly" \
+            --env=POSTGRES_PASSWORD_FILE=/secrets/admin --env=POSTGRES_DB=postgres \
+            '--env=POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --auth-local=scram-sha-256' --env=PGPASSFILE=/secrets/pgpass \
+            --entrypoint=/bin/sh "$PG_IMAGE" -c 'while [ ! -f /gate/pg ]; do sleep .1; done; exec /usr/local/bin/docker-entrypoint.sh postgres -c shared_buffers=128MB -c max_wal_size=64MB -c log_min_error_statement=panic -c log_statement=none')
+          CLIENT=$(docker create "${common[@]}" --name "$OWNER-client" --user=501:20 --cpus=3 --memory=3221225472 --memory-swap=3221225472 --network="container:$PG" \
+            --mount="type=bind,src=$PAYLOAD/tools,dst=/tools,readonly" --mount="type=bind,src=$SOURCE,dst=/source,readonly" \
+            --mount="type=bind,src=$PAYLOAD/work,dst=/work" --mount="type=bind,src=$PAYLOAD/client-secrets,dst=/secrets,readonly" \
+            --mount="type=bind,src=$PAYLOAD/gate,dst=/gate,readonly" \
+            --env=HOME=/work --env=TMPDIR=/work/tmp --env=PYTHONDONTWRITEBYTECODE=1 --env=PYTHONPATH=/work/site:/source \
+            --env=AWS_EC2_METADATA_DISABLED=true --env=GCE_METADATA_DISABLED=true --env="TASK_COMMIT=$COMMIT" --workdir=/work \
+            --entrypoint=/bin/sh "$CLIENT_IMAGE" -ec 'while [ ! -f /gate/client ]; do sleep .1; done; mkdir /work/tmp; /tools/python/bin/python3.14 -m pip install --no-index --no-deps --no-cache-dir --no-compile --target /work/site /tools/artifacts/*.whl > /work/install.log 2>&1; /tools/python/bin/python3.14 -m pip check > /work/dependency-check.log 2>&1; exec /tools/python/bin/python3.14 /source/tests/integration/native_catalog_bindings.py --native-case smoke --task-root /work/task --commit "$TASK_COMMIT"')
+          inspect_limits() {
+            local id=$1 memory=$2 cpus=$3 user=$4 network=$5
+            local image=$CLIENT_IMAGE
+            test "$user" != 999:999 || image=$PG_IMAGE
+            docker inspect "$id" | jq -e --arg owner "$OWNER" --arg user "$user" --arg network "$network" --argjson memory "$memory" --argjson cpus "$cpus" --arg image "$image" --arg image_id "$(docker image inspect --format '{{.Id}}' "$image")" \
+              '.[0] | .HostConfig as $h | .State.Running==false and .Config.Image==$image and .Image==$image_id and .Config.User==$user and .Config.Labels["t04a.owner"]==$owner and $h.CgroupParent=="t04a.slice" and $h.Memory==$memory and $h.MemorySwap==$memory and $h.NanoCpus==$cpus and $h.ReadonlyRootfs and ($h.Privileged|not) and ($h.CapAdd|length)==0 and $h.CapDrop==["ALL"] and $h.SecurityOpt==["no-new-privileges:true"] and $h.PidsLimit==128 and $h.NetworkMode==$network and ($h.PortBindings|length)==0 and ($h.Devices|length)==0 and $h.LogConfig=={"Type":"json-file","Config":{"max-size":"8m","max-file":"1"}}' >/dev/null
+            docker inspect "$id" | jq -e --arg payload "$PAYLOAD" --arg source "$SOURCE" --arg user "$user" \
+              '.[0] | .HostConfig as $h | ($h.PidMode=="" and $h.IpcMode=="private") and
+              (if $user=="999:999" then
+                $h.Tmpfs=={"/tmp":"rw,noexec,nosuid,nodev,size=67108864,mode=1777","/var/run/postgresql":"rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999"} and
+                ((.Mounts|map([.Source,.Destination,.RW])|sort)==([[$payload+"/pgdata","/var/lib/postgresql/data",true],[$payload+"/pg-secrets","/secrets",false],[$payload+"/gate","/gate",false]]|sort))
+              else
+                $h.Tmpfs=={"/tmp":"rw,noexec,nosuid,nodev,size=67108864,mode=1777"} and
+                ((.Mounts|map([.Source,.Destination,.RW])|sort)==([[$payload+"/tools","/tools",false],[$source,"/source",false],[$payload+"/work","/work",true],[$payload+"/client-secrets","/secrets",false],[$payload+"/gate","/gate",false]]|sort))
+              end)' >/dev/null
+          }
+          inspect_limits "$PG" 805306368 1000000000 999:999 none
+          inspect_limits "$CLIENT" 3221225472 3000000000 501:20 "container:$PG"
+          for id in "$PG" "$CLIENT"; do
+            docker start "$id" >/dev/null
+            pid=$(docker inspect --format '{{.State.Pid}}' "$id")
+            test "$pid" -gt 0
+            grep -Fxq "0::/t04a.slice/docker-$id.scope" "/proc/$pid/cgroup"
+          done
+          test "$(cat "$SLICE/memory.swap.current")" = 0
+          inside_gate 1610612736
+          touch "$PAYLOAD/gate/pg"
+          ready=0
+          for _ in $(seq 1 120); do
+            if docker exec "$PG" pg_isready -q; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" = 1
+          docker exec "$PG" psql -w -U postgres -d postgres -v ON_ERROR_STOP=1 -f /secrets/setup.sql > "$PAYLOAD/work/bootstrap.log" 2>&1
+          rm "$PAYLOAD/pg-secrets/setup.sql"
+          inside_gate 1073741824
+          touch "$PAYLOAD/gate/client"
+          test "$(docker wait "$CLIENT")" = 0
+          test "$(awk '$1=="oom_kill" {print $2}' "$SLICE/memory.events")" = 0
+          test "$(cat "$SLICE/memory.swap.current")" = 0
+          inside_gate 0
+          jq -e --arg commit "$COMMIT" '.status=="PASS_NATIVE_ADAPTER_SMOKE" and .commit==$commit and .owned_cleanup==true' "$PAYLOAD/work/native-result.json" >/dev/null
+          CONTROLLER
+      - name: Verify owned cleanup and remove the task slice
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f "$RUNNER_TEMP/t04a-root"; then
+            TASK_ROOT=$(cat "$RUNNER_TEMP/t04a-root")
+            test "$TASK_ROOT" = "$RUNNER_TEMP/t04a-$GITHUB_RUN_ID"
+            if test -f "$TASK_ROOT/owns-slice"; then
+              test -f /run/systemd/system/t04a.slice
+              sudo systemd-run --quiet --wait --pipe --collect --unit=t04acleanup --slice=t04a.slice \
+                --property=Type=exec --setenv="TASK_ROOT=$TASK_ROOT" --setenv="OWNER=t04a-$GITHUB_RUN_ID" \
+                --setenv="EVIDENCE_UID=$(id -u)" --setenv="EVIDENCE_GID=$(id -g)" \
+                /bin/bash --noprofile --norc -euo pipefail <<'CLEANUP'
+              export PATH=/usr/bin:/bin DOCKER_CONFIG="$TASK_ROOT/docker-config"
+              remaining=$(docker ps -aq --filter "label=t04a.owner=$OWNER")
+              for id in $remaining; do
+                test "$(docker inspect --format '{{index .Config.Labels "t04a.owner"}}' "$id")" = "$OWNER"
+                case "$(docker inspect --format '{{.Name}}' "$id")" in "/$OWNER-pg"|"/$OWNER-client") ;; *) exit 1;; esac
+                docker stop --time=10 "$id" >/dev/null
+                docker rm "$id" >/dev/null
+              done
+              if test -f "$TASK_ROOT/new-images"; then
+                while read -r image; do
+                  if docker image inspect "$image" >/dev/null 2>&1; then docker image rm "$image" >/dev/null; fi
+                done < "$TASK_ROOT/new-images"
+              fi
+              backing="$TASK_ROOT/payload.ext4"
+              payload="$TASK_ROOT/payload"
+              loop=$(losetup -j "$backing" -n -O NAME)
+              if mountpoint -q "$payload"; then
+                test -n "$loop" && test "$(findmnt -n -o SOURCE -T "$payload")" = "$loop"
+                mkdir -p "$TASK_ROOT/evidence"
+                for report in native-result.json acquisition.json; do
+                  test ! -f "$payload/work/$report" || cp "$payload/work/$report" "$TASK_ROOT/evidence/$report"
+                done
+                umount "$payload"
+              fi
+              test -z "$loop" || losetup -d "$loop"
+              test -z "$(losetup -j "$backing")"
+              if test -e "$backing"; then
+                test -f "$backing" && test ! -L "$backing" && test "$(stat -c %u "$backing")" = 0
+                rm "$backing"
+              fi
+              test -z "$(docker ps -aq --filter "label=t04a.owner=$OWNER")"
+              mkdir -p "$TASK_ROOT/evidence"
+              printf '%s\n' '{"owned_containers_absent":true,"owned_loop_absent":true,"owned_backing_absent":true,"verified":true}' > "$TASK_ROOT/evidence/final-cleanup.json"
+              chown -R "$EVIDENCE_UID:$EVIDENCE_GID" "$TASK_ROOT/evidence"
+          CLEANUP
+              sudo systemctl stop t04a.slice
+              sudo rm /run/systemd/system/t04a.slice
+              sudo systemctl daemon-reload
+            fi
+          fi
+      - name: Retain bounded sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: t04a-native-smoke
+          path: ${{ runner.temp }}/t04a-*/evidence/*
+          retention-days: 7
+          if-no-files-found: error
