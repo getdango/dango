@@ -7,8 +7,9 @@ print error text redacted, on one line per item, cut, escaped and capped, withou
 from __future__ import annotations
 
 import io
+import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,16 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 # (exit code, everything the command printed)
 Run = Callable[[Path, Any, Console], tuple[int, str]]
+
+
+@pytest.fixture(autouse=True)
+def _restore_process_environment() -> Iterator[None]:
+    """Undo what the real commands put in ``os.environ`` (``serve`` sets DANGO_PROJECT_ROOT, and
+    the startup prologue loads the project's ``.env``), so later tests in the process see none of it."""
+    saved = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(saved)
 
 
 def _console(stream: io.TextIOBase) -> Console:
