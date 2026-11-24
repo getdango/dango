@@ -182,9 +182,8 @@ def test_genuine_results_with_skipped_nodes_fail_even_with_old_success_text(
     assert verdict.skipped_models is True and "order_count" in verdict.skipped
     assert "unique_stg_orders_id" in verdict.tests_failed
     assert build_outcome.UNEXPLAINED_NOTE not in output
-    notes = [n for n in output.splitlines() if n.startswith("dango: ")]
-    assert any("skipped" in n and "order_count" in n for n in notes)
-    assert any("tests failed" in n and "unique_stg_orders_id" in n for n in notes)
+    assert any("skipped" in n and "order_count" in n for n in _notes(output))
+    assert any("tests failed" in n and "unique_stg_orders_id" in n for n in _notes(output))
 
 
 def test_genuine_test_only_results_keep_the_build_a_success(
