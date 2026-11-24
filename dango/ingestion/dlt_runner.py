@@ -493,9 +493,9 @@ class DltPipelineRunner:
         alarm = getattr(signal, "alarm", None)
 
         if sigalrm is None or alarm is None:
-            # Windows: No timeout (signal.alarm not available)
-            console.print(
-                "[dim]⚠️  Timeout not supported on Windows - running without timeout[/dim]"
+            # Windows: no timeout (signal.alarm not available); not shown per sync
+            _logging.getLogger(__name__).debug(
+                "dlt sync: timeout not enforced on this platform (no SIGALRM)"
             )
             return func(*args, **kwargs)
 
