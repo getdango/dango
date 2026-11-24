@@ -56,10 +56,10 @@ class Sinks:
         rows = [json.loads(ln) for ln in log.read_text(encoding="utf-8").splitlines() if ln]
         return [r["message"] for r in rows if r["level"] == "error"]
 
-    def error_texts(self) -> dict[str, list[str]]:
-        failed = [m for m in self.broadcast if m.get("event") == "dbt_failed"]
+    def error_texts(self, event: str = "dbt_failed", prefix: str = PREFIX) -> dict[str, list[str]]:
+        failed = [m for m in self.broadcast if m.get("event") == event]
         return {
-            "activity": [m.removeprefix(PREFIX) for m in self.activity()],
+            "activity": [m.removeprefix(prefix) for m in self.activity()],
             "record": [str(r["error"]) for r in self.record],
             "execution": [str(r["error"]) for r in self.execution],
             "broadcast": [str(m["error"]) for m in failed],
@@ -149,3 +149,23 @@ def test_compile_error_naming_a_secret_is_redacted_in_every_sink(
     _run_scheduled(root)
     texts = _assert_one_redacted_line(sinks)
     assert "Compilation Error" in texts["activity"][0]
+
+
+def test_scheduled_sync_config_error_with_a_connection_string_is_redacted_in_every_sink(
+    sinks: Sinks,
+) -> None:
+    root = make_csv_project(sinks.root, CLEAN_CSV)
+    password = "Pw9xQz77"
+    (root / ".dango" / "sources.yml").write_text(
+        "version: '1.0'\nsources:\n  - name: shop\n    type: csv\n    csv:\n"
+        f"      directory: {{conn: 'pg://a:{password}@h/d'}}\n",  # a type error pydantic echoes
+        encoding="utf-8",
+        newline="\n",
+    )
+    jobs.run_scheduled_sync("daily", ["shop"], project_root=str(root))
+    texts = sinks.error_texts("sync_failed", "Sync failed: ")
+    for sink, values in texts.items():
+        assert len(values) == 1, (sink, values)
+        assert password not in values[0], f"password reached the {sink} sink"
+        assert "\n" not in values[0] and len(values[0]) <= LINE_LIMIT, sink
+    assert len({v[0] for v in texts.values()}) == 1
