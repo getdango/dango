@@ -85,7 +85,7 @@ def acquire(root: Path) -> None:
     imports = (root / "import-pins.json").read_bytes()
     assert (
         hashlib.sha256(imports).hexdigest()
-        == "6ec55230a611aacd94f19b39ad0dfd615cdeb995f11833d7e7a984856286f7fd"
+        == "592cde6750fd8241341bb0e42d463869e7804ed41d03faffafc8e680f036d38a"
     )
     for filename, url, digest, size in ARTIFACTS + json.loads(imports):
         disk_gate(root, size + 1024**3)

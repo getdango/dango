@@ -258,7 +258,7 @@ jobs:
               "$PAYLOAD/image-$role.json" >/dev/null
           done
           inside_gate 2147483648
-          # Same approved twelve-wheel actual-import closure; data only, independently hash-checked.
+          # Seventeen-wheel actual-import closure including package initializers; data only, independently hash-checked.
           cat > "$PAYLOAD/import-pins.json" <<'IMPORT_PINS'
           [
             [
@@ -332,6 +332,36 @@ jobs:
               "https://files.pythonhosted.org/packages/a0/e3/59cd50310fc9b59512193629e1984c1f95e5c8ae6e5d8c69532ccc65a7fe/pycparser-2.23-py3-none-any.whl",
               "e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934",
               118140
+            ],
+            [
+              "structlog-26.1.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/a9/18/489c97b834dfff9cf2fc2507cede4bcd4b11e67f84bc462acd1992496f86/structlog-26.1.0-py3-none-any.whl",
+              "e081a26d6c373e6d201eca24eede26d8ffab07f88f477822e679183428d3d91e",
+              73764
+            ],
+            [
+              "rich-15.0.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/82/3b/64d4899d73f91ba49a8c18a8ff3f0ea8f1c1d75481760df8c68ef5235bf5/rich-15.0.0-py3-none-any.whl",
+              "33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb",
+              310654
+            ],
+            [
+              "markdown_it_py-4.3.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/c9/31/5f0ac2f1a1c67423c995c731a11cd4ad05d081a2be969d74f868bdb9cc70/markdown_it_py-4.3.0-py3-none-any.whl",
+              "7aa1511a46c39138de78d9eba92ce47e63124d8003fc98b3a351909e04239efa",
+              96951
+            ],
+            [
+              "pygments-2.21.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/71/46/17f022dd3e953bf20a04a028a21ec746d942f8d2af30fa0f124fa0e6a684/pygments-2.21.0-py3-none-any.whl",
+              "2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9",
+              1250147
+            ],
+            [
+              "mdurl-0.1.2-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl",
+              "84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8",
+              9979
             ]
           ]
           IMPORT_PINS

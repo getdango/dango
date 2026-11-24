@@ -31,6 +31,67 @@ pytestmark = pytest.mark.unit
 CANARY = "private-canary-'\\-password"
 
 
+@pytest.mark.parametrize("omitted", [None, "structlog", "rich"])
+def test_native_initializer_import_closure_is_admitted(omitted):
+    """A fuller host site must not hide omissions through actual package initializers."""
+    import subprocess
+    import sys
+
+    import yaml
+
+    root = Path(__file__).parents[2]
+    workflow = yaml.safe_load((root / ".github/workflows/t04a-native-catalog.yml").read_text())
+    script = workflow["jobs"]["native-smoke"]["steps"][1]["run"]
+    pins = json.loads(script.split("<<'IMPORT_PINS'\n", 1)[1].split("IMPORT_PINS\n", 1)[0])
+    names = {row[0].split("-")[0] for row in pins}
+    assert {"structlog", "rich", "markdown_it_py", "pygments", "mdurl"} <= names
+    admitted = names - {"markdown_it_py", "jaraco.classes"}
+    admitted.update({"markdown_it", "jaraco", "yaml", "typing_extensions", "_cffi_backend"})
+    code = """
+import importlib.abc, importlib.metadata, json, sys
+allowed = set(json.loads(sys.argv[1])) | {'dango'}
+omitted = json.loads(sys.argv[2])
+if omitted:
+    allowed.remove(omitted)
+# The verified host is Python3.11/keyring25.7, not the bound Python3.14/keyring24.3.1.
+# These explicit host-only namespaces do not enter the target wheel closure.
+host_only = {'importlib_metadata'} if sys.version_info < (3, 12) else set()
+jaraco = {'jaraco.classes'}
+if importlib.metadata.version('keyring') != '24.3.1':
+    host_only.add('backports')
+    jaraco.update({'jaraco.context', 'jaraco.functools'})
+class Restricted(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        root = fullname.split('.')[0]
+        if root == 'jaraco' and fullname != root:
+            if not any(fullname == p or fullname.startswith(p + '.') for p in jaraco):
+                raise ModuleNotFoundError('Unadmitted initializer import', name=fullname)
+        if root not in allowed | host_only | sys.stdlib_module_names:
+            if not root.startswith('_sysconfigdata_'):
+                raise ModuleNotFoundError('Unadmitted initializer import', name=root)
+sys.meta_path.insert(0, Restricted())
+try:
+    from dango.operations.contracts import OperationContext
+    from dango.security.native_credentials import SecretRef
+    from dango.storage.catalogs import CatalogAllocator, NativeCatalogPort
+except ModuleNotFoundError as error:
+    print(json.dumps({'missing': error.name}))
+else:
+    print(json.dumps({'complete': True, 'duckdb_imported': 'duckdb' in sys.modules}))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, json.dumps(sorted(admitted)), json.dumps(omitted)],
+        cwd=root,
+        env={**os.environ, "PYTHONPATH": str(root)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    expected = {"missing": omitted} if omitted else {"complete": True, "duckdb_imported": False}
+    assert json.loads(result.stdout) == expected
+
+
 class NativeDouble(NativeCatalogPort):
     """Supply failure injection only; this double establishes no native compatibility."""
 

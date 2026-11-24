@@ -70,6 +70,8 @@ The final bounded job gates its finite integration matrix on that smoke's succes
 checks owned crash recovery, foreign/concurrent additions, current access/refusal and canary
 redaction. It retains separate smoke and per-case PASS/FAIL/UNRUN receipts. Acquisition uses
 the unchanged hash-bound fixture and approved import pins with an identifying request header.
+The initializer import closure includes logging/console dependencies. A restricted-import
+regression prevents a fuller host site from masking omissions; it is not native acceptance.
 Supported native-platform evidence is Linux amd64 only; macOS/Windows native behavior is unproved.
 
 ## Don't Modify
