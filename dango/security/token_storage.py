@@ -37,8 +37,8 @@ def _no_matching_key_message(found_keys: bool, keychain_error: Exception | None)
         )
     if found_keys:
         return (
-            "The stored encryption key does not match this value (it may have been written under "
-            "a different keychain, project copy or earlier run). " + _REPAIR_STEP
+            "The stored encryption key does not match this value (it may be unreadable or corrupt, or have been "
+            "written under a different keychain, project copy or earlier run). " + _REPAIR_STEP
         )
     return (
         "No encryption key was found for this value: the OS keychain has none and there is no "
@@ -85,11 +85,26 @@ class SecureTokenStorage:
             return None, exc
         return (key_str.encode("utf-8") if key_str else None), None
 
-    def _read_file_key(self) -> bytes | None:
-        """Return the project's fallback key file contents, or ``None`` when there is none."""
-        if self._key_file.exists():
-            return self._key_file.read_bytes()
-        return None
+    @staticmethod
+    def _is_valid_key(key: bytes) -> bool:
+        try:
+            Fernet(key)
+        except (ValueError, TypeError):
+            return False
+        return True
+
+    def _read_file_key(self) -> tuple[bytes | None, bool]:
+        """Return ``(usable key, False)``, ``(None, False)`` when there is no file, or
+        ``(None, True)`` when a file exists but cannot be used (unreadable, empty or corrupt)."""
+        try:
+            if not self._key_file.exists():
+                return None, False
+            key = self._key_file.read_bytes()
+        except OSError:
+            return None, True
+        if self._is_valid_key(key):
+            return key, False
+        return None, True
 
     def _get_encryption_key(self) -> bytes:
         """
@@ -105,7 +120,7 @@ class SecureTokenStorage:
         if key is not None:
             return key
 
-        file_key = self._read_file_key()
+        file_key, _unusable = self._read_file_key()
         if file_key is not None:
             if keychain_error is not None:
                 self._warn_file_key(keychain_error)
@@ -145,17 +160,6 @@ class SecureTokenStorage:
             "(key stored at .dlt/.encryption_key with restricted permissions)[/yellow]"
         )
 
-    def _decryption_candidates(self) -> tuple[list[bytes], Exception | None]:
-        """Every key that may have encrypted a value, keychain first. Never creates a key."""
-        keys: list[bytes] = []
-        key, keychain_error = self._read_keychain_key()
-        if key is not None:
-            keys.append(key)
-        file_key = self._read_file_key()
-        if file_key is not None and file_key not in keys:
-            keys.append(file_key)
-        return keys, keychain_error
-
     def encrypt_token(self, token_data: dict[str, Any]) -> str:
         """
         Encrypt token data
@@ -190,22 +194,37 @@ class SecureTokenStorage:
         Returns:
             Decrypted token data as dictionary
         """
-        keys, keychain_error = self._decryption_candidates()
+        keychain_key, keychain_error = self._read_keychain_key()
+        found_keys = keychain_key is not None  # key material existed somewhere, usable or not
         try:
-            for key in keys:
-                try:
-                    decrypted = Fernet(key).decrypt(encrypted_data.encode("utf-8"))
-                except InvalidToken:
-                    continue
-                token_data: dict[str, Any] = json.loads(decrypted.decode("utf-8"))
-                return token_data
-            raise TokenKeyError(_no_matching_key_message(bool(keys), keychain_error))
-        except TokenKeyError as e:
-            console.print(f"[red]Decryption error: {escape(str(e))}[/red]")
-            raise
+            token_bytes = encrypted_data.encode("utf-8")
+            tried: list[bytes] = []
+            if keychain_key is not None and self._is_valid_key(keychain_key):
+                tried.append(keychain_key)
+                opened = self._open(keychain_key, token_bytes)
+                if opened is not None:
+                    return opened
+            # The file is read only when the keychain key did not open the value.
+            file_key, file_unusable = self._read_file_key()
+            found_keys = found_keys or file_key is not None or file_unusable
+            if file_key is not None and file_key not in tried:
+                opened = self._open(file_key, token_bytes)
+                if opened is not None:
+                    return opened
+            raise TokenKeyError(_no_matching_key_message(found_keys, keychain_error))
         except Exception as e:
             console.print(f"[red]Decryption error: {escape(str(e))}[/red]")
             raise
+
+    @staticmethod
+    def _open(key: bytes, token: bytes) -> dict[str, Any] | None:
+        """Decrypt ``token`` with ``key``; ``None`` when this key does not open it."""
+        try:
+            decrypted = Fernet(key).decrypt(token)
+        except InvalidToken:
+            return None
+        token_data: dict[str, Any] = json.loads(decrypted.decode("utf-8"))
+        return token_data
 
     def is_encrypted(self, data: str) -> bool:
         """
