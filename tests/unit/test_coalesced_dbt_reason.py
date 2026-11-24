@@ -29,9 +29,11 @@ UNEXPLAINED = (
     "dango: the dbt build exited with an error that its run results do not explain "
     "(they are missing, stale, unreadable or show no failed node), so the build is treated as "
     "failed.\n\nFull output:\n05:12:16  Running with dbt=1.11.14\n"
-    "05:12:17  Compilation Error in model bad_ref (models/marts/bad_ref.sql)\n"
-    f"05:12:17    password={SECRET} was rejected\n"
+    "05:12:17  Encountered an error:\nCompilation Error\n"
+    "  Model 'model.proj.bad_ref' (models/marts/bad_ref.sql) depends on a node named "
+    "'no_such_model' which was not found\n"
 )
+CAUSE = "no_such_model"
 
 
 @pytest.fixture
@@ -77,9 +79,9 @@ def test_failed_run_records_the_reason_in_the_activity_log(root: Path) -> None:
 def test_failed_run_without_a_reason_names_the_first_error_line(root: Path) -> None:
     _run(root, (False, UNEXPLAINED))
     message = _activity(root)[-1]["message"]
-    assert "Compilation Error in model bad_ref" in message
+    assert "Compilation Error: Model 'model.proj.bad_ref'" in message
+    assert CAUSE in message
     assert "\n" not in message
-    assert SECRET not in message
 
 
 def test_the_reason_is_redacted_before_it_is_cut(root: Path) -> None:
@@ -102,13 +104,13 @@ def test_the_reason_is_cut_to_a_short_single_line(root: Path) -> None:
     assert len(message) < 600
 
 
-def test_the_log_fields_carry_the_redacted_reason(root: Path) -> None:
+def test_the_log_fields_carry_the_reason(root: Path) -> None:
     with patch.object(jobs.logger, "error") as log:
         _run(root, (False, UNEXPLAINED))
     fields = json.dumps(log.call_args.kwargs, default=str)
     assert log.call_args.args[0] == "coalesced_dbt_run_failed"
-    assert "Compilation Error in model bad_ref" in fields
-    assert SECRET not in fields
+    assert CAUSE in fields
+    assert "run results do not explain" not in fields
 
 
 def test_the_success_message_is_unchanged(root: Path) -> None:
@@ -129,3 +131,15 @@ def test_the_lock_timeout_message_is_unchanged(root: Path) -> None:
         assert jobs._run_coalesced_dbt(root) is False
     last = _activity(root)[-1]
     assert last["message"] == f"Coalesced dbt failed for sources: shop. {queue}"
+
+
+def test_a_project_env_value_is_redacted_in_the_activity_log_and_log_fields(root: Path) -> None:
+    secret = "plainsecretvalue987"
+    (root / ".env").write_text(f"SHOP_API_KEY={secret}\n", encoding="utf-8", newline="\n")
+    output = UNEXPLAINED.replace("a node named", f"a node named {secret} and")
+    with patch.object(jobs.logger, "error") as log:
+        _run(root, (False, output))
+    message = _activity(root)[-1]["message"]
+    assert CAUSE in message  # the cause is there, the bare project value is not
+    assert secret not in message
+    assert secret not in json.dumps(log.call_args.kwargs, default=str)

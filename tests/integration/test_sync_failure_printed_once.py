@@ -23,6 +23,7 @@ from click.testing import CliRunner, Result
 
 import dango
 from dango.cli.commands.source import sync
+from dango.platform.scheduling import jobs
 from tests.integration.dbt_outcome_support import make_csv_project, write_orders_csv
 
 pytestmark = pytest.mark.integration
@@ -111,7 +112,10 @@ def test_duplicate_key_failure_prints_each_fact_once(
     assert text.count("Error:") == 1
     # dbt's boilerplate is not repeated around the reason
     assert text.count("Possible causes") == 0
-    assert text.count("Suggested fix") == 0
+    # the one actionable hint stays, once, and says where the cause is
+    assert text.count("Suggested fix:") == 1
+    assert text.count("duplicate or blank key values") == 1
+    assert "named below" not in text
 
 
 def test_real_process_prints_each_fact_once_on_stdout_and_stderr(
@@ -173,16 +177,41 @@ def test_errored_model_shows_dbts_error_once_and_names_the_model_once(
 
 
 def test_compile_error_without_results_shows_the_raw_output_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     root = _synced_project(tmp_path, monkeypatch)
     _write_model(root, "bad_ref", "select * from {{ ref('no_such_model') }}\n")
-    result, text = _sync(root, monkeypatch)
+    with caplog.at_level(logging.INFO):
+        result, text = _sync(root, monkeypatch)
     assert result.exit_code == 1, result.output
     assert text.count("Compilation Error") == 1
     assert text.count("no_such_model") >= 1
     assert text.count("Possible causes") == 1
     assert text.count("dbt transform failed") == 1
+    # the log file's reason names dbt's cause, not only that the run results explain nothing
+    reasons = [
+        r.getMessage() for r in caplog.records if "dbt_transform_failed_reason" in r.getMessage()
+    ]
+    assert len(reasons) == 1
+    assert "Compilation Error: " in reasons[0] and "no_such_model" in reasons[0]
+
+
+def test_coalesced_run_records_the_compile_error_cause_in_the_activity_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _synced_project(tmp_path, monkeypatch)
+    _write_model(root, "bad_ref", "select * from {{ ref('no_such_model') }}\n")
+    monkeypatch.delenv("DANGO_CLOUD_MODE", raising=False)
+    monkeypatch.setattr(jobs, "_get_coalesce_seconds", lambda _root: 0)
+    jobs._add_pending_dbt_source(root, "shop")
+    assert jobs._run_coalesced_dbt(root) is False
+    path = root / ".dango" / "logs" / "activity.jsonl"
+    last = json.loads(path.read_text(encoding="utf-8").splitlines()[-1])
+    assert last["level"] == "error"
+    assert last["message"].startswith("Coalesced dbt failed for sources: shop. ")
+    assert "Compilation Error: " in last["message"] and "no_such_model" in last["message"]
+    assert "run results do not explain" not in last["message"]
+    assert "\n" not in last["message"]
 
 
 def test_timeout_shows_its_cause_once(
