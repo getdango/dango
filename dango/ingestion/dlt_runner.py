@@ -42,7 +42,7 @@ from dango.ingestion.sources.registry import get_source_metadata
 from dango.ingestion.status_codes import has_status_code
 from dango.utils.dlt_error_text import rewrite_dlt_advice
 from dango.utils.docker_hints import DOCKER_UNAVAILABLE_ERROR, note_metabase_skipped
-from dango.utils.duckdb_lock_text import rewrite_lock_text
+from dango.utils.duckdb_lock_text import is_lock_error_text, rewrite_lock_text
 from dango.utils.error_text import redacted_error_text, rich_error_text
 from dango.utils.redact import redact_project_text
 from dango.utils.tls_errors import print_guidance_for_install_failure
@@ -78,19 +78,6 @@ _DUCKDB_LOCK_KEYWORDS = (
     "file lock",
     "already open",
     "another process",
-)
-
-# The subset of the keywords above that only a DuckDB lock message contains. _analyze_error()
-# checks these before the status-code and word matches below, because a lock message carries a PID
-# and a path. The broader words ("is locked", "already open", "another process") can also appear in
-# a real source's authentication or rate-limit message, so they keep their later position.
-_DUCKDB_LOCK_SPECIFIC_KEYWORDS = (
-    "could not set lock",
-    "conflicting lock",
-    "write lock",
-    "file lock",
-    "file is already open in",
-    "being used by another process",
 )
 
 # error_type value for empty-replace-protection failures (1.0.10-S11). Shared
@@ -2944,9 +2931,10 @@ Error details: {shown}
         error_str = str(error).lower()
         shown = redacted_error_text(getattr(self, "project_root", None), error, source_name)
 
-        # DuckDB lock messages carry a PID and a file path, so they are recognised before any
-        # status-code or word match can claim them.
-        if any(keyword in error_str for keyword in _DUCKDB_LOCK_SPECIFIC_KEYWORDS):
+        # DuckDB lock messages carry a PID and a file path, so DuckDB's own lock wording is
+        # recognised before any status-code or word match can claim it. The broader keyword
+        # check further down stays where it was: its words also occur in other errors.
+        if is_lock_error_text(str(error)):
             return self._duckdb_lock_guidance(source_name, shown)
 
         # Authentication errors
