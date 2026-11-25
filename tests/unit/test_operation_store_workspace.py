@@ -128,3 +128,13 @@ def test_invalid_lookup_input_refused(tmp_path, value):
     caller = rig.admit("query", {})
     with pytest.raises(ValueError, match="invalid_input"):
         rig.store.inspect_effect(caller, caller.operation_id, value)
+
+
+def test_nonfinalized_row_with_final_outcome_is_not_active_authority(tmp_path):
+    rig = Rig(tmp_path)
+    target = rig.admit("query", {})
+    with sqlite3.connect(tmp_path / ".dango/dango.db") as connection:
+        connection.execute("PRAGMA ignore_check_constraints=ON")
+        connection.execute("UPDATE platform_operations SET status='success',outcome_json='{}'")
+    with pytest.raises(ValueError, match="store_unavailable"):
+        rig.store.inspect_effect(target, target.operation_id, "capture")

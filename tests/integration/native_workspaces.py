@@ -6,9 +6,14 @@ Run the exact-pin workspace join only through an explicit guarded-import or nati
 from __future__ import annotations
 
 import argparse
+import copy
+import hashlib
 import json
+import os
+import signal
 import sqlite3
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -121,6 +126,212 @@ class WorkspaceRig:
         )
         return self.service.expire(context, workspace.workspace_id, workspace.revision)
 
+    def peer(self):
+        """Use another actual ordinary role with shared project/workspace state roots."""
+        from dango.storage.workspaces import WorkspaceService
+
+        peer = copy.copy(self)
+        peer.native = copy.copy(self.native)
+        peer.native.context = self.native.context.model_copy(update={"actor_id": "task-peer"})
+        peer.native.ref = self.native.ref.model_copy(update={"actor_id": "task-peer"})
+        peer.native.credential = json.loads(Path("/secrets/catalog-b.json").read_text())
+        peer.native.control = {"grant": True, "current": peer.native.ref, "resolves": 0}
+        peer.service = WorkspaceService(
+            self.native.root, peer.native.allocator(), peer.store, lambda: peer.now
+        )
+        return peer
+
+    def rows(self, sql, args=()):
+        """Read journal facts through an independent SQLite connection."""
+        with sqlite3.connect(self.native.root / ".dango/dango.db") as connection:
+            return connection.execute(sql, args).fetchall()
+
+    def manifest(self, workspace_id):
+        """Locate the durable service record independently of its returned Workspace."""
+        for path in (self.native.root / ".dango/state/workspaces/resources").glob("*.json"):
+            value = json.loads(path.read_text())
+            if value["workspace_id"] == workspace_id:
+                return path, value
+        raise AssertionError("Missing workspace record")
+
+    def finish(self, context):
+        """Finalize a synthetic consumer after its actual use/release has ended."""
+        from dango.operations.contracts import OutcomeReceipt
+
+        self.store.finalize_operation(
+            context, OutcomeReceipt(operation_id=context.operation_id, status="success")
+        )
+
+    def dispose(self, workspace):
+        """Explicitly expire an eligible fixture and independently require physical/native absence."""
+        from dango.storage.workspaces import Workspace
+
+        _, value = self.manifest(workspace.workspace_id)
+        current = Workspace.model_validate_json(json.dumps(value["workspace"]))
+        self.now = max(self.now, datetime.fromisoformat(current.lease_expiry)) + timedelta(
+            seconds=1
+        )
+        receipt = self.expire(current)
+        assert receipt.status == "success"
+        binding = self.native.current(current.workspace_id)
+        assert not Path(binding.data_root_ref).exists()
+        assert not self.native.sql(
+            f"SELECT oid FROM pg_namespace WHERE nspname='{binding.metadata_schema}'"
+        )
+        return receipt
+
+
+def child(action, expected=0, *, wait=True):
+    """Bound one task-owned Linux process; no connection or SQLite transaction is open at fork."""
+    pid = os.fork()
+    if pid == 0:
+        try:
+            action()
+        except BaseException:
+            os._exit(91)
+        os._exit(0)
+    if not wait:
+        return pid
+    wait_child(pid, expected)
+    return None
+
+
+def wait_child(pid, expected=0):
+    """Wait only for a known task-owned child and kill that child on its bounded deadline."""
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        found, status = os.waitpid(pid, os.WNOHANG)
+        if found:
+            assert os.waitstatus_to_exitcode(status) == expected
+            return
+        time.sleep(0.05)
+    os.kill(pid, signal.SIGKILL)
+    os.waitpid(pid, 0)
+    raise AssertionError("Owned child deadline exceeded")
+
+
+def inspect_owned(rig):
+    """02: inspect another owned operation and compare exact independent SQL values."""
+    from dango.operations.store import EffectRecord
+
+    target, caller = rig.admit("target", {}), rig.admit("caller", {})
+    assert rig.store.inspect_effect(caller, target.operation_id, "capture").effect is None
+    effect = EffectRecord(
+        effect_id="capture", sequence=0, name="capture", state="prepared", native_ref="captured"
+    )
+    rig.store.record_effect(target, target.operation_id, effect)
+    observed = rig.store.inspect_effect(caller, target.operation_id, "capture")
+    assert (
+        tuple(observed.effect.model_dump().values())
+        == rig.rows(
+            "SELECT effect_id,effect_sequence,effect_name,state,native_ref,recovery_ref FROM platform_effects WHERE operation_id=?",
+            (target.operation_id,),
+        )[0]
+    )
+    rig.finish(target)
+    assert (
+        rig.store.inspect_effect(caller, target.operation_id, "capture").receipt.status == "success"
+    )
+    rig.finish(caller)
+    return {"classification": "target_sqlite", "exact_effect": True}
+
+
+def inspect_negatives(rig):
+    """03: preserve writes and refuse corrupt or cross-owner journal evidence."""
+    target, caller = rig.admit("target", {}), rig.admit("caller", {})
+    try:
+        rig.store.mark_running(caller, target.operation_id)
+    except ValueError as error:
+        assert error.code == "operation_denied"
+    else:
+        raise AssertionError("Cross-operation write admitted")
+    rig.finish(target)
+    with sqlite3.connect(rig.native.root / ".dango/dango.db") as connection:
+        connection.execute(
+            "UPDATE platform_operations SET result_ref='inconsistent' WHERE operation_id=?",
+            (target.operation_id,),
+        )
+    try:
+        rig.store.inspect_effect(caller, target.operation_id, "capture")
+    except ValueError as error:
+        assert error.code == "store_unavailable"
+    else:
+        raise AssertionError("Inconsistent receipt admitted")
+    rig.finish(caller)
+    return {"classification": "target_sqlite", "corruption_denied": True}
+
+
+def denied(action):
+    """Require a fixed safe refusal, never turn an arbitrary exception into a passing denial."""
+    from dango.storage.workspaces import WorkspaceError
+
+    try:
+        action()
+    except WorkspaceError as error:
+        assert "password" not in str(error) and "host=" not in str(error)
+        return error.code
+    raise AssertionError("Expected workspace denial")
+
+
+def expiry_context(rig, workspace):
+    """Bind an exact explicit expiry input independently of the service return."""
+    rig.now = max(rig.now, datetime.fromisoformat(workspace.lease_expiry)) + timedelta(seconds=1)
+    return rig.admit(
+        "workspace.expire", {"workspace_id": workspace.workspace_id}, workspace.revision
+    )
+
+
+def pin_expiry_race(rig):
+    """Require a racing pin either to retain actual data or to refuse an expired workspace."""
+    from dango.storage.workspaces import WorkspaceError
+
+    owner, workspace = rig.allocate()
+    binding = rig.populate(owner, workspace)
+    expiry = expiry_context(rig, workspace)
+    consumer = rig.admit("query", {})
+    gate, pin_path, expiry_path = [
+        rig.native.root / name for name in ("race-go", "race-pin", "race-expiry")
+    ]
+
+    def wait_gate():
+        while not gate.exists():
+            time.sleep(0.01)
+
+    def acquire():
+        wait_gate()
+        try:
+            pin = rig.service.acquire_pin(consumer, workspace.workspace_id, "query", "result")
+            value = {"status": "pinned", "pin_id": pin.pin_id}
+        except WorkspaceError as error:
+            assert error.code == "workspace_conflict"
+            value = {"status": "refused"}
+        pin_path.write_text(json.dumps(value))
+
+    def expire():
+        wait_gate()
+        value = rig.service.expire(expiry, workspace.workspace_id, 0)
+        expiry_path.write_text(value.model_dump_json())
+
+    pids = [child(acquire, wait=False), child(expire, wait=False)]
+    gate.touch(mode=0o600)
+    for pid in pids:
+        wait_child(pid)
+    pin_result = json.loads(pin_path.read_text())
+    receipt = json.loads(expiry_path.read_text())
+    if pin_result["status"] == "pinned":
+        assert receipt["status"] == "blocked" and receipt["error_code"] == "workspace_retained"
+        with rig.native.allocator().attach(owner, binding, read_only=True) as connection:
+            assert connection.execute(
+                "SELECT sum(amount) FROM catalog.sales.orders"
+            ).fetchone() == (350,)
+        rig.service.release_pin(consumer, workspace.workspace_id, pin_result["pin_id"])
+        rig.finish(consumer)
+        rig.dispose(workspace)
+    else:
+        assert receipt["status"] == "success" and not Path(binding.data_root_ref).exists()
+        rig.finish(consumer)
+    return {"pin": pin_result["status"], "expiry": receipt["status"]}
+
 
 def smoke(rig: WorkspaceRig) -> dict:
     """Prove populated allocate, durable reopen and actual owned expiry before expansion."""
@@ -139,6 +350,7 @@ def smoke(rig: WorkspaceRig) -> dict:
     context, workspace = rig.allocate()
     binding = rig.populate(context, workspace)
     before = rig.native.metadata(binding)
+    assert dict(before["metadata"])["version"] == "1.1"
     assert [(r[0], r[1]) for r in before["tables"]] == [("finance", "orders"), ("sales", "orders")]
     reopened = WorkspaceService(rig.native.root, rig.native.allocator(), rig.store, lambda: rig.now)
     assert reopened.get(context, workspace.workspace_id) == workspace
@@ -186,13 +398,34 @@ def main() -> None:
     output = args.task_root.parent / "native-result.json"
     try:
         rig = WorkspaceRig(args.task_root)
+        from native_catalog_bindings import fixture_bytes
+
+        report["pins"] = {
+            "fixture_sha256": hashlib.sha256(fixture_bytes).hexdigest(),
+            "python": sys.version.split()[0],
+            "duckdb": sys.modules["duckdb"].__version__,
+            "ducklake_metadata_version": "1.1",
+            "qualification": "development_only",
+        }
         report["cases"]["18"] = "FAIL"
         report["observations"] = smoke(rig)
         report["cases"]["18"] = "PASS"
         report.update(status="PASS_NATIVE_WORKSPACE_SMOKE", owned_cleanup=True)
         (args.task_root.parent / "smoke-result.json").write_text(json.dumps(report) + "\n")
         if args.phase == "all":
-            raise RuntimeError("Finite matrix expansion follows the smoke milestone")
+            from workspace_cases import CASES
+
+            for number, case in CASES:
+                report["case_stage"] = number
+                report["cases"][number] = "FAIL"
+                output.write_text(json.dumps(report) + "\n")
+                (args.task_root.parent / "native-stage.txt").write_text(number)
+                observations = case(rig)
+                report.setdefault("case_observations", {})[number] = observations
+                report["cases"][number] = "PASS"
+                output.write_text(json.dumps(report) + "\n")
+            assert all(state == "PASS" for state in report["cases"].values())
+            report["status"] = "PASS_NATIVE_WORKSPACE_MATRIX"
     except Exception as error:
         report.update(status="FAIL", error_type=type(error).__name__)
         raise SystemExit("Workspace integration failed; inspect sanitized case report") from None

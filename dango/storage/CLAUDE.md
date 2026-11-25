@@ -32,7 +32,7 @@ server caller and persisted grant integration remain T09C's responsibility.
 | Change physical ownership/recovery | `catalog_ownership.py` and assigned unit/native tests | Interruption/substitution negatives and actual populated removal |
 | Verify native catalog behavior | `tests/integration/native_catalog_bindings.py`, dedicated workflow | Explicit exact-pin native smoke, then the finite remaining matrix |
 | Change workspace lifecycle/pins | `workspaces.py`, `workspace_state.py`, `workspace_records.py` | `pytest tests/unit/test_workspaces.py tests/unit/test_workspace_state.py tests/unit/test_operation_store_workspace.py -q` |
-| Verify workspace/native join | `tests/integration/native_workspaces.py`, dedicated T04B workflow | Guarded target import/bootstrap, then populated workspace smoke and finite matrix |
+| Verify workspace/native join | `tests/integration/native_workspaces.py`, `workspace_cases.py`, dedicated T04B workflow | Guarded target import/bootstrap, then populated workspace smoke and finite matrix |
 | Update this guide | `CLAUDE.md` | `python scripts/validate_claude_md.py dango/storage/CLAUDE.md` |
 
 ## Dependencies
@@ -104,7 +104,8 @@ input/build/query/backup. The same operation/purpose/resource returns the same a
 `release_pin(context,workspace_id,pin_id)` is idempotent only for its owning operation, including
 after finalization; released pins are retained as tombstones. `has_pins` refuses unknown state.
 Pins outlive UI leases and operation finalization; released pins' still-active operations also
-block expiry. Future T05/T06B and other consumers must call this API at their joins.
+block expiry, as do referenced unresolved recovery outcomes. Future T05/T06B and other consumers
+must call this API at their joins. Duplicate/missing private record keys refuse cleanup.
 
 Persistent lock order is operation intent, workspace, then allocator. No SQLite transaction
 spans native IO. Private state holds operation references, never copied operation lifecycle

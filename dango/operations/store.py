@@ -240,6 +240,10 @@ class OperationStore:
             ).fetchone()
             if row is None:
                 raise _StoreError("operation_denied")
+            if row["state"] != "finalized" and (
+                row["status"] is not None or row["outcome_json"] is not None
+            ):
+                raise _StoreError("store_unavailable")
             receipt = self._receipt(row) if row["state"] == "finalized" else None
             if receipt is not None and (
                 receipt.result_ref != row["result_ref"]

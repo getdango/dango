@@ -36,7 +36,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 1
-      - name: Enforce standard task controls and run only the populated smoke
+      - name: Enforce standard task controls, populated smoke and finite workspace matrix
         shell: bash
         run: |
           set -euo pipefail
@@ -375,12 +375,13 @@ jobs:
           import json, os, secrets
           from pathlib import Path
           root = Path(os.environ['PAYLOAD'])
-          admin, writer = secrets.token_hex(32), secrets.token_hex(32)
+          admin, writer, writer_b = secrets.token_hex(32), secrets.token_hex(32), secrets.token_hex(32)
           values = {
               'pg-secrets/admin': (admin, 999),
               'pg-secrets/pgpass': ('*:*:*:postgres:' + admin + '\n', 999),
-              'pg-secrets/setup.sql': ("CREATE ROLE t04b_writer LOGIN PASSWORD '" + writer + "' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;\nCREATE DATABASE t04a_catalog;\nGRANT CONNECT,CREATE ON DATABASE t04a_catalog TO t04b_writer;\n", 999),
+              'pg-secrets/setup.sql': ("CREATE ROLE t04b_writer LOGIN PASSWORD '" + writer + "' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;\nCREATE DATABASE t04a_catalog;\nGRANT CONNECT,CREATE ON DATABASE t04a_catalog TO t04b_writer;\nCREATE ROLE t04b_writer_b LOGIN PASSWORD '" + writer_b + "' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;\nGRANT CONNECT,CREATE ON DATABASE t04a_catalog TO t04b_writer_b;\n", 999),
               'client-secrets/catalog.json': (json.dumps(dict(host='127.0.0.1',port='5432',dbname='t04a_catalog',user='t04b_writer',password=writer)), 501),
+              'client-secrets/catalog-b.json': (json.dumps(dict(host='127.0.0.1',port='5432',dbname='t04a_catalog',user='t04b_writer_b',password=writer_b)), 501),
           }
           for name, (value, uid) in values.items():
               path = root / name
@@ -409,7 +410,7 @@ jobs:
             --mount="type=bind,src=$PAYLOAD/gate,dst=/gate,readonly" \
             --env=HOME=/work --env=TMPDIR=/work/tmp --env=PYTHONDONTWRITEBYTECODE=1 --env=PYTHONPATH=/work/site:/source \
             --env=AWS_EC2_METADATA_DISABLED=true --env=GCE_METADATA_DISABLED=true --env="TASK_COMMIT=$COMMIT" --workdir=/work \
-            --entrypoint=/bin/sh "$CLIENT_IMAGE" -ec 'while [ ! -f /gate/import ]; do sleep .1; done; mkdir /work/tmp; /tools/python/bin/python3.14 -m pip install --no-index --no-deps --no-cache-dir --no-compile --target /work/site /tools/artifacts/*.whl > /work/install.log 2>&1; /tools/python/bin/python3.14 -m pip check > /work/dependency-check.log 2>&1; /tools/python/bin/python3.14 /source/tests/integration/native_workspaces.py --check-imports /work/import-project > /work/import.log 2>&1; touch /work/import-ok; while [ ! -f /gate/client ]; do sleep .1; done; exec /tools/python/bin/python3.14 /source/tests/integration/native_workspaces.py --task-root /work/task --commit "$TASK_COMMIT" --phase smoke')
+            --entrypoint=/bin/sh "$CLIENT_IMAGE" -ec 'while [ ! -f /gate/import ]; do sleep .1; done; mkdir /work/tmp; /tools/python/bin/python3.14 -m pip install --no-index --no-deps --no-cache-dir --no-compile --target /work/site /tools/artifacts/*.whl > /work/install.log 2>&1; /tools/python/bin/python3.14 -m pip check > /work/dependency-check.log 2>&1; /tools/python/bin/python3.14 /source/tests/integration/native_workspaces.py --check-imports /work/import-project > /work/import.log 2>&1; touch /work/import-ok; while [ ! -f /gate/client ]; do sleep .1; done; exec /tools/python/bin/python3.14 /source/tests/integration/native_workspaces.py --task-root /work/task --commit "$TASK_COMMIT" --phase all')
           inspect_limits() {
             local id=$1 memory=$2 cpus=$3 user=$4 network=$5
             local image=$CLIENT_IMAGE
@@ -472,7 +473,8 @@ jobs:
           test "$(cat "$SLICE/memory.swap.current")" = 0
           inside_gate 0
           jq -e --arg commit "$COMMIT" '.status=="PASS_NATIVE_WORKSPACE_SMOKE" and .commit==$commit and .owned_cleanup==true' "$PAYLOAD/work/smoke-result.json"
-          stage completed_native_smoke
+          jq -e --arg commit "$COMMIT" '.status=="PASS_NATIVE_WORKSPACE_MATRIX" and .commit==$commit and (.cases|length)==18 and (.cases|all(.=="PASS"))' "$PAYLOAD/work/native-result.json" >/dev/null
+          stage completed_native_matrix
           CONTROLLER
       - name: Verify owned cleanup and remove the task slice
         if: always()

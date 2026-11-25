@@ -376,3 +376,86 @@ def test_removed_tombstone_retry_still_requires_allocator_authorization(tmp_path
     ) == [("prepared",)]
     rig.grant = True
     assert rig.service.expire(context, workspace.workspace_id, 0).resource_revision == "2"
+
+
+@pytest.mark.parametrize("revision", [True, -1, 1.0, "0"])
+def test_invalid_revision_never_mutates(tmp_path, revision):
+    rig = Rig(tmp_path)
+    _, workspace = rig.allocate()
+    operation = rig.expiry(workspace)
+    before = rig.manifest(workspace.workspace_id)[0].read_bytes()
+    with pytest.raises(WorkspaceError, match="invalid_input"):
+        rig.service.expire(operation, workspace.workspace_id, revision)
+    assert rig.manifest(workspace.workspace_id)[0].read_bytes() == before
+
+
+@pytest.mark.parametrize("kind", ["shorter", "equal", "naive", "offset"])
+def test_invalid_extension_expiry_never_mutates(tmp_path, kind):
+    from datetime import timezone
+
+    rig = Rig(tmp_path)
+    _, workspace = rig.allocate()
+    expiry = rig.now + timedelta(days=7 if kind == "equal" else 6)
+    if kind == "naive":
+        expiry = expiry.replace(tzinfo=None)
+    elif kind == "offset":
+        expiry = expiry.astimezone(timezone(timedelta(hours=1)))
+    operation = rig.admit(
+        "workspace.extend",
+        {
+            "workspace_id": workspace.workspace_id,
+            "expiry": expiry.isoformat(timespec="microseconds"),
+        },
+        revision=0,
+    )
+    before = rig.manifest(workspace.workspace_id)[0].read_bytes()
+    with pytest.raises(WorkspaceError, match="invalid_input"):
+        rig.service.extend(operation, workspace.workspace_id, 0, expiry)
+    assert rig.manifest(workspace.workspace_id)[0].read_bytes() == before
+
+
+def test_waiting_retry_observes_finalization_inside_operation_lock(tmp_path, monkeypatch):
+    rig = Rig(tmp_path)
+    _, workspace = rig.allocate()
+    expiry = rig.now + timedelta(days=9)
+    operation = rig.admit(
+        "workspace.extend",
+        {
+            "workspace_id": workspace.workspace_id,
+            "expiry": expiry.isoformat(timespec="microseconds"),
+        },
+        revision=0,
+    )
+    result = rig.service.extend(operation, workspace.workspace_id, 0, expiry)
+    # Capture the already admitted snapshot before a second caller enters its operation lock.
+    inspection = rig.store.inspect_effect(operation, operation.operation_id, "workspace.extend")
+    active_snapshot = inspection.model_copy(update={"state": "prepared", "receipt": None})
+    original = rig.service._admit
+
+    def stale(*args, **kwargs):
+        _, request = original(*args, **kwargs)
+        return active_snapshot, request
+
+    monkeypatch.setattr(rig.service, "_admit", stale)
+    assert rig.service.extend(operation, workspace.workspace_id, 0, expiry) == result
+    assert rig.manifest(workspace.workspace_id)[1]["workspace"]["revision"] == 1
+
+
+def test_unresolved_terminal_recovery_retains_even_after_pin_release(tmp_path):
+    rig = Rig(tmp_path)
+    _, workspace = rig.allocate()
+    consumer = rig.admit("query", {})
+    pin = rig.service.acquire_pin(consumer, workspace.workspace_id, "query", "result")
+    rig.service.release_pin(consumer, workspace.workspace_id, pin.pin_id)
+    rig.store.finalize_operation(
+        consumer,
+        OutcomeReceipt(
+            operation_id=consumer.operation_id,
+            status="recovery_required",
+            error_code="unknown_native_stop",
+            action="Inspect native activity.",
+        ),
+    )
+    rig.now += timedelta(days=8)
+    expiry = rig.expiry(workspace)
+    assert rig.service.expire(expiry, workspace.workspace_id, 0).error_code == "workspace_retained"

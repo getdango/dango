@@ -286,7 +286,11 @@ class WorkspaceService(WorkspaceJournal):
         active = False
         for operation in value.operations:
             status = self._inspect(context, operation, "workspace.activity")
-            active |= operation != context.operation_id and status.state != "finalized"
+            active |= operation != context.operation_id and (
+                status.state != "finalized"
+                or status.receipt is None
+                or status.receipt.status == "recovery_required"
+            )
         return active or any(not p.released for p in value.pins)
 
     @_safe

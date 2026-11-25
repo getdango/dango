@@ -199,3 +199,47 @@ print('safe')
         env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
     )
     assert result.stdout.strip() == "safe"
+
+
+@pytest.mark.parametrize("damage", ["duplicate", "missing-kind"])
+def test_manifest_keys_cannot_hide_unknown_pin_state(tmp_path, damage):
+    rig = Rig(tmp_path)
+    context, workspace = rig.allocate()
+    path, value = rig.manifest(workspace.workspace_id)
+    if damage == "duplicate":
+        path.write_text(path.read_text()[:-1] + ',"pins":[]}')
+    else:
+        del value["kind"]
+        path.write_text(json.dumps(value))
+    with pytest.raises(WorkspaceError):
+        rig.service.has_pins(context, workspace.workspace_id)
+
+
+def test_native_matrix_collection_has_no_service_or_credential_io():
+    from pathlib import Path
+
+    code = """
+import runpy,sys
+from pathlib import Path
+from unittest.mock import patch
+import duckdb
+root=Path(sys.argv[1]); sys.path.insert(0,str(root/'tests/integration'))
+original=Path.read_text
+def read(path,*args,**kwargs):
+ if str(path).startswith('/secrets'):
+  raise AssertionError('collection credential IO')
+ return original(path,*args,**kwargs)
+with patch('sqlite3.connect',side_effect=AssertionError('collection SQLite IO')), patch('socket.socket',side_effect=AssertionError('collection network IO')), patch('duckdb.connect',side_effect=AssertionError('collection native IO')), patch.object(Path,'read_text',read):
+ runpy.run_path(str(root/'tests/integration/native_workspaces.py'),run_name='collection_only')
+ runpy.run_path(str(root/'tests/integration/workspace_cases.py'),run_name='collection_only')
+print('safe')
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(Path(__file__).parents[2])],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert result.stdout.strip() == "safe"

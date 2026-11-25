@@ -41,6 +41,15 @@ _READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
 _LIMIT = 1048576
 
 
+def _unique_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise WorkspaceError("workspace_unavailable")
+        result[key] = value
+    return result
+
+
 def _owned(fd: int, *, directory_fd: bool = False) -> os.stat_result:
     info = os.fstat(fd)
     kind = stat.S_ISDIR if directory_fd else stat.S_ISREG
@@ -98,6 +107,9 @@ class LockedRecord:
             _owned(stream.fileno())
             payload = stream.read(_LIMIT + 1)
         if len(payload) > _LIMIT:
+            raise WorkspaceError("workspace_unavailable")
+        value = json.loads(payload, object_pairs_hook=_unique_pairs)
+        if type(value) is not dict or value.keys() != cls.model_fields.keys():
             raise WorkspaceError("workspace_unavailable")
         # JSON mode admits immutable tuples while retaining scalar strictness.
         return cls.model_validate_json(payload)
@@ -353,6 +365,11 @@ class WorkspaceJournal:
         intent: OperationIntent,
         change: Change,
     ) -> Workspace:
+        inspection = self._inspect(context, context.operation_id, intent.name)
+        if inspection.state == "finalized":
+            if inspection.receipt != change.receipt:
+                raise WorkspaceError("workspace_recovery_required")
+            return change.workspace
         self._effect(context, intent.name, change.workspace.workspace_id, "applied")
         operation.save(intent.model_copy(update={"phase": "applied", "result": change.workspace}))
         self.store.finalize_operation(context, change.receipt)
