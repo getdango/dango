@@ -35,6 +35,8 @@ METABASE_REQUEST_TIMEOUT_SECONDS: float = 2.0
 METABASE_BODY_LIMIT_BYTES: int = 4096
 # A probe that outlives the response budget keeps running for this long, then is dropped.
 PROBE_HARD_TIMEOUT_SECONDS: float = 3.0
+# When a probe outlives the budget, the last known state is reported only if it is this recent.
+MAX_STALE_SECONDS: float = 60.0
 
 DangoState = Literal["ok", "degraded"]
 MetabaseState = Literal["ok", "starting", "unavailable", "unknown"]
@@ -64,12 +66,14 @@ def _clock() -> float:
 class _CachedProbe:
     """One component's state: cached for a window, with a single probe in flight at a time.
 
-    Until a first state is known, requests wait on the one running probe (bounded by their own
-    budget). Once a state is known, an expired one is still returned at once while a single
-    background refresh runs (stale-while-revalidate), so a slow probe never flaps the state.
-    State is guarded by a thread lock and the in-flight result is a
-    ``concurrent.futures.Future`` that every waiter can await from its own event loop; if the
-    loop running a probe shuts down, its waiters get the timeout state.
+    A fresh cached state is returned as is. Otherwise the request joins (or starts) the one
+    probe and waits for it, at most ``budget`` seconds, so a monitor polling every few minutes
+    always sees the current state. If the probe outlives the budget the last known state is
+    reported when it is recent (``MAX_STALE_SECONDS``), else the timeout state; the probe keeps
+    running and caches its answer for the next request. State is guarded by a thread lock and
+    the in-flight result is a ``concurrent.futures.Future`` that every waiter can await from
+    its own event loop; if the loop running a probe shuts down, its waiters get the timeout
+    state.
     """
 
     def __init__(self, ttl: Callable[[], float], timeout_state: str, failed_state: str) -> None:
@@ -78,18 +82,18 @@ class _CachedProbe:
         self._failed_state = failed_state
         self._lock = threading.Lock()
         self._state: str | None = None
+        self._cached_at = 0.0
         self._expires = 0.0
         self._inflight: concurrent.futures.Future[str] | None = None
         self._started = 0.0
         self._task: asyncio.Task[None] | None = None
 
     async def get(self, probe: Callable[[], Awaitable[str]], budget: float) -> str:
-        """Return the state: cached, stale (refreshing), or probed with at most ``budget`` wait."""
+        """Return the state: cached, or probed (waiting at most ``budget`` seconds)."""
         now = _clock()
         with self._lock:
-            known = self._state
-            if known is not None and now < self._expires:
-                return known
+            if self._state is not None and now < self._expires:
+                return self._state
             future = self._inflight
             # A probe whose event loop went away never finishes: replace it after its hard limit.
             stale = future is not None and now - self._started > PROBE_HARD_TIMEOUT_SECONDS + 1.0
@@ -102,14 +106,19 @@ class _CachedProbe:
             return self._failed_state
         if owner:
             self._task = asyncio.get_running_loop().create_task(self._run(probe, future))
-        if known is not None:
-            return known
         try:
             return await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(future)), budget)
         except asyncio.TimeoutError:
-            return self._timeout_state
+            return self._last_known_or(self._timeout_state)
         except Exception:
             return self._failed_state
+
+    def _last_known_or(self, fallback: str) -> str:
+        """The last known state while it is recent, else ``fallback``."""
+        with self._lock:
+            if self._state is not None and _clock() - self._cached_at <= MAX_STALE_SECONDS:
+                return self._state
+        return fallback
 
     async def _run(
         self, probe: Callable[[], Awaitable[str]], future: concurrent.futures.Future[str]
@@ -130,7 +139,8 @@ class _CachedProbe:
                     self._inflight = None
                     if cache:
                         self._state = state
-                        self._expires = _clock() + self._ttl()
+                        self._cached_at = _clock()
+                        self._expires = self._cached_at + self._ttl()
             if not future.done():
                 future.set_result(state)
 

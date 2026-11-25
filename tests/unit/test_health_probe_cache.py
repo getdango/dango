@@ -229,6 +229,28 @@ def test_concurrent_requests_in_one_loop_share_a_single_probe() -> None:
 
 
 @pytest.mark.unit
+def test_a_probe_that_never_finishes_is_cut_off_at_the_hard_limit() -> None:
+    """After the hard limit the probe's failure state is cached, so later requests do not wait."""
+    probe = _CachedProbe(lambda: 5.0, "unavailable", "unknown")
+
+    async def never() -> str:
+        await asyncio.sleep(30)
+        return "ok"
+
+    async def go() -> tuple[str, str, float]:
+        first = await probe.get(never, 0.2)
+        await asyncio.sleep(0.5)
+        started = time.monotonic()
+        second = await probe.get(never, 0.2)
+        return first, second, time.monotonic() - started
+
+    with patch("dango.web.health_probe.PROBE_HARD_TIMEOUT_SECONDS", 0.3):
+        first, second, elapsed = asyncio.run(go())
+    assert (first, second) == ("unavailable", "unknown")
+    assert elapsed < 0.1
+
+
+@pytest.mark.unit
 def test_cache_expires_and_probes_again_without_waiting_for_a_real_ttl(
     tmp_path: Path, make_double: Callable[..., MetabaseDouble]
 ) -> None:
