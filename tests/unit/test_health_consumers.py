@@ -227,3 +227,14 @@ def test_post_restart_flows_that_need_metabase_ask_for_it_explicitly(module: str
         keywords = {kw.arg: kw.value for kw in call.keywords}
         assert isinstance(keywords.get("require_metabase"), ast.Constant), (module, call.lineno)
         assert keywords["require_metabase"].value is True, (module, call.lineno)
+
+
+@pytest.mark.unit
+def test_verify_metabase_live_when_health_does_not_answer_makes_no_false_claim(
+    tmp_path: Path,
+) -> None:
+    """An older server proxies Metabase, so a refused request may mean Dango is up and Metabase down."""
+    out = _run_verify_metabase(_refused(), tmp_path)
+    text = " ".join(out.output.split())
+    assert "web server is not responding" not in text
+    assert "/api/health did not answer" in text

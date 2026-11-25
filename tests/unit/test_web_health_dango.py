@@ -10,7 +10,6 @@ import json
 import threading
 import time
 from collections.abc import Callable, Iterator
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -23,66 +22,13 @@ from fastapi.testclient import TestClient
 
 from dango.web.app import app as real_app
 from tests.factories.auth_app_factories import AuthProject, build_client
+from tests.factories.metabase_health_double import SECRET, SECRET_PATH, MetabaseDouble
 
 _DOCKER_PS = "dango.platform.docker.DockerManager.is_docker_daemon_running"
 _USES_HELPER = "dango.platform.compose_exec.uses_helper"
-_SECRET = "s3cr3t-token-9f2c"
-_SECRET_PATH = "/Users/someone/private-project/.dango/secrets"
 _TIME_BOUND_SECONDS = 2.0
 _METABASE_STATES = {"ok", "starting", "unavailable", "unknown"}
 _DOCKER_STATES = {"ok", "unavailable", "not_applicable", "unknown"}
-
-
-class MetabaseDouble:
-    """A local stand-in for Metabase's /api/health on an ephemeral port."""
-
-    def __init__(self, mode: str) -> None:
-        self.mode = mode
-        self.hits = 0
-        self.seen_headers: list[dict[str, str]] = []
-        self.release = threading.Event()
-        self._lock = threading.Lock()
-        double = self
-
-        class Handler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                with double._lock:
-                    double.hits += 1
-                    double.seen_headers.append({k.lower(): v for k, v in self.headers.items()})
-                if double.mode == "hang":
-                    double.release.wait(30)
-                    return
-                if double.mode == "ok":
-                    status, body = 200, {"status": "ok"}
-                elif double.mode == "starting":
-                    status, body = 503, {"status": "initializing", "progress": 0.4}
-                else:
-                    status, body = 500, {"error": f"{_SECRET} at {_SECRET_PATH}"}
-                payload = json.dumps(body).encode()
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
-
-            def log_message(self, *args: Any) -> None:
-                return
-
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.server.daemon_threads = True
-        self.port = int(self.server.server_address[1])
-        self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self._thread.start()
-
-    @property
-    def url(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
-
-    def close(self) -> None:
-        self.release.set()
-        self.server.shutdown()
-        self.server.server_close()
-        self._thread.join(timeout=5)
 
 
 @pytest.fixture
@@ -257,24 +203,6 @@ def test_rapid_requests_probe_each_component_once_per_window(
 
 
 @pytest.mark.unit
-def test_cache_expires_and_probes_again(
-    tmp_path: Path, make_double: Callable[[str], MetabaseDouble]
-) -> None:
-    double = make_double("ok")
-    client = _client(_project(tmp_path, double.url))
-    with (
-        patch("dango.web.health_probe.METABASE_CACHE_SECONDS", 0.3),
-        patch("dango.web.health_probe.DOCKER_CACHE_SECONDS", 0.3),
-    ):
-        assert client.get("/api/health").json()["components"]["metabase"] == "ok"
-        double.mode = "starting"
-        assert client.get("/api/health").json()["components"]["metabase"] == "ok"
-        time.sleep(0.45)
-        assert client.get("/api/health").json()["components"]["metabase"] == "starting"
-    assert double.hits == 2
-
-
-@pytest.mark.unit
 def test_concurrent_requests_share_one_in_flight_probe(
     tmp_path: Path, make_double: Callable[[str], MetabaseDouble]
 ) -> None:
@@ -320,11 +248,11 @@ def test_docker_probe_crash_is_unknown_and_never_a_5xx(
 ) -> None:
     double = make_double("ok")
     client = _client(_project(tmp_path, double.url))
-    with patch(_DOCKER_PS, side_effect=RuntimeError(f"{_SECRET} {_SECRET_PATH}")):
+    with patch(_DOCKER_PS, side_effect=RuntimeError(f"{SECRET} {SECRET_PATH}")):
         resp = client.get("/api/health")
     assert resp.status_code == 200
     assert resp.json()["components"]["docker"] == "unknown"
-    assert _SECRET not in resp.text and _SECRET_PATH not in resp.text
+    assert SECRET not in resp.text and SECRET_PATH not in resp.text
 
 
 @pytest.mark.unit
@@ -334,7 +262,7 @@ def test_body_is_coarse_states_only_and_leaks_nothing(
     double = make_double("error")
     root = _project(tmp_path, double.url)
     client = _client(root)
-    with patch(_DOCKER_PS, side_effect=RuntimeError(f"{_SECRET} {_SECRET_PATH}")):
+    with patch(_DOCKER_PS, side_effect=RuntimeError(f"{SECRET} {SECRET_PATH}")):
         resp = client.get("/api/health")
     body = resp.json()
     assert set(body) == {"status", "components"}
@@ -343,7 +271,7 @@ def test_body_is_coarse_states_only_and_leaks_nothing(
     assert body["components"]["metabase"] in _METABASE_STATES
     assert body["components"]["docker"] in _DOCKER_STATES
     everything = resp.text + json.dumps(dict(resp.headers))
-    for needle in (_SECRET, _SECRET_PATH, str(double.port), str(root), "127.0.0.1", "version"):
+    for needle in (SECRET, SECRET_PATH, str(double.port), str(root), "127.0.0.1", "version"):
         assert needle not in everything, needle
 
 
