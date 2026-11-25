@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      NATIVE_ATTEMPT: '4'
+      NATIVE_ATTEMPT: '5'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -53,7 +53,7 @@ jobs:
           stage identity
           test "$GITHUB_RUN_ATTEMPT" = 1
           test "$NATIVE_ATTEMPT" -ge 1
-          test "$NATIVE_ATTEMPT" -le 4
+          test "$NATIVE_ATTEMPT" -le 5
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           stage host
           test "$(uname -m)" = x86_64
