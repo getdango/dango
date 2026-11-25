@@ -243,3 +243,39 @@ print('safe')
         env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
     )
     assert result.stdout.strip() == "safe"
+
+
+@pytest.mark.parametrize("damage", ["phase", "state", "revision", "removal-owner"])
+def test_contradictory_known_manifest_state_refuses_removal(tmp_path, damage):
+    rig = Rig(tmp_path)
+    _, workspace = rig.allocate()
+    path, value = rig.manifest(workspace.workspace_id)
+    if damage == "phase":
+        value["phase"] = "allocating"
+    elif damage == "state":
+        value["workspace"]["state"] = "expired"
+    elif damage == "revision":
+        value["workspace"]["revision"] = 4
+    else:
+        value["removal_operation_id"] = "unknown"
+    path.write_text(json.dumps(value))
+    rig.now += timedelta(days=8)
+    context = rig.expiry(workspace)
+    before = list(rig.port.calls)
+    with pytest.raises(WorkspaceError, match="workspace_unavailable"):
+        rig.service.expire(context, workspace.workspace_id, 0)
+    assert rig.port.calls == before
+
+
+def test_building_workspace_retains_without_a_consumer_reference(tmp_path):
+    rig = Rig(tmp_path)
+    _, workspace = rig.allocate()
+    path, value = rig.manifest(workspace.workspace_id)
+    value["workspace"]["state"] = "building"
+    path.write_text(json.dumps(value))
+    rig.now += timedelta(days=8)
+    context = rig.expiry(workspace)
+    before = list(rig.port.calls)
+    receipt = rig.service.expire(context, workspace.workspace_id, 0)
+    assert receipt.status == "blocked" and receipt.error_code == "workspace_retained"
+    assert rig.port.calls == before

@@ -105,7 +105,8 @@ input/build/query/backup. The same operation/purpose/resource returns the same a
 after finalization; released pins are retained as tombstones. `has_pins` refuses unknown state.
 Pins outlive UI leases and operation finalization; released pins' still-active operations also
 block expiry, as do referenced unresolved recovery outcomes. Future T05/T06B and other consumers
-must call this API at their joins. Duplicate/missing private record keys refuse cleanup.
+must call this API at their joins. Building state retains independently. Duplicate/missing keys
+and contradictory private phase/state/revision/removal-owner records refuse cleanup.
 
 Persistent lock order is operation intent, workspace, then allocator. No SQLite transaction
 spans native IO. Private state holds operation references, never copied operation lifecycle

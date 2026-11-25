@@ -333,6 +333,57 @@ def pin_expiry_race(rig):
     return {"pin": pin_result["status"], "expiry": receipt["status"]}
 
 
+def removal_snapshot(rig, workspace, context):
+    """Retain exact independent SQL and JSON lifecycle facts for the D1 recovery oracle."""
+    _, value = rig.manifest(workspace.workspace_id)
+    return {
+        "operation": rig.rows(
+            "SELECT state,status,resource_revision,result_ref FROM platform_operations WHERE operation_id=?",
+            (context.operation_id,),
+        ),
+        "effect": rig.rows(
+            "SELECT state,native_ref FROM platform_effects WHERE operation_id=?",
+            (context.operation_id,),
+        ),
+        "workspace": {
+            "phase": value["phase"],
+            "state": value["workspace"]["state"],
+            "revision": value["workspace"]["revision"],
+        },
+    }
+
+
+def saved_state_retains(rig, owner, workspace, binding, damage):
+    """Check existing retention/corruption rows against actual populated native resources."""
+    from unittest.mock import patch
+
+    path, value = rig.manifest(workspace.workspace_id)
+    raw = path.read_bytes()
+    if damage == "pins":
+        del value["pins"]
+    elif damage == "removal-owner":
+        value["removal_operation_id"] = "unknown"
+    else:
+        value["workspace"]["state"] = damage
+    path.write_text(json.dumps(value))
+    context = expiry_context(rig, workspace)
+    with patch.object(rig.native.port, "_connect", wraps=rig.native.port._connect) as calls:
+
+        def action():
+            return rig.service.expire(context, workspace.workspace_id, 0)
+
+        if damage == "building":
+            assert action().error_code == "workspace_retained"
+        else:
+            assert denied(action) == "workspace_unavailable"
+        assert calls.call_count == 0
+    with rig.native.allocator().attach(owner, binding, read_only=True) as connection:
+        assert connection.execute("SELECT sum(amount) FROM catalog.sales.orders").fetchone() == (
+            350,
+        )
+    path.write_bytes(raw)
+
+
 def smoke(rig: WorkspaceRig) -> dict:
     """Prove populated allocate, durable reopen and actual owned expiry before expansion."""
     from native_catalog_bindings import (

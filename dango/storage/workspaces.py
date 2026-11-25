@@ -291,7 +291,11 @@ class WorkspaceService(WorkspaceJournal):
                 or status.receipt is None
                 or status.receipt.status == "recovery_required"
             )
-        return active or any(not p.released for p in value.pins)
+        return (
+            active
+            or any(not p.released for p in value.pins)
+            or (value.workspace is not None and value.workspace.state == "building")
+        )
 
     @_safe
     def expire(

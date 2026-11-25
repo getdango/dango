@@ -323,6 +323,30 @@ class WorkspaceJournal:
             for c in value.changes
         ):
             raise WorkspaceError("workspace_unavailable")
+        if value.phase == "allocating":
+            if value.workspace is not None or value.binding is not None or value.changes:
+                raise WorkspaceError("workspace_unavailable")
+            return
+        workspace = value.workspace
+        if workspace is None or value.binding is None:
+            raise WorkspaceError("workspace_unavailable")
+        if value.phase == "ready":
+            if (
+                workspace.state not in {"ready", "building", "checked", "failed", "previewable"}
+                or value.binding.state != "ready"
+                or workspace.revision != len(value.changes)
+                or value.removal_operation_id is not None
+                or value.removal_revision is not None
+            ):
+                raise WorkspaceError("workspace_unavailable")
+        elif (
+            value.removal_operation_id not in value.operations
+            or value.removal_revision is None
+            or workspace.state != ("expired" if value.phase == "expired" else "recovery_required")
+            or workspace.revision != value.removal_revision + (2 if value.phase == "expired" else 1)
+            or workspace.revision != len(value.changes) + 1
+        ):
+            raise WorkspaceError("workspace_unavailable")
 
     def _effect(
         self,

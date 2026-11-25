@@ -19,6 +19,8 @@ from native_workspaces import (
     inspect_negatives,
     inspect_owned,
     pin_expiry_race,
+    removal_snapshot,
+    saved_state_retains,
     wait_child,
 )
 
@@ -162,15 +164,23 @@ def manifest_damage_and_terminal(rig):
             action="Inspect retained evidence.",
         ),
     )
+    before = removal_snapshot(rig, workspace, terminal_context)
+    manifest_before = path.read_bytes()
+    assert before["operation"] == [("finalized", "recovery_required", None, workspace_id)]
+    assert before["effect"] == []
+    assert before["workspace"] == {"phase": "ready", "state": "ready", "revision": 0}
     with patch.object(rig.native.port, "_connect", wraps=rig.native.port._connect) as calls:
         assert rig.service.expire(terminal_context, workspace_id, 0) == receipt
         assert calls.call_count == 0
-    assert value["workspace"]["revision"] == 0
+    after = removal_snapshot(rig, workspace, terminal_context)
+    assert after == before and path.read_bytes() == manifest_before
     rig.dispose(workspace)
     return {
         "classification": "native_boundary",
         "late_damage_denied": True,
         "terminal_replay_no_mutation": True,
+        "terminal_raw_before": before,
+        "terminal_raw_after": after,
     }
 
 
@@ -338,8 +348,9 @@ def active_retention(rig):
             350,
         )
     rig.finish(context)
+    saved_state_retains(rig, owner, workspace, binding, "building")
     rig.dispose(workspace)
-    return {"classification": "native", "retained_sales_sum": 350}
+    return {"classification": "native", "retained_sales_sum": 350, "building_retained": True}
 
 
 def cross_process_pin(rig):
@@ -374,26 +385,11 @@ def cross_process_pin(rig):
 
 
 def corrupt_pin(rig):
-    """16: corrupt/unknown pins preserve a populated namespace and data root."""
+    """16: corrupt pins or contradictory known state preserve populated native resources."""
     owner, workspace = rig.allocate()
     binding = rig.populate(owner, workspace)
-    path, value = rig.manifest(workspace.workspace_id)
-    raw = path.read_bytes()
-    del value["pins"]
-    path.write_text(json.dumps(value))
-    context = expiry_context(rig, workspace)
-    with patch.object(rig.native.port, "_connect", wraps=rig.native.port._connect) as calls:
-        denied(
-            lambda context=context, workspace=workspace: rig.service.expire(
-                context, workspace.workspace_id, 0
-            )
-        )
-        assert calls.call_count == 0
-    with rig.native.allocator().attach(owner, binding, read_only=True) as connection:
-        assert connection.execute("SELECT sum(amount) FROM catalog.sales.orders").fetchone() == (
-            350,
-        )
-    path.write_bytes(raw)
+    for damage in ("pins", "expired", "removal-owner"):
+        saved_state_retains(rig, owner, workspace, binding, damage)
     rig.dispose(workspace)
     return {"classification": "native_boundary", "preserved_sales_sum": 350}
 
@@ -421,15 +417,14 @@ def removal_recovery(rig):
             child(action, 73)
         else:
             denied(action)
-        assert rig.rows(
-            "SELECT state,status FROM platform_operations WHERE operation_id=?",
-            (context.operation_id,),
-        ) == [("prepared", None)]
-        assert rig.rows(
-            "SELECT state,native_ref FROM platform_effects WHERE operation_id=?",
-            (context.operation_id,),
-        ) == [("prepared", workspace.workspace_id)]
-        assert rig.manifest(workspace.workspace_id)[1]["workspace"]["revision"] == 1
+        before = removal_snapshot(rig, workspace, context)
+        assert before["operation"] == [("prepared", None, None, None)]
+        assert before["effect"] == [("prepared", workspace.workspace_id)]
+        assert before["workspace"] == {
+            "phase": "removing",
+            "state": "recovery_required",
+            "revision": 1,
+        }
         assert not rig.native.sql(
             f"SELECT oid FROM pg_namespace WHERE nspname='{binding.metadata_schema}'"
         )
@@ -444,11 +439,14 @@ def removal_recovery(rig):
         sentinel.unlink()
         receipt = rig.service.expire(context, workspace.workspace_id, 0)
         assert receipt.status == "success" and receipt.resource_revision == "2"
-        assert rig.manifest(workspace.workspace_id)[1]["workspace"]["revision"] == 2
+        after = removal_snapshot(rig, workspace, context)
+        assert after["operation"] == [("finalized", "success", "2", workspace.workspace_id)]
+        assert after["effect"] == [("applied", workspace.workspace_id)]
+        assert after["workspace"] == {"phase": "expired", "state": "expired", "revision": 2}
         assert not Path(binding.data_root_ref).exists()
         evidence[mode] = {
-            "interrupted_state": "prepared",
-            "revisions": [1, 2],
+            "raw_before": before,
+            "raw_after": after,
             "foreign_preserved": True,
         }
     evidence["pin_expiry_race"] = pin_expiry_race(rig)
