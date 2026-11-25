@@ -123,7 +123,28 @@ def test_waiter_on_another_loop_survives_the_owner_loops_shutdown() -> None:
 
 
 @pytest.mark.unit
-def test_expired_state_is_served_while_the_refresh_runs() -> None:
+def test_expired_state_is_reprobed_and_the_fresh_answer_returned() -> None:
+    """A sparse monitor must see the current state, not the previous poll's."""
+    clock = FakeClock()
+    probe = _CachedProbe(lambda: 5.0, "unavailable", "unknown")
+    answers = iter(["ok", "unavailable", "ok"])
+
+    async def check() -> str:
+        return next(answers)
+
+    async def go() -> list[str]:
+        seen = [await probe.get(check, 0.5)]
+        for _ in range(2):
+            clock.now += 300
+            seen.append(await probe.get(check, 0.5))
+        return seen
+
+    with patch(_CLOCK, clock):
+        assert asyncio.run(go()) == ["ok", "unavailable", "ok"]
+
+
+@pytest.mark.unit
+def test_a_probe_slower_than_the_budget_returns_the_last_known_state() -> None:
     clock = FakeClock()
     probe = _CachedProbe(lambda: 5.0, "unavailable", "unknown")
     answers = iter(["ok", "starting"])
@@ -139,18 +160,37 @@ def test_expired_state_is_served_while_the_refresh_runs() -> None:
         first = await probe.get(fast, 0.2)
         clock.now += 6
         started = time.monotonic()
-        stale = await probe.get(slow_refresh, 0.2)
+        during = await probe.get(slow_refresh, 0.2)
         elapsed = time.monotonic() - started
-        await asyncio.sleep(0.7)
-        refreshed = await probe.get(fast, 0.2)
-        return first, stale, elapsed, refreshed
+        await asyncio.sleep(0.5)  # the probe finishes in the background and caches its answer
+        after = await probe.get(fast, 0.2)  # still inside the cache window: no new probe
+        return first, during, elapsed, after
 
     with patch(_CLOCK, clock):
-        first, stale, elapsed, refreshed = asyncio.run(go())
-    assert first == "ok"
-    assert stale == "ok"
-    assert elapsed < 0.15
-    assert refreshed == "starting"
+        first, during, elapsed, after = asyncio.run(go())
+    assert (first, during, after) == ("ok", "ok", "starting")
+    assert 0.15 < elapsed < 0.35  # it waited for the budget, then fell back
+
+
+@pytest.mark.unit
+def test_a_last_known_state_that_is_too_old_is_not_served_on_a_budget_timeout() -> None:
+    clock = FakeClock()
+    probe = _CachedProbe(lambda: 5.0, "unavailable", "unknown")
+
+    async def fast() -> str:
+        return "ok"
+
+    async def slow() -> str:
+        await asyncio.sleep(0.4)
+        return "ok"
+
+    async def go() -> tuple[str, str]:
+        first = await probe.get(fast, 0.2)
+        clock.now += 3600
+        return first, await probe.get(slow, 0.2)
+
+    with patch(_CLOCK, clock):
+        assert asyncio.run(go()) == ("ok", "unavailable")
 
 
 @pytest.mark.unit
@@ -172,6 +212,23 @@ def test_first_probe_without_a_cached_state_is_still_bounded_by_the_budget() -> 
 
 
 @pytest.mark.unit
+def test_concurrent_requests_in_one_loop_share_a_single_probe() -> None:
+    probe = _CachedProbe(lambda: 5.0, "unavailable", "unknown")
+    calls: list[int] = []
+
+    async def check() -> str:
+        calls.append(1)
+        await asyncio.sleep(0.1)
+        return "ok"
+
+    async def go() -> list[str]:
+        return list(await asyncio.gather(*(probe.get(check, 0.5) for _ in range(8))))
+
+    assert asyncio.run(go()) == ["ok"] * 8
+    assert len(calls) == 1
+
+
+@pytest.mark.unit
 def test_cache_expires_and_probes_again_without_waiting_for_a_real_ttl(
     tmp_path: Path, make_double: Callable[..., MetabaseDouble]
 ) -> None:
@@ -184,22 +241,38 @@ def test_cache_expires_and_probes_again_without_waiting_for_a_real_ttl(
         assert double.hits == 1
         double.mode = "starting"
         clock.now += 6
-        for _ in range(60):  # the refresh runs in the background on this loop
-            seen.append(await _metabase_state(client))
-            if seen[-1] == "starting":
-                break
-            await asyncio.sleep(0.05)
+        seen.append(await _metabase_state(client))
         return seen
 
     with patch(_CLOCK, clock):
         seen = _scenario(run)
-    assert seen[:2] == ["ok", "ok"]
-    assert seen[-1] == "starting"
+    assert seen == ["ok", "ok", "starting"]
     assert double.hits == 2
 
 
 @pytest.mark.unit
-def test_a_metabase_that_answers_in_under_a_second_does_not_flap(
+def test_sparse_polling_reports_each_change_on_the_poll_after_it(
+    tmp_path: Path, make_double: Callable[..., MetabaseDouble]
+) -> None:
+    """A monitor polling every 5 minutes sees an outage, and the recovery, on the very next poll."""
+    double = make_double("ok")
+    _serve(tmp_path, double.url)
+    clock = FakeClock()
+
+    async def run(client: httpx.AsyncClient) -> list[str]:
+        seen = [await _metabase_state(client)]
+        for mode in ("error", "ok", "starting"):
+            double.mode = mode
+            clock.now += 300
+            seen.append(await _metabase_state(client))
+        return seen
+
+    with patch(_CLOCK, clock):
+        assert _scenario(run) == ["ok", "unavailable", "ok", "starting"]
+
+
+@pytest.mark.unit
+def test_a_metabase_slower_than_the_budget_keeps_its_last_known_state(
     tmp_path: Path, make_double: Callable[..., MetabaseDouble]
 ) -> None:
     double = make_double("ok")
@@ -214,19 +287,17 @@ def test_a_metabase_that_answers_in_under_a_second_does_not_flap(
         during = await _metabase_state(client)
         elapsed = time.monotonic() - started
         after = during
-        for _ in range(60):
+        for _ in range(20):  # inside the new cache window once the slow probe has finished
             after = await _metabase_state(client)
             if after != "ok":
                 break
-            await asyncio.sleep(0.1)
         return first, during, elapsed, after
 
     with patch(_CLOCK, clock):
         first, during, elapsed, after = _scenario(run)
-    assert first == "ok"
-    assert during == "ok"
-    assert elapsed < 0.4
-    assert after == "starting"
+    assert (first, during, after) == ("ok", "ok", "starting")
+    assert elapsed < 1.2
+    assert double.hits == 2
 
 
 @pytest.mark.unit
