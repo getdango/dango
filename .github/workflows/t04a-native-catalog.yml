@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      NATIVE_ATTEMPT: '5'
+      NATIVE_ATTEMPT: '6'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -53,7 +53,7 @@ jobs:
           stage identity
           test "$GITHUB_RUN_ATTEMPT" = 1
           test "$NATIVE_ATTEMPT" -ge 1
-          test "$NATIVE_ATTEMPT" -le 5
+          test "$NATIVE_ATTEMPT" -le 6
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           stage host
           test "$(uname -m)" = x86_64
@@ -370,12 +370,22 @@ jobs:
           cat > "$PAYLOAD/tools/native_diagnostic.py" <<'NATIVE_DIAGNOSTIC'
           """Test-only failure classifier; no SQL, exception messages, payloads or traceback output."""
 
+          import hashlib
           import json
           import runpy
           import sys
           from pathlib import Path
 
           TARGET = "/source/tests/integration/native_catalog_bindings.py"
+          CATALOG_SHA256 = "10788faf567e5c1ea2530fca5fdf2c120afeda6bad5537edfa4d40647f381647"
+          QUERY_SITES = {
+              ("_namespace", 151): "query.namespace",
+              ("_evidence", 166): "query.relations",
+              ("_evidence", 175): "query.dependencies",
+              ("inspect_owned", 247): "query.metadata",
+              ("_files", 264): "query.files",
+              ("remove_owned", 305): "query.removal_watermark",
+          }
 
 
           def classify(error):
@@ -418,6 +428,11 @@ jobs:
                   result["exception"] = next(
                       (name for kind, name in kinds.items() if type(error) is kind), "unclassified"
                   )
+                  with Path(catalogs.__file__).open("rb") as source:
+                      raw = source.read(65537)
+                  if hashlib.sha256(raw).hexdigest() != CATALOG_SHA256:
+                      return result
+                  site = None
                   operations = (
                       "_connect _postgres _query _execute _evidence prepare attach inspect_owned _files "
                       "_access allocate reconcile remove_owned begin checkpoint ready inventory delete_owned_files"
@@ -427,12 +442,16 @@ jobs:
                       if trace is None:
                           break
                       code = trace.tb_frame.f_code
+                      if code.co_filename == catalogs.__file__:
+                          site = QUERY_SITES.get((code.co_name, trace.tb_lineno), site)
                       if (
                           code.co_filename in (catalogs.__file__, ownership.__file__)
                           and code.co_name in operations
                       ):
                           result["operation"] = operations[operations.index(code.co_name)]
                       trace = trace.tb_next
+                  if site is not None:
+                      result["operation"] = site
                   state = dict.get(BaseException.__dict__["__dict__"].__get__(error), "sqlstate")
                   if type(state) is str and state in "28000 28P01 42501 42P01 42P06 42710 XX000".split():
                       result["sqlstate"] = state
