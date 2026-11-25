@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.unit.test_deploy_http_exposure_remote import _config
 from tests.unit.test_deploy_root_symlinks import SymlinkAwareSSH
 
 _PASSWORD = "Str0ng-and-l0ng-passw0rd!"
@@ -38,7 +39,6 @@ def _cmd_result(stdout: str = "") -> MagicMock:
 def _provision(project_root: Path, metabase_ready: bool) -> tuple[list[str], MagicMock]:
     """Run the DigitalOcean provisioning with everything external faked."""
     from dango.cli.commands.deploy_provision import run_provisioning
-    from dango.cli.commands.deploy_wizard import WizardConfig
 
     ssh = MagicMock()
     ssh.generate_key_pair.return_value = "ssh-ed25519 AAAA"
@@ -47,18 +47,7 @@ def _provision(project_root: Path, metabase_ready: bool) -> tuple[list[str], Mag
     )
     client = MagicMock()
     client.upload_ssh_key.return_value = {"id": 111}
-    config = WizardConfig(
-        region="nyc1",
-        size_slug="s-2vcpu-4gb",
-        size_tier=None,
-        domain=None,
-        admin_email="admin@example.com",
-        admin_password=_PASSWORD,
-        skip_oauth=True,
-        enable_backups=False,
-        monthly_cost=24,
-        allowed_ips=[],
-    )
+    config = _config([])
     wait = MagicMock(return_value=metabase_ready)
     with (
         patch("dango.platform.cloud.digitalocean.DigitalOceanClient", return_value=client),
@@ -94,14 +83,15 @@ def _byos(project_root: Path, metabase_ready: bool) -> tuple[list[str], MagicMoc
     from dango.cli.commands.deploy_provision import run_byos_setup
     from dango.cli.commands.deploy_wizard import BYOSConfig
 
+    # server_ip, ssh_user, ssh_key_path, domain, admin_email, admin_password, oauth flag
     config = BYOSConfig(
-        server_ip="198.51.100.10",
-        ssh_user="root",
-        ssh_key_path=str(project_root / "key"),
-        domain=None,
-        admin_email="admin@example.com",
-        admin_password=_PASSWORD,
-        skip_oauth=True,
+        "198.51.100.10",
+        "root",
+        str(project_root / "key"),
+        None,
+        "admin@example.com",
+        _PASSWORD,
+        True,
     )
     wait = MagicMock(return_value=metabase_ready)
     with (

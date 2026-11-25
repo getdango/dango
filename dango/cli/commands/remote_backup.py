@@ -802,8 +802,8 @@ def _verify_metabase_live(ctx: click.Context) -> None:
 
         if not result.success:
             console.print(
-                "[red]FAIL[/red]: Dango's web server is not responding, so Metabase "
-                "could not be checked. Check 'dango remote status' for more details."
+                "[red]FAIL[/red]: /api/health did not answer (Dango, or on older servers "
+                "Metabase, is not responding). Check 'dango remote status' for more details."
             )
             return
         state = metabase_component_state(result.stdout)

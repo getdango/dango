@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import threading
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -235,6 +236,6 @@ def test_verify_metabase_live_when_health_does_not_answer_makes_no_false_claim(
 ) -> None:
     """An older server proxies Metabase, so a refused request may mean Dango is up and Metabase down."""
     out = _run_verify_metabase(_refused(), tmp_path)
-    text = " ".join(out.output.split())
+    text = " ".join(re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", out.output).split())
     assert "web server is not responding" not in text
     assert "/api/health did not answer" in text

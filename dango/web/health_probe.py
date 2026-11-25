@@ -10,6 +10,7 @@ unauthenticated response.
 
 import asyncio
 import concurrent.futures
+import json
 import threading
 import time
 from collections.abc import Awaitable, Callable
@@ -26,8 +27,12 @@ DOCKER_CACHE_SECONDS: float = 15.0
 # One request waits at most this long for the component probes (they run in parallel).
 # ``dango start`` polls this endpoint with a 1 second client timeout, so stay under it.
 RESPONSE_BUDGET_SECONDS: float = 0.75
-# Network timeout of the Metabase request (connect, write, read, pool each).
-METABASE_REQUEST_TIMEOUT_SECONDS: float = 0.5
+# Network timeout of the Metabase request (connect, write, read, pool each). No request waits
+# on it once a state is cached (a refresh runs in the background), so it is longer than the
+# response budget: a Metabase that answers in under 2 seconds is "ok", not "unavailable".
+METABASE_REQUEST_TIMEOUT_SECONDS: float = 2.0
+# Only a 503 body matters (Metabase's "initializing" answer); never read more than this.
+METABASE_BODY_LIMIT_BYTES: int = 4096
 # A probe that outlives the response budget keeps running for this long, then is dropped.
 PROBE_HARD_TIMEOUT_SECONDS: float = 3.0
 
@@ -51,12 +56,20 @@ class BasicHealth(BaseModel):
     components: HealthComponents
 
 
+def _clock() -> float:
+    """Monotonic seconds; a seam so cache tests need no real waiting."""
+    return time.monotonic()
+
+
 class _CachedProbe:
     """One component's state: cached for a window, with a single probe in flight at a time.
 
-    Requests that arrive while a probe runs wait on the same result (bounded by their own
-    budget) instead of starting another one. State is guarded by a thread lock and the
-    in-flight result is a ``concurrent.futures.Future``, so it is shared across event loops.
+    Until a first state is known, requests wait on the one running probe (bounded by their own
+    budget). Once a state is known, an expired one is still returned at once while a single
+    background refresh runs (stale-while-revalidate), so a slow probe never flaps the state.
+    State is guarded by a thread lock and the in-flight result is a
+    ``concurrent.futures.Future`` that every waiter can await from its own event loop; if the
+    loop running a probe shuts down, its waiters get the timeout state.
     """
 
     def __init__(self, ttl: Callable[[], float], timeout_state: str, failed_state: str) -> None:
@@ -71,11 +84,12 @@ class _CachedProbe:
         self._task: asyncio.Task[None] | None = None
 
     async def get(self, probe: Callable[[], Awaitable[str]], budget: float) -> str:
-        """Return the cached state, or probe (once) and wait at most ``budget`` seconds."""
-        now = time.monotonic()
+        """Return the state: cached, stale (refreshing), or probed with at most ``budget`` wait."""
+        now = _clock()
         with self._lock:
-            if self._state is not None and now < self._expires:
-                return self._state
+            known = self._state
+            if known is not None and now < self._expires:
+                return known
             future = self._inflight
             # A probe whose event loop went away never finishes: replace it after its hard limit.
             stale = future is not None and now - self._started > PROBE_HARD_TIMEOUT_SECONDS + 1.0
@@ -88,6 +102,8 @@ class _CachedProbe:
             return self._failed_state
         if owner:
             self._task = asyncio.get_running_loop().create_task(self._run(probe, future))
+        if known is not None:
+            return known
         try:
             return await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(future)), budget)
         except asyncio.TimeoutError:
@@ -99,10 +115,12 @@ class _CachedProbe:
         self, probe: Callable[[], Awaitable[str]], future: concurrent.futures.Future[str]
     ) -> None:
         state = self._failed_state
+        cache = True
         try:
             state = await asyncio.wait_for(probe(), PROBE_HARD_TIMEOUT_SECONDS)
         except asyncio.CancelledError:
-            future.cancel()
+            # This loop is shutting down. Waiters on other loops get the timeout state.
+            state, cache = self._timeout_state, False
             raise
         except Exception:
             state = self._failed_state
@@ -110,11 +128,11 @@ class _CachedProbe:
             with self._lock:
                 if self._inflight is future:
                     self._inflight = None
-                    if not future.cancelled():
+                    if cache:
                         self._state = state
-                        self._expires = time.monotonic() + self._ttl()
-        if not future.done():
-            future.set_result(state)
+                        self._expires = _clock() + self._ttl()
+            if not future.done():
+                future.set_result(state)
 
 
 _PROBES_LOCK = threading.Lock()
@@ -140,23 +158,28 @@ async def _probe_metabase(project_root: Path) -> str:
 
     try:
         url = await asyncio.to_thread(resolve_metabase_url, project_root)
-        async with httpx.AsyncClient(
-            follow_redirects=False,
-            trust_env=False,
-            timeout=httpx.Timeout(METABASE_REQUEST_TIMEOUT_SECONDS),
-        ) as client:
-            response = await client.get(f"{url}/api/health")
+        async with (
+            httpx.AsyncClient(
+                follow_redirects=False,
+                trust_env=False,
+                timeout=httpx.Timeout(METABASE_REQUEST_TIMEOUT_SECONDS),
+            ) as client,
+            client.stream("GET", f"{url}/api/health") as response,
+        ):
+            if response.status_code == 200:
+                return "ok"
+            if response.status_code != 503:
+                return "unavailable"
+            body = b""
+            async for chunk in response.aiter_bytes():
+                body += chunk
+                if len(body) >= METABASE_BODY_LIMIT_BYTES:
+                    break
+        parsed = json.loads(body[:METABASE_BODY_LIMIT_BYTES])
     except Exception:
         return "unavailable"
-    if response.status_code == 200:
-        return "ok"
-    if response.status_code == 503:
-        try:
-            body = response.json()
-        except ValueError:
-            return "unavailable"
-        if isinstance(body, dict) and body.get("status") == "initializing":
-            return "starting"
+    if isinstance(parsed, dict) and parsed.get("status") == "initializing":
+        return "starting"
     return "unavailable"
 
 

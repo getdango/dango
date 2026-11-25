@@ -33,7 +33,7 @@ GET /api/health
 | `components.metabase` | `ok`, `starting` (Metabase is initializing), `unavailable`, `unknown` |
 | `components.docker` | `ok`, `unavailable`, `not_applicable` (cloud servers, where Dango has no Docker access by design), `unknown` |
 
-Component states come from short, cached checks (Metabase about 5 seconds, Docker about 15 seconds), so monitoring this endpoint does not load Metabase or Docker. A component state is information: it never changes the HTTP status. To alert on Metabase, match `"metabase":"ok"` in the body. Signed-in users can still reach Metabase's own health at `/metabase/api/health`.
+Component states come from short, cached checks (Metabase about 5 seconds, Docker about 15 seconds) that refresh in the background and report the last known state meanwhile, so monitoring this endpoint does not load Metabase or Docker and a briefly slow Metabase does not flap. A component state is information: it never changes the HTTP status. To alert on Metabase, match `"metabase":"ok"` in the body. Signed-in users can still reach Metabase's own health at `/metabase/api/health`.
 
 ### Status Codes
 
