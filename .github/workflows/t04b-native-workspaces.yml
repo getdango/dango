@@ -1,6 +1,7 @@
 name: T04B native workspace lifecycle
 
 on:
+  # Keep branch-update registration scoped to this task's paths and native smoke.
   push:
     branches: [feat/t04b-actor-workspaces-01]
     paths:
