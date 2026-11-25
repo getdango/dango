@@ -24,6 +24,22 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
+def _write_fresh_results(project: Path, payload: str) -> None:
+    """What dbt does during a build: write run_results.json (after the build started).
+
+    The mtime is stamped explicitly, clear of file-system clock granularity.
+    """
+    import os
+    import time
+
+    target = project / "dbt" / "target"
+    target.mkdir(parents=True, exist_ok=True)
+    path = target / "run_results.json"
+    path.write_text(payload)
+    fresh = time.time() + 5
+    os.utime(path, (fresh, fresh))
+
+
 @pytest.mark.unit
 class TestRunTransformParity:
     def test_run_transform_returns_structured_results_and_post_build(
@@ -56,10 +72,7 @@ class TestRunTransformParity:
         )
 
         def _fake_dbt(project_root, select, full_refresh):
-            # dbt writes run_results.json during the build (after build_started)
-            target = project / "dbt" / "target"
-            target.mkdir(parents=True, exist_ok=True)
-            (target / "run_results.json").write_text(payload)
+            _write_fresh_results(project, payload)
             return (True, "Completed with 1 error (test)")
 
         calls: list[bool] = []
@@ -77,6 +90,39 @@ class TestRunTransformParity:
         assert result["results"]["counts"]["fail"] == 1
         assert [n["name"] for n in result["results"]["failed"]] == ["accepted_values_fct_a_x__a__b"]
         assert "Got 1 result" in result["results"]["failed"][0]["message"]
+
+    def test_run_transform_reads_fresh_results_when_the_build_clock_runs_ahead(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Coarse file timestamps: a file written right after the build started can carry an
+        mtime older than the build-start stamp; it is still this build's result."""
+        import json
+        import time
+
+        payload = json.dumps(
+            {
+                "results": [
+                    {"unique_id": "model.p.fct_a", "status": "success"},
+                    {"unique_id": "test.p.not_null_fct_a_id.abc123", "status": "fail"},
+                ]
+            }
+        )
+
+        def _fake_dbt(project_root, select, full_refresh):
+            _write_fresh_results(project, payload)
+            return (True, "Completed with 1 error (test)")
+
+        real_time = time.time
+        monkeypatch.setattr(time, "time", lambda: real_time() + 1.0)
+        monkeypatch.setattr(
+            "dango.transformation.build_finalize.finalize_dbt_build",
+            lambda project_root, *, success, refresh_metabase=True: {"model_status": "updated"},
+        )
+        monkeypatch.setattr("dango.transformation.run_dbt_models", _fake_dbt)
+        result = mcp_operations.run_transform()
+        assert result["status"] == "failed"
+        assert result["results"] is not None
+        assert [n["name"] for n in result["results"]["failed"]] == ["not_null_fct_a_id"]
 
     def test_run_transform_stale_run_results_ignored_with_note(
         self, project: Path, monkeypatch: pytest.MonkeyPatch

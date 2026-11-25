@@ -6,7 +6,12 @@ Real-dbt project builders for the dbt build outcome tests: a hand-built warehous
 
 from __future__ import annotations
 
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import duckdb
 
@@ -161,3 +166,16 @@ def make_csv_project(root: Path, csv_text: str, *, failing_leaf_test: bool = Fal
 
 def write_orders_csv(root: Path, csv_text: str) -> None:
     (root / "data" / "uploads" / "orders.csv").write_text(csv_text, encoding="utf-8", newline="\n")
+
+
+@contextmanager
+def build_clock_ahead(seconds: float = 1.0) -> Iterator[None]:
+    """The build-start stamp of `run_dbt_models` runs `seconds` ahead of the file-system clock.
+
+    That is the worst case of a coarse file-system timestamp: a results file written right
+    after the build started carries an mtime older than the stamp. Only `run_dbt_models`
+    sees the shifted clock; the test's own `time` is untouched.
+    """
+    real_time = time.time
+    with patch("dango.transformation.time", SimpleNamespace(time=lambda: real_time() + seconds)):
+        yield
