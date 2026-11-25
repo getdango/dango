@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Literal, TypeVar
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from dango.exceptions import MigrationApplicationError
 from dango.operations.contracts import (
@@ -67,6 +67,17 @@ class LeaseBinding(_Record):
     token: _Id
     revision: _Counter
     expires_at_epoch_us: _Counter
+
+
+class EffectInspection(_Record):
+    """Return a scoped journal snapshot without granting mutation or native authority."""
+
+    operation_id: _Id
+    operation_name: _Id
+    request_digest: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+    state: Literal["prepared", "running", "finalized"]
+    effect: EffectRecord | None
+    receipt: OutcomeReceipt | None
 
 
 class _StoreError(ValueError):
@@ -210,6 +221,52 @@ class OperationStore:
                 ),
             )
             return BeginResult(state="started", operation_id=context.operation_id)
+
+    def inspect_effect(
+        self, context: OperationContext, operation_id: str, effect_id: str
+    ) -> EffectInspection:
+        """Inspect another operation only within an admitted caller's project and actor."""
+        context = _validated(OperationContext, context)
+        try:
+            operation_id = TypeAdapter(_Id).validate_python(operation_id, strict=True)
+            effect_id = TypeAdapter(_Id).validate_python(effect_id, strict=True)
+        except (ValidationError, ValueError, TypeError):
+            raise _StoreError("invalid_input") from None
+        with self._transaction() as conn:
+            self._owned(conn, context, context.operation_id, active=False)
+            row = conn.execute(
+                "SELECT * FROM platform_operations WHERE operation_id=? AND project_id=? AND actor_id=?",
+                (operation_id, context.project_id, context.actor_id),
+            ).fetchone()
+            if row is None:
+                raise _StoreError("operation_denied")
+            receipt = self._receipt(row) if row["state"] == "finalized" else None
+            if receipt is not None and (
+                receipt.result_ref != row["result_ref"]
+                or receipt.resource_revision != row["resource_revision"]
+            ):
+                raise _StoreError("store_unavailable")
+            effect = conn.execute(
+                "SELECT * FROM platform_effects WHERE operation_id=? AND effect_id=?",
+                (operation_id, effect_id),
+            ).fetchone()
+            return EffectInspection(
+                operation_id=row["operation_id"],
+                operation_name=row["operation_name"],
+                request_digest=row["request_digest"],
+                state=row["state"],
+                receipt=receipt,
+                effect=None
+                if effect is None
+                else EffectRecord(
+                    effect_id=effect["effect_id"],
+                    sequence=effect["effect_sequence"],
+                    name=effect["effect_name"],
+                    state=effect["state"],
+                    native_ref=effect["native_ref"],
+                    recovery_ref=effect["recovery_ref"],
+                ),
+            )
 
     def mark_running(self, context: OperationContext, operation_id: str) -> None:
         """Compare and swap the owning operation from prepared to running."""

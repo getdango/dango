@@ -19,6 +19,9 @@ server caller and persisted grant integration remain T09C's responsibility.
 | `__init__.py` | Empty, import-safe package marker | None |
 | `catalogs.py` | Strict binding records, authorization/credential join and concrete native adapter | `CatalogBinding`, `CatalogAllocator`, `NativeCatalogPort`, `CatalogError` |
 | `catalog_ownership.py` | Private manifest/root identity, no-follow IO and durable allocation/removal recovery | Internal ownership helpers |
+| `workspaces.py` | Canonical operation replay, workspace leases/CAS, retention pins and explicit owned expiry | `WorkspaceService`, `Workspace`, `WorkspacePin`, `WorkspaceError` |
+| `workspace_records.py` | Strict public records and immutable private recovery snapshots | Internal records; public records imported through `workspaces.py` |
+| `workspace_state.py` | Private no-follow manifests, persistent locks and owner-scoped journal joins | Internal helpers |
 | `CLAUDE.md` | Storage ownership and verification routing | None |
 
 ## Common Tasks
@@ -28,6 +31,8 @@ server caller and persisted grant integration remain T09C's responsibility.
 | Change binding or authorization behavior | `catalogs.py` and assigned unit tests | `pytest tests/unit/test_catalog_bindings.py -m unit -q` |
 | Change physical ownership/recovery | `catalog_ownership.py` and assigned unit/native tests | Interruption/substitution negatives and actual populated removal |
 | Verify native catalog behavior | `tests/integration/native_catalog_bindings.py`, dedicated workflow | Explicit exact-pin native smoke, then the finite remaining matrix |
+| Change workspace lifecycle/pins | `workspaces.py`, `workspace_state.py`, `workspace_records.py` | `pytest tests/unit/test_workspaces.py tests/unit/test_workspace_state.py tests/unit/test_operation_store_workspace.py -q` |
+| Verify workspace/native join | `tests/integration/native_workspaces.py`, dedicated T04B workflow | Guarded target import/bootstrap, then populated workspace smoke and finite matrix |
 | Update this guide | `CLAUDE.md` | `python scripts/validate_claude_md.py dango/storage/CLAUDE.md` |
 
 ## Dependencies
@@ -74,6 +79,40 @@ the unchanged hash-bound fixture and approved import pins with an identifying re
 The initializer import closure includes logging/console dependencies. A restricted-import
 regression prevents a fuller host site from masking omissions; it is not native acceptance.
 Supported native-platform evidence is Linux amd64 only; macOS/Windows native behavior is unproved.
+
+## Workspace lifecycle
+
+`WorkspaceService(project_root, allocator, store, clock)` takes an aware UTC server clock.
+`allocate(context, branch_ref, code_commit, location)` requires explicit remote/local location;
+`get(context, workspace_id)`, `extend(context, workspace_id, expected_revision, expiry)` and
+`expire(context, workspace_id, expected_revision)` check the owning project/actor and admitted
+canonical operation. Initial lease is provisionally seven days for this unregistered service;
+this is not shipping policy or automatic deletion. Near-expiry warnings are computed from the
+stored expiry by callers. Extension only lengthens a lease and uses a strict integer CAS.
+
+The server first admits `workspace.allocate` payload `{branch_ref,code_commit,location}`,
+`workspace.extend` payload `{workspace_id,expiry}` or `workspace.expire` payload `{workspace_id}`.
+Extension/expiry use decimal `expected_revision`; expiry strings use UTC ISO microseconds/+00:00.
+The service compares the admitted request digest and uses the returned canonical operation ID.
+Idempotency keys remain request-owned. One prepared allocation effect journals the random ID
+before native IO; branch names never select authority or physical resources. Ready is exposed
+only after durable catalog preparation and effect application. Missing late authority refuses
+reconstruction; valid early interruption resumes the recorded ID.
+
+`acquire_pin(context,workspace_id,purpose,resource_ref)` returns an opaque `WorkspacePin` for
+input/build/query/backup. The same operation/purpose/resource returns the same active pin.
+`release_pin(context,workspace_id,pin_id)` is idempotent only for its owning operation, including
+after finalization; released pins are retained as tombstones. `has_pins` refuses unknown state.
+Pins outlive UI leases and operation finalization; released pins' still-active operations also
+block expiry. Future T05/T06B and other consumers must call this API at their joins.
+
+Persistent lock order is operation intent, workspace, then allocator. No SQLite transaction
+spans native IO. Private state holds operation references, never copied operation lifecycle
+authority. Expiry rechecks time/activity/pins under the workspace lock, reads T04A's current
+binding through its private `OwnedWorkspace` journal, then always invokes public authorized
+allocator removal, including an already-removed interrupted retry. Caught resumable failures
+retain active operations and raise safe errors; finalized receipts never reopen. Kernel locks
+and mode0700 roots coordinate supported callers, not hostile programs sharing the OS identity.
 
 ## Don't Modify
 

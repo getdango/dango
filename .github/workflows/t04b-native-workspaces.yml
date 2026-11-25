@@ -1,0 +1,549 @@
+name: T04B native workspace lifecycle
+
+on:
+  push:
+    branches: [feat/t04b-actor-workspaces-01]
+    paths:
+      - dango/storage/workspaces.py
+      - dango/storage/workspace_state.py
+      - dango/storage/workspace_records.py
+      - dango/storage/CLAUDE.md
+      - dango/operations/store.py
+      - dango/operations/CLAUDE.md
+      - tests/unit/test_workspaces.py
+      - tests/unit/test_workspace_state.py
+      - tests/unit/test_operation_store_workspace.py
+      - tests/unit/workspace_support.py
+      - tests/integration/native_workspaces.py
+      - tests/integration/workspace_cases.py
+      - .github/workflows/t04b-native-workspaces.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: t04b-native-workspaces
+  cancel-in-progress: false
+
+jobs:
+  native-smoke:
+    if: github.repository == 'getdango/dango' && github.ref == 'refs/heads/feat/t04b-actor-workspaces-01'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Enforce standard task controls and run only the populated smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+          TASK_ROOT="$RUNNER_TEMP/t04b-$GITHUB_RUN_ID"
+          mkdir -m700 "$TASK_ROOT"
+          mkdir -m700 "$TASK_ROOT/evidence"
+          printf '%s\n' "$TASK_ROOT" > "$RUNNER_TEMP/t04b-root"
+          stage() {
+            printf '%s\n' "$1" | tee "$TASK_ROOT/evidence/stage.txt"
+            printf '%s\n' "$1" >> "$TASK_ROOT/evidence/stages.txt"
+          }
+          finish() {
+            result=$?
+            trap - EXIT
+            printf '{"exit_code":%s,"last_fixed_stage":"%s"}\n' "$result" "$(cat "$TASK_ROOT/evidence/stage.txt")" > "$TASK_ROOT/evidence/execution.json"
+            exit "$result"
+          }
+          trap finish EXIT
+          stage identity
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          stage host
+          test "$(uname -m)" = x86_64
+          test "$(. /etc/os-release; echo "$VERSION_ID")" = 24.04
+          test "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs
+          stage tools
+          for tool in docker jq systemd-run systemctl fallocate mkfs.ext4 mount losetup findmnt; do command -v "$tool"; done
+          stage docker_control_observation
+          docker info --format '{"cgroup_driver":"{{.CgroupDriver}}","cgroup_version":"{{.CgroupVersion}}","storage_driver":"{{.Driver}}"}' | tee "$TASK_ROOT/evidence/docker-controls.json"
+          CGROUP_DRIVER=$(jq -r .cgroup_driver "$TASK_ROOT/evidence/docker-controls.json")
+          test "$(jq -r .cgroup_version "$TASK_ROOT/evidence/docker-controls.json")" = 2
+          case "$CGROUP_DRIVER" in systemd|cgroupfs) ;; *) exit 1;; esac
+          stage host_python
+          /usr/bin/python3 --version | tee "$TASK_ROOT/evidence/host-python.txt"
+          test "$(/usr/bin/python3 -c 'import sys; print(sys.version_info >= (3,12))')" = True
+          stage unowned_slice_preconditions
+          systemctl show -p LoadState -p ActiveState -p FragmentPath -p DropInPaths -p ControlGroup t04b.slice | tee "$TASK_ROOT/evidence/slice-before.txt"
+          test ! -e /run/systemd/system/t04b.slice && test ! -L /run/systemd/system/t04b.slice
+          test "$(systemctl show -p ActiveState --value t04b.slice)" = inactive
+          test -z "$(systemctl show -p FragmentPath --value t04b.slice)"
+          test -z "$(systemctl show -p DropInPaths --value t04b.slice)"
+          prior_group=$(systemctl show -p ControlGroup --value t04b.slice)
+          case "$prior_group" in ''|/t04b.slice) ;; *) exit 1;; esac
+          if test -d /sys/fs/cgroup/t04b.slice; then
+            test "$(awk '$1=="populated" {print $2}' /sys/fs/cgroup/t04b.slice/cgroup.events)" = 0
+            test -z "$(find /sys/fs/cgroup/t04b.slice -mindepth 1 -type d -print -quit)"
+          fi
+          stage exclusive_slice_creation
+          sudo /usr/bin/python3 -c 'import os,sys; fd=os.open("/run/systemd/system/t04b.slice",os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o644); os.write(fd,sys.stdin.buffer.read()); os.close(fd)' <<'UNIT'
+          [Unit]
+          Description=Bounded T04B native workspace task
+          [Slice]
+          CPUAccounting=yes
+          MemoryAccounting=yes
+          TasksAccounting=yes
+          CPUQuota=400%
+          MemoryMax=4831838208
+          MemorySwapMax=0
+          UNIT
+          stat -c %d:%i /run/systemd/system/t04b.slice > "$TASK_ROOT/owns-slice"
+          stage owned_slice_start
+          sudo systemctl daemon-reload
+          sudo systemctl start t04b.slice
+          stage controller_start
+          sudo systemd-run --quiet --wait --pipe --collect --unit=t04bcontroller --slice=t04b.slice \
+            --property=Type=exec --setenv="TASK_ROOT=$TASK_ROOT" --setenv="SOURCE=$GITHUB_WORKSPACE" \
+            --setenv="COMMIT=$GITHUB_SHA" --setenv="OWNER=t04b-$GITHUB_RUN_ID" --setenv="CGROUP_DRIVER=$CGROUP_DRIVER" \
+            --setenv="EVIDENCE_UID=$(id -u)" --setenv="EVIDENCE_GID=$(id -g)" \
+            /bin/bash --noprofile --norc -euo pipefail <<'CONTROLLER'
+          export PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 DOCKER_CONFIG="$TASK_ROOT/docker-config"
+          stage() {
+            printf '%s\n' "$1" | tee "$TASK_ROOT/evidence/stage.txt"
+            printf '%s\n' "$1" >> "$TASK_ROOT/evidence/stages.txt"
+          }
+          stage controller_aggregate_limits
+          mkdir -m700 "$DOCKER_CONFIG"
+          test "$(systemctl show -p ControlGroup --value t04b.slice)" = /t04b.slice
+          SLICE=/sys/fs/cgroup/t04b.slice
+          case "$CGROUP_DRIVER" in
+            systemd) CGROUP_PARENT=t04b.slice ;;
+            cgroupfs) CGROUP_PARENT=/t04b.slice ;;
+            *) exit 1 ;;
+          esac
+          jq -n --rawfile memory_max "$SLICE/memory.max" --rawfile swap_max "$SLICE/memory.swap.max" \
+            --rawfile cpu_max "$SLICE/cpu.max" --rawfile controller_cgroup "/proc/$$/cgroup" \
+            '{memory_max:$memory_max,swap_max:$swap_max,cpu_max:$cpu_max,controller_cgroup:$controller_cgroup}' \
+            | tee "$TASK_ROOT/evidence/aggregate-controls.json"
+          test "$(cat "$SLICE/memory.max")" = 4831838208
+          test "$(cat "$SLICE/memory.swap.max")" = 0
+          read -r QUOTA PERIOD < "$SLICE/cpu.max"
+          test "$QUOTA" != max && test "$QUOTA" -gt 0 && test "$QUOTA" -le "$((4 * PERIOD))"
+          test -f "$SLICE/memory.peak"
+          grep -Fq ':/t04b.slice/' "/proc/$$/cgroup"
+          stage controller_storage_preflight
+          DOCKER_ROOT=$(docker info --format '{{.DockerRootDir}}')
+          DRIVER=$(docker info --format '{{.Driver}}')
+          case "$DRIVER" in overlay2|overlayfs) ;; *) exit 1;; esac
+          BACKING_BYTES=6442450944
+          IMAGE_BOUND=2688958884
+          OUTSIDE_BOUND=268435456
+          HEADROOM=2147483648
+          TOTAL_BOUND=$((BACKING_BYTES + IMAGE_BOUND + OUTSIDE_BOUND))
+          test "$TOTAL_BOUND" -le 10000000000
+          CHECKOUT_BYTES=$(du -sx --block-size=1 "$SOURCE" | cut -f1)
+          test "$CHECKOUT_BYTES" -lt $((128 * 1024 * 1024))
+          BACKING="$TASK_ROOT/payload.ext4"
+          PAYLOAD="$TASK_ROOT/payload"
+          PG='' CLIENT='' LOOP=''
+          NEW_IMAGES=()
+          MIN_FREE=9223372036854775807
+          LOOP_SAMPLED_MAX=0
+          DOCKER_BEFORE=$(du -sx --block-size=1 "$DOCKER_ROOT" | cut -f1)
+          free_bytes() { df --output=avail -B1 "$1" | tail -1 | tr -d ' '; }
+          outside_gate() {
+            local remaining=$1
+            for path in "$TASK_ROOT" "$DOCKER_ROOT" /var/lib/containerd "$SOURCE"; do
+              if test -e "$path"; then
+                free=$(free_bytes "$path")
+                test "$free" -ge "$((remaining + HEADROOM))"
+                test "$free" -ge "$MIN_FREE" || MIN_FREE=$free
+              fi
+            done
+          }
+          inside_gate() {
+            free=$(free_bytes "$PAYLOAD")
+            test "$free" -ge "$((HEADROOM + $1))"
+            test "$free" -ge "$MIN_FREE" || MIN_FREE=$free
+            used=$(du -sx --block-size=1 "$PAYLOAD" | cut -f1)
+            test "$used" -le 4294967296
+            test "$used" -le "$LOOP_SAMPLED_MAX" || LOOP_SAMPLED_MAX=$used
+            outside_gate 0
+          }
+          cleanup() {
+            local failure=0
+            set +e
+            for id in "$CLIENT" "$PG"; do
+              test -z "$id" && continue
+              test "$(docker inspect --format '{{index .Config.Labels "t04b.owner"}}' "$id")" = "$OWNER" || { failure=1; continue; }
+              docker logs "$id" > "$TASK_ROOT/container-$id.log" 2>&1
+              test "$(stat -c %s "$TASK_ROOT/container-$id.log")" -le 16777216 || failure=1
+              docker stop --time=10 "$id" >/dev/null
+              docker rm "$id" >/dev/null || failure=1
+              docker inspect "$id" >/dev/null 2>&1 && failure=1
+            done
+            for image in "${NEW_IMAGES[@]}"; do docker image rm "$image" >/dev/null || failure=1; done
+            if mountpoint -q "$PAYLOAD"; then
+              # Only fixed safe report allowlist is retained; no raw SQL, credentials or container logs.
+              for report in native-result.json smoke-result.json target-import.json acquisition.json acquisition-stage.json; do
+                test ! -f "$PAYLOAD/work/$report" || cp "$PAYLOAD/work/$report" "$TASK_ROOT/evidence/$report"
+              done
+              umount "$PAYLOAD" || failure=1
+            fi
+            if ! mountpoint -q "$PAYLOAD"; then
+              test -z "$LOOP" || losetup -d "$LOOP" || failure=1
+              if test -z "$(losetup -j "$BACKING")"; then
+                test ! -f "$BACKING" || rm "$BACKING" || failure=1
+              else
+                failure=1
+              fi
+            else
+              failure=1
+            fi
+            rm -f "$TASK_ROOT"/container-*.log
+            jq -n --argjson cleanup "$failure" --argjson task_bound "$TOTAL_BOUND" \
+              --argjson checkout "$CHECKOUT_BYTES" --arg driver "$DRIVER" \
+              --argjson observed_min_free "$MIN_FREE" --argjson observed_payload_max "$LOOP_SAMPLED_MAX" \
+              --argjson docker_before "$DOCKER_BEFORE" --argjson docker_after "$(du -sx --block-size=1 "$DOCKER_ROOT" | cut -f1)" \
+              --arg memory_peak "$(cat "$SLICE/memory.peak")" --arg memory_events "$(cat "$SLICE/memory.events")" \
+              --arg cpu_stat "$(cat "$SLICE/cpu.stat")" \
+              '{cleanup_failure:$cleanup,projected_owned_bound:$task_bound,observed_checkout_bytes:$checkout,observed_min_free:$observed_min_free,observed_payload_sampled_max:$observed_payload_max,docker_store_before:$docker_before,docker_store_after:$docker_after,driver:$driver,aggregate_memory_peak:$memory_peak,memory_events:$memory_events,cpu_stat:$cpu_stat,infrastructure:"Existing Docker/containerd/systemd/runner/kernel overhead is outside task slice; separate process RSS samples are not a complete infrastructure memory measurement"}' \
+              > "$TASK_ROOT/evidence/resources.json"
+            ps -eo comm,rss | awk '$1 ~ /^(dockerd|containerd.*|systemd|Runner.Listener|Runner.Worker)$/ {print}' > "$TASK_ROOT/evidence/infrastructure-final.txt"
+            chown -R "$EVIDENCE_UID:$EVIDENCE_GID" "$TASK_ROOT/evidence"
+            test "$failure" = 0
+          }
+          trap cleanup EXIT
+          ps -eo comm,rss | awk '$1 ~ /^(dockerd|containerd.*|systemd|Runner.Listener|Runner.Worker)$/ {print}' > "$TASK_ROOT/evidence/infrastructure-before.txt"
+          stage disk_headroom_before_allocation
+          outside_gate "$TOTAL_BOUND"
+          test ! -e "$BACKING"
+          (set -o noclobber; : > "$BACKING")
+          fallocate -l "$BACKING_BYTES" "$BACKING"
+          test "$(stat -c %s "$BACKING")" = "$BACKING_BYTES"
+          test "$(( $(stat -c %b "$BACKING") * 512 ))" -ge "$BACKING_BYTES"
+          stage bounded_loop_filesystem
+          mkfs.ext4 -q -m0 "$BACKING"
+          mkdir "$PAYLOAD"
+          LOOP=$(losetup --find --show "$BACKING")
+          test "$(losetup -n -O BACK-FILE "$LOOP")" = "$BACKING"
+          mount -o nosuid,nodev "$LOOP" "$PAYLOAD"
+          test "$(findmnt -n -o SOURCE -T "$PAYLOAD")" = "$LOOP"
+          inside_gate 2147483648
+          mkdir -m700 "$PAYLOAD/work" "$PAYLOAD/pgdata" "$PAYLOAD/pg-secrets" "$PAYLOAD/client-secrets" "$PAYLOAD/gate"
+          /usr/bin/python3 - "$SOURCE/tests/fixtures/runtime_profiles.json" > "$PAYLOAD/image-pins.json" <<'IMAGE_PINS'
+          import hashlib, json, sys
+          from pathlib import Path
+          raw = Path(sys.argv[1]).read_bytes()
+          assert hashlib.sha256(raw).hexdigest() == 'b6879d50f7220b8afa1a1b6b6266e27db6c3492a8fa2bc71747656c6411af449'
+          rows = {r['component']['component_id']: r for r in json.loads(raw)['artifacts']}
+          images = {}
+          for name in ('node', 'postgres'):
+              row = rows['t44a-image-' + name]
+              images[name] = {
+                  'ref': row['component']['artifact_ref'],
+                  'config': row['native_hashes']['config'],
+                  'diff_ids': [value for key, value in row['native_hashes'].items() if key != 'config'],
+              }
+          print(json.dumps(images))
+          IMAGE_PINS
+          stage pinned_images_acquisition
+          for role in node postgres; do
+            image=$(jq -r ".$role.ref" "$PAYLOAD/image-pins.json")
+            if ! docker image inspect "$image" >/dev/null 2>&1; then
+              outside_gate "$IMAGE_BOUND"
+              NEW_IMAGES+=("$image")
+              printf '%s\n' "$image" >> "$TASK_ROOT/new-images"
+              docker pull --platform=linux/amd64 "$image" >/dev/null
+            fi
+            docker image inspect "$image" > "$PAYLOAD/image-$role.json"
+            jq -e --arg role "$role" --slurpfile pins "$PAYLOAD/image-pins.json" \
+              '.[0] as $i | $pins[0][$role] as $p | $i.Os=="linux" and $i.Architecture=="amd64" and $i.RootFS.Layers==$p.diff_ids and ($i.Id==$p.config or ($i.Id==($p.ref|split("@")[1]) and $i.Descriptor.digest==($p.ref|split("@")[1]))) and ($i.RepoDigests|index($p.ref)!=null)' \
+              "$PAYLOAD/image-$role.json" >/dev/null
+          done
+          inside_gate 2147483648
+          # Seventeen-wheel actual-import closure including package initializers; data only, independently hash-checked.
+          cat > "$PAYLOAD/import-pins.json" <<'IMPORT_PINS'
+          [
+            [
+              "pydantic-2.12.4-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/82/2f/e68750da9b04856e2a7ec56fc6f034a5a79775e9b9a81882252789873798/pydantic-2.12.4-py3-none-any.whl",
+              "92d3d202a745d46f9be6df459ac5a064fdaa3c1c4cd8adcfa332ccf3c05f871e",
+              463400
+            ],
+            [
+              "pydantic_core-2.41.5-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+              "https://files.pythonhosted.org/packages/4c/d2/ef2074dc020dd6e109611a8be4449b98cd25e1b9b8a303c2f0fca2f2bcf7/pydantic_core-2.41.5-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+              "22f0fb8c1c583a3b6f24df2470833b40207e907b90c928cc8d3594b76f874375",
+              2064877
+            ],
+            [
+              "annotated_types-0.7.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl",
+              "1f02e8b43a8fbbc3f3e0d4f0f4bfc8131bcb4eebe8849b8e5c773f3a1c582a53",
+              13643
+            ],
+            [
+              "typing_inspection-0.4.2-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl",
+              "4ed1cacbdc298c220f1bd249ed5287caa16f34d44ef4e9c3d0cbad5b521545e7",
+              14611
+            ],
+            [
+              "keyring-24.3.1-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/7c/23/d557507915181687e4a613e1c8a01583fd6d7cb7590e1f039e357fe3b304/keyring-24.3.1-py3-none-any.whl",
+              "df38a4d7419a6a60fea5cef1e45a948a3e8430dd12ad88b0f423c5c143906218",
+              38092
+            ],
+            [
+              "jaraco.classes-3.4.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/7f/66/b15ce62552d84bbfcec9a4873ab79d993a1dd4edb922cbfccae192bd5b5f/jaraco.classes-3.4.0-py3-none-any.whl",
+              "f662826b6bed8cace05e7ff873ce0f9283b5c924470fe664fff1c2f00f581790",
+              6777
+            ],
+            [
+              "more_itertools-10.8.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/a4/8e/469e5a4a2f5855992e425f3cb33804cc07bf18d48f2db061aec61ce50270/more_itertools-10.8.0-py3-none-any.whl",
+              "52d4362373dcf7c52546bc4af9a86ee7c4579df9a8dc268be0a2f949d376cc9b",
+              69667
+            ],
+            [
+              "secretstorage-3.4.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/91/ff/2e2eed29e02c14a5cb6c57f09b2d5b40e65d6cc71f45b52e0be295ccbc2f/secretstorage-3.4.0-py3-none-any.whl",
+              "0e3b6265c2c63509fb7415717607e4b2c9ab767b7f344a57473b779ca13bd02e",
+              15272
+            ],
+            [
+              "jeepney-0.9.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/b2/a3/e137168c9c44d18eff0376253da9f1e9234d0239e0ee230d2fee6cea8e55/jeepney-0.9.0-py3-none-any.whl",
+              "97e5714520c16fc0a45695e5365a2e11b81ea79bba796e26f9f1d178cb182683",
+              49010
+            ],
+            [
+              "cryptography-46.0.3-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+              "https://files.pythonhosted.org/packages/5c/49/498c86566a1d80e978b42f0d702795f69887005548c041636df6ae1ca64c/cryptography-46.0.3-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+              "01ca9ff2885f3acc98c29f1860552e37f6d7c7d013d7334ff2a9de43a449315d",
+              4450807
+            ],
+            [
+              "cffi-2.0.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+              "https://files.pythonhosted.org/packages/47/d9/d83e293854571c877a92da46fdec39158f8d7e68da75bf73581225d28e90/cffi-2.0.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+              "afb8db5439b81cf9c9d0c80404b60c3cc9c3add93e114dcae767f1477cb53775",
+              219244
+            ],
+            [
+              "pycparser-2.23-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/a0/e3/59cd50310fc9b59512193629e1984c1f95e5c8ae6e5d8c69532ccc65a7fe/pycparser-2.23-py3-none-any.whl",
+              "e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934",
+              118140
+            ],
+            [
+              "structlog-26.1.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/a9/18/489c97b834dfff9cf2fc2507cede4bcd4b11e67f84bc462acd1992496f86/structlog-26.1.0-py3-none-any.whl",
+              "e081a26d6c373e6d201eca24eede26d8ffab07f88f477822e679183428d3d91e",
+              73764
+            ],
+            [
+              "rich-15.0.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/82/3b/64d4899d73f91ba49a8c18a8ff3f0ea8f1c1d75481760df8c68ef5235bf5/rich-15.0.0-py3-none-any.whl",
+              "33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb",
+              310654
+            ],
+            [
+              "markdown_it_py-4.3.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/c9/31/5f0ac2f1a1c67423c995c731a11cd4ad05d081a2be969d74f868bdb9cc70/markdown_it_py-4.3.0-py3-none-any.whl",
+              "7aa1511a46c39138de78d9eba92ce47e63124d8003fc98b3a351909e04239efa",
+              96951
+            ],
+            [
+              "pygments-2.21.0-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/71/46/17f022dd3e953bf20a04a028a21ec746d942f8d2af30fa0f124fa0e6a684/pygments-2.21.0-py3-none-any.whl",
+              "2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9",
+              1250147
+            ],
+            [
+              "mdurl-0.1.2-py3-none-any.whl",
+              "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl",
+              "84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8",
+              9979
+            ]
+          ]
+          IMPORT_PINS
+          stage pinned_artifacts_acquisition
+          /usr/bin/python3 "$SOURCE/tests/integration/native_catalog_bindings.py" --acquire "$PAYLOAD"
+          export PAYLOAD
+          /usr/bin/python3 - <<'PY'
+          import json, os, secrets
+          from pathlib import Path
+          root = Path(os.environ['PAYLOAD'])
+          admin, writer = secrets.token_hex(32), secrets.token_hex(32)
+          values = {
+              'pg-secrets/admin': (admin, 999),
+              'pg-secrets/pgpass': ('*:*:*:postgres:' + admin + '\n', 999),
+              'pg-secrets/setup.sql': ("CREATE ROLE t04b_writer LOGIN PASSWORD '" + writer + "' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;\nCREATE DATABASE t04a_catalog;\nGRANT CONNECT,CREATE ON DATABASE t04a_catalog TO t04b_writer;\n", 999),
+              'client-secrets/catalog.json': (json.dumps(dict(host='127.0.0.1',port='5432',dbname='t04a_catalog',user='t04b_writer',password=writer)), 501),
+          }
+          for name, (value, uid) in values.items():
+              path = root / name
+              path.write_text(value)
+              path.chmod(0o600)
+              os.chown(path, uid, 999 if uid == 999 else 20)
+          PY
+          chown -R 999:999 "$PAYLOAD/pgdata" "$PAYLOAD/pg-secrets"
+          chown -R 501:20 "$PAYLOAD/work" "$PAYLOAD/client-secrets"
+          chmod 755 "$PAYLOAD/gate"
+          PG_IMAGE=$(jq -r '.postgres.ref' "$PAYLOAD/image-pins.json")
+          CLIENT_IMAGE=$(jq -r '.node.ref' "$PAYLOAD/image-pins.json")
+          stage waiting_containers_creation
+          common=(--platform=linux/amd64 --cgroup-parent="$CGROUP_PARENT" --read-only --cap-drop=ALL --security-opt=no-new-privileges:true --pids-limit=128 --log-driver=json-file --log-opt=max-size=8m --log-opt=max-file=1 --tmpfs=/tmp:rw,noexec,nosuid,nodev,size=67108864,mode=1777 --label="t04b.owner=$OWNER")
+          PG=$(docker create "${common[@]}" --name "$OWNER-pg" --user=999:999 --cpus=1 --memory=805306368 --memory-swap=805306368 --network=none \
+            --tmpfs=/var/run/postgresql:rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999 \
+            --mount="type=bind,src=$PAYLOAD/pgdata,dst=/var/lib/postgresql/data" \
+            --mount="type=bind,src=$PAYLOAD/pg-secrets,dst=/secrets,readonly" \
+            --mount="type=bind,src=$PAYLOAD/gate,dst=/gate,readonly" \
+            --env=POSTGRES_PASSWORD_FILE=/secrets/admin --env=POSTGRES_DB=postgres \
+            '--env=POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --auth-local=scram-sha-256' --env=PGPASSFILE=/secrets/pgpass \
+            --entrypoint=/bin/sh "$PG_IMAGE" -c 'while [ ! -f /gate/pg ]; do sleep .1; done; exec /usr/local/bin/docker-entrypoint.sh postgres -c shared_buffers=128MB -c max_wal_size=64MB -c log_min_error_statement=panic -c log_statement=none')
+          CLIENT=$(docker create "${common[@]}" --name "$OWNER-client" --user=501:20 --cpus=3 --memory=3221225472 --memory-swap=3221225472 --network="container:$PG" \
+            --mount="type=bind,src=$PAYLOAD/tools,dst=/tools,readonly" --mount="type=bind,src=$SOURCE,dst=/source,readonly" \
+            --mount="type=bind,src=$PAYLOAD/work,dst=/work" --mount="type=bind,src=$PAYLOAD/client-secrets,dst=/secrets,readonly" \
+            --mount="type=bind,src=$PAYLOAD/gate,dst=/gate,readonly" \
+            --env=HOME=/work --env=TMPDIR=/work/tmp --env=PYTHONDONTWRITEBYTECODE=1 --env=PYTHONPATH=/work/site:/source \
+            --env=AWS_EC2_METADATA_DISABLED=true --env=GCE_METADATA_DISABLED=true --env="TASK_COMMIT=$COMMIT" --workdir=/work \
+            --entrypoint=/bin/sh "$CLIENT_IMAGE" -ec 'while [ ! -f /gate/import ]; do sleep .1; done; mkdir /work/tmp; /tools/python/bin/python3.14 -m pip install --no-index --no-deps --no-cache-dir --no-compile --target /work/site /tools/artifacts/*.whl > /work/install.log 2>&1; /tools/python/bin/python3.14 -m pip check > /work/dependency-check.log 2>&1; /tools/python/bin/python3.14 /source/tests/integration/native_workspaces.py --check-imports /work/import-project > /work/import.log 2>&1; touch /work/import-ok; while [ ! -f /gate/client ]; do sleep .1; done; exec /tools/python/bin/python3.14 /source/tests/integration/native_workspaces.py --task-root /work/task --commit "$TASK_COMMIT" --phase smoke')
+          inspect_limits() {
+            local id=$1 memory=$2 cpus=$3 user=$4 network=$5
+            local image=$CLIENT_IMAGE
+            test "$user" != 999:999 || image=$PG_IMAGE
+            docker inspect "$id" | jq -e --arg owner "$OWNER" --arg user "$user" --arg network "$network" --argjson memory "$memory" --argjson cpus "$cpus" --arg parent "$CGROUP_PARENT" --arg image "$image" --arg image_id "$(docker image inspect --format '{{.Id}}' "$image")" \
+              '.[0] | .HostConfig as $h | .State.Running==false and .Config.Image==$image and .Image==$image_id and .Config.User==$user and .Config.Labels["t04b.owner"]==$owner and $h.CgroupParent==$parent and $h.Memory==$memory and $h.MemorySwap==$memory and $h.NanoCpus==$cpus and $h.ReadonlyRootfs and ($h.Privileged|not) and ($h.CapAdd|length)==0 and $h.CapDrop==["ALL"] and $h.SecurityOpt==["no-new-privileges:true"] and $h.PidsLimit==128 and $h.NetworkMode==$network and ($h.PortBindings|length)==0 and ($h.Devices|length)==0 and $h.LogConfig=={"Type":"json-file","Config":{"max-size":"8m","max-file":"1"}}' >/dev/null
+            docker inspect "$id" | jq -e --arg payload "$PAYLOAD" --arg source "$SOURCE" --arg user "$user" \
+              '.[0] | .HostConfig as $h | ($h.PidMode=="" and $h.IpcMode=="private") and
+              (if $user=="999:999" then
+                $h.Tmpfs=={"/tmp":"rw,noexec,nosuid,nodev,size=67108864,mode=1777","/var/run/postgresql":"rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999"} and
+                ((.Mounts|map([.Source,.Destination,.RW])|sort)==([[$payload+"/pgdata","/var/lib/postgresql/data",true],[$payload+"/pg-secrets","/secrets",false],[$payload+"/gate","/gate",false]]|sort))
+              else
+                $h.Tmpfs=={"/tmp":"rw,noexec,nosuid,nodev,size=67108864,mode=1777"} and
+                ((.Mounts|map([.Source,.Destination,.RW])|sort)==([[$payload+"/tools","/tools",false],[$source,"/source",false],[$payload+"/work","/work",true],[$payload+"/client-secrets","/secrets",false],[$payload+"/gate","/gate",false]]|sort))
+              end)' >/dev/null
+          }
+          stage waiting_containers_config_verification
+          inspect_limits "$PG" 805306368 1000000000 999:999 none
+          inspect_limits "$CLIENT" 3221225472 3000000000 501:20 "container:$PG"
+          stage waiting_containers_actual_placement
+          for id in "$PG" "$CLIENT"; do
+            docker start "$id" >/dev/null
+            pid=$(docker inspect --format '{{.State.Pid}}' "$id")
+            test "$pid" -gt 0
+            case "$CGROUP_DRIVER" in
+              systemd) expected="0::/t04b.slice/docker-$id.scope" ;;
+              cgroupfs) expected="0::/t04b.slice/$id" ;;
+            esac
+            grep -Fxq "$expected" "/proc/$pid/cgroup"
+            printf '%s\n' "$expected" >> "$TASK_ROOT/evidence/container-placement.txt"
+          done
+          test "$(cat "$SLICE/memory.swap.current")" = 0
+          inside_gate 1610612736
+          stage exact_target_guarded_import_bootstrap
+          touch "$PAYLOAD/gate/import"
+          imported=0
+          for _ in $(seq 1 120); do
+            if test -f "$PAYLOAD/work/import-ok"; then imported=1; break; fi
+            test "$(docker inspect --format '{{.State.Running}}' "$CLIENT")" = true || break
+            sleep 1
+          done
+          test "$imported" = 1
+          jq -e '.status=="PASS" and .python=="3.14.10" and .duckdb=="2.0.0" and .temporary_sqlite_bootstrap==true and .native_services_started==false' "$PAYLOAD/work/target-import.json" >/dev/null
+          stage ordinary_role_bootstrap
+          touch "$PAYLOAD/gate/pg"
+          ready=0
+          for _ in $(seq 1 120); do
+            if docker exec "$PG" pg_isready -q; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" = 1
+          docker exec "$PG" psql -w -U postgres -d postgres -v ON_ERROR_STOP=1 -f /secrets/setup.sql > "$PAYLOAD/work/bootstrap.log" 2>&1
+          rm "$PAYLOAD/pg-secrets/setup.sql"
+          inside_gate 1073741824
+          stage actual_adapter_smoke
+          touch "$PAYLOAD/gate/client"
+          test "$(docker wait "$CLIENT")" = 0
+          stage final_resource_and_native_receipt
+          test "$(awk '$1=="oom_kill" {print $2}' "$SLICE/memory.events")" = 0
+          test "$(cat "$SLICE/memory.swap.current")" = 0
+          inside_gate 0
+          jq -e --arg commit "$COMMIT" '.status=="PASS_NATIVE_WORKSPACE_SMOKE" and .commit==$commit and .owned_cleanup==true' "$PAYLOAD/work/smoke-result.json"
+          stage completed_native_smoke
+          CONTROLLER
+      - name: Verify owned cleanup and remove the task slice
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f "$RUNNER_TEMP/t04b-root"; then
+            TASK_ROOT=$(cat "$RUNNER_TEMP/t04b-root")
+            test "$TASK_ROOT" = "$RUNNER_TEMP/t04b-$GITHUB_RUN_ID"
+            cleanup_stage=unowned_slice_untouched
+            cleanup_finish() {
+              result=$?
+              trap - EXIT
+              printf '{"exit_code":%s,"last_fixed_stage":"%s"}\n' "$result" "$cleanup_stage" > "$TASK_ROOT/evidence/cleanup-execution.json"
+              exit "$result"
+            }
+            trap cleanup_finish EXIT
+            if test -f "$TASK_ROOT/owns-slice"; then
+              cleanup_stage=owned_slice_cleanup
+              test -f /run/systemd/system/t04b.slice
+              test "$(stat -c %d:%i /run/systemd/system/t04b.slice)" = "$(cat "$TASK_ROOT/owns-slice")"
+              sudo systemd-run --quiet --wait --pipe --collect --unit=t04bcleanup --slice=t04b.slice \
+                --property=Type=exec --setenv="TASK_ROOT=$TASK_ROOT" --setenv="OWNER=t04b-$GITHUB_RUN_ID" \
+                --setenv="EVIDENCE_UID=$(id -u)" --setenv="EVIDENCE_GID=$(id -g)" \
+                /bin/bash --noprofile --norc -euo pipefail <<'CLEANUP'
+              export PATH=/usr/sbin:/usr/bin:/sbin:/bin DOCKER_CONFIG="$TASK_ROOT/docker-config"
+              remaining=$(docker ps -aq --filter "label=t04b.owner=$OWNER")
+              for id in $remaining; do
+                test "$(docker inspect --format '{{index .Config.Labels "t04b.owner"}}' "$id")" = "$OWNER"
+                case "$(docker inspect --format '{{.Name}}' "$id")" in "/$OWNER-pg"|"/$OWNER-client") ;; *) exit 1;; esac
+                docker stop --time=10 "$id" >/dev/null
+                docker rm "$id" >/dev/null
+              done
+              if test -f "$TASK_ROOT/new-images"; then
+                while read -r image; do
+                  if docker image inspect "$image" >/dev/null 2>&1; then docker image rm "$image" >/dev/null; fi
+                done < "$TASK_ROOT/new-images"
+              fi
+              backing="$TASK_ROOT/payload.ext4"
+              payload="$TASK_ROOT/payload"
+              loop=$(losetup -j "$backing" -n -O NAME)
+              if mountpoint -q "$payload"; then
+                test -n "$loop" && test "$(findmnt -n -o SOURCE -T "$payload")" = "$loop"
+                mkdir -p "$TASK_ROOT/evidence"
+                for report in native-result.json smoke-result.json target-import.json acquisition.json acquisition-stage.json; do
+                  test ! -f "$payload/work/$report" || cp "$payload/work/$report" "$TASK_ROOT/evidence/$report"
+                done
+                umount "$payload"
+              fi
+              test -z "$loop" || losetup -d "$loop"
+              test -z "$(losetup -j "$backing")"
+              if test -e "$backing"; then
+                test -f "$backing" && test ! -L "$backing" && test "$(stat -c %u "$backing")" = 0
+                rm "$backing"
+              fi
+              test -z "$(docker ps -aq --filter "label=t04b.owner=$OWNER")"
+              mkdir -p "$TASK_ROOT/evidence"
+              printf '%s\n' '{"owned_containers_absent":true,"owned_loop_absent":true,"owned_backing_absent":true,"verified":true}' > "$TASK_ROOT/evidence/final-cleanup.json"
+              chown -R "$EVIDENCE_UID:$EVIDENCE_GID" "$TASK_ROOT/evidence"
+          CLEANUP
+              cleanup_stage=owned_slice_removal
+              sudo systemctl stop t04b.slice
+              sudo rm /run/systemd/system/t04b.slice
+              sudo systemctl daemon-reload
+              cleanup_stage=owned_cleanup_completed
+            fi
+          fi
+      - name: Retain bounded sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: t04b-native-smoke
+          path: ${{ runner.temp }}/t04b-*/evidence/*
+          retention-days: 7
+          if-no-files-found: error
