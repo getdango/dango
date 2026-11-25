@@ -96,7 +96,7 @@ def _dependencies(relations: list[Any]) -> str:
     if not oids:
         return "SELECT ''::text"
     return (
-        "SELECT coalesce(string_agg(classid::text||':'||objid::text||':'||objsubid::text||':'||refobjid::text||':'||refobjsubid::text||':'||deptype,',' ORDER BY classid,objid,objsubid,refobjid,refobjsubid,deptype),'') FROM pg_depend WHERE refclassid='pg_class'::regclass AND refobjid IN ("
+        "SELECT coalesce(string_agg(classid::text||':'||objid::text||':'||objsubid::text||':'||refobjid::text||':'||refobjsubid::text||':'||deptype::text,',' ORDER BY classid,objid,objsubid,refobjid,refobjsubid,deptype),'') FROM pg_depend WHERE refclassid='pg_class'::regclass AND refobjid IN ("
         + oids
         + ")"
     )

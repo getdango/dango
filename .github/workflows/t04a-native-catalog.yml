@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      NATIVE_ATTEMPT: '6'
+      NATIVE_ATTEMPT: '7'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -53,7 +53,7 @@ jobs:
           stage identity
           test "$GITHUB_RUN_ATTEMPT" = 1
           test "$NATIVE_ATTEMPT" -ge 1
-          test "$NATIVE_ATTEMPT" -le 6
+          test "$NATIVE_ATTEMPT" -le 7
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           stage host
           test "$(uname -m)" = x86_64
@@ -377,7 +377,7 @@ jobs:
           from pathlib import Path
 
           TARGET = "/source/tests/integration/native_catalog_bindings.py"
-          CATALOG_SHA256 = "10788faf567e5c1ea2530fca5fdf2c120afeda6bad5537edfa4d40647f381647"
+          CATALOG_SHA256 = "b306e8f5db0bd5135c92c39c44b68f12a6c8f8126b2499f74a7dd506bc627d25"
           QUERY_SITES = {
               ("_namespace", 151): "query.namespace",
               ("_evidence", 166): "query.relations",

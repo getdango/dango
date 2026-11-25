@@ -23,6 +23,7 @@ from dango.storage.catalogs import (
     CatalogError,
     NativeCatalogPort,
     _credential,
+    _dependencies,
     _dsn,
     _literal,
 )
@@ -479,3 +480,17 @@ with patch("builtins.open", read_only), patch("os.mkdir", side_effect=AssertionE
     assert "duckdb" not in sys.modules
 """
     subprocess.run([sys.executable, "-c", code, str(source)], check=True, capture_output=True)
+
+
+@pytest.mark.parametrize("relations", [[], [(42, "first", "r"), (73, "second", "r")]])
+def test_dependency_fingerprint_concatenates_only_text(relations):
+    from re import findall
+
+    sql = _dependencies(relations)
+    if not relations:
+        assert sql == "SELECT ''::text"
+        return
+    fields = ["classid", "objid", "objsubid", "refobjid", "refobjsubid", "deptype"]
+    assert findall(r"\b([a-z]+)::text", sql) == fields
+    assert "ORDER BY " + ",".join(fields) in sql
+    assert "refobjid IN (42,73)" in sql
