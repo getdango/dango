@@ -457,11 +457,27 @@ jobs:
           touch "$PAYLOAD/gate/pg"
           ready=0
           for _ in $(seq 1 120); do
-            if docker exec "$PG" pg_isready -q; then ready=1; break; fi
+            if docker exec "$PG" /bin/sh -ec 'test "$(cat /proc/1/comm)" = postgres; pg_isready -q -h 127.0.0.1 -U postgres -d postgres'; then ready=1; break; fi
             sleep 1
           done
           test "$ready" = 1
-          docker exec "$PG" psql -w -U postgres -d postgres -v ON_ERROR_STOP=1 -f /secrets/setup.sql > "$PAYLOAD/work/bootstrap.log" 2>&1
+          stage ordinary_role_final_tcp_bootstrap
+          bootstrap_status=0
+          docker exec "$PG" psql -w -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /secrets/setup.sql > "$PAYLOAD/work/bootstrap.log" 2>&1 || bootstrap_status=$?
+          /usr/bin/python3 - "$bootstrap_status" "$PAYLOAD/work/bootstrap.log" "$TASK_ROOT/evidence/bootstrap.json" <<'BOOTSTRAP_RECEIPT'
+          import json, sys
+          from pathlib import Path
+          raw = Path(sys.argv[2]).read_text(errors='replace').lower()
+          flags = {name: needle in raw for name, needle in {
+              'connection_closed': 'server closed the connection',
+              'connection_refused': 'connection refused',
+              'server_starting': 'starting up',
+              'authentication_failed': 'authentication failed',
+              'sql_error': 'error:',
+          }.items()}
+          Path(sys.argv[3]).write_text(json.dumps({'exit_code': int(sys.argv[1]), 'transport': '127.0.0.1', 'final_pid1_required': True, 'classifiers': flags}))
+          BOOTSTRAP_RECEIPT
+          test "$bootstrap_status" = 0
           rm "$PAYLOAD/pg-secrets/setup.sql"
           inside_gate 1073741824
           stage actual_adapter_smoke
