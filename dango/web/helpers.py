@@ -21,6 +21,7 @@ import yaml
 
 from dango.utils.redact import redact_project_text
 from dango.web.models import SourceStatus, TableInfo
+from dango.web.proxy_client import forbid_cookies
 
 logger = logging.getLogger(__name__)
 
@@ -654,6 +655,7 @@ def _get_health_check_client() -> httpx.Client:
     global _health_check_client  # noqa: PLW0603
     if _health_check_client is None:
         _health_check_client = httpx.Client(timeout=5.0, follow_redirects=False)
+        forbid_cookies(_health_check_client)
     return _health_check_client
 
 

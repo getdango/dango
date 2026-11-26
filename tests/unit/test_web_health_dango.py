@@ -21,6 +21,7 @@ from fastapi.routing import iter_route_contexts
 from fastapi.testclient import TestClient
 
 from dango.web.app import app as real_app
+from dango.web.proxy_client import make_proxy_client
 from tests.factories.auth_app_factories import AuthProject, build_client
 from tests.factories.metabase_health_double import SECRET, SECRET_PATH, MetabaseDouble
 
@@ -66,7 +67,7 @@ def restore_app_state() -> Iterator[None]:
     missing = object()
     saved = getattr(real_app.state, "project_root", missing)
     # The lifespan creates this shared client for the Metabase proxy; tests run without it.
-    real_app.state.http_client = httpx.AsyncClient(follow_redirects=False, timeout=30.0)
+    real_app.state.http_client = make_proxy_client()
     yield
     asyncio.run(real_app.state.http_client.aclose())
     del real_app.state.http_client

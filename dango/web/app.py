@@ -238,9 +238,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.debug("startup_activity_log_failed", exc_info=True)
 
     # Shared HTTP client for Metabase proxy (connection pooling)
-    import httpx as _httpx
+    from dango.web.proxy_client import make_proxy_client
 
-    app.state.http_client = _httpx.AsyncClient(follow_redirects=False, timeout=30.0)
+    app.state.http_client = make_proxy_client()
 
     yield
 

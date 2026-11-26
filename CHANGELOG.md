@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **An open live-updates connection now ends when its sign-in ends.** The dashboard's live-updates (WebSocket) connection used to stay open, and keep receiving sync progress and activity messages, after you logged out, an administrator deactivated the account or revoked its sessions, the password was changed, or the API key it used was revoked. Such a connection is now closed at once when the change is made in the web interface, and within 10 seconds when it is made another way (for example with `dango auth` commands) or the session expires. The page keeps retrying every few seconds, as it does when the server is unreachable, and reconnects after you sign in again. Connections made while authentication is turned off for a local request are unchanged.
 
+### Fixed
+
+- **The Metabase proxy no longer remembers cookies between requests.** Its shared HTTP client kept every cookie Metabase set, and could attach one to a later request that carried no cookie of its own, so a response cookie from one request could reach a request from another user. The client now refuses to store or send cookies; the signed-in user's own `metabase.SESSION` is still forwarded, and Metabase's cookies still reach the browser as before. The same applies to the client used for local health checks.
+
 ## [1.0.14] - 2026-11-13
 
 This release hardens access control, backups, cloud servers and the Metabase and notebook paths. Read "Upgrade" before installing.

@@ -25,6 +25,7 @@ import pytest
 import yaml
 from fastapi import FastAPI
 
+from dango.web.proxy_client import make_proxy_client
 from dango.web.routes.metabase_proxy import router as proxy_router
 
 _REBRIDGE = "dango.web.routes.metabase_proxy._rebridge_if_needed"
@@ -157,8 +158,8 @@ def upstream(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeMetabase]:
 
 
 def _new_proxy_client() -> httpx.AsyncClient:
-    """The proxy's shared client exactly as the server's lifespan builds it."""
-    return httpx.AsyncClient(follow_redirects=False, timeout=30.0)
+    """The proxy's shared client, built by the same factory as the server's lifespan."""
+    return make_proxy_client()
 
 
 @asynccontextmanager
