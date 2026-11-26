@@ -97,7 +97,7 @@ class InputRig(WorkspaceRig):
             ),
             "finance": (Column(name="amount", type="BIGINT", nullable=True),),
         }
-        self.manifest = AcceptedFixture(
+        self.accepted = AcceptedFixture(
             kind="accepted-input-fixture-v1",
             fixture_id="p0-selected-inputs-v1",
             accepted_release_id="p0-accepted-v1",
@@ -125,18 +125,18 @@ class InputRig(WorkspaceRig):
         )
         fd = directory(self.native.root)
         try:
-            LockedRecord(fd, "accepted").save(self.manifest)
+            LockedRecord(fd, "accepted").save(self.accepted)
             guard = os.open("lifetime.lock", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=fd)
             try:
                 value = Guardian(
                     kind="input-fixture-lifetime-v1",
-                    nonce=self.manifest.lifetime_nonce,
+                    nonce=self.accepted.lifetime_nonce,
                     project_id=owner.project_id,
                     actor_id=owner.actor_id,
                     source_workspace_id=self.source.workspace_id,
                     source_binding_id=binding.binding_id,
                     manifest_sha256=hashlib.sha256(
-                        self.manifest.model_dump_json().encode()
+                        self.accepted.model_dump_json().encode()
                     ).hexdigest(),
                 )
                 os.write(guard, value.model_dump_json().encode())
@@ -239,14 +239,14 @@ def smoke(rig):
     reopened = InputCaptureService(rig.native.root, rig.allocator, rig.service, lambda: rig.now)
     assert reopened.inspect_capture(context, result.input_set_id) == result
     try:
-        with rig.allocator.attach(context, rig.manifest.binding, read_only=False):
+        with rig.allocator.attach(context, rig.accepted.binding, read_only=False):
             raise AssertionError("Sealed source write admitted")
     except CatalogError:
         pass
     maintenance = (
         "CALL ducklake_expire_snapshots('catalog', older_than => now() + INTERVAL '1 day')"
     )
-    with rig.allocator.attach(context, rig.manifest.binding, read_only=True) as connection:
+    with rig.allocator.attach(context, rig.accepted.binding, read_only=True) as connection:
         functions = connection.execute(
             "SELECT function_name FROM duckdb_functions() WHERE function_name='ducklake_expire_snapshots'"
         ).fetchall()
@@ -258,7 +258,7 @@ def smoke(rig):
                 assert "read-only" in str(error).lower() or "read only" in str(error).lower()
             else:
                 raise AssertionError("Native read-only maintenance/write admitted")
-    assert rig.native.metadata(rig.manifest.binding) == rig.ready_metadata
+    assert rig.native.metadata(rig.accepted.binding) == rig.ready_metadata
     observed = {
         "capture_sum": 350,
         "current_sum": 360,

@@ -177,6 +177,8 @@ jobs:
               docker rm "$id" >/dev/null || failure=1
               docker inspect "$id" >/dev/null 2>&1 && failure=1
             done
+            # End the guard only after both task-owned clients have stopped; open fds hold the mount busy.
+            exec 9<&-
             for image in "${NEW_IMAGES[@]}"; do docker image rm "$image" >/dev/null || failure=1; done
             if mountpoint -q "$PAYLOAD"; then
               # Only fixed safe report allowlist is retained; no raw SQL, credentials or container logs.
