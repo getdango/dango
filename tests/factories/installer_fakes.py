@@ -71,9 +71,14 @@ elif args[:2] == ["-m", "venv"]:
     (target / "bin").mkdir(parents=True, exist_ok=True)
     (target / "bin" / "activate").write_text("", encoding="utf-8")
 elif args[:3] == ["-m", "pip", "install"] and env.get("FAKE_PIP_FAIL"):
-    # FAKE_PIP_FAIL=pip fails the pip upgrade; FAKE_PIP_FAIL=dango fails the --upgrade of Dango
+    # FAKE_PIP_FAIL=pip fails the pip upgrade; FAKE_PIP_FAIL=dango fails the --upgrade of Dango;
+    # FAKE_PIP_FAIL=install fails the install of Dango itself (not the upgrade of pip, not a dry run)
     is_pip_upgrade = args[3:5] == ["--upgrade", "pip"]
-    if (env["FAKE_PIP_FAIL"] == "pip") == is_pip_upgrade and "--upgrade" in args:
+    if env["FAKE_PIP_FAIL"] == "install":
+        fails = not is_pip_upgrade and "--dry-run" not in args
+    else:
+        fails = (env["FAKE_PIP_FAIL"] == "pip") == is_pip_upgrade and "--upgrade" in args
+    if fails:
         print("WARNING: Retrying (Retry(total=4)) after connection broken", file=sys.stderr)
         sys.exit(1)
 elif args[:3] == ["-m", "pip", "--version"]:
