@@ -726,7 +726,8 @@ def backup_verify_metabase(ctx: click.Context, source: str | None) -> None:
     With SOURCE: downloads the archive from Spaces and checks for Metabase
     H2 database files without full extraction.
 
-    Without SOURCE: checks the live Metabase /api/health endpoint via SSH.
+    Without SOURCE: checks the live server's /api/health via SSH and reads the Metabase
+    component it reports.
 
     Examples:
       dango remote backup verify-metabase backup-20260224-143000.tar.gz
@@ -736,7 +737,7 @@ def backup_verify_metabase(ctx: click.Context, source: str | None) -> None:
         # Offline mode: download archive from Spaces, check members
         _verify_metabase_archive(ctx, source)
     else:
-        # Live mode: SSH to server, check /api/health
+        # Live mode: SSH to server, read the metabase component of /api/health
         _verify_metabase_live(ctx)
 
 
@@ -797,11 +798,26 @@ def _verify_metabase_live(ctx: click.Context) -> None:
         with Status("[bold blue]Checking live Metabase health...", console=console):
             result = ssh.exec_command("curl -sf http://localhost:8800/api/health", timeout=15)
 
-        if result.success:
+        from dango.platform.cloud.backup import metabase_component_state
+
+        if not result.success:
+            console.print(
+                "[red]FAIL[/red]: /api/health did not answer (Dango, or on older servers "
+                "Metabase, is not responding). Check 'dango remote status' for more details."
+            )
+            return
+        state = metabase_component_state(result.stdout)
+        if state is None or state == "ok":
+            # No component state: an older server proxies Metabase's own /api/health.
             console.print("[green]PASS[/green]: Metabase is responding on /api/health.")
+        elif state == "starting":
+            console.print(
+                "[red]FAIL[/red]: Dango is up but Metabase is still starting. "
+                "Wait a minute and run this again."
+            )
         else:
             console.print(
-                "[red]FAIL[/red]: Metabase is not responding. "
+                "[red]FAIL[/red]: Dango is up but Metabase is not responding. "
                 "Check 'dango remote status' for more details."
             )
     except Exception as exc:

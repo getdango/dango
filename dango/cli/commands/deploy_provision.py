@@ -445,9 +445,13 @@ def run_provisioning(
         _status("Waiting for Metabase to initialize...")
         ssh.connect(droplet_ip, username="root")
         try:
-            _wait_for_metabase(ssh, timeout=180)
+            metabase_ready = _wait_for_metabase(ssh, timeout=_METABASE_WAIT_SECONDS)
         finally:
             ssh.disconnect()
+        if not metabase_ready:
+            warnings.append(
+                f"Metabase is still starting. It should be ready in a few minutes: {url}"
+            )
 
         return ProvisionResult(
             droplet_ip=droplet_ip,
@@ -671,9 +675,13 @@ def run_byos_setup(
         _status("Waiting for Metabase to initialize...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            _wait_for_metabase(ssh, timeout=180)
+            metabase_ready = _wait_for_metabase(ssh, timeout=_METABASE_WAIT_SECONDS)
         finally:
             ssh.disconnect()
+        if not metabase_ready:
+            warnings.append(
+                f"Metabase is still starting. It should be ready in a few minutes: {url}"
+            )
 
         return BYOSResult(
             server_ip=config.server_ip,
@@ -1278,6 +1286,11 @@ def _start_services(ssh: Any) -> None:
         )
 
 
+# Metabase's first boot (Java plus H2 migrations) can take minutes. Before ``/api/health`` stopped
+# proxying Metabase, the readiness poll and the Metabase poll together allowed about this long.
+_METABASE_WAIT_SECONDS = 360
+
+
 def _wait_for_metabase(ssh: Any, timeout: int = 180) -> bool:
     """Poll Metabase health endpoint via SSH until it responds ok.
 
@@ -1299,7 +1312,10 @@ def _wait_for_metabase(ssh: Any, timeout: int = 180) -> bool:
 
 
 def _health_check(url: str, timeout: int = 60, interval: int = 5) -> bool:
-    """Poll server health endpoint until it responds 200.
+    """Poll the server's ``/api/health`` until it responds 200.
+
+    200 means Dango's own web server is up; Metabase is reported as a component and is waited
+    for separately (``_wait_for_metabase``).
 
     Returns:
         True if healthy, False if timeout.

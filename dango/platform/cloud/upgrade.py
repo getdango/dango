@@ -310,7 +310,7 @@ def upgrade_dango(
         isolation_status = ri.enable_in_upgrade(
             ssh, at_target_warnings, old_version, guard, own_guard=True
         )
-        at_target_healthy = verify_health(ssh)
+        at_target_healthy = verify_health(ssh, require_metabase=True)
         if not at_target_healthy:
             at_target_warnings.append("Health check did not pass within 90 seconds.")
         return UpgradeResult(
@@ -437,7 +437,7 @@ def upgrade_dango(
 
     # 11. Verify health
     _notify(on_progress, "verify_health", "running")
-    health_ok = verify_health(ssh)
+    health_ok = verify_health(ssh, require_metabase=True)
     if not health_ok:
         warnings.append(
             "Health check did not pass within 90 seconds. "

@@ -412,7 +412,7 @@ def migrate_server(
 
         # 12. Verify health
         _notify(on_progress, "verify_health", "running")
-        health_ok = verify_health(new_ssh)
+        health_ok = verify_health(new_ssh, require_metabase=True)
         _notify(on_progress, "verify_health", "done")
 
         # 13. Destroy old or keep both

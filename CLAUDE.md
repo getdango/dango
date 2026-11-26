@@ -176,7 +176,7 @@ dango/                          # Python package source
 │   │   ├── auth.py             # Login/logout, OAuth, invite, API keys
 │   │   ├── auth_2fa.py         # TOTP 2FA endpoints
 │   │   ├── users.py            # Admin user CRUD
-│   │   ├── health.py           # /api/status, /api/watcher/status, /api/health/platform
+│   │   ├── health.py           # /api/health, /api/status, /api/watcher/status, /api/health/platform
 │   │   ├── config.py           # /api/config, /api/metabase-config
 │   │   ├── sources.py          # /api/sources, /api/sources/{name}/details
 │   │   ├── sync.py             # /api/sources/{name}/sync + run_sync_task()
