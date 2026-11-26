@@ -65,7 +65,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/snapshot.py` (383 lines) | `snapshot` group (add, list, run, db) | `snapshot`, `snapshot_add()`, `snapshot_list()`, `snapshot_run()`, `snapshot_db()` |
 | `commands/analyze.py` (~97 lines) | `monitor` group + `analyze` alias | `monitor` (group), `monitor_run()`, `analyze()` |
 | `commands/dev.py` (~429 lines) | `dev` group (default run + clean) — branch-based dbt development | `dev` (group), `dev_clean()` |
-| `commands/web.py` (69 lines) | `web` dev server command | `web()` |
+| `commands/web.py` (~150 lines) | `web` dev server command; binds 0.0.0.0, or 127.0.0.1 when local auth is explicitly off and no `--host` is given | `web()` |
 | `commands/telemetry.py` (~250 lines) | `telemetry` group (status, on, off) — unified write-through control for Dango, dbt, dlt, and Metabase telemetry | `telemetry`, `telemetry_status()`, `telemetry_on()`, `telemetry_off()` |
 | **Wizards** | | |
 | `init.py` (1585 lines) | Project initialization wizard, incl. first-run telemetry consent prompt | `ProjectInitializer` |
@@ -85,6 +85,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `helpers/__init__.py` (6 lines) | Package marker | — |
 | `helpers/port_manager.py` (49 lines) | Port checking | `check_port_in_use()` |
 | `helpers/process_manager.py` (345 lines) | FastAPI server process management | `start_fastapi_server()` |
+| `helpers/bind_host.py` (~75 lines) | Bind address for `dango web` and `dango serve` (WP-61a): `resolve_bind_host(project_root, explicit_host, default_host=...)` returns 127.0.0.1 plus one notice when no `--host` was given and `.dango/auth.yml` explicitly says `enabled: false` (read with `auth.admin.is_auth_explicitly_disabled`: a missing, empty or unreadable file never counts); an explicit non-loopback `--host` with auth off gets one warning and is still honoured; cloud mode and auth-on projects keep the caller's default | `resolve_bind_host()`, `BindDecision`, `is_loopback_host()` |
 
 ## Architecture
 

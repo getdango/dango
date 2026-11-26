@@ -14,11 +14,17 @@ from dango.cli import console
 
 
 @click.command()
-@click.option("--host", default="0.0.0.0", help="Host to bind to")
+@click.option(
+    "--host",
+    default=None,
+    help=(
+        "Host to bind to (default: 0.0.0.0, or 127.0.0.1 when local authentication is turned off)"
+    ),
+)
 @click.option("--port", default=8080, help="Port to bind to")
 @click.option("--reload", is_flag=True, help="Enable auto-reload (development)")
 @click.pass_context
-def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
+def web(ctx: click.Context, host: str | None, port: int, reload: bool) -> None:
     """
     Start the Web UI backend server only.
 
@@ -34,7 +40,9 @@ def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
     It does NOT start Docker, Metabase, dbt-docs or the file watcher, download the Metabase
     driver, or open a browser. "dango start" is the normal way to run Dango on your own
     computer; "dango serve" is for servers. Binds to 0.0.0.0 (all interfaces) unless --host
-    is given.
+    is given, except that when local authentication has been turned off with "dango auth
+    disable" it binds to 127.0.0.1 (this computer only). Pass --host 0.0.0.0 to listen on the
+    network anyway; with authentication off that exposes the project to the network.
 
     The API documentation is available at:
       http://localhost:8080/api/docs
@@ -53,9 +61,17 @@ def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
     try:
         project_root = require_project_context(ctx)
 
+        from ..helpers.bind_host import resolve_bind_host
+
+        decision = resolve_bind_host(project_root, host, default_host="0.0.0.0")
+        host = decision.host
+
         console.print(f"[dim]Project root: {escape(str(project_root))}[/dim]")
         console.print(f"[dim]Server: http://{host}:{port}[/dim]")
         console.print(f"[dim]API docs: http://{host}:{port}/api/docs[/dim]")
+        if decision.message is not None:
+            style = "yellow" if decision.is_warning else "dim"
+            console.print(f"[{style}]{escape(decision.message)}[/{style}]")
         console.print()
 
         from dango.platform.common.startup_prologue import (
