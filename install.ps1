@@ -10,7 +10,8 @@
 #                                  argument of letters, digits, spaces and . _ / : @ + = ~ , \ -
 #                                  (no shell metacharacters or newlines, no leading "-", no
 #                                  leading or trailing space); it is validated and passed to pip
-#                                  as a single argument.
+#                                  as a single argument. The install messages then say where Dango
+#                                  is installed from (the spec); without it they are unchanged.
 #   DANGO_INSTALL_NONINTERACTIVE   1 = read every answer from the variables below instead of
 #                                  Read-Host. A prompt whose variable is unset (and that has no
 #                                  default) stops the installer with that variable's name; an
@@ -131,6 +132,9 @@ function Test-ScriptPolicyAllows {
 function Test-InstallSpec {
     $spec = $env:DANGO_INSTALL_SPEC
     $script:DangoSpec = "getdango"
+    # Where the install messages say Dango comes from: PyPI, or the spec when it overrides that
+    $script:DangoSource = "PyPI"
+    $script:DangoFrom = ""
     if ([string]::IsNullOrEmpty($spec)) {
         return
     }
@@ -139,6 +143,8 @@ function Test-InstallSpec {
         Stop-Installer 1
     }
     $script:DangoSpec = $spec
+    $script:DangoSource = $spec
+    $script:DangoFrom = " from $spec"
 }
 
 # Stop with a message naming the variable when a non-interactive run cannot continue.
@@ -497,7 +503,7 @@ function New-VirtualEnvironment {
 function Install-Dango {
     param([string]$VenvPath)
 
-    Write-Step "Installing Dango from PyPI..."
+    Write-Step "Installing Dango from $script:DangoSource..."
 
     # Activate venv and install
     $activateScript = Join-Path $VenvPath "Scripts\Activate.ps1"
@@ -509,14 +515,19 @@ function Install-Dango {
 
     & $activateScript
 
-    # Upgrade pip silently
-    & pip install --upgrade pip --quiet
+    # Upgrade pip silently, through the interpreter: pip.exe cannot replace itself on Windows, and
+    # asking it to prints an error in the middle of a good install. Not worth stopping for.
+    $venvPython = Join-Path $VenvPath "Scripts\python.exe"
+    & $venvPython -m pip install --upgrade pip --quiet
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning-Message "Could not upgrade pip (no network access, or a proxy in the way?); continuing with the pip that came with Python"
+    }
 
     # Install getdango from PyPI
     & pip install $script:DangoSpec
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Error-Message "Failed to install Dango"
+        Write-Error-Message "Failed to install Dango$script:DangoFrom"
         Stop-Installer 1
     }
 
@@ -532,7 +543,7 @@ function Install-Dango {
 function Update-Dango {
     param([string]$VenvPath)
 
-    Write-Step "Upgrading Dango..."
+    Write-Step "Upgrading Dango$script:DangoFrom..."
 
     # Activate venv and upgrade
     $activateScript = Join-Path $VenvPath "Scripts\Activate.ps1"
@@ -542,7 +553,7 @@ function Update-Dango {
     & pip install --upgrade $script:DangoSpec --quiet
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Error-Message "Failed to upgrade Dango"
+        Write-Error-Message "Failed to upgrade Dango$script:DangoFrom"
         Stop-Installer 1
     }
 
@@ -570,14 +581,14 @@ function Install-DangoGlobal {
         Stop-Installer 1
     }
 
-    Write-Step "Installing Dango globally..."
+    Write-Step "Installing Dango globally$script:DangoFrom..."
     Write-Host ""
 
     # Install from PyPI (Out-Host: pip's output must not become this function's return value)
     & $PythonCmd -m pip install --user $script:DangoSpec | Out-Host
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Error-Message "Failed to install Dango from PyPI"
+        Write-Error-Message "Failed to install Dango from $script:DangoSource"
         Write-Host ""
         Write-Host "Possible causes:"
         Write-Host "  - No internet connection"

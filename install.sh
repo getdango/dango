@@ -13,7 +13,8 @@ set -e
 #                                  argument of letters, digits, spaces and . _ / : @ + = ~ , \ -
 #                                  (no shell metacharacters or newlines, no leading "-", no
 #                                  leading or trailing space); it is validated, always quoted
-#                                  and never evaluated.
+#                                  and never evaluated. The install messages then say where Dango
+#                                  is installed from (the spec); without it they are unchanged.
 #   DANGO_INSTALL_NONINTERACTIVE   1 = read every answer from the variables below instead of
 #                                  /dev/tty. A prompt whose variable is unset (and that has no
 #                                  default) stops the installer with that variable's name; an
@@ -80,6 +81,15 @@ print_step() {
 # The pip argument for every Dango install: DANGO_INSTALL_SPEC, or "getdango" when unset.
 dango_pip_spec() {
     echo "${DANGO_INSTALL_SPEC:-getdango}"
+}
+
+# " from <spec>" for the install messages when DANGO_INSTALL_SPEC replaces "getdango" (and nothing
+# otherwise, so the default text does not change). A backslash is doubled because the messages go
+# through echo -e, which would read one in a Windows path as an escape.
+dango_from_spec() {
+    if [ -n "${DANGO_INSTALL_SPEC:-}" ]; then
+        printf ' from %s' "${DANGO_INSTALL_SPEC//\\/\\\\}"
+    fi
 }
 
 # Reject a DANGO_INSTALL_SPEC that is not a single plain token (checked before anything runs).
@@ -472,7 +482,7 @@ create_venv() {
 # Function to install Dango
 install_dango() {
     local venv_path=$1
-    print_step "Installing Dango..."
+    print_step "Installing Dango$(dango_from_spec)..."
 
     # Activate venv and install
     source "$venv_path/bin/activate"
@@ -481,7 +491,7 @@ install_dango() {
     fi
 
     if ! $PYTHON_CMD -m pip install "$(dango_pip_spec)"; then
-        print_error "Failed to install Dango"
+        print_error "Failed to install Dango$(dango_from_spec)"
         echo
         echo "Possible causes:"
         echo "  • No internet connection"
@@ -502,11 +512,11 @@ install_dango() {
 # Function to upgrade Dango
 upgrade_dango() {
     local venv_path=$1
-    print_step "Upgrading Dango..."
+    print_step "Upgrading Dango$(dango_from_spec)..."
 
     source "$venv_path/bin/activate"
     if ! $PYTHON_CMD -m pip install --upgrade "$(dango_pip_spec)" -q; then
-        print_error "Failed to upgrade Dango"
+        print_error "Failed to upgrade Dango$(dango_from_spec)"
         echo
         echo "Possible causes:"
         echo "  • No internet connection"
@@ -738,11 +748,11 @@ install_dango_global() {
     # Check for conflicts first
     check_conflicts
 
-    print_step "Installing Dango globally..."
+    print_step "Installing Dango globally$(dango_from_spec)..."
     echo
 
     if ! $PYTHON_CMD -m pip install --user "$(dango_pip_spec)"; then
-        print_error "Failed to install Dango"
+        print_error "Failed to install Dango$(dango_from_spec)"
         echo
         echo "Possible causes:"
         echo "  • No internet connection"
