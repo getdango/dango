@@ -25,7 +25,6 @@ CSRF check), after a same-origin check on the ``Origin`` header.
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -35,7 +34,6 @@ from dango.auth import sessions
 from dango.auth.admin import get_auth_db_path, is_auth_enabled
 from dango.auth.models import User
 from dango.config.helpers import is_running_on_cloud
-from dango.exceptions import AuthDatabaseUnavailableError
 from dango.logging import get_logger
 from dango.web.middleware.enrollment import (
     ENROLLMENT_PAGE,
@@ -43,6 +41,12 @@ from dango.web.middleware.enrollment import (
     enrollment_user,
 )
 from dango.web.middleware.origin import is_local_request, is_same_origin
+from dango.web.middleware.responses import (
+    make_401_json,
+    make_403_json,
+    make_503_json,
+    make_redirect_response,
+)
 
 logger = get_logger(__name__)
 
@@ -169,7 +173,7 @@ class AuthMiddleware:
                 detail="Auth enabled but auth.db not found",
             )
             if is_running_on_cloud():
-                await _make_503_json()(scope, receive, send)
+                await make_503_json()(scope, receive, send)
                 return
             # Local mode: unchanged (treated as disabled, but never auth_disabled)
             scope["state"]["user"] = None
@@ -190,18 +194,18 @@ class AuthMiddleware:
                 auth_method, enrolling = "session", True
                 if not enrollment_allows(method, path):
                     if _is_browser_request(headers):
-                        response = _make_redirect_response(ENROLLMENT_PAGE)
+                        response = make_redirect_response(ENROLLMENT_PAGE)
                     else:
-                        response = _make_403_json("Two-factor enrollment is required first")
+                        response = make_403_json("Two-factor enrollment is required first")
                     await response(scope, receive, send)
                     return
 
         # No valid credentials
         if user is None:
             if _is_browser_request(headers):
-                response = _make_redirect_response("/login")
+                response = make_redirect_response("/login")
             else:
-                response = _make_401_json()
+                response = make_401_json()
             await response(scope, receive, send)
             return
 
@@ -215,11 +219,11 @@ class AuthMiddleware:
             if path.startswith("/notebooks/marimo/"):
                 if not is_same_origin(headers):
                     logger.warning("marimo_cross_origin_refused", path=path, method=method)
-                    response = _make_403_json("Cross-origin request refused")
+                    response = make_403_json("Cross-origin request refused")
                     await response(scope, receive, send)
                     return
             elif not path.startswith("/metabase/") and not _has_csrf_header(headers):
-                response = _make_403_json("CSRF validation failed")
+                response = make_403_json("CSRF validation failed")
                 await response(scope, receive, send)
                 return
 
@@ -276,26 +280,50 @@ class AuthMiddleware:
 
         scope["state"]["user"] = user
         scope["state"]["auth_method"] = auth_method
+        # The open connection re-checks the credential that opened it (see routes/websocket.py)
+        scope["state"]["ws_revalidate"] = lambda: self._revalidate(headers, db_path)
         await self.app(scope, receive, send)
 
+    def _revalidate(self, headers: list[tuple[bytes, bytes]], db_path: Path) -> User | None:
+        """Validate a handshake's credentials again; ``None`` once they are no longer valid.
+
+        The same validation as the handshake, without the activity side effects: an open
+        connection must neither keep an idle session alive nor count as an API key use.
+        Raises (instead of answering ``None``) when the auth database cannot be read, so the
+        caller can tell "revoked" from "could not check"; a missing file is not recreated.
+        """
+        if not db_path.exists():
+            raise FileNotFoundError("auth database not found")
+        user, _method = self._authenticate(headers, db_path, record_activity=False)
+        return user
+
     def _authenticate(
-        self, headers: list[tuple[bytes, bytes]], db_path: Path
+        self,
+        headers: list[tuple[bytes, bytes]],
+        db_path: Path,
+        *,
+        record_activity: bool = True,
     ) -> tuple[User | None, str | None]:
         """Validate session cookie, then API key Bearer token.
 
         Returns ``(user, auth_method)``; ``(None, None)`` when neither is valid.
+        ``record_activity=False`` leaves out the session ``last_activity`` / API key
+        ``last_used_at`` updates.
         """
         cookie_token = _parse_cookie(headers, COOKIE_NAME)
         if cookie_token is not None:
             user = sessions.validate_session(
-                db_path, cookie_token, idle_timeout_minutes=self._idle_timeout_minutes
+                db_path,
+                cookie_token,
+                idle_timeout_minutes=self._idle_timeout_minutes,
+                refresh_activity=record_activity,
             )
             if user is not None:
                 return user, "session"
 
         bearer_token = _parse_bearer_token(headers)
         if bearer_token is not None:
-            user = sessions.validate_api_key(db_path, bearer_token)
+            user = sessions.validate_api_key(db_path, bearer_token, record_use=record_activity)
             if user is not None:
                 return user, "api_key"
 
@@ -423,57 +451,6 @@ def _has_csrf_header(headers: list[tuple[bytes, bytes]]) -> bool:
 
 #: Public name for routes that do their own cookie authentication (public routes).
 has_csrf_header = _has_csrf_header
-
-
-# ---------------------------------------------------------------------------
-# ASGI response helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_401_json() -> Any:
-    """Create a 401 Unauthorized JSON ASGI response."""
-    from starlette.responses import Response
-
-    body = json.dumps(
-        {
-            "error_code": "DANGO-S001",
-            "message": "Authentication required.",
-        }
-    )
-    return Response(content=body, status_code=401, media_type="application/json")
-
-
-def _make_503_json() -> Any:
-    """Create a 503 JSON ASGI response for a missing auth database (no paths)."""
-    from starlette.responses import Response
-
-    body = json.dumps(
-        {
-            "error_code": AuthDatabaseUnavailableError._default_error_code,
-            "message": "Authentication database unavailable",
-        }
-    )
-    return Response(content=body, status_code=503, media_type="application/json")
-
-
-def _make_redirect_response(location: str) -> Any:
-    """Create a 302 redirect ASGI response."""
-    from starlette.responses import RedirectResponse
-
-    return RedirectResponse(url=location, status_code=302)
-
-
-def _make_403_json(message: str) -> Any:
-    """Create a 403 Forbidden JSON ASGI response."""
-    from starlette.responses import Response
-
-    body = json.dumps(
-        {
-            "error_code": "DANGO-S002",
-            "message": message,
-        }
-    )
-    return Response(content=body, status_code=403, media_type="application/json")
 
 
 # ---------------------------------------------------------------------------

@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`dango web` and `dango serve` listen only on this computer when local authentication is turned off.** With `dango auth disable`, they now bind 127.0.0.1 unless you pass `--host`, and print one line saying so. To keep listening on the network, pass `--host 0.0.0.0`. `dango start`, cloud servers and projects with authentication on are unchanged.
 
+- **An open live-updates connection now ends when its sign-in ends.** The dashboard's live-updates (WebSocket) connection used to stay open, and keep receiving sync progress and activity messages, after you logged out, an administrator deactivated the account or revoked its sessions, the password was changed, or the API key it used was revoked. Such a connection is now closed at once when the change is made in the web interface, and within 10 seconds when it is made another way (for example with `dango auth` commands) or the session expires. The page keeps retrying every few seconds, as it does when the server is unreachable, and reconnects after you sign in again. Connections made while authentication is turned off for a local request are unchanged.
+
 ## [1.0.14] - 2026-11-13
 
 This release hardens access control, backups, cloud servers and the Metabase and notebook paths. Read "Upgrade" before installing.
