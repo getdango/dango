@@ -36,6 +36,7 @@ from dango.storage.workspace_state import WorkspaceJournal, current_binding, loc
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
+_Location = Literal["remote", "local"]
 
 
 def _safe(method: Callable[_P, _R]) -> Callable[_P, _R]:
@@ -95,7 +96,7 @@ class WorkspaceService(WorkspaceJournal):
         """Persist a generated ID before native effects and resume only its canonical operation."""
         branch_ref = TypeAdapter(Text).validate_python(branch_ref, strict=True)
         code_commit = TypeAdapter(Text).validate_python(code_commit, strict=True)
-        TypeAdapter(Literal["remote", "local"]).validate_python(location, strict=True)
+        TypeAdapter(_Location).validate_python(location, strict=True)
         _, request = self._admit(
             context,
             "workspace.allocate",
