@@ -22,6 +22,9 @@ server caller and persisted grant integration remain T09C's responsibility.
 | `workspaces.py` | Canonical operation replay, workspace leases/CAS, retention pins and explicit owned expiry | `WorkspaceService`, `Workspace`, `WorkspacePin`, `WorkspaceError` |
 | `workspace_records.py` | Strict public records and immutable private recovery snapshots | Internal records; public records imported through `workspaces.py` |
 | `workspace_state.py` | Private no-follow manifests, persistent locks and owner-scoped journal joins | Internal helpers |
+| `inputs.py` | Strict selected-input records and canonical capture/inspect/release orchestration | `CapturedRelation`, `InputSet`, `InputCaptureService` |
+| `input_state.py` | Immutable fixed fixture resolver, live lifetime guard and exact pin/result joins | Internal capture records/authority |
+| `input_copy.py` | Read-only old-snapshot export, collision refusal and committed-byte measurement | Internal native materializer |
 | `CLAUDE.md` | Storage ownership and verification routing | None |
 
 ## Common Tasks
@@ -137,3 +140,32 @@ and mode0700 roots coordinate supported callers, not hostile programs sharing th
 | Shared operation envelopes, protected credential store or grant persistence | Owned by their consumer/server integration tasks |
 | Product runtime admission, Python support or dependency declarations | Native development proof does not promote the candidate profile |
 | Global schemas/databases, foreign paths or shared services | Reconciliation/removal require recorded current ownership |
+
+## Captured selected inputs
+
+`InputCaptureService` accepts only server-admitted `inputs.capture` operations over the one
+private immutable `p0-accepted-v1` fixture. Its source must have a matching controller-held
+lifetime lock, disabled maintenance, current allocator authorization and protected credentials.
+A workspace input pin protects explicit workspace expiry; it is not a DuckLake retention pin.
+The fixed fixture controller excludes supported maintenance for its entire lifetime. Direct
+native administrator/owner bypass and future production retention coordination remain outside
+this P0 claim; later publication/maintenance owners must join capture and consumer retention.
+
+The source allocator lock covers exact `READ_ONLY, SNAPSHOT_VERSION` export. Each target
+relation commits separately and retained native data/delete-file bytes are then measured.
+Selected-source retained-file estimates are checked before export; actual excess stops further
+relations and leaves failed owned residuals/pins. This is neither an atomic whole-capture rollback
+nor a hard kernel storage limit. A ready private record is published only after checks and is
+usable only after the canonical effect and success receipt complete. Historical replay returns
+the saved result; released input metadata conveys no current use authority.
+
+Release requires the original capture operation, validates exact owned input pins and preserves
+other consumer pins. Partial cleanup retries never reacquire pins; only recorded unchanged staging
+inodes are deleted. Interruption before staging inventory can leave unknown residuals retained
+for whole task/workspace cleanup. Native expiry remains an explicit eligible T04B operation.
+
+Verify locally with `tests/unit/test_captured_inputs.py` and `tests/unit/input_support.py`.
+Actual profile acceptance uses `tests/integration/native_inputs.py` and the dedicated
+`.github/workflows/t05-native-inputs.yml`: guarded import/bootstrap before PostgreSQL, then a
+populated old-snapshot/read-only/owned-expiry smoke. The finite12 matrix is expanded only after
+that smoke passes; local synthetic copies are never native snapshot acceptance evidence.
