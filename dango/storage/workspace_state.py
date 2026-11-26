@@ -198,6 +198,17 @@ class WorkspaceJournal:
     root: Path
     store: OperationStore
 
+    def _ready(self, context: OperationContext, value: WorkspaceState) -> Workspace:
+        allocation = self._inspect(context, value.allocation_operation_id, "workspace.allocate")
+        if (
+            value.workspace is None
+            or allocation.effect is None
+            or allocation.effect.state != "applied"
+        ):
+            raise WorkspaceError("workspace_recovery_required")
+        self._check_effect(allocation.effect, "workspace.allocate", value.workspace_id)
+        return value.workspace
+
     def _inspect(self, context: OperationContext, target: str, effect: str) -> EffectInspection:
         if type(context) is not OperationContext:
             raise WorkspaceError("invalid_input")

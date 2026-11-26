@@ -19,9 +19,13 @@ from native_workspaces import (
     inspect_negatives,
     inspect_owned,
     pin_expiry_race,
+    wait_child,
+)
+from workspace_observations import (
+    blocked_waiter,
     removal_snapshot,
     saved_state_retains,
-    wait_child,
+    unapplied_extension,
 )
 
 from dango.operations.contracts import OutcomeReceipt
@@ -208,7 +212,7 @@ def partial_native_allocation(rig):
     binding = rig.native.current(workspace_id)
     denied(lambda: rig.service.get(context, workspace_id))
     assert rig.manifest(workspace_id)[1]["workspace"] is None
-    workspace = rig.service.allocate(context, "feature/same", "fixture-commit", "remote")
+    workspace = unapplied_extension(rig, context)
     assert (
         workspace.workspace_id == workspace_id
         and workspace.catalog_binding_ref == binding.binding_id
@@ -334,6 +338,7 @@ def pins(rig):
 
 def active_retention(rig):
     """14: lease, pin, then active released-pin operation each prevent actual populated removal."""
+    blocked_waiter(rig)
     owner, workspace = rig.allocate()
     binding = rig.populate(owner, workspace)
     assert rig.expire(workspace).error_code == "workspace_lease_active"
@@ -388,7 +393,7 @@ def corrupt_pin(rig):
     """16: corrupt pins or contradictory known state preserve populated native resources."""
     owner, workspace = rig.allocate()
     binding = rig.populate(owner, workspace)
-    for damage in ("pins", "expired", "removal-owner"):
+    for damage in ("pins", "expired", "removal-owner", "unknown-operation"):
         saved_state_retains(rig, owner, workspace, binding, damage)
     rig.dispose(workspace)
     return {"classification": "native_boundary", "preserved_sales_sum": 350}

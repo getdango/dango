@@ -31,8 +31,8 @@ server caller and persisted grant integration remain T09C's responsibility.
 | Change binding or authorization behavior | `catalogs.py` and assigned unit tests | `pytest tests/unit/test_catalog_bindings.py -m unit -q` |
 | Change physical ownership/recovery | `catalog_ownership.py` and assigned unit/native tests | Interruption/substitution negatives and actual populated removal |
 | Verify native catalog behavior | `tests/integration/native_catalog_bindings.py`, dedicated workflow | Explicit exact-pin native smoke, then the finite remaining matrix |
-| Change workspace lifecycle/pins | `workspaces.py`, `workspace_state.py`, `workspace_records.py` | `pytest tests/unit/test_workspaces.py tests/unit/test_workspace_state.py tests/unit/test_operation_store_workspace.py -q` |
-| Verify workspace/native join | `tests/integration/native_workspaces.py`, `workspace_cases.py`, dedicated T04B workflow | Guarded target import/bootstrap, then populated workspace smoke and finite matrix |
+| Change workspace lifecycle/pins | `workspaces.py`, `workspace_state.py`, `workspace_records.py` | `pytest tests/unit/test_workspaces.py tests/unit/test_workspace_state.py tests/unit/test_workspace_replay.py tests/unit/test_operation_store_workspace.py -q` |
+| Verify workspace/native join | `tests/integration/native_workspaces.py`, `workspace_cases.py`, `workspace_observations.py`, dedicated T04B workflow | Guarded target import/bootstrap, then populated workspace smoke and fixed selected cases |
 | Update this guide | `CLAUDE.md` | `python scripts/validate_claude_md.py dango/storage/CLAUDE.md` |
 
 ## Dependencies
@@ -79,6 +79,11 @@ the unchanged hash-bound fixture and approved import pins with an identifying re
 The initializer import closure includes logging/console dependencies. A restricted-import
 regression prevents a fuller host site from masking omissions; it is not native acceptance.
 Supported native-platform evidence is Linux amd64 only; macOS/Windows native behavior is unproved.
+The `affected` phase selects only08/09/12/14/16/17 after smoke18. Its distinct affected-success
+receipt leaves other current-head rows UNRUN and references the retained f01d88b0 full run
+45673095810 separately; it never claims a fresh full-matrix pass. Replay regressions live in
+`tests/unit/test_workspace_replay.py`; independent native oracles/selection constants live in
+`tests/integration/workspace_observations.py` to keep setup and cases focused.
 
 ## Workspace lifecycle
 
@@ -98,6 +103,9 @@ Idempotency keys remain request-owned. One prepared allocation effect journals t
 before native IO; branch names never select authority or physical resources. Ready is exposed
 only after durable catalog preparation and effect application. Missing late authority refuses
 reconstruction; valid early interruption resumes the recorded ID.
+New extensions enforce the same allocation-application readiness boundary as get; previously
+recorded extension results replay exactly. Expiry refreshes final receipts under its operation
+lock, including a waiter whose eligibility changes while an earlier call finalizes blocked.
 
 `acquire_pin(context,workspace_id,purpose,resource_ref)` returns an opaque `WorkspacePin` for
 input/build/query/backup. The same operation/purpose/resource returns the same active pin.
@@ -106,7 +114,8 @@ after finalization; released pins are retained as tombstones. `has_pins` refuses
 Pins outlive UI leases and operation finalization; released pins' still-active operations also
 block expiry, as do referenced unresolved recovery outcomes. Future T05/T06B and other consumers
 must call this API at their joins. Building state retains independently. Duplicate/missing keys
-and contradictory private phase/state/revision/removal-owner records refuse cleanup.
+and contradictory private phase/state/revision/removal-owner records refuse cleanup. `has_pins`
+validates every retained operation reference before reporting the actual pin boolean.
 
 Persistent lock order is operation intent, workspace, then allocator. No SQLite transaction
 spans native IO. Private state holds operation references, never copied operation lifecycle

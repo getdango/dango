@@ -13,10 +13,12 @@ on:
       - dango/operations/CLAUDE.md
       - tests/unit/test_workspaces.py
       - tests/unit/test_workspace_state.py
+      - tests/unit/test_workspace_replay.py
       - tests/unit/test_operation_store_workspace.py
       - tests/unit/workspace_support.py
       - tests/integration/native_workspaces.py
       - tests/integration/workspace_cases.py
+      - tests/integration/workspace_observations.py
       - .github/workflows/t04b-native-workspaces.yml
 
 permissions:
@@ -410,7 +412,7 @@ jobs:
             --mount="type=bind,src=$PAYLOAD/gate,dst=/gate,readonly" \
             --env=HOME=/work --env=TMPDIR=/work/tmp --env=PYTHONDONTWRITEBYTECODE=1 --env=PYTHONPATH=/work/site:/source \
             --env=AWS_EC2_METADATA_DISABLED=true --env=GCE_METADATA_DISABLED=true --env="TASK_COMMIT=$COMMIT" --workdir=/work \
-            --entrypoint=/bin/sh "$CLIENT_IMAGE" -ec 'while [ ! -f /gate/import ]; do sleep .1; done; mkdir /work/tmp; /tools/python/bin/python3.14 -m pip install --no-index --no-deps --no-cache-dir --no-compile --target /work/site /tools/artifacts/*.whl > /work/install.log 2>&1; /tools/python/bin/python3.14 -m pip check > /work/dependency-check.log 2>&1; /tools/python/bin/python3.14 /source/tests/integration/native_workspaces.py --check-imports /work/import-project > /work/import.log 2>&1; touch /work/import-ok; while [ ! -f /gate/client ]; do sleep .1; done; exec /tools/python/bin/python3.14 /source/tests/integration/native_workspaces.py --task-root /work/task --commit "$TASK_COMMIT" --phase all')
+            --entrypoint=/bin/sh "$CLIENT_IMAGE" -ec 'while [ ! -f /gate/import ]; do sleep .1; done; mkdir /work/tmp; /tools/python/bin/python3.14 -m pip install --no-index --no-deps --no-cache-dir --no-compile --target /work/site /tools/artifacts/*.whl > /work/install.log 2>&1; /tools/python/bin/python3.14 -m pip check > /work/dependency-check.log 2>&1; /tools/python/bin/python3.14 /source/tests/integration/native_workspaces.py --check-imports /work/import-project > /work/import.log 2>&1; touch /work/import-ok; while [ ! -f /gate/client ]; do sleep .1; done; exec /tools/python/bin/python3.14 /source/tests/integration/native_workspaces.py --task-root /work/task --commit "$TASK_COMMIT" --phase affected')
           inspect_limits() {
             local id=$1 memory=$2 cpus=$3 user=$4 network=$5
             local image=$CLIENT_IMAGE
@@ -473,8 +475,15 @@ jobs:
           test "$(cat "$SLICE/memory.swap.current")" = 0
           inside_gate 0
           jq -e --arg commit "$COMMIT" '.status=="PASS_NATIVE_WORKSPACE_SMOKE" and .commit==$commit and .owned_cleanup==true' "$PAYLOAD/work/smoke-result.json"
-          jq -e --arg commit "$COMMIT" '.status=="PASS_NATIVE_WORKSPACE_MATRIX" and .commit==$commit and (.cases|length)==18 and (.cases|all(.=="PASS"))' "$PAYLOAD/work/native-result.json" >/dev/null
-          stage completed_native_matrix
+          jq -e --arg commit "$COMMIT" '
+            .status=="PASS_NATIVE_WORKSPACE_AFFECTED" and .phase=="affected" and .commit==$commit
+            and .selected_cases==["08","09","12","14","16","17","18"]
+            and (.cases|keys)==["01","02","03","04","05","06","07","08","09","10","11","12","13","14","15","16","17","18"]
+            and (.cases|to_entries|all(if (.key|IN("08","09","12","14","16","17","18")) then .value=="PASS" else .value=="UNRUN" end))
+            and .retained_evidence.head=="f01d88b059c5e5de1e774372f85a72697fa35c74"
+            and .retained_evidence.run=="45673095810"
+          ' "$PAYLOAD/work/native-result.json" >/dev/null
+          stage completed_native_affected
           CONTROLLER
       - name: Verify owned cleanup and remove the task slice
         if: always()

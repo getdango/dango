@@ -210,15 +210,7 @@ class WorkspaceService(WorkspaceJournal):
         """Read current owner state, refusing to expose an unapplied allocation as ready."""
         self._inspect(context, context.operation_id, "workspace.activity")
         with self._workspace(context, workspace_id) as (_, value):
-            allocation = self._inspect(context, value.allocation_operation_id, "workspace.allocate")
-            if (
-                value.workspace is None
-                or allocation.effect is None
-                or allocation.effect.state != "applied"
-            ):
-                raise WorkspaceError("workspace_recovery_required")
-            self._check_effect(allocation.effect, "workspace.allocate", workspace_id)
-            return value.workspace
+            return self._ready(context, value)
 
     @_safe
     def extend(
@@ -242,7 +234,7 @@ class WorkspaceService(WorkspaceJournal):
                     return change.workspace
                 if change is not None:
                     return self._complete(context, operation, intent, change)
-                workspace = value.workspace
+                workspace = self._ready(context, value)
                 if (
                     workspace is None
                     or value.phase != "ready"
@@ -311,6 +303,11 @@ class WorkspaceService(WorkspaceJournal):
                 raise WorkspaceError("workspace_recovery_required")
             return inspection.receipt
         with self._operation(context, request, workspace_id) as (operation, intent):
+            inspection = self._inspect(context, context.operation_id, "workspace.expire")
+            if inspection.state == "finalized":
+                if inspection.receipt is None or inspection.receipt.result_ref != workspace_id:
+                    raise WorkspaceError("workspace_recovery_required")
+                return inspection.receipt
             with self._workspace(context, workspace_id) as (record, value):
                 change = self._change(value, context, intent)
                 if change is not None:
@@ -458,6 +455,6 @@ class WorkspaceService(WorkspaceJournal):
         """Refuse unknown operation or pin state rather than reporting unretained data."""
         self._inspect(context, context.operation_id, "workspace.activity")
         with self._workspace(context, workspace_id) as (_, value):
-            for entry in value.pins:
-                self._inspect(context, entry.pin.operation_id, "workspace.activity")
+            for operation_id in value.operations:
+                self._inspect(context, operation_id, "workspace.activity")
             return any(not p.released for p in value.pins)

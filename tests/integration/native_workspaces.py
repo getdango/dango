@@ -333,57 +333,6 @@ def pin_expiry_race(rig):
     return {"pin": pin_result["status"], "expiry": receipt["status"]}
 
 
-def removal_snapshot(rig, workspace, context):
-    """Retain exact independent SQL and JSON lifecycle facts for the D1 recovery oracle."""
-    _, value = rig.manifest(workspace.workspace_id)
-    return {
-        "operation": rig.rows(
-            "SELECT state,status,resource_revision,result_ref FROM platform_operations WHERE operation_id=?",
-            (context.operation_id,),
-        ),
-        "effect": rig.rows(
-            "SELECT state,native_ref FROM platform_effects WHERE operation_id=?",
-            (context.operation_id,),
-        ),
-        "workspace": {
-            "phase": value["phase"],
-            "state": value["workspace"]["state"],
-            "revision": value["workspace"]["revision"],
-        },
-    }
-
-
-def saved_state_retains(rig, owner, workspace, binding, damage):
-    """Check existing retention/corruption rows against actual populated native resources."""
-    from unittest.mock import patch
-
-    path, value = rig.manifest(workspace.workspace_id)
-    raw = path.read_bytes()
-    if damage == "pins":
-        del value["pins"]
-    elif damage == "removal-owner":
-        value["removal_operation_id"] = "unknown"
-    else:
-        value["workspace"]["state"] = damage
-    path.write_text(json.dumps(value))
-    context = expiry_context(rig, workspace)
-    with patch.object(rig.native.port, "_connect", wraps=rig.native.port._connect) as calls:
-
-        def action():
-            return rig.service.expire(context, workspace.workspace_id, 0)
-
-        if damage == "building":
-            assert action().error_code == "workspace_retained"
-        else:
-            assert denied(action) == "workspace_unavailable"
-        assert calls.call_count == 0
-    with rig.native.allocator().attach(owner, binding, read_only=True) as connection:
-        assert connection.execute("SELECT sum(amount) FROM catalog.sales.orders").fetchone() == (
-            350,
-        )
-    path.write_bytes(raw)
-
-
 def smoke(rig: WorkspaceRig) -> dict:
     """Prove populated allocate, durable reopen and actual owned expiry before expansion."""
     from native_catalog_bindings import (
@@ -433,7 +382,7 @@ def main() -> None:
     parser.add_argument("--check-imports", type=Path)
     parser.add_argument("--task-root", type=Path)
     parser.add_argument("--commit")
-    parser.add_argument("--phase", choices=["smoke", "all"], default="smoke")
+    parser.add_argument("--phase", choices=["smoke", "all", "affected"], default="smoke")
     args = parser.parse_args()
     if args.check_imports:
         check_imports(args.check_imports)
@@ -446,6 +395,12 @@ def main() -> None:
         "phase": args.phase,
         "cases": {f"{n:02d}": "UNRUN" for n in range(1, 19)},
     }
+    from workspace_observations import AFFECTED, RETAINED
+
+    selected = set(AFFECTED) if args.phase == "affected" else set(report["cases"]) - {"18"}
+    if args.phase == "affected":
+        report["retained_evidence"] = RETAINED
+        report["selected_cases"] = [*AFFECTED, "18"]
     output = args.task_root.parent / "native-result.json"
     try:
         rig = WorkspaceRig(args.task_root)
@@ -463,10 +418,12 @@ def main() -> None:
         report["cases"]["18"] = "PASS"
         report.update(status="PASS_NATIVE_WORKSPACE_SMOKE", owned_cleanup=True)
         (args.task_root.parent / "smoke-result.json").write_text(json.dumps(report) + "\n")
-        if args.phase == "all":
+        if args.phase != "smoke":
             from workspace_cases import CASES
 
             for number, case in CASES:
+                if number not in selected:
+                    continue
                 report["case_stage"] = number
                 report["cases"][number] = "FAIL"
                 output.write_text(json.dumps(report) + "\n")
@@ -475,8 +432,15 @@ def main() -> None:
                 report.setdefault("case_observations", {})[number] = observations
                 report["cases"][number] = "PASS"
                 output.write_text(json.dumps(report) + "\n")
-            assert all(state == "PASS" for state in report["cases"].values())
-            report["status"] = "PASS_NATIVE_WORKSPACE_MATRIX"
+            assert all(
+                state == ("PASS" if number in selected | {"18"} else "UNRUN")
+                for number, state in report["cases"].items()
+            )
+            report["status"] = (
+                "PASS_NATIVE_WORKSPACE_AFFECTED"
+                if args.phase == "affected"
+                else "PASS_NATIVE_WORKSPACE_MATRIX"
+            )
     except Exception as error:
         report.update(status="FAIL", error_type=type(error).__name__)
         raise SystemExit("Workspace integration failed; inspect sanitized case report") from None
