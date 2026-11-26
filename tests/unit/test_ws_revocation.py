@@ -91,6 +91,7 @@ def _assert_closed_by_server(ws: Any) -> None:
     assert exc.value.code == 1008
     assert _mgr()._per_identity == {}
     assert _mgr()._identity_of == {}
+    assert _mgr()._wake == {}
 
 
 def _connect(client: TestClient, cookie: str | None = None, bearer: str | None = None) -> Any:

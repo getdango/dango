@@ -38,6 +38,7 @@ def _register(manager: ws_module.ConnectionManager, sock: _Sock, identity: str) 
     manager.active_connections.append(cast(Any, sock))
     manager._pending -= 1
     manager._identity_of[cast(Any, sock)] = identity
+    manager.watch(cast(Any, sock))
 
 
 @pytest.mark.unit
@@ -60,6 +61,7 @@ class TestManagerRevocation:
         assert [m["event"] for m in healthy.received] == ["probe"]
         assert manager._per_identity == {"user:2": 1}
         assert manager.active_connections == [healthy]
+        assert list(manager._wake) == [healthy]
 
     def test_connection_revoked_during_broadcast_does_not_make_others_miss_it(self) -> None:
         async def run() -> tuple[_Sock, _Sock, _Sock]:
@@ -94,3 +96,4 @@ class TestManagerRevocation:
 
         assert manager.active_connections == []
         assert manager._per_identity == {}
+        assert manager._wake == {}
