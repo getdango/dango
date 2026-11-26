@@ -24,6 +24,26 @@ _FOREIGN_ORIGINS = [
     "http://127.0.0.1:9999",
     "http://[::1]:9999",
     "null",
+    # Origin-parsing attack values: only the exact own-origin strings may be trusted
+    pytest.param("", id="empty"),
+    pytest.param("*", id="star"),
+    pytest.param("HTTP://LOCALHOST:8800", id="upper-case-scheme-and-host"),
+    pytest.param("http://LOCALHOST:8800", id="upper-case-host"),
+    pytest.param("http://localhost:8800@evil.com", id="userinfo-own-first"),
+    pytest.param("http://evil.com@localhost:8800", id="userinfo-own-last"),
+    pytest.param("http://localhost.evil.com:8800", id="own-name-as-subdomain"),
+    pytest.param("http://127.0.0.1.evil.com", id="own-ip-as-subdomain"),
+    pytest.param("http://127.1:8800", id="short-ip"),
+    pytest.param("http://2130706433:8800", id="decimal-ip"),
+    pytest.param("https://localhost:8800", id="https-on-own-port"),
+    pytest.param("http://localhost:8800/", id="trailing-slash"),
+    pytest.param("http://localhost:8800/path", id="path"),
+    pytest.param(" http://localhost:8800", id="leading-space"),
+    pytest.param("http://localhost:8800 ", id="trailing-space"),
+    pytest.param("http://localhost:8800\n", id="trailing-newline"),
+    pytest.param("http://localhost:8800, http://evil.example", id="joined-values"),
+    pytest.param("http://[::ffff:127.0.0.1]:8800", id="ipv4-mapped-ipv6"),
+    pytest.param("http://" + "a" * 20000 + ".example", id="oversized"),
 ]
 _ACAO = "access-control-allow-origin"
 _ACAC = "access-control-allow-credentials"
@@ -87,9 +107,14 @@ class TestForeignOriginsLocalMode:
     def test_preflight_from_foreign_origin_gets_no_grant(
         self, project: _Project, origin: str
     ) -> None:
-        resp = _preflight(project.client(), origin)
+        resp = _preflight(
+            project.client(), origin, **{"Access-Control-Request-Headers": "x-requested-with"}
+        )
 
+        assert resp.status_code == 400
+        assert "Origin" in resp.headers["vary"]
         _assert_no_cors_grant(resp.headers)
+        assert "access-control-allow-headers" not in resp.headers
 
     @pytest.mark.parametrize("origin", _FOREIGN_ORIGINS)
     def test_credentialed_read_from_foreign_origin_has_no_cors_headers(
@@ -103,6 +128,16 @@ class TestForeignOriginsLocalMode:
         assert resp.json() == {"projects": "private-data"}
         _assert_no_cors_grant(resp.headers)
 
+    @pytest.mark.parametrize("origin", ["http://evil.example", "http://localhost:9999"])
+    def test_the_cookie_is_what_authenticates_the_read(
+        self, project: _Project, origin: str
+    ) -> None:
+        # Proves auth is really on: the same request without the cookie is refused
+        resp = project.client().get(_PROBE, headers={"Origin": origin})
+
+        assert resp.status_code == 401
+        _assert_no_cors_grant(resp.headers)
+
     def test_foreign_preflight_for_a_real_route_on_the_global_app(self) -> None:
         client = TestClient(global_app, base_url="http://localhost:8800")
 
@@ -114,6 +149,31 @@ class TestForeignOriginsLocalMode:
         resp = _preflight(project.client(), "http://evil.example")
 
         assert resp.headers.get(_ACAO) != "*"
+
+
+@pytest.mark.unit
+class TestHostSuppliedOrigin:
+    """An origin equal to the request's own Host is not trusted unless it is loopback."""
+
+    @pytest.mark.parametrize(
+        ("host", "origin"),
+        [
+            ("attacker.example:8800", "http://attacker.example:8800"),
+            ("attacker.example", "http://attacker.example"),
+        ],
+        ids=["rebinding-with-port", "rebinding-default-port"],
+    )
+    def test_origin_equal_to_a_non_loopback_host_gets_no_grant(
+        self, project: _Project, host: str, origin: str
+    ) -> None:
+        client = project.client(host)
+
+        preflight = _preflight(client, origin)
+        read = client.get(_PROBE, headers={"Origin": origin, "Cookie": project.cookie})
+
+        assert preflight.status_code == 400
+        _assert_no_cors_grant(preflight.headers)
+        _assert_no_cors_grant(read.headers)
 
 
 @pytest.mark.unit
@@ -156,6 +216,15 @@ class TestOwnOriginsLocalMode:
         )
 
         assert resp.status_code == 200
+        assert resp.headers[_ACAO] == origin
+        assert resp.headers[_ACAC] == "true"
+
+    @pytest.mark.parametrize("origin", ["http://localhost:8800", "http://127.0.0.1:8800"])
+    def test_own_origin_401_carries_the_cors_headers(self, project: _Project, origin: str) -> None:
+        # The UI reads the 401 of an expired session, so it needs the CORS headers too
+        resp = project.client().get(_PROBE, headers={"Origin": origin})
+
+        assert resp.status_code == 401
         assert resp.headers[_ACAO] == origin
         assert resp.headers[_ACAC] == "true"
 
