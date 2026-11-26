@@ -20,13 +20,13 @@ from tests.factories.compose_helper_sh import Runner, runner_session
 
 pytestmark = pytest.mark.unit
 
-# Runs the issued command in its own session and signals it (the whole group, as sshd does when a
+# Runs the issued command (its argv, as sshd's shell would) in its own session and signals it (the whole group, as sshd does when a
 # channel closes, or only the shell) once the fake pip has started; prints the exit status.
 _HARNESS = textwrap.dedent(
     """
-    import os, signal, subprocess, sys, time
+    import os, shlex, signal, subprocess, sys, time
     cmd, sig, scope, ready = sys.argv[1:5]
-    p = subprocess.Popen(["sh", "-c", cmd], start_new_session=True)
+    p = subprocess.Popen(shlex.split(cmd), start_new_session=True, stdout=subprocess.DEVNULL)
     end = time.monotonic() + 15
     while not os.path.exists(ready) and time.monotonic() < end:
         time.sleep(0.01)
