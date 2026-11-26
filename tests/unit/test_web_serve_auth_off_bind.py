@@ -200,3 +200,16 @@ class TestServeBind:
         text = " ".join(CliRunner().invoke(serve, ["--help"]).output.split())
         assert "127.0.0.1" in text
         assert "authentication is turned off" in text
+
+
+class TestAuthDisableMessage:
+    def test_the_message_tells_the_user_to_restart_a_running_server(self, tmp_path: Path) -> None:
+        from dango.cli.main import cli
+
+        _auth(tmp_path, "enabled: true\n")
+        with patch("dango.cli.utils.find_project_root", return_value=tmp_path):
+            result = CliRunner().invoke(cli, ["auth", "disable"], input="y\n")
+        text = _squash(result)
+        assert result.exit_code == 0, result.output
+        assert "restart it so it listens only on this computer" in text
+        assert "dango auth enable" in text

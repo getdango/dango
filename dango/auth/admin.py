@@ -61,10 +61,11 @@ def is_auth_enabled(project_root: Path) -> bool:
 def is_auth_explicitly_disabled(project_root: Path) -> bool:
     """True only if ``.dango/auth.yml`` was read successfully and says ``enabled: false``.
 
-    Stricter than ``not is_auth_enabled()``: a missing file, an empty file, a file without an
-    ``enabled`` key (or with a null one), and a file that cannot be read or parsed all return
-    ``False``. This is the "toggle read successfully as off" notion the auth middleware uses,
-    so a missing or broken file never changes how the server is exposed.
+    Stricter than ``not is_auth_enabled()`` and stricter than the auth middleware: the middleware
+    treats an empty file or a missing or null ``enabled`` as auth off, but here only an explicit
+    false value counts. A missing file, an empty file, a file without an ``enabled`` key (or with a
+    null one), and a file that cannot be read or parsed all return ``False``, so a hand-edited or
+    truncated file never changes how the server is exposed (the bind stays as it was).
     """
     config_path = get_auth_config_path(project_root)
     try:

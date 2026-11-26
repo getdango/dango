@@ -121,7 +121,9 @@ def auth_disable(ctx: click.Context) -> None:
         print_warning(
             "Authentication disabled for requests from this machine (same origin). "
             "User management still requires login. "
-            "Run 'dango auth enable' to turn it back on."
+            "Run 'dango auth enable' to turn it back on. "
+            "If 'dango web' or 'dango serve' is running, restart it so it listens only on "
+            "this computer."
         )
     except click.Abort:
         raise
