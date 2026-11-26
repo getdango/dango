@@ -19,7 +19,7 @@ User authentication and access control for Dango. Handles password-based login w
 | `password_gate.py` | ~70 | Current-password re-check for signed-in users, counted as failed logins | `check_current_password()`, `PasswordCheck` |
 | `totp_guard.py` | ~150 | Persistent TOTP failure counter with growing lockout, last-step replay protection | `accept_totp_code()`, `record_totp_failure()`, `totp_lock_remaining()` |
 | `audit.py` | 238 | 57 event types + 1 deprecated alias to `.dango/logs/audit.jsonl` | `AuditEvent`, `log_auth_event()`, `query_audit_log()` |
-| `admin.py` | 139 | Bootstrap + path helpers | `ensure_admin(db_path, email, password=None)`, `SKIP_WIZARD_DEFAULT_ADMIN_EMAIL`, `is_auth_enabled()`, `get_auth_db_path()` |
+| `admin.py` | 161 | Bootstrap + path helpers | `ensure_admin(db_path, email, password=None)`, `SKIP_WIZARD_DEFAULT_ADMIN_EMAIL`, `is_auth_enabled()`, `is_auth_explicitly_disabled()` (True only for a readable auth.yml with `enabled: false`; used by `dango web`/`serve` to choose the bind address), `get_auth_db_path()` |
 | `totp.py` | 220 | TOTP 2FA: setup/verify/enable/disable, recovery codes | `generate_totp_secret()`, `verify_totp_code()`, `setup_totp()`, `enable_totp()`, `consume_recovery_code()` |
 | `oauth_login.py` | 314 | OAuth provider ABC + Google/GitHub implementations | `OAuthLoginProvider`, `GoogleOAuthProvider`, `GitHubOAuthProvider`, `get_provider()` |
 | `metabase_sync.py` | 552 | Sync users/roles to Metabase; admin sessions use the security credential boundary | `sync_user_to_metabase()`, `sync_all_users_to_metabase()`, `sync_user_role()`, `decrypt_metabase_password()` |

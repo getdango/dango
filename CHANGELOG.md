@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`dango validate` no longer contacts the network for the dbt check.** It starts `dbt --help` instead of `dbt --version` (which asks PyPI for the latest versions) and shows the installed dbt-core version from local package metadata.
 
+- **`dango web` and `dango serve` listen only on this computer when local authentication is turned off.** With `dango auth disable`, they now bind 127.0.0.1 unless you pass `--host`, and print one line saying so. To keep listening on the network, pass `--host 0.0.0.0`. `dango start`, cloud servers and projects with authentication on are unchanged.
+
 ## [1.0.14] - 2026-11-13
 
 This release hardens access control, backups, cloud servers and the Metabase and notebook paths. Read "Upgrade" before installing.

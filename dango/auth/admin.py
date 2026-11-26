@@ -58,6 +58,28 @@ def is_auth_enabled(project_root: Path) -> bool:
     return bool(data.get("enabled", False))
 
 
+def is_auth_explicitly_disabled(project_root: Path) -> bool:
+    """True only if ``.dango/auth.yml`` was read successfully and says ``enabled: false``.
+
+    Stricter than ``not is_auth_enabled()`` and stricter than the auth middleware: the middleware
+    treats an empty file or a missing or null ``enabled`` as auth off, but here only an explicit
+    false value counts. A missing file, an empty file, a file without an ``enabled`` key (or with a
+    null one), and a file that cannot be read or parsed all return ``False``, so a hand-edited or
+    truncated file never changes how the server is exposed (the bind stays as it was).
+    """
+    config_path = get_auth_config_path(project_root)
+    try:
+        if not config_path.is_file():
+            return False
+        data = ConfigLoader(project_root).load_yaml(config_path)
+    except Exception:
+        return False
+    if not isinstance(data, dict):
+        return False
+    value = data.get("enabled")
+    return value is not None and not value
+
+
 def set_auth_enabled(project_root: Path, *, enabled: bool) -> None:
     """Write enabled flag to ``.dango/auth.yml``.
 

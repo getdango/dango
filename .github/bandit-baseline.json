@@ -5122,9 +5122,9 @@
       "test_name": "hardcoded_sql_expressions"
     },
     {
-      "code": "11 @click.command()\n12 @click.option(\"--host\", default=\"0.0.0.0\", help=\"Host to bind to\")\n13 @click.option(\"--port\", default=8080, help=\"Port to bind to\")\n",
-      "col_offset": 32,
-      "end_col_offset": 41,
+      "code": "65 \n66         decision = resolve_bind_host(project_root, host, default_host=\"0.0.0.0\")\n67         host = decision.host\n",
+      "col_offset": 70,
+      "end_col_offset": 79,
       "filename": "dango/cli/commands/web.py",
       "issue_confidence": "MEDIUM",
       "issue_cwe": {
@@ -5133,9 +5133,9 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible binding to all interfaces.",
-      "line_number": 12,
+      "line_number": 66,
       "line_range": [
-        12
+        66
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
       "test_id": "B104",

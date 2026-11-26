@@ -25,7 +25,10 @@ import click
 @click.option(
     "--host",
     default=None,
-    help="Bind address (default: 127.0.0.1 when DANGO_CLOUD_MODE=true, else 0.0.0.0)",
+    help=(
+        "Bind address (default: 127.0.0.1 when DANGO_CLOUD_MODE=true or local authentication "
+        "is turned off, else 0.0.0.0)"
+    ),
 )
 @click.option("--port", default=None, type=int, help="Port (default: config value or 8800)")
 @click.option("--workers", default=None, type=int, help="Number of uvicorn workers (default: 1)")
@@ -41,7 +44,9 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
 
     \b
       - Binds to 0.0.0.0 (all interfaces), or 127.0.0.1 on a cloud server
-        (DANGO_CLOUD_MODE=true), where Caddy is the public entry point
+        (DANGO_CLOUD_MODE=true), where Caddy is the public entry point, or when local
+        authentication has been turned off with "dango auth disable" (pass --host 0.0.0.0 to
+        listen on the network anyway; that exposes the project while authentication is off)
       - Runs uvicorn in the foreground (no PID file)
       - Does not open a browser or start the file watcher
       - Minimal console output (no Rich formatting)
@@ -264,8 +269,12 @@ def serve(ctx: click.Context, host: str | None, port: int | None, workers: int |
         pass
 
     # H4: Check port availability before starting uvicorn
-    if host is None:
-        host = _default_host()
+    from ..helpers.bind_host import resolve_bind_host
+
+    decision = resolve_bind_host(project_root, host, default_host=_default_host())
+    host = decision.host
+    if decision.message is not None:
+        print(decision.message, file=sys.stderr if decision.is_warning else sys.stdout)
     _check_port(effective_port, host)
 
     if watch_credential:
