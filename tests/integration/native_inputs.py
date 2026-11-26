@@ -323,12 +323,13 @@ def main():
         smoke_receipt = {**report, "cases": {f"{n:02d}": "UNRUN" for n in range(1, 13)}}
         if args.phase != "smoke":
             from input_cases import CASES
-            from input_observations import AFFECTED, RETAINED
+            from input_observations import AFFECTED, RETAINED, RETAINED_AFFECTED
 
             selected = set(AFFECTED) if args.phase == "affected" else set(report["cases"])
             if args.phase == "affected":
                 report["selected_cases"] = list(AFFECTED)
                 report["retained_evidence"] = RETAINED
+                report["retained_affected_evidence"] = RETAINED_AFFECTED
 
             for number, case in CASES:
                 if number not in selected:

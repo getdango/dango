@@ -413,7 +413,9 @@ def durability(rig):
         from dango.storage.inputs import InputCaptureService
         from dango.storage.workspaces import WorkspaceService
 
-        store = OperationStore(rig.native.root)
+        store = OperationStore(
+            rig.native.root, clock_epoch_us=lambda: int(rig.now.timestamp() * 1000000)
+        )
         workspaces = WorkspaceService(rig.native.root, rig.allocator, store, lambda: rig.now)
         inputs = InputCaptureService(rig.native.root, rig.allocator, workspaces, lambda: rig.now)
         assert inputs.inspect_capture(owner, value.input_set_id) == value

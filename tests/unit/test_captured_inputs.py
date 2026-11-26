@@ -282,3 +282,19 @@ def test_domain_refusal_survives_real_allocator_yield_boundary(rig, code):
             raise InputCaptureError(code)
     assert caught.value.code == code
     assert rig.port.calls[-1] == "attach"
+
+
+def test_fresh_store_and_services_reopen_saved_capture(rig):
+    """Reconstruct the exact clock-bound store/workspace/capture join over persisted records."""
+    from dango.operations.store import OperationStore
+    from dango.storage.inputs import InputCaptureService
+    from dango.storage.workspaces import WorkspaceService
+
+    owner, value = rig.capture()
+    store = OperationStore(rig.root, clock_epoch_us=lambda: int(rig.now.timestamp() * 1000000))
+    workspaces = WorkspaceService(rig.root, rig.allocator, store, lambda: rig.now)
+    inputs = InputCaptureService(rig.root, rig.allocator, workspaces, lambda: rig.now)
+    assert inputs.inspect_capture(owner, value.input_set_id) == value
+    assert store.inspect_effect(
+        owner, owner.operation_id, "inputs.capture"
+    ) == rig.store.inspect_effect(owner, owner.operation_id, "inputs.capture")

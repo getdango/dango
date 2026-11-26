@@ -519,13 +519,17 @@ jobs:
             .status=="PASS_NATIVE_INPUT_AFFECTED" and .phase=="affected" and .commit==$commit
             and .smoke=="PASS" and .owned_cleanup==true and .lifetime_released_after_all_refs==true
             and (.cases|keys)==["01","02","03","04","05","06","07","08","09","10","11","12"]
-            and .selected_cases==["05","06","07","08","09","10","11","12"]
-            and (.cases|to_entries|all(if (.key|IN("05","06","07","08","09","10","11","12")) then .value=="PASS" else .value=="UNRUN" end))
+            and .selected_cases==["12"]
+            and (.cases|to_entries|all(if (.key=="12") then .value=="PASS" else .value=="UNRUN" end))
             and .retained_evidence.head=="fa2282c0bba6f959ca9a2d12d314cecc395c46df" and .retained_evidence.run=="45861634718"
             and .retained_evidence.retained_case_ids==["01","02","03","04"]
             and (.retained_evidence.cases|keys)==["01","02","03","04","05","06","07","08","09","10","11","12"]
             and (.retained_evidence.cases|to_entries|all(if (.key|IN("01","02","03","04")) then .value=="PASS" elif .key=="05" then .value=="FAIL" else .value=="UNRUN" end))
-            and (.case_observations|keys)==["05","06","07","08","09","10","11","12"]
+            and .retained_affected_evidence.head=="333033f5597cae3968810af3d15eb8d879bb97ba" and .retained_affected_evidence.run=="45863495362"
+            and .retained_affected_evidence.retained_case_ids==["05","06","07","08","09","10","11"]
+            and (.retained_affected_evidence.cases|keys)==["01","02","03","04","05","06","07","08","09","10","11","12"]
+            and (.retained_affected_evidence.cases|to_entries|all(if (.key|IN("05","06","07","08","09","10","11")) then .value=="PASS" elif .key=="12" then .value=="FAIL" else .value=="UNRUN" end))
+            and (.case_observations|keys)==["12"]
             and .profile.fixture_sha256=="b6879d50f7220b8afa1a1b6b6266e27db6c3492a8fa2bc71747656c6411af449"
             and .profile.python=="3.14.10" and .profile.duckdb=="2.0.0" and .profile.ducklake=="1.1"
           ' "$PAYLOAD/work/native-result.json" >/dev/null
