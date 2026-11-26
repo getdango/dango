@@ -255,3 +255,30 @@ def test_ready_before_journal_completion_recovers_without_copy(rig, monkeypatch)
         ).status
         == "success"
     )
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "capture_quota_exceeded",
+        "capture_schema_changed",
+        "capture_collision",
+        "capture_source_unavailable",
+    ],
+)
+def test_domain_refusal_survives_real_allocator_yield_boundary(rig, code):
+    """The actual allocator wraps yield exceptions; capture must carry its safe code past closure."""
+    from dango.storage.catalogs import CatalogError
+    from dango.storage.input_copy import NativeInputCopy
+    from dango.storage.workspace_state import current_binding
+
+    binding, _ = current_binding(rig.allocator, rig.source_context, rig.source.workspace_id)
+    with pytest.raises(CatalogError):
+        with rig.allocator.attach(rig.source_context, binding, read_only=True):
+            raise InputCaptureError(code)
+    copy = NativeInputCopy(rig.root, rig.allocator)
+    with pytest.raises(InputCaptureError) as caught:
+        with copy._attach(rig.source_context, binding, read_only=True):
+            raise InputCaptureError(code)
+    assert caught.value.code == code
+    assert rig.port.calls[-1] == "attach"

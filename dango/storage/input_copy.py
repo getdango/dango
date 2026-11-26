@@ -6,7 +6,8 @@ Materialize selected admitted snapshots through authorized bindings and measured
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -45,6 +46,20 @@ class NativeInputCopy:
 
     def __init__(self, root: Path, allocator: CatalogAllocator):
         self.root, self.allocator = root, allocator
+
+    @contextmanager
+    def _attach(
+        self, context: OperationContext, binding: CatalogBinding, *, read_only: bool
+    ) -> Iterator[DuckDBPyConnection]:
+        """Carry our safe domain refusal outside the allocator's intentionally generic native boundary."""
+        refusal = None
+        with self.allocator.attach(context, binding, read_only=read_only) as connection:
+            try:
+                yield connection
+            except InputCaptureError as error:
+                refusal = error
+        if refusal is not None:
+            raise refusal
 
     def _credential(self, context: OperationContext, binding: CatalogBinding) -> dict[str, str]:
         if self.allocator.authorize(context, binding, "read") is not True:
@@ -124,7 +139,7 @@ class NativeInputCopy:
         self, context: OperationContext, binding: CatalogBinding, relations: tuple[Relation, ...]
     ) -> None:
         """Refuse any selected target schema/table collision before exporting source data."""
-        with self.allocator.attach(context, binding, read_only=False) as connection:
+        with self._attach(context, binding, read_only=False) as connection:
             self._collisions(connection, relations)
 
     @staticmethod
@@ -154,7 +169,7 @@ class NativeInputCopy:
         os.close(stage_fd)
         stage = self.root / ".dango/state/inputs/staging" / input_set_id
         gate()
-        with self.allocator.attach(context, binding, read_only=True) as connection:
+        with self._attach(context, binding, read_only=True) as connection:
             credential = self._credential(context, binding)
             connection.execute("DETACH catalog")
             options = (
@@ -262,7 +277,7 @@ class NativeInputCopy:
     ) -> tuple[str, int]:
         """Commit one owned relation, then measure visible native retained bytes; residuals may remain."""
         stage = self.root / ".dango/state/inputs/staging" / input_set_id / f"{index}.parquet"
-        with self.allocator.attach(context, binding, read_only=False) as connection:
+        with self._attach(context, binding, read_only=False) as connection:
             # A preceding selected relation may have created this schema in this capture.
             exists = connection.execute(
                 "SELECT count(*) FROM information_schema.tables WHERE table_catalog='catalog' "

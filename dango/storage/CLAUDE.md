@@ -170,5 +170,7 @@ Actual profile acceptance uses `tests/integration/native_inputs.py` and the dedi
 populated old-snapshot/read-only/owned-expiry smoke. `tests/integration/input_cases.py` holds the fixed12 cases and
 `tests/integration/input_observations.py` supplies independent raw SQL/file/schema oracles.
 The `--phase all` entrypoint gates every case on its populated smoke; matrix PASS additionally
-requires all12 literal statuses, exact profile/head and final owned cleanup. Local synthetic
+requires all12 literal statuses, exact profile/head and final owned cleanup. Fixed affected runs
+record selected current-head PASS and other rows UNRUN with unchanged earlier evidence bound
+separately to its exact head/run; they never claim a fresh full-matrix PASS. Local synthetic
 copies are never native snapshot acceptance evidence.

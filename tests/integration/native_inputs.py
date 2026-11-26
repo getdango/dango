@@ -292,7 +292,7 @@ def main():
     parser.add_argument("--check-imports", type=Path)
     parser.add_argument("--task-root", type=Path)
     parser.add_argument("--commit")
-    parser.add_argument("--phase", choices=["smoke", "all"], default="smoke")
+    parser.add_argument("--phase", choices=["smoke", "all", "affected"], default="smoke")
     args = parser.parse_args()
     if args.check_imports:
         imports(args.check_imports)
@@ -321,16 +321,27 @@ def main():
         report["observations"] = smoke(rig)
         report["smoke"] = "PASS"
         smoke_receipt = {**report, "cases": {f"{n:02d}": "UNRUN" for n in range(1, 13)}}
-        if args.phase == "all":
+        if args.phase != "smoke":
             from input_cases import CASES
+            from input_observations import AFFECTED, RETAINED
+
+            selected = set(AFFECTED) if args.phase == "affected" else set(report["cases"])
+            if args.phase == "affected":
+                report["selected_cases"] = list(AFFECTED)
+                report["retained_evidence"] = RETAINED
 
             for number, case in CASES:
+                if number not in selected:
+                    continue
                 report["case_stage"] = number
                 report["cases"][number] = "FAIL"
                 output.write_text(json.dumps(report) + "\n")
                 report.setdefault("case_observations", {})[number] = case(rig)
                 report["cases"][number] = "PASS"
-            assert set(report["cases"].values()) == {"PASS"}
+            assert all(
+                state == ("PASS" if number in selected else "UNRUN")
+                for number, state in report["cases"].items()
+            )
         rig.release()
         report.update(
             status="PASS_NATIVE_INPUT_SMOKE",
@@ -343,8 +354,12 @@ def main():
             lifetime_released_after_all_refs=True,
         )
         (args.task_root.parent / "smoke-result.json").write_text(json.dumps(smoke_receipt) + "\n")
-        if args.phase == "all":
-            report["status"] = "PASS_NATIVE_INPUT_MATRIX"
+        if args.phase != "smoke":
+            report["status"] = (
+                "PASS_NATIVE_INPUT_AFFECTED"
+                if args.phase == "affected"
+                else "PASS_NATIVE_INPUT_MATRIX"
+            )
     except Exception as error:
         report.update(
             status="FAIL",

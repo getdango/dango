@@ -165,3 +165,14 @@ def journal(rig, owner):
             args,
         ),
     }
+
+
+AFFECTED = tuple(f"{n:02d}" for n in range(5, 13))
+RETAINED = {
+    "head": "fa2282c0bba6f959ca9a2d12d314cecc395c46df",
+    "run": "45861634718",
+    "retained_case_ids": ["01", "02", "03", "04"],
+    "cases": {
+        f"{n:02d}": ("PASS" if n <= 4 else ("FAIL" if n == 5 else "UNRUN")) for n in range(1, 13)
+    },
+}
