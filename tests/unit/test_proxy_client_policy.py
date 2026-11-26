@@ -119,15 +119,25 @@ def _cookie_response() -> httpx.Response:
     )
 
 
-def _http_client_assignments() -> list[tuple[str, int, ast.expr]]:
+def _http_client_assignments() -> list[tuple[str, int, ast.expr, set[str]]]:
+    """Every ``X.http_client = <expr>`` in ``dango/`` with the names its module imports from the
+    factory module (``from dango.web.proxy_client import make_proxy_client [as name]``)."""
     root = Path(dango.__file__).parent
-    found: list[tuple[str, int, ast.expr]] = []
+    found: list[tuple[str, int, ast.expr, set[str]]] = []
     for path in sorted(root.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        factory_names = {
+            alias.asname or alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module == "dango.web.proxy_client"
+            for alias in node.names
+            if alias.name == "make_proxy_client"
+        }
+        for node in ast.walk(tree):
             targets = node.targets if isinstance(node, ast.Assign) else []
             if any(isinstance(t, ast.Attribute) and t.attr == "http_client" for t in targets):
                 assert isinstance(node, ast.Assign)
-                found.append((str(path.relative_to(root)), node.lineno, node.value))
+                found.append((str(path.relative_to(root)), node.lineno, node.value, factory_names))
     return found
 
 
@@ -135,11 +145,12 @@ def _http_client_assignments() -> list[tuple[str, int, ast.expr]]:
 def test_every_proxy_client_is_built_by_the_factory() -> None:
     sites = _http_client_assignments()
     assert sites, "the server's lifespan no longer assigns app.state.http_client"
-    for where, line, value in sites:
+    for where, line, value, factory_names in sites:
         assert isinstance(value, ast.Call), f"{where}:{line}"
         func = value.func
-        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-        assert name == "make_proxy_client", f"{where}:{line} builds a client without the factory"
+        assert isinstance(func, ast.Name) and func.id in factory_names, (
+            f"{where}:{line} builds a client without dango.web.proxy_client.make_proxy_client"
+        )
 
 
 @pytest.mark.unit

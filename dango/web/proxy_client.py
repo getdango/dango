@@ -4,7 +4,8 @@ Factory for the long-lived HTTP clients that talk to upstream services on behalf
 
 httpx clients keep a cookie jar and attach its cookies to any later request that has no ``Cookie``
 header of its own. A client shared by every user must never do that, so the clients built here
-refuse to store or return cookies.
+refuse to store or return cookies. Never assign ``client.cookies = ...`` on such a client: on
+httpx 0.28 the setter wraps the value in a new plain jar, and cookies are remembered again.
 """
 
 from __future__ import annotations
