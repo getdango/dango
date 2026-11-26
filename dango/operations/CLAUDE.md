@@ -15,7 +15,7 @@ The server owns actor, project, capability and permission revision. A nested pay
 | --- | --- | --- |
 | `__init__.py` | Import-safe package marker | None |
 | `contracts.py` | Strict schema-1 envelopes, payload validation and request hashing | `OperationContext`, `OperationRequest`, `OutcomeReceipt`, `ContractValidationError`, `canonical_request_bytes`, `request_digest` |
-| `store.py` | Atomic admission, immutable final receipts, ordered effects and server-timed project leases | `OperationStore`, `BeginResult`, `EffectRecord`, `LeaseBinding` |
+| `store.py` | Atomic admission, immutable final receipts, scoped effect reads and server-timed leases | `OperationStore`, `BeginResult`, `EffectRecord`, `EffectInspection`, `LeaseBinding` |
 
 ## Common Tasks
 
@@ -40,11 +40,20 @@ There are no registered product callers yet. Future server/adapter callers must 
 authorize separately, snapshot request bytes where needed, and supply server-derived context.
 `OperationStore(project_root, *, clock_epoch_us)` requires a server-owned integer microsecond clock.
 Its methods are `begin_operation`, `mark_running`, `record_effect`, `finalize_operation`,
-`acquire_lease`, `renew_lease` and `release_lease`. Metadata bootstrap owns the version-1 tables in
+`inspect_effect`, `acquire_lease`, `renew_lease` and `release_lease`. Metadata bootstrap owns the version-1 tables in
 `.dango/dango.db`; the store uses short explicit transactions and performs no native IO. Leases
 serialize journal ownership and do not fence native writers. Release preserves revision history;
 cleanup may release a finalized operation's current lease. Finalized operations reject other writes.
 Recovery uses a new operation linked through an effect's `recovery_ref`.
+
+`inspect_effect(context,operation_id,effect_id)` first verifies the calling canonical operation
+exists, then reads a target belonging to the same project/actor. The target ID may differ only
+for this read; all mutation methods still require context.operation_id == target. Its strict
+`EffectInspection` contains operation ID/name/digest/state, the exact effect or None, and a
+validated final receipt or None. Missing operations deny rather than masquerading as absent
+effects. Receipt references/revision/status must match their SQL columns. This read performs
+no native IO or authentication and permits finalized owned rows for cleanup/replay. Workspace
+activity checks use this API instead of duplicating lifecycle state or fabricating contexts.
 
 ## Testing
 
@@ -54,6 +63,8 @@ fresh import subprocess that guards against filesystem writes, network and nativ
 Run `python -m pytest tests/unit/test_operation_store.py -x` for concurrent admission, exact replay,
 ownership, effect order, clock/lease transitions, interruption and payload canary checks. These
 establish local durability and envelope behavior, not authenticated access or native recovery.
+Run `python -m pytest tests/unit/test_operation_store_workspace.py -q` for the scoped inspection
+read, independent corruption/ownership oracles and unchanged write restrictions.
 
 Frozen Pydantic models are shallow: nested payload dictionaries/lists remain mutable. Every hash
 revalidates and serializes current payload values; never cache a digest on the model. JSON uses
