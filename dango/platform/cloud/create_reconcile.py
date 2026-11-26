@@ -21,9 +21,12 @@ from typing import Any
 import httpx
 
 from dango.exceptions import CloudError
+from dango.logging import get_logger
 
 __all__ = ["CreateOutcomeUnknown", "reconcile_create", "list_firewalls", "same_public_key"]
 
+
+_logger = get_logger(__name__)
 
 # One repeat lookup after this pause (same as the 5 s provisioning poll interval).
 _RECHECK_DELAY = 5.0
@@ -92,6 +95,7 @@ def reconcile_create(
             matches = find()
     except (CloudError, httpx.HTTPError, ValueError, TypeError, AttributeError, KeyError) as exc:
         # ValueError (a non-JSON 200) and the others (an odd shape) cannot prove the create failed
+        _logger.warning("create_lookup_failed", kind=kind, error_type=type(exc).__name__)
         raise CloudError(
             f"{unconfirmed} and the lookup failed: {exc}. "
             f"A {kind} named '{name}' may exist; check the DigitalOcean console."
