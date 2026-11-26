@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse, Response
 
 from dango.auth.metabase_access import is_pending
 from dango.web.middleware.auth import is_secure_request
+from dango.web.routes.metabase_cookies import MB_SESSION_COOKIE, upstream_session_cookie
 from dango.web.routes.metabase_recovery import (
     RECOVERY_SCRIPT,
     RECOVERY_SCRIPT_PATH,
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["metabase-proxy"])
 
-_MB_SESSION_COOKIE = "metabase.SESSION"
+_MB_SESSION_COOKIE = MB_SESSION_COOKIE
 
 _METABASE_UNAVAILABLE_HTML = """\
 <!DOCTYPE html>
@@ -321,9 +322,33 @@ def _is_html_document(request: Request, response: httpx.Response) -> bool:
     return request.method == "GET" and response.status_code == 200 and content_type == "text/html"
 
 
+def _reissue_upstream_session(request: Request, response: httpx.Response, final: Response) -> None:
+    """With local sign-in off, keep a manual Metabase login in this browser's own cookie.
+
+    The raw upstream ``metabase.SESSION`` Set-Cookie is always dropped (BUG-247); the proxy owns
+    that cookie. With Dango sign-in on, a session minted by a manual Metabase login would bypass
+    the bridge and the role checks, so nothing is re-issued. Only when the middleware read the
+    toggle as off for a local request, and there is no Dango user, is the session value put on
+    the browser with the proxy's own cookie attributes (an expiry clears it).
+    """
+    if getattr(request.state, "auth_disabled", False) is not True:
+        return
+    if getattr(request.state, "user", None) is not None:
+        return
+    found = upstream_session_cookie(response)
+    if found is None:
+        return
+    value, expired = found
+    if expired:
+        _clear_mb_session_cookie(final)
+    else:
+        _set_mb_session_cookie(final, value, request)
+
+
 def _finalize(request: Request, response: httpx.Response) -> Response:
     """Build the outgoing response, adding the recovery script to HTML documents only."""
     final = _build_response(response)
+    _reissue_upstream_session(request, response, final)
     if _is_html_document(request, response):
         final.body = inject_recovery_script(bytes(final.body))
         final.headers["content-length"] = str(len(final.body))

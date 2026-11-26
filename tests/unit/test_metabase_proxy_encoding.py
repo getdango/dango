@@ -15,6 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from dango.web.proxy_client import make_proxy_client
 from dango.web.routes.metabase_proxy import router as proxy_router
 
 _GET_MB_URL = "dango.web.routes.metabase_proxy._get_metabase_url"
@@ -24,7 +25,7 @@ _JS = b"console.log('metabase');"
 def _make_app(tmp_path: Path, handler: Any) -> tuple[FastAPI, httpx.AsyncClient]:
     app = FastAPI()
     app.state.project_root = tmp_path
-    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    http_client = make_proxy_client(transport=httpx.MockTransport(handler))
     app.state.http_client = http_client
 
     user = MagicMock()
