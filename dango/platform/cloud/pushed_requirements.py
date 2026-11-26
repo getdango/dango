@@ -10,6 +10,7 @@ are refused.
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -30,6 +31,20 @@ _WEB_URL = re.compile(r"^https?://", re.I)
 _URL_CREDENTIALS = re.compile(r"[a-z][a-z0-9+.-]*://[^/\s@]+@", re.I)
 _SSH_GIT_USER = re.compile(r"^[a-z+]*ssh://git@", re.I)
 _LOCAL_ARCHIVE = re.compile(r"\.(whl|tar\.gz|zip|tgz|tar\.bz2)$", re.I)
+
+# Runs as root: $1 = the private directory, the rest = the install command.  The directory is
+# removed when the command ends however it ends (exit, failure, HUP/INT/TERM/PIPE: a closed SSH
+# channel).  Only that exact path goes, and only when it is a real directory (not a symlink) that
+# root owns and whose name starts with ``dango-req-``.  SIGKILL cannot be trapped.
+_RUN_THEN_REMOVE = (
+    "d=$1; shift; case ${d##*/} in dango-req-*) ;; *) d= ;; esac; "
+    "cleanup() { "
+    'if [ -n "$d" ] && [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ]; then '
+    'rm -rf --one-file-system -- "$d"; fi; }; '
+    "trap cleanup EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; "
+    "trap 'exit 143' TERM; trap 'exit 141' PIPE; "
+    '"$@"'
+)
 
 
 def _strip_comment(line: str) -> str:
@@ -135,7 +150,11 @@ def install_pushed_requirements(
         try:
             remote = f"{workdir}/requirements.txt"
             ssh.write_remote_file(remote, text, mode=0o600)
-            result = ssh.exec_command(f"{pip} install --no-input -r {remote}", timeout=300)
+            result = ssh.exec_command(
+                f"sh -c {shlex.quote(_RUN_THEN_REMOVE)} _ {workdir} "
+                f"{shlex.quote(pip)} install --no-input -r {shlex.quote(remote)}",
+                timeout=300,
+            )
         finally:
             ssh.exec_command(f"rm -rf {workdir}")  # cleanup: silent OK
         if result.success:

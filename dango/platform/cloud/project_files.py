@@ -22,12 +22,14 @@ instead of ``/root``.  Every other session keeps the ``runuser`` form unchanged.
 
 from __future__ import annotations
 
+import re
 import secrets
 import shlex
 from pathlib import Path
 from typing import Any
 
 from dango.exceptions import CloudProvisioningError
+from dango.logging import get_logger
 
 __all__ = [
     "AS_DANGO",
@@ -36,6 +38,8 @@ __all__ = [
     "read_project_file",
     "write_project_file",
 ]
+
+_logger = get_logger(__name__)
 
 SERVICE_USER = "dango"
 AS_DANGO = f"runuser -u {SERVICE_USER} --"
@@ -48,6 +52,10 @@ _WRITE_SCRIPT = (
     't=$(mktemp "$d/.dango-write.XXXXXX") && '
     '{ cat > "$t" && chmod "$2" "$t" && mv -fT "$t" "$1" || { rm -f "$t"; exit 1; }; }'
 )
+
+# What ``mktemp -d`` may answer for the staging directory: an absolute path of at least two
+# plain components (never ``/`` or ``/tmp`` itself), so cleanup can only name a directory below one.
+_SAFE_STAGE_DIR = re.compile(r"/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+")
 
 # Runs as dango: $1 = file.  Exit 3 = the path does not exist; any other failure
 # is a real read error.
@@ -124,7 +132,11 @@ def _write_as_service_session(
     q = shlex.quote
     made = ssh.exec_command("mktemp -d", timeout=30)
     stage_dir = (made.stdout or "").strip()
-    if made.exit_code != 0 or not stage_dir.startswith("/"):
+    if (
+        made.exit_code != 0
+        or not _SAFE_STAGE_DIR.fullmatch(stage_dir)
+        or ".." in stage_dir.split("/")
+    ):
         raise CloudProvisioningError(
             f"Failed to write {path}: could not create a staging directory: "
             f"{(made.stderr or made.stdout or '').strip()}"
@@ -137,17 +149,33 @@ def _write_as_service_session(
         else:
             ssh.write_remote_file(staging, content, mode=0o600)
     except BaseException:
-        ssh.exec_command(f"rm -rf {q(stage_dir)}", timeout=30, check=False)
+        _remove_staging_dir(ssh, stage_dir)
         raise
     command = (
         f"sh -c {q(_WRITE_SCRIPT)} _ {q(path)} {mode:o} < {q(staging)}; "
         f"rc=$?; rm -rf {q(stage_dir)}; exit $rc"
     )
-    result = ssh.exec_command(command, timeout=30)
+    try:
+        result = ssh.exec_command(command, timeout=30)
+    except BaseException:
+        # A timeout or dropped connection: the command may not have reached its own ``rm``.
+        _remove_staging_dir(ssh, stage_dir)
+        raise
     if result.exit_code != 0:
         raise CloudProvisioningError(
             f"Failed to write {path}: {(result.stderr or result.stdout or '').strip()}"
         )
+
+
+def _remove_staging_dir(ssh: Any, stage_dir: str) -> None:
+    """Best effort: remove the staging directory this call created; never raise.
+
+    Runs while another error is propagating, so a failure here is only logged (type only).
+    """
+    try:
+        ssh.exec_command(f"rm -rf {shlex.quote(stage_dir)}", timeout=30, check=False)
+    except Exception as exc:
+        _logger.warning("staging_cleanup_failed", error_type=type(exc).__name__)
 
 
 def append_env_line_if_missing(ssh: Any, path: str, key: str, value: str) -> Any:
