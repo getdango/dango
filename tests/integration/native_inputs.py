@@ -153,16 +153,25 @@ class InputRig(WorkspaceRig):
         from dango.storage.input_state import fixture
 
         fixture(self.native.root, owner)
-        self.producer_id = self.admit("fixture.advance", {}).operation_id
-        producer = owner.model_copy(update={"operation_id": self.producer_id})
-        with self.allocator.attach(producer, binding, read_only=False) as connection:
-            connection.execute("UPDATE catalog.sales.orders SET amount=60 WHERE id=3")
-            assert connection.execute(
-                "SELECT sum(amount) FROM catalog.sales.orders"
-            ).fetchone() == (360,)
+        self.advance(210)
+
+    def advance(self, amount):
+        """Admit only the two explicit synthetic producer states; seal writes again after each change."""
+        assert amount in {200, 210}
+        producer = self.admit("fixture.advance", {"amount": amount})
+        self.producer_id = producer.operation_id
+        try:
+            with self.allocator.attach(
+                producer, self.accepted.binding, read_only=False
+            ) as connection:
+                connection.execute("UPDATE catalog.sales.orders SET amount=? WHERE id=2", [amount])
+                assert connection.execute(
+                    "SELECT * FROM catalog.sales.orders ORDER BY id"
+                ).fetchall() == [(1, 100), (2, amount), (3, 50)]
+        finally:
+            self.producer_id = None
         self.finish(producer)
-        self.producer_id = None
-        self.ready_metadata = self.native.metadata(binding)
+        self.ready_metadata = self.native.metadata(self.accepted.binding)
 
     def capture(self, *, relations=("sales",), maximum=1000000, context=None, target=None):
         """Admit exact capture arguments and retain original contexts for owned cleanup."""
@@ -185,7 +194,13 @@ class InputRig(WorkspaceRig):
                 "SELECT native_ref FROM platform_effects WHERE operation_id=? AND effect_name='inputs.capture'",
                 (context.operation_id,),
             )
-            if rows and (context, rows[0][0]) not in self.captures:
+            if (
+                rows
+                and (
+                    self.native.root / ".dango/state/inputs/captures" / (rows[0][0] + ".json")
+                ).exists()
+                and (context, rows[0][0]) not in self.captures
+            ):
                 self.captures.append((context, rows[0][0]))
         return context, result
 
@@ -305,16 +320,31 @@ def main():
         }
         report["observations"] = smoke(rig)
         report["smoke"] = "PASS"
+        smoke_receipt = {**report, "cases": {f"{n:02d}": "UNRUN" for n in range(1, 13)}}
         if args.phase == "all":
-            raise AssertionError(
-                "Finite matrix expansion requires an earlier meaningful smoke PASS"
-            )
+            from input_cases import CASES
+
+            for number, case in CASES:
+                report["case_stage"] = number
+                report["cases"][number] = "FAIL"
+                output.write_text(json.dumps(report) + "\n")
+                report.setdefault("case_observations", {})[number] = case(rig)
+                report["cases"][number] = "PASS"
+            assert set(report["cases"].values()) == {"PASS"}
         rig.release()
         report.update(
             status="PASS_NATIVE_INPUT_SMOKE",
             owned_cleanup=True,
             lifetime_released_after_all_refs=True,
         )
+        smoke_receipt.update(
+            status="PASS_NATIVE_INPUT_SMOKE",
+            owned_cleanup=True,
+            lifetime_released_after_all_refs=True,
+        )
+        (args.task_root.parent / "smoke-result.json").write_text(json.dumps(smoke_receipt) + "\n")
+        if args.phase == "all":
+            report["status"] = "PASS_NATIVE_INPUT_MATRIX"
     except Exception as error:
         report.update(
             status="FAIL",
@@ -330,7 +360,8 @@ def main():
         ) from None
     finally:
         output.write_text(json.dumps(report) + "\n")
-        (args.task_root.parent / "smoke-result.json").write_text(json.dumps(report) + "\n")
+        if report["status"] == "FAIL":
+            (args.task_root.parent / "smoke-result.json").write_text(json.dumps(report) + "\n")
 
 
 if __name__ == "__main__":

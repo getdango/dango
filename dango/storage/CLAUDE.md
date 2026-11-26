@@ -167,5 +167,8 @@ for whole task/workspace cleanup. Native expiry remains an explicit eligible T04
 Verify locally with `tests/unit/test_captured_inputs.py` and `tests/unit/input_support.py`.
 Actual profile acceptance uses `tests/integration/native_inputs.py` and the dedicated
 `.github/workflows/t05-native-inputs.yml`: guarded import/bootstrap before PostgreSQL, then a
-populated old-snapshot/read-only/owned-expiry smoke. The finite12 matrix is expanded only after
-that smoke passes; local synthetic copies are never native snapshot acceptance evidence.
+populated old-snapshot/read-only/owned-expiry smoke. `tests/integration/input_cases.py` holds the fixed12 cases and
+`tests/integration/input_observations.py` supplies independent raw SQL/file/schema oracles.
+The `--phase all` entrypoint gates every case on its populated smoke; matrix PASS additionally
+requires all12 literal statuses, exact profile/head and final owned cleanup. Local synthetic
+copies are never native snapshot acceptance evidence.

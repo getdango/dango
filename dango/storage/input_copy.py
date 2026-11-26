@@ -166,13 +166,17 @@ class NativeInputCopy:
                 "DATA_INLINING_ROW_LIMIT 0, READ_ONLY, SNAPSHOT_VERSION "
                 + str(manifest.snapshot_id)
             )
-            connection.execute(
-                "ATTACH "
-                + _literal("ducklake:postgres:" + _dsn(credential))
-                + " AS catalog ("
-                + options
-                + ")"
-            )
+            try:
+                connection.execute(
+                    "ATTACH "
+                    + _literal("ducklake:postgres:" + _dsn(credential))
+                    + " AS catalog ("
+                    + options
+                    + ")"
+                )
+            except Exception:
+                raise InputCaptureError("capture_source_unavailable") from None
+
             gate()
             estimate = 0
             for relation in relations:

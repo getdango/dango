@@ -13,6 +13,7 @@ on:
       - tests/unit/input_support.py
       - tests/integration/native_inputs.py
       - tests/integration/input_cases.py
+      - tests/integration/input_observations.py
       - .github/workflows/t05-native-inputs.yml
 
 permissions:
@@ -408,7 +409,7 @@ jobs:
             --mount="type=bind,src=$PAYLOAD/gate,dst=/gate,readonly" \
             --env=HOME=/work --env=TMPDIR=/work/tmp --env=PYTHONDONTWRITEBYTECODE=1 --env=PYTHONPATH=/work/site:/source \
             --env=AWS_EC2_METADATA_DISABLED=true --env=GCE_METADATA_DISABLED=true --env="TASK_COMMIT=$COMMIT" --workdir=/work \
-            --entrypoint=/bin/sh "$CLIENT_IMAGE" -ec 'while [ ! -f /gate/import ]; do sleep .1; done; mkdir /work/tmp; /tools/python/bin/python3.14 -m pip install --no-index --no-deps --no-cache-dir --no-compile --target /work/site /tools/artifacts/*.whl > /work/install.log 2>&1; /tools/python/bin/python3.14 -m pip check > /work/dependency-check.log 2>&1; /tools/python/bin/python3.14 /source/tests/integration/native_inputs.py --check-imports /work/import-project > /work/import.log 2>&1; touch /work/import-ok; while [ ! -f /gate/client ]; do sleep .1; done; exec /tools/python/bin/python3.14 /source/tests/integration/native_inputs.py --task-root /work/task --commit "$TASK_COMMIT" --phase smoke')
+            --entrypoint=/bin/sh "$CLIENT_IMAGE" -ec 'while [ ! -f /gate/import ]; do sleep .1; done; mkdir /work/tmp; /tools/python/bin/python3.14 -m pip install --no-index --no-deps --no-cache-dir --no-compile --target /work/site /tools/artifacts/*.whl > /work/install.log 2>&1; /tools/python/bin/python3.14 -m pip check > /work/dependency-check.log 2>&1; /tools/python/bin/python3.14 /source/tests/integration/native_inputs.py --check-imports /work/import-project > /work/import.log 2>&1; touch /work/import-ok; while [ ! -f /gate/client ]; do sleep .1; done; exec /tools/python/bin/python3.14 /source/tests/integration/native_inputs.py --task-root /work/task --commit "$TASK_COMMIT" --phase all')
           inspect_limits() {
             local id=$1 memory=$2 cpus=$3 user=$4 network=$5
             local image=$CLIENT_IMAGE
@@ -493,14 +494,21 @@ jobs:
           test "$(cat "$SLICE/memory.swap.current")" = 0
           inside_gate 0
           jq -e --arg commit "$COMMIT" '
-            .status=="PASS_NATIVE_INPUT_SMOKE" and .phase=="smoke" and .commit==$commit
+            .status=="PASS_NATIVE_INPUT_SMOKE" and .phase=="all" and .commit==$commit
             and .smoke=="PASS" and .owned_cleanup==true and .lifetime_released_after_all_refs==true
             and (.cases|keys)==["01","02","03","04","05","06","07","08","09","10","11","12"]
             and (.cases|all(.=="UNRUN"))
+          ' "$PAYLOAD/work/smoke-result.json" >/dev/null
+          jq -e --arg commit "$COMMIT" '
+            .status=="PASS_NATIVE_INPUT_MATRIX" and .phase=="all" and .commit==$commit
+            and .smoke=="PASS" and .owned_cleanup==true and .lifetime_released_after_all_refs==true
+            and (.cases|keys)==["01","02","03","04","05","06","07","08","09","10","11","12"]
+            and (.cases|all(.=="PASS"))
+            and (.case_observations|keys)==["01","02","03","04","05","06","07","08","09","10","11","12"]
             and .profile.fixture_sha256=="b6879d50f7220b8afa1a1b6b6266e27db6c3492a8fa2bc71747656c6411af449"
             and .profile.python=="3.14.10" and .profile.duckdb=="2.0.0" and .profile.ducklake=="1.1"
           ' "$PAYLOAD/work/native-result.json" >/dev/null
-          stage completed_native_smoke
+          stage completed_native_matrix
           CONTROLLER
       - name: Verify owned cleanup and remove the task slice
         if: always()
