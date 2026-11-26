@@ -105,3 +105,75 @@ def test_extension_cannot_expose_ready_before_allocation_effect_applies(tmp_path
     extended = rig.service.extend(context, workspace_id, 0, expiry)
     assert extended.state == "ready" and extended.revision == workspace.revision + 1 == 1
     assert rig.service.extend(context, workspace_id, 0, expiry) == extended
+
+
+def extension(rig, workspace, days):
+    expiry = rig.now + timedelta(days=days)
+    context = rig.admit(
+        "workspace.extend",
+        {
+            "workspace_id": workspace.workspace_id,
+            "expiry": expiry.isoformat(timespec="microseconds"),
+        },
+        revision=workspace.revision,
+    )
+    return (
+        context,
+        expiry,
+        rig.service.extend(context, workspace.workspace_id, workspace.revision, expiry),
+    )
+
+
+@pytest.mark.parametrize("kind", ["allocation", "extension"])
+@pytest.mark.parametrize(
+    "field", ["actor_id", "project_id", "catalog_binding_ref", "data_root_ref"]
+)
+def test_saved_replay_snapshot_must_match_enclosing_identity(tmp_path, kind, field):
+    rig = Rig(tmp_path)
+    owner, workspace = rig.allocate()
+    if kind == "allocation":
+        path = next((rig.root / ".dango/state/workspaces/operations").glob("*.json"))
+        value = json.loads(path.read_text())
+        snapshot = value["result"]
+
+        def replay():
+            return rig.service.allocate(owner, "feature/same", "commit", "remote")
+    else:
+        context, expiry, _ = extension(rig, workspace, 9)
+        path, value = rig.manifest(workspace.workspace_id)
+        snapshot = value["changes"][0]["workspace"]
+
+        def replay():
+            return rig.service.extend(context, workspace.workspace_id, 0, expiry)
+
+    snapshot[field] = "other-owner-or-reference"
+    path.write_text(json.dumps(value))
+    before = {
+        str(p): p.read_bytes() for p in (rig.root / ".dango/state/workspaces").rglob("*.json")
+    }
+    operations = rig.rows("SELECT * FROM platform_operations ORDER BY operation_id")
+    effects = rig.rows("SELECT * FROM platform_effects ORDER BY operation_id,effect_id")
+    calls = list(rig.port.calls)
+    with pytest.raises(WorkspaceError):
+        replay()
+    assert before == {
+        str(p): p.read_bytes() for p in (rig.root / ".dango/state/workspaces").rglob("*.json")
+    }
+    assert rig.rows("SELECT * FROM platform_operations ORDER BY operation_id") == operations
+    assert rig.rows("SELECT * FROM platform_effects ORDER BY operation_id,effect_id") == effects
+    assert rig.port.calls == calls
+
+
+def test_healthy_historical_results_replay_after_extension_and_expiry(tmp_path):
+    rig = Rig(tmp_path)
+    owner, original = rig.allocate()
+    context, expiry, first = extension(rig, original, 9)
+    _, _, latest = extension(rig, first, 10)
+    assert rig.service.allocate(owner, "feature/same", "commit", "remote") == original
+    assert rig.service.extend(context, original.workspace_id, 0, expiry) == first
+    rig.now += timedelta(days=11)
+    assert rig.service.expire(rig.expiry(latest), latest.workspace_id, 2).status == "success"
+    calls = list(rig.port.calls)
+    assert rig.service.allocate(owner, "feature/same", "commit", "remote") == original
+    assert rig.service.extend(context, original.workspace_id, 0, expiry) == first
+    assert rig.port.calls == calls

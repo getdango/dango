@@ -109,11 +109,14 @@ class WorkspaceService(WorkspaceJournal):
                     effect is None
                     or effect.state != "applied"
                     or intent.result is None
+                    or intent.workspace_id is None
                     or inspection.receipt is None
                     or inspection.receipt.status != "success"
                 ):
                     raise WorkspaceError("workspace_recovery_required")
-                self._check_effect(effect, request.operation_name, intent.result.workspace_id)
+                self._check_effect(effect, request.operation_name, intent.workspace_id)
+                with self._workspace(context, intent.workspace_id) as (_, saved):
+                    self._snapshot(intent.result, saved)
                 if inspection.receipt != OutcomeReceipt(
                     operation_id=context.operation_id,
                     status="success",

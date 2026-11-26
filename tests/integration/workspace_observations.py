@@ -9,12 +9,102 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
-AFFECTED = ("08", "09", "12", "14", "16", "17")
+AFFECTED = ("08", "12", "16")
 RETAINED = {
     "head": "f01d88b059c5e5de1e774372f85a72697fa35c74",
     "run": "45673095810",
     "cases": {f"{n:02d}": "PASS" for n in range(1, 19)},
 }
+RETAINED_AFFECTED = {
+    "head": "b2c181653ee371e553c24eaaabd0bce486009b97",
+    "run": "45728157345",
+    "cases": {
+        f"{n:02d}": "PASS" if f"{n:02d}" in {"08", "09", "12", "14", "16", "17", "18"} else "UNRUN"
+        for n in range(1, 19)
+    },
+}
+
+
+def snapshot_identity(rig, workspace, context, expected, fields, expiry=None):
+    """Refuse saved owner/reference contradictions without changing any journal or native state."""
+    from native_workspaces import denied
+
+    if expiry is None:
+        path = next(
+            p
+            for p in (rig.native.root / ".dango/state/workspaces/operations").glob("*.json")
+            if json.loads(p.read_text())["operation_id"] == context.operation_id
+        )
+    else:
+        path, _ = rig.manifest(workspace.workspace_id)
+    raw = path.read_bytes()
+
+    def replay():
+        if expiry is None:
+            return rig.service.allocate(context, "feature/same", "fixture-commit", "remote")
+        return rig.service.extend(context, workspace.workspace_id, 0, expiry)
+
+    assert replay() == expected
+    for field in fields:
+        value = json.loads(raw)
+        snapshot = (
+            value["result"]
+            if expiry is None
+            else next(
+                c["workspace"]
+                for c in value["changes"]
+                if c["operation_id"] == context.operation_id
+            )
+        )
+        snapshot[field] = "other-owner-or-reference"
+        path.write_text(json.dumps(value))
+        manifests = {
+            str(p): p.read_bytes()
+            for p in (rig.native.root / ".dango/state/workspaces").rglob("*.json")
+        }
+        operations = rig.rows("SELECT * FROM platform_operations ORDER BY operation_id")
+        effects = rig.rows("SELECT * FROM platform_effects ORDER BY operation_id,effect_id")
+        with patch.object(rig.native.port, "_connect", wraps=rig.native.port._connect) as calls:
+            assert denied(replay) == "workspace_unavailable"
+            assert calls.call_count == 0
+        assert manifests == {
+            str(p): p.read_bytes()
+            for p in (rig.native.root / ".dango/state/workspaces").rglob("*.json")
+        }
+        assert rig.rows("SELECT * FROM platform_operations ORDER BY operation_id") == operations
+        assert rig.rows("SELECT * FROM platform_effects ORDER BY operation_id,effect_id") == effects
+        path.write_bytes(raw)
+    assert replay() == expected
+
+
+def historical_replay(rig, owner, workspace, context, expiry, first):
+    """Preserve original allocation/extension snapshots after later extension and explicit expiry."""
+    snapshot_identity(
+        rig,
+        workspace,
+        context,
+        first,
+        ("actor_id", "project_id", "catalog_binding_ref", "data_root_ref"),
+        expiry,
+    )
+    later_expiry = expiry + timedelta(days=1)
+    later = rig.admit(
+        "workspace.extend",
+        {
+            "workspace_id": workspace.workspace_id,
+            "expiry": later_expiry.isoformat(timespec="microseconds"),
+        },
+        1,
+    )
+    latest = rig.service.extend(later, workspace.workspace_id, 1, later_expiry)
+    assert latest.revision == 2
+    assert rig.service.allocate(owner, "feature/same", "fixture-commit", "remote") == workspace
+    assert rig.service.extend(context, workspace.workspace_id, 0, expiry) == first
+    rig.dispose(latest)
+    with patch.object(rig.native.port, "_connect", wraps=rig.native.port._connect) as calls:
+        assert rig.service.allocate(owner, "feature/same", "fixture-commit", "remote") == workspace
+        assert rig.service.extend(context, workspace.workspace_id, 0, expiry) == first
+        assert calls.call_count == 0
 
 
 def removal_snapshot(rig, workspace, context):

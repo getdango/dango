@@ -198,6 +198,23 @@ class WorkspaceJournal:
     root: Path
     store: OperationStore
 
+    @staticmethod
+    def _snapshot(workspace: Workspace, value: WorkspaceState) -> None:
+        if value.binding is None or (
+            workspace.workspace_id,
+            workspace.project_id,
+            workspace.actor_id,
+            workspace.catalog_binding_ref,
+            workspace.data_root_ref,
+        ) != (
+            value.workspace_id,
+            value.project_id,
+            value.actor_id,
+            value.binding.binding_id,
+            value.binding.data_root_ref,
+        ):
+            raise WorkspaceError("workspace_unavailable")
+
     def _ready(self, context: OperationContext, value: WorkspaceState) -> Workspace:
         allocation = self._inspect(context, value.allocation_operation_id, "workspace.allocate")
         if (
@@ -334,6 +351,8 @@ class WorkspaceJournal:
             for c in value.changes
         ):
             raise WorkspaceError("workspace_unavailable")
+        for change in value.changes:
+            WorkspaceJournal._snapshot(change.workspace, value)
         if value.phase == "allocating":
             if value.workspace is not None or value.binding is not None or value.changes:
                 raise WorkspaceError("workspace_unavailable")

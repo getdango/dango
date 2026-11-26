@@ -23,8 +23,10 @@ from native_workspaces import (
 )
 from workspace_observations import (
     blocked_waiter,
+    historical_replay,
     removal_snapshot,
     saved_state_retains,
+    snapshot_identity,
     unapplied_extension,
 )
 
@@ -157,6 +159,7 @@ def manifest_damage_and_terminal(rig):
     path.write_bytes(raw)
     path.chmod(0o600)
     workspace = rig.service.allocate(context, "feature/same", "fixture-commit", "remote")
+    snapshot_identity(rig, workspace, context, workspace, ("actor_id", "project_id"))
     terminal_context = rig.admit("workspace.expire", {"workspace_id": workspace_id}, 0)
     receipt = rig.store.finalize_operation(
         terminal_context,
@@ -296,7 +299,7 @@ def wrong_owner(rig):
 
 def lease_cas(rig):
     """12: exact extension CAS/replay increments once and stale input never mutates."""
-    _, workspace = rig.allocate()
+    owner, workspace = rig.allocate()
     rig.now = datetime.fromisoformat(workspace.lease_expiry) - timedelta(minutes=5)
     assert (
         timedelta(0)
@@ -315,7 +318,7 @@ def lease_cas(rig):
     stale = rig.admit("workspace.extend", payload, 0)
     denied(lambda: rig.service.extend(stale, workspace.workspace_id, 0, expiry))
     assert rig.manifest(workspace.workspace_id)[1]["workspace"]["revision"] == 1
-    rig.dispose(current)
+    historical_replay(rig, owner, workspace, context, expiry, current)
     return {"classification": "native_join", "extension_revision": 1}
 
 
@@ -393,6 +396,7 @@ def corrupt_pin(rig):
     """16: corrupt pins or contradictory known state preserve populated native resources."""
     owner, workspace = rig.allocate()
     binding = rig.populate(owner, workspace)
+    snapshot_identity(rig, workspace, owner, workspace, ("catalog_binding_ref", "data_root_ref"))
     for damage in ("pins", "expired", "removal-owner", "unknown-operation"):
         saved_state_retains(rig, owner, workspace, binding, damage)
     rig.dispose(workspace)

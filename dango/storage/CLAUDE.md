@@ -79,9 +79,10 @@ the unchanged hash-bound fixture and approved import pins with an identifying re
 The initializer import closure includes logging/console dependencies. A restricted-import
 regression prevents a fuller host site from masking omissions; it is not native acceptance.
 Supported native-platform evidence is Linux amd64 only; macOS/Windows native behavior is unproved.
-The `affected` phase selects only08/09/12/14/16/17 after smoke18. Its distinct affected-success
-receipt leaves other current-head rows UNRUN and references the retained f01d88b0 full run
-45673095810 separately; it never claims a fresh full-matrix pass. Replay regressions live in
+The `affected` phase selects only08/12/16 after smoke18 for saved-snapshot identity checks.
+Its distinct affected-success receipt leaves other current-head rows UNRUN and references the
+retained f01d88b0 full run45673095810 and b2c18165 affected run45728157345 separately; it never
+claims a fresh full-matrix pass. Replay regressions live in
 `tests/unit/test_workspace_replay.py`; independent native oracles/selection constants live in
 `tests/integration/workspace_observations.py` to keep setup and cases focused.
 
@@ -106,6 +107,9 @@ reconstruction; valid early interruption resumes the recorded ID.
 New extensions enforce the same allocation-application readiness boundary as get; previously
 recorded extension results replay exactly. Expiry refreshes final receipts under its operation
 lock, including a waiter whose eligibility changes while an earlier call finalizes blocked.
+Saved allocation and historical change results must match their enclosing owner/resource and
+immutable catalog/data references. Healthy replay preserves its original revision and lease
+even after later extension or expiry; replay never substitutes the latest Workspace.
 
 `acquire_pin(context,workspace_id,purpose,resource_ref)` returns an opaque `WorkspacePin` for
 input/build/query/backup. The same operation/purpose/resource returns the same active pin.

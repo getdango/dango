@@ -395,11 +395,12 @@ def main() -> None:
         "phase": args.phase,
         "cases": {f"{n:02d}": "UNRUN" for n in range(1, 19)},
     }
-    from workspace_observations import AFFECTED, RETAINED
+    from workspace_observations import AFFECTED, RETAINED, RETAINED_AFFECTED
 
     selected = set(AFFECTED) if args.phase == "affected" else set(report["cases"]) - {"18"}
     if args.phase == "affected":
         report["retained_evidence"] = RETAINED
+        report["retained_affected_evidence"] = RETAINED_AFFECTED
         report["selected_cases"] = [*AFFECTED, "18"]
     output = args.task_root.parent / "native-result.json"
     try:
