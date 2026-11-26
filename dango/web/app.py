@@ -16,7 +16,6 @@ from fastapi.exception_handlers import (
     request_validation_exception_handler,
 )
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -48,6 +47,7 @@ from dango.exceptions import (
 )
 from dango.logging import get_logger
 from dango.web.middleware import AuthMiddleware, RateLimitMiddleware
+from dango.web.middleware.cors import CredentialedCORSMiddleware
 
 logger = get_logger(__name__)
 
@@ -334,14 +334,11 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     if rate_limit_config is not None:
         application.add_middleware(RateLimitMiddleware, config=rate_limit_config)
 
-    # CORS (outermost — handles OPTIONS preflight first)
-    cors_origins = _get_cors_origins(project_root)
+    # CORS (outermost — handles OPTIONS preflight first). Credentials are only ever
+    # allowed together with an explicit origin: the cloud origin, or (local mode) Dango's
+    # own loopback origins on the port the request used. Never a wildcard.
     application.add_middleware(
-        CORSMiddleware,
-        allow_origins=cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        CredentialedCORSMiddleware, allow_origins=_get_cors_origins(project_root)
     )
 
     return application
@@ -383,18 +380,27 @@ def _load_rate_limit_config(project_root: Path | None) -> RateLimitConfig | None
         return None
 
 
-def _get_cors_origins(project_root: Path | None) -> list[str]:
-    """Determine CORS allowed origins based on deployment mode."""
-    try:
-        from dango.config.helpers import get_cloud_origin
+def _get_cors_origins(project_root: Path | None) -> list[str] | None:
+    """Determine the origins trusted for credentialed CORS.
 
-        root = project_root or Path.cwd()
-        origin = get_cloud_origin(root)
-        if origin is not None:
-            return [origin]
-    except Exception:  # noqa: BLE001
-        pass
-    return ["*"]
+    - A cloud origin is configured (``.dango/cloud.yml``): ``[that origin]``.
+    - Local mode: ``None`` (Dango's own loopback origins, resolved per request).
+    - Otherwise ``[]`` (no cross-origin access): a cloud server (``DANGO_CLOUD_MODE``) whose
+      origin is unknown (``cloud.yml`` is not synced to the server), or a ``cloud.yml``
+      that cannot be read.
+    """
+    from dango.config.helpers import get_cloud_origin, is_running_on_cloud
+
+    try:
+        origin = get_cloud_origin(project_root or Path.cwd())
+    except Exception as exc:
+        logger.warning("cors_cloud_origin_unreadable", error_type=type(exc).__name__)
+        return []
+    if origin is not None:
+        return [origin]
+    if is_running_on_cloud():
+        return []
+    return None
 
 
 app = create_app()
