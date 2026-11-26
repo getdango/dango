@@ -309,8 +309,8 @@ async def internal_scheduler_status(request: Request) -> Any:
     if client_host not in ("127.0.0.1", "::1"):
         return JSONResponse(status_code=403, content={"error": "Localhost only"})
 
-    # Local mode allows any CORS origin, so a web page in the user's browser (or a
-    # DNS-rebinding host) could otherwise read this unauthenticated response.
+    # A web page in the user's browser (or a DNS-rebinding host) must not read this
+    # unauthenticated response, whatever the CORS policy is.
     # Browsers always send Origin on cross-origin fetches; the CLI/MCP clients never do.
     if request.headers.get("origin"):
         return JSONResponse(status_code=403, content={"error": "Localhost only"})
