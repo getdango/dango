@@ -70,6 +70,7 @@ from dango.web.models import (
     SessionResponse,
 )
 from dango.web.routes.auth_checks import locked_response
+from dango.web.routes.websocket import ws_manager
 
 router = APIRouter(tags=["auth"])
 logger = get_logger(__name__)
@@ -399,6 +400,7 @@ async def logout(request: Request) -> JSONResponse:
         session = get_session_by_token(db_path, token_hash)
         if session:
             invalidate_session(db_path, session.id)
+    ws_manager.request_recheck(user.id)
 
     # Invalidate Metabase session (server-side)
     mb_session_id = request.cookies.get("metabase.SESSION")
@@ -482,6 +484,7 @@ async def change_password(request: Request) -> JSONResponse:
     # was captured before the change must not outlive it
     invalidate_all_sessions(db_path, user.id)
     revoke_all_api_keys(db_path, user.id)
+    ws_manager.request_recheck(user.id)
 
     auth_config = _get_auth_config(request)
     session_max_days = auth_config.session_max_days if auth_config else DEFAULT_SESSION_MAX_DAYS
@@ -565,6 +568,7 @@ async def revoke_session(session_id: str, request: Request) -> JSONResponse:
         )
 
     invalidate_session(db_path, session_id)
+    ws_manager.request_recheck(user.id)
     log_auth_event(
         AuditEvent.SESSION_EXPIRED,
         user_id=user.id,
@@ -669,6 +673,7 @@ async def revoke_key(key_id: str, request: Request) -> JSONResponse:
         return JSONResponse(status_code=404, content={"message": "API key not found"})
 
     revoke_api_key(db_path, key_id)
+    ws_manager.request_recheck(user.id)
 
     log_auth_event(
         AuditEvent.API_KEY_REVOKED,

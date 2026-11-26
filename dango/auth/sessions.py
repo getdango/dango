@@ -252,7 +252,7 @@ def create_api_key(
     return raw_key, api_key
 
 
-def validate_api_key(db_path: Path, key: str) -> User | None:
+def validate_api_key(db_path: Path, key: str, *, record_use: bool = True) -> User | None:
     """Validate an API key and return the associated user.
 
     Checks active status, expiry, and user active status.  On success,
@@ -261,6 +261,8 @@ def validate_api_key(db_path: Path, key: str) -> User | None:
     Args:
         db_path: Path to the auth SQLite database.
         key: Full API key string (including ``dango_ak_`` prefix).
+        record_use: Update ``last_used_at`` on success (default). A re-check of
+            an already authenticated connection passes ``False``: it is not a use.
 
     Returns:
         The ``User`` if the key is valid, or ``None``.
@@ -285,7 +287,8 @@ def validate_api_key(db_path: Path, key: str) -> User | None:
         return None
 
     # Update last_used_at
-    db.update_api_key_last_used(db_path, api_key.id)
+    if record_use:
+        db.update_api_key_last_used(db_path, api_key.id)
     return user
 
 

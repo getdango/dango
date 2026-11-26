@@ -41,6 +41,7 @@ from dango.exceptions import UserExistsError
 from dango.logging import get_logger
 from dango.web.models import ChangeRoleRequest, CreateUserRequest, DeleteUserConfirmation
 from dango.web.routes.ui import _render_template
+from dango.web.routes.websocket import ws_manager
 
 router = APIRouter(tags=["users"])
 logger = get_logger(__name__)
@@ -347,6 +348,7 @@ async def admin_reset_password(
     updated = set_password(target.email, password, db_path, must_change_password=True)
     invalidate_all_user_sessions(db_path, user_id)
     revoke_all_user_api_keys(db_path, user_id)
+    ws_manager.request_recheck(user_id)
     log_auth_event(
         AuditEvent.PASSWORD_RESET,
         user_id=user_id,
@@ -385,6 +387,7 @@ async def admin_deactivate_user(
     deactivate_user(db_path, user_id)
     invalidate_all_user_sessions(db_path, user_id)
     revoke_all_user_api_keys(db_path, user_id)
+    ws_manager.request_recheck(user_id)
     _metabase_deactivate(db_path, user_id, request)
     log_auth_event(
         AuditEvent.USER_DEACTIVATED,
@@ -458,6 +461,7 @@ async def admin_delete_user(
 
     _metabase_delete(db_path, user_id, request)
     delete_user(db_path, user_id)
+    ws_manager.request_recheck(user_id)
     log_auth_event(
         AuditEvent.USER_DELETED,
         user_id=user_id,
@@ -509,6 +513,7 @@ async def admin_revoke_sessions(
 
     revoked_count = invalidate_all_user_sessions(db_path, user_id)
     revoke_all_user_api_keys(db_path, user_id)
+    ws_manager.request_recheck(user_id)
     log_auth_event(
         AuditEvent.SESSION_EXPIRED,
         user_id=user_id,
