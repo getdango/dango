@@ -8,6 +8,7 @@ Supports CSV, JSON, JSONL, and Parquet formats via DuckDB's native readers.
 import contextlib
 import glob
 import os
+import re
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ from typing import Any
 
 import duckdb
 from rich.console import Console
+from rich.markup import escape
 
 from dango.config.models import CSVSourceConfig
 from dango.exceptions import CSVSchemaMismatchError
@@ -33,6 +35,8 @@ DUPLICATE_FILENAME_ERROR_TYPE = "duplicate_filenames"
 # A file that failed to load is named in the sync result with a short reason.
 _MAX_REASON_CHARS = 200
 _MAX_LISTED_FAILED_FILES = 5
+# DuckDB quotes the cell it could not convert: `Could not convert string "x" to 'BIGINT'`
+_QUOTED_CELL = re.compile(r"""(\bstring\s+)(["'])(.*?)\2(?=\s+to\b)""", re.DOTALL)
 
 # DuckDB read functions keyed by file extension
 SUPPORTED_READ_FUNCTIONS: dict[str, str] = {
@@ -73,7 +77,9 @@ class CSVLoader:
         name = os.path.basename(filepath)
         text = redacted_error_text(self.project_root, error)
         text = text.replace(filepath, name).replace(f"{self.project_root}{os.sep}", "")
-        # DuckDB's CSV errors echo the offending row ("Original Line: ..."): leave the data out
+        # DuckDB's CSV errors echo the offending row ("Original Line: ...") and quote the cell it
+        # could not convert: leave the row out and mask the cell value
+        text = _QUOTED_CELL.sub(r'\1"..."', text)
         lines = [
             ln.strip()
             for ln in text.splitlines()
@@ -378,12 +384,18 @@ class CSVLoader:
                     f"No data loaded from {files_attempted} file(s)"
                     " — all files failed or had 0 rows"
                 )
-                console.print(f"  [red]✗ {error_msg}[/red]")
-                return {
-                    "status": "error",
-                    "error": error_msg,
-                    **stats,
-                }
+                failed = list(self.failed_files)
+                if failed:
+                    # name the files: this is every sync after a partial one until it is fixed
+                    error_msg = (
+                        f"No data loaded from {files_attempted} file(s): "
+                        f"{self._failed_files_error(failed)}"
+                    )
+                console.print(f"  [red]✗ {escape(error_msg)}[/red]")
+                no_data: dict[str, Any] = {"status": "error", "error": error_msg, **stats}
+                if failed:
+                    no_data["failed_files"] = failed
+                return no_data
 
             console.print(
                 f"  ✓ Loaded: {stats['new']} new, {stats['updated']} updated, "
