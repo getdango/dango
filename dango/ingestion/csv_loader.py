@@ -5,6 +5,7 @@ Incremental file loading with metadata tracking.
 Supports CSV, JSON, JSONL, and Parquet formats via DuckDB's native readers.
 """
 
+import contextlib
 import glob
 import os
 from collections import defaultdict
@@ -1147,17 +1148,25 @@ class CSVLoader:
                 console.print(
                     f"    [dim]Note: {filename} missing columns {missing_cols} → loading as NULL[/dim]"
                 )
-            conn.execute(insert_sql)
 
-            # Update metadata
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO _dango_file_metadata
-                (source_name, file_path, file_size, file_mtime, rows_loaded, status, loaded_at)
-                VALUES (?, ?, ?, ?, ?, 'loaded', CURRENT_TIMESTAMP)
-            """,
-                [source_name, filepath, metadata["size"], metadata["mtime"], row_count],
-            )
+            # The rows and the file's metadata row commit together: an interrupt or failure
+            # between them keeps neither, so the next sync loads the file exactly once.
+            conn.execute("BEGIN TRANSACTION")
+            try:
+                conn.execute(insert_sql)
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO _dango_file_metadata
+                    (source_name, file_path, file_size, file_mtime, rows_loaded, status, loaded_at)
+                    VALUES (?, ?, ?, ?, ?, 'loaded', CURRENT_TIMESTAMP)
+                """,
+                    [source_name, filepath, metadata["size"], metadata["mtime"], row_count],
+                )
+                conn.execute("COMMIT")
+            except BaseException:
+                with contextlib.suppress(Exception):
+                    conn.execute("ROLLBACK")
+                raise
 
             conn.execute(f"DROP TABLE {temp_table}")
 
