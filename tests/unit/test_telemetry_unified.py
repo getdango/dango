@@ -40,7 +40,12 @@ def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(dango_telemetry, "_CONFIG_DIR", config_dir)
     monkeypatch.setattr(dango_telemetry, "_IDENTITY_FILE", config_dir / "telemetry.json")
     monkeypatch.setattr(dango_telemetry, "_GLOBAL_CONFIG_FILE", config_dir / "config.yml")
-    for var in ("DO_NOT_TRACK", "DANGO_TELEMETRY", *dango_telemetry._CI_ENV_VARS):
+    for var in (
+        "DO_NOT_TRACK",
+        "DANGO_TELEMETRY",
+        "RUNTIME__DLTHUB_TELEMETRY",
+        *dango_telemetry._CI_ENV_VARS,
+    ):
         monkeypatch.delenv(var, raising=False)
 
 

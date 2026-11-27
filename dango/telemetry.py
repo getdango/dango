@@ -70,6 +70,17 @@ _CI_ENV_VARS = (
 _TRUTHY_ENV_VALUES = ("1", "t", "true", "y", "yes")
 _FALSY_ENV_VALUES = ("0", "f", "false", "n", "no")
 
+# dlt's own on/off variable (RuntimeConfiguration.dlthub_telemetry) and the
+# marker holding the value Dango last wrote to it. `apply_dlt_telemetry_env`
+# writes the variable from the machine config, so a falsy value found there is
+# the user's explicit opt-out only if it is not the value Dango wrote itself;
+# without the marker, a "false" Dango wrote while the config said off would
+# keep dlt telemetry off after the user turned it back on (and would reach
+# child processes the same way). The marker is an env var so it travels with
+# the variable it describes.
+_DLT_ENV_VAR = "RUNTIME__DLTHUB_TELEMETRY"
+_DLT_ENV_WRITTEN_MARKER = "DANGO_DLT_TELEMETRY_ENV_WRITTEN"
+
 
 def is_ci() -> bool:
     """Detect whether the process is running inside a known CI environment.
@@ -92,6 +103,28 @@ def is_ci() -> bool:
     return False
 
 
+def _env_opts_out_of_telemetry(tool_env_var: str | None = None) -> bool:
+    """Return True if the process env holds a telemetry opt-out.
+
+    ``DO_NOT_TRACK`` set to a truthy value or ``DANGO_TELEMETRY`` set to a
+    falsy value is an opt-out. With ``tool_env_var`` (a third-party tool's own
+    on/off variable, e.g. ``RUNTIME__DLTHUB_TELEMETRY``), that variable set to
+    a falsy value counts too, unless Dango itself put that value there (see
+    `apply_dlt_telemetry_env`). Only opt-outs are read: a truthy
+    ``DANGO_TELEMETRY`` or tool variable never counts as an opt-in, and the
+    result is per process, never written to disk.
+    """
+    if os.environ.get("DO_NOT_TRACK", "").strip().lower() in _TRUTHY_ENV_VALUES:
+        return True
+    if os.environ.get("DANGO_TELEMETRY", "").strip().lower() in _FALSY_ENV_VALUES:
+        return True
+    if tool_env_var is not None:
+        value = os.environ.get(tool_env_var)
+        if value is not None and value != os.environ.get(_DLT_ENV_WRITTEN_MARKER):
+            return value.strip().lower() in _FALSY_ENV_VALUES
+    return False
+
+
 def is_telemetry_enabled() -> bool:
     """Check whether telemetry is enabled, honouring every opt-out signal.
 
@@ -105,9 +138,7 @@ def is_telemetry_enabled() -> bool:
     Returns:
         True if telemetry may be sent, False if any opt-out applies.
     """
-    if os.environ.get("DO_NOT_TRACK", "").strip().lower() in _TRUTHY_ENV_VALUES:
-        return False
-    if os.environ.get("DANGO_TELEMETRY", "").strip().lower() in _FALSY_ENV_VALUES:
+    if _env_opts_out_of_telemetry():
         return False
     if is_ci():
         return False
@@ -237,7 +268,13 @@ def _read_legacy_dlt_toml_opt_out(project_root: Path) -> bool | None:
 
 
 def get_dlt_telemetry_state(project_root: Path | None = None) -> bool:
-    """Return dlt's current opt-in state per ~/.dango/config.yml (default: on).
+    """Return dlt's effective opt-in state: env opt-outs, then ~/.dango/config.yml (default: on).
+
+    Any env opt-out turns dlt telemetry off for this process, before the
+    config file or a legacy file is read: ``DO_NOT_TRACK`` truthy,
+    ``DANGO_TELEMETRY`` falsy, or ``RUNTIME__DLTHUB_TELEMETRY`` already set to
+    a falsy value. An env value never turns on what the config turned off,
+    and the env check never writes the config file.
 
     Machine-level (1.0.8-OPS-2), matching `get_dbt_telemetry_state()` —
     moved off project-level `.dlt/config.toml` (which was git-tracked by
@@ -262,6 +299,9 @@ def get_dlt_telemetry_state(project_root: Path | None = None) -> bool:
             a legacy opt-out to migrate on first read. Not required for
             subsequent reads once the global key exists.
     """
+    if _env_opts_out_of_telemetry(_DLT_ENV_VAR):
+        return False
+
     data = _read_global_config()
     if "dlt_telemetry" in data:
         return bool(data["dlt_telemetry"])
@@ -273,6 +313,30 @@ def get_dlt_telemetry_state(project_root: Path | None = None) -> bool:
             return False
 
     return True
+
+
+def apply_dlt_telemetry_env(project_root: Path | None = None) -> None:
+    """Put dlt's effective telemetry state into its own env var for this process.
+
+    dlt reads ``RUNTIME__DLTHUB_TELEMETRY`` from ``os.environ`` when it
+    resolves its runtime configuration, so the state from
+    `get_dlt_telemetry_state()` (env opt-outs, then the machine config) is
+    written there as ``"true"`` or ``"false"``. A falsy value the user already
+    set is never replaced by ``"true"``. When Dango writes the value itself it
+    also records it in a marker variable so a later call, here or in a child
+    process, can tell Dango's own value from the user's; the user's own
+    opt-out leaves no marker.
+
+    dlt caches whether telemetry has started per process, so this only
+    affects dlt pipelines created after the first call.
+    """
+    user_opt_out = _env_opts_out_of_telemetry(_DLT_ENV_VAR)
+    value = "true" if get_dlt_telemetry_state(project_root) else "false"
+    os.environ[_DLT_ENV_VAR] = value
+    if user_opt_out:
+        os.environ.pop(_DLT_ENV_WRITTEN_MARKER, None)
+    else:
+        os.environ[_DLT_ENV_WRITTEN_MARKER] = value
 
 
 def set_dlt_telemetry_state(enabled: bool) -> None:

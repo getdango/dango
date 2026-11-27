@@ -356,7 +356,9 @@ class TestLiveEgressDetection:
         from dango.utils.driver import METABASE_DUCKDB_DRIVER_VERSION
 
         monkeypatch.setenv("DBT_SEND_ANONYMOUS_USAGE_STATS", "false")
-        monkeypatch.setenv("DO_NOT_TRACK", "1")
+        for _var in ("DO_NOT_TRACK", "DANGO_TELEMETRY"):  # dlt honours these; Phase 1 needs it on
+            monkeypatch.delenv(_var, raising=False)
+        monkeypatch.setenv("RUNTIME__DLTHUB_TELEMETRY", "true")
 
         # Isolate ~/.dango/ (1.0.8-OPS-2 moved dlt's opt-out here) so this
         # test never touches the real machine's telemetry config — same

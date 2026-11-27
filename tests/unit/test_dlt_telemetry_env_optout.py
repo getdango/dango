@@ -192,6 +192,49 @@ class TestApplyDltTelemetryEnv:
         assert os.environ[_DLT_ENV] == "true"
 
 
+@pytest.mark.unit
+class TestDangoOwnEnvValueIsNotAUserOptOut:
+    """A value Dango wrote into the env var earlier must not stick as an opt-out."""
+
+    def test_turning_telemetry_back_on_takes_effect_in_the_same_process(
+        self, _empty_home: Path, tmp_path: Path
+    ) -> None:
+        _write_config(_empty_home, "dlt_telemetry: false\n")
+        _apply_dlt_telemetry_env(tmp_path)
+        assert os.environ[_DLT_ENV] == "false"
+
+        _write_config(_empty_home, "dlt_telemetry: true\n")
+        assert get_dlt_telemetry_state(tmp_path) is True
+        _apply_dlt_telemetry_env(tmp_path)
+        assert os.environ[_DLT_ENV] == "true"
+
+    def test_a_child_process_inheriting_dangos_false_follows_the_config(
+        self, _empty_home: Path, tmp_path: Path
+    ) -> None:
+        """The marker is an env var, so a child sees which value was Dango's."""
+        _write_config(_empty_home, "dlt_telemetry: false\n")
+        _apply_dlt_telemetry_env(tmp_path)
+        inherited = dict(os.environ)
+
+        os.environ.clear()
+        os.environ.update(inherited)
+        _write_config(_empty_home, "dlt_telemetry: true\n")
+        assert get_dlt_telemetry_state(tmp_path) is True
+
+    def test_users_explicit_false_survives_repeated_applies_and_a_config_turned_on(
+        self, _empty_home: Path, tmp_path: Path
+    ) -> None:
+        os.environ[_DLT_ENV] = "false"
+        _apply_dlt_telemetry_env(tmp_path)
+        _apply_dlt_telemetry_env(tmp_path)
+        assert os.environ[_DLT_ENV] == "false"
+
+        _write_config(_empty_home, "dlt_telemetry: true\n")
+        assert get_dlt_telemetry_state(tmp_path) is False
+        _apply_dlt_telemetry_env(tmp_path)
+        assert os.environ[_DLT_ENV] == "false"
+
+
 @pytest.fixture
 def _fresh_dlt_runtime_cleaned(
     fresh_dlt_runtime: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
