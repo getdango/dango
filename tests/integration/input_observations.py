@@ -168,7 +168,7 @@ def journal(rig, owner):
     }
 
 
-AFFECTED = ("11",)
+AFFECTED = ("03", "04", "05", "07", "08")
 RETAINED = {
     "head": "fa2282c0bba6f959ca9a2d12d314cecc395c46df",
     "run": "45861634718",
@@ -451,3 +451,11 @@ def direct_active_cleanup(rig):
         "other_pin_then_active_operation_retained": True,
         "last_eligible_owned_expiry": True,
     }
+
+
+RETAINED_CLEANUP = {
+    "head": "9ea2a93b939fbc6cce93e81721e22e761a61771e",
+    "run": "45931116545",
+    "retained_case_ids": ["11"],
+    "cases": {f"{n:02d}": ("PASS" if n == 11 else "UNRUN") for n in range(1, 13)},
+}

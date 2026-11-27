@@ -11,6 +11,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from sqlglot import expressions as sql
+
 from dango.operations.contracts import OperationContext
 from dango.storage.catalog_ownership import catalog_file_paths
 from dango.storage.catalogs import (
@@ -36,9 +38,55 @@ if TYPE_CHECKING:
     from duckdb import DuckDBPyConnection
 
 
-def qualified(relation: Relation) -> str:
-    """Quote only the original server-resolved identifiers, never caller SQL."""
-    return "catalog." + _quote(relation.schema_name) + "." + _quote(relation.table_name)
+def _table(relation: Relation) -> sql.Table:
+    """Build separate quoted identifier nodes; never parse admitted names as SQL."""
+    return sql.Table(
+        this=sql.to_identifier(relation.table_name, quoted=True),
+        db=sql.to_identifier(relation.schema_name, quoted=True),
+        catalog=sql.to_identifier("catalog", quoted=True),
+    )
+
+
+def _describe_sql(relation: Relation) -> str:
+    return sql.Describe(this=sql.select("*").from_(_table(relation))).sql(dialect="duckdb")
+
+
+def _export_sql(relation: Relation) -> str:
+    return sql.Copy(
+        this=sql.select("*").from_(_table(relation)).subquery(),
+        kind=False,
+        files=[sql.Placeholder()],
+        params=[
+            sql.CopyParameter(this=sql.Var(this="FORMAT"), expression=sql.Var(this="PARQUET")),
+            sql.CopyParameter(this=sql.Var(this="COMPRESSION"), expression=sql.Var(this="ZSTD")),
+        ],
+    ).sql(dialect="duckdb")
+
+
+def _create_sql(relation: Relation) -> str:
+    types = {"INTEGER": sql.DataType.Type.INT, "BIGINT": sql.DataType.Type.BIGINT}
+    if any(column.type not in types for column in relation.columns):
+        raise InputCaptureError("capture_schema_changed")
+    columns = [
+        sql.ColumnDef(
+            this=sql.to_identifier(column.name, quoted=True),
+            kind=sql.DataType(this=types[column.type]),
+            constraints=[]
+            if column.nullable
+            else [sql.ColumnConstraint(kind=sql.NotNullColumnConstraint())],
+        )
+        for column in relation.columns
+    ]
+    return sql.Create(
+        this=sql.Schema(this=_table(relation), expressions=columns), kind="TABLE"
+    ).sql(dialect="duckdb")
+
+
+def _insert_sql(relation: Relation) -> str:
+    return sql.Insert(
+        this=_table(relation),
+        expression=sql.select("*").from_(sql.ReadParquet(expressions=[sql.Placeholder()])),
+    ).sql(dialect="duckdb")
 
 
 class NativeInputCopy:
@@ -67,7 +115,7 @@ class NativeInputCopy:
         return _credential(self.allocator.resolve(binding.credential_ref), binding.catalog_database)
 
     def _schema(self, connection: DuckDBPyConnection, relation: Relation) -> None:
-        rows = connection.execute("DESCRIBE SELECT * FROM " + qualified(relation)).fetchall()
+        rows = connection.execute(_describe_sql(relation)).fetchall()
         columns = tuple(
             Column(name=str(r[0]), type=str(r[1]), nullable=r[2] == "YES") for r in rows
         )
@@ -207,13 +255,7 @@ class NativeInputCopy:
                 path = stage / f"{index}.parquet"
                 if path.exists() or path.is_symlink():
                     raise InputCaptureError("capture_recovery_required")
-                connection.execute(
-                    "COPY (SELECT * FROM "
-                    + qualified(relation)
-                    + ") TO "
-                    + _literal(str(path))
-                    + " (FORMAT PARQUET, COMPRESSION ZSTD)"
-                )
+                connection.execute(_export_sql(relation), [str(path)])
                 path.chmod(0o600)
                 self._schema(connection, relation)
             gate()
@@ -288,23 +330,15 @@ class NativeInputCopy:
                 raise InputCaptureError("capture_collision")
             connection.execute("BEGIN")
             try:
+                schema = sql.Table(
+                    this=sql.to_identifier(relation.schema_name, quoted=True),
+                    db=sql.to_identifier("catalog", quoted=True),
+                )
                 connection.execute(
-                    "CREATE SCHEMA IF NOT EXISTS catalog." + _quote(relation.schema_name)
+                    sql.Create(this=schema, kind="SCHEMA", exists=True).sql(dialect="duckdb")
                 )
-                if any(column.type not in {"INTEGER", "BIGINT"} for column in relation.columns):
-                    raise InputCaptureError("capture_schema_changed")
-                columns = ",".join(
-                    _quote(c.name) + " " + c.type + ("" if c.nullable else " NOT NULL")
-                    for c in relation.columns
-                )
-                connection.execute("CREATE TABLE " + qualified(relation) + " (" + columns + ")")
-                connection.execute(
-                    "INSERT INTO "
-                    + qualified(relation)
-                    + " SELECT * FROM read_parquet("
-                    + _literal(str(stage))
-                    + ")"
-                )
+                connection.execute(_create_sql(relation))
+                connection.execute(_insert_sql(relation), [str(stage)])
                 connection.execute("COMMIT")
             except BaseException:
                 connection.execute("ROLLBACK")

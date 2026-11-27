@@ -18,6 +18,37 @@ from uuid import uuid4
 from native_workspaces import WorkspaceRig
 
 
+def acquire_composer(root: Path) -> None:
+    """Add only the existing frozen SQLGlot artifact; preserve predecessor import pins unchanged."""
+    import zipfile
+
+    from native_catalog_bindings import COMPONENTS, disk_gate, download
+
+    name = "sqlglot-30.31.0-py3-none-any.whl"
+    component = COMPONENTS["t44a-" + name]["component"]
+    digest = "51a876a43edecf8ee6fd4c872cf6713d899c4234256bba0be96a8c7c8d8781e8"
+    assert component["sha256"] == digest and component["version"] == "30.31.0"
+    disk_gate(root, 811981 + 8388608)
+    path = root / "tools/artifacts" / name
+    with path.open("xb") as output:
+        output.write(download(root, name, component["artifact_ref"], digest, 811981))
+    with zipfile.ZipFile(path) as archive:
+        expanded = sum(((m.file_size + 4095) // 4096 + 1) * 4096 for m in archive.infolist())
+    assert expanded <= 4399104
+    (root / "work/sql-composer-acquisition.json").write_text(
+        json.dumps(
+            {
+                "artifact": name,
+                "sha256": digest,
+                "bytes": 811981,
+                "expanded_upper": expanded,
+                "status": "PASS",
+                "owned_bound": 9416622500,
+            }
+        )
+    )
+
+
 def imports(root: Path) -> None:
     """Prove capture import performs no network/native/SQLite IO before service bootstrap."""
     from unittest.mock import patch
@@ -29,13 +60,17 @@ def imports(root: Path) -> None:
         patch("sqlite3.connect", side_effect=AssertionError("Import SQLite IO")),
         patch("duckdb.connect", side_effect=AssertionError("Import native IO")),
     ):
+        import sqlglot
+
         from dango.storage.inputs import InputCaptureService
 
+        assert sqlglot.__version__ == "30.31.0"
         assert InputCaptureService.__module__ == "dango.storage.inputs"
     check_imports(root)
     path = root.parent / "target-import.json"
     value = json.loads(path.read_text())
     value["capture_import_guarded"] = True
+    value["sqlglot"] = "30.31.0"
     path.write_text(json.dumps(value))
 
 
@@ -290,10 +325,14 @@ def main():
     """Keep smoke separate from the fixed12 matrix, which remains UNRUN until implemented/executed."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--check-imports", type=Path)
+    parser.add_argument("--acquire-composer", type=Path)
     parser.add_argument("--task-root", type=Path)
     parser.add_argument("--commit")
     parser.add_argument("--phase", choices=["smoke", "all", "affected"], default="smoke")
     args = parser.parse_args()
+    if args.acquire_composer:
+        acquire_composer(args.acquire_composer)
+        return
     if args.check_imports:
         imports(args.check_imports)
         return
@@ -327,6 +366,7 @@ def main():
                 AFFECTED,
                 RETAINED,
                 RETAINED_AFFECTED,
+                RETAINED_CLEANUP,
                 RETAINED_CORRECTION,
                 RETAINED_DURABILITY,
             )
@@ -338,6 +378,7 @@ def main():
                 report["retained_affected_evidence"] = RETAINED_AFFECTED
                 report["retained_durability_evidence"] = RETAINED_DURABILITY
                 report["retained_correction_evidence"] = RETAINED_CORRECTION
+                report["retained_cleanup_evidence"] = RETAINED_CLEANUP
 
             for number, case in CASES:
                 if number not in selected:

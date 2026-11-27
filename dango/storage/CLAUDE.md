@@ -151,6 +151,10 @@ The fixed fixture controller excludes supported maintenance for its entire lifet
 native administrator/owner bypass and future production retention coordination remain outside
 this P0 claim; later publication/maintenance owners must join capture and consumer retention.
 
+SQLGlot DuckDB AST nodes keep catalog/schema/table/column identifiers separate and force quoting;
+COPY destinations and read_parquet inputs are bound values. Only the fixed INTEGER/BIGINT
+type nodes and explicit nullability constraints become DDL. Exact-profile proof includes adversarial
+identifier/path and ordered schema/row/collision oracles in `tests/unit/test_input_copy_sql.py`.
 The source allocator lock covers exact `READ_ONLY, SNAPSHOT_VERSION` export. Each target
 relation commits separately and retained native data/delete-file bytes are then measured.
 Selected-source retained-file estimates are checked before export; actual excess stops further

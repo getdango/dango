@@ -10,6 +10,7 @@ on:
       - dango/storage/input_copy.py
       - dango/storage/CLAUDE.md
       - tests/unit/test_captured_inputs.py
+      - tests/unit/test_input_copy_sql.py
       - tests/unit/input_support.py
       - tests/integration/native_inputs.py
       - tests/integration/input_cases.py
@@ -133,7 +134,7 @@ jobs:
           case "$DRIVER" in overlay2|overlayfs) ;; *) exit 1;; esac
           BACKING_BYTES=6442450944
           IMAGE_BOUND=2688958884
-          OUTSIDE_BOUND=268435456
+          OUTSIDE_BOUND=285212672
           HEADROOM=2147483648
           TOTAL_BOUND=$((BACKING_BYTES + IMAGE_BOUND + OUTSIDE_BOUND))
           test "$TOTAL_BOUND" -le 10000000000
@@ -183,7 +184,7 @@ jobs:
             for image in "${NEW_IMAGES[@]}"; do docker image rm "$image" >/dev/null || failure=1; done
             if mountpoint -q "$PAYLOAD"; then
               # Only fixed safe report allowlist is retained; no raw SQL, credentials or container logs.
-              for report in native-result.json smoke-result.json target-import.json acquisition.json acquisition-stage.json; do
+              for report in native-result.json smoke-result.json target-import.json acquisition.json acquisition-stage.json sql-composer-acquisition.json; do
                 test ! -f "$PAYLOAD/work/$report" || cp "$PAYLOAD/work/$report" "$TASK_ROOT/evidence/$report"
               done
               umount "$PAYLOAD" || failure=1
@@ -369,6 +370,7 @@ jobs:
           IMPORT_PINS
           stage pinned_artifacts_acquisition
           /usr/bin/python3 "$SOURCE/tests/integration/native_catalog_bindings.py" --acquire "$PAYLOAD"
+          /usr/bin/python3 "$SOURCE/tests/integration/native_inputs.py" --acquire-composer "$PAYLOAD"
           export PAYLOAD
           /usr/bin/python3 - <<'PY'
           import json, os, secrets
@@ -452,7 +454,8 @@ jobs:
             sleep 1
           done
           test "$imported" = 1
-          jq -e '.status=="PASS" and .python=="3.14.10" and .duckdb=="2.0.0" and .temporary_sqlite_bootstrap==true and .native_services_started==false and .capture_import_guarded==true' "$PAYLOAD/work/target-import.json" >/dev/null
+          jq -e '.status=="PASS" and .python=="3.14.10" and .duckdb=="2.0.0" and .temporary_sqlite_bootstrap==true and .native_services_started==false and .capture_import_guarded==true and .sqlglot=="30.31.0"' "$PAYLOAD/work/target-import.json" >/dev/null
+          jq -e '.status=="PASS" and .artifact=="sqlglot-30.31.0-py3-none-any.whl" and .sha256=="51a876a43edecf8ee6fd4c872cf6713d899c4234256bba0be96a8c7c8d8781e8" and .bytes==811981 and .expanded_upper<=4399104 and .owned_bound==9416622500' "$PAYLOAD/work/sql-composer-acquisition.json" >/dev/null
           stage ordinary_role_bootstrap
           touch "$PAYLOAD/gate/pg"
           ready=0
@@ -519,8 +522,8 @@ jobs:
             .status=="PASS_NATIVE_INPUT_AFFECTED" and .phase=="affected" and .commit==$commit
             and .smoke=="PASS" and .owned_cleanup==true and .lifetime_released_after_all_refs==true
             and (.cases|keys)==["01","02","03","04","05","06","07","08","09","10","11","12"]
-            and .selected_cases==["11"]
-            and (.cases|to_entries|all(if .key=="11" then .value=="PASS" else .value=="UNRUN" end))
+            and .selected_cases==["03","04","05","07","08"]
+            and (.cases|to_entries|all(if (.key|IN("03","04","05","07","08")) then .value=="PASS" else .value=="UNRUN" end))
             and .retained_evidence.head=="fa2282c0bba6f959ca9a2d12d314cecc395c46df" and .retained_evidence.run=="45861634718"
             and .retained_evidence.retained_case_ids==["01","02","03","04"]
             and (.retained_evidence.cases|keys)==["01","02","03","04","05","06","07","08","09","10","11","12"]
@@ -537,7 +540,11 @@ jobs:
             and .retained_correction_evidence.retained_case_ids==["08","11","12"]
             and (.retained_correction_evidence.cases|keys)==["01","02","03","04","05","06","07","08","09","10","11","12"]
             and (.retained_correction_evidence.cases|to_entries|all(if (.key|IN("08","11","12")) then .value=="PASS" else .value=="UNRUN" end))
-            and (.case_observations|keys)==["11"]
+            and .retained_cleanup_evidence.head=="9ea2a93b939fbc6cce93e81721e22e761a61771e" and .retained_cleanup_evidence.run=="45931116545"
+            and .retained_cleanup_evidence.retained_case_ids==["11"]
+            and (.retained_cleanup_evidence.cases|keys)==["01","02","03","04","05","06","07","08","09","10","11","12"]
+            and (.retained_cleanup_evidence.cases|to_entries|all(if .key=="11" then .value=="PASS" else .value=="UNRUN" end))
+            and (.case_observations|keys)==["03","04","05","07","08"]
             and .profile.fixture_sha256=="b6879d50f7220b8afa1a1b6b6266e27db6c3492a8fa2bc71747656c6411af449"
             and .profile.python=="3.14.10" and .profile.duckdb=="2.0.0" and .profile.ducklake=="1.1"
           ' "$PAYLOAD/work/native-result.json" >/dev/null
@@ -586,7 +593,7 @@ jobs:
               if mountpoint -q "$payload"; then
                 test -n "$loop" && test "$(findmnt -n -o SOURCE -T "$payload")" = "$loop"
                 mkdir -p "$TASK_ROOT/evidence"
-                for report in native-result.json smoke-result.json target-import.json acquisition.json acquisition-stage.json; do
+                for report in native-result.json smoke-result.json target-import.json acquisition.json acquisition-stage.json sql-composer-acquisition.json; do
                   test ! -f "$payload/work/$report" || cp "$payload/work/$report" "$TASK_ROOT/evidence/$report"
                 done
                 umount "$payload"
