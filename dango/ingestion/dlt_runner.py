@@ -926,7 +926,28 @@ class DltPipelineRunner:
             }
             save_sync_history_entry(self.project_root, source_name, history_entry)
 
-            if success:
+            if result_status == "partial":
+                # Some data loaded, but not everything: never the plain "Synced" line
+                dur_str = self._format_duration(duration)
+                console.print(
+                    f"\n  [yellow]⚠ Partially synced {escape(source_name)}: "
+                    f"{rows_loaded:,} rows ({dur_str})[/yellow]"
+                )
+                detail = (
+                    f": {redacted_error_text(self.project_root, error_message)}"
+                    if error_message
+                    else ""
+                )
+                log_activity(
+                    project_root=self.project_root,
+                    level="warning",
+                    source=source_name,
+                    message=(
+                        f"Sync partly completed in {round(duration, 1)}s - "
+                        f"{rows_loaded:,} rows{detail}"
+                    ),
+                )
+            elif success:
                 # Format duration as human-readable
                 dur_str = self._format_duration(duration)
                 tables = result.get("loaded_tables", [])
@@ -3957,6 +3978,18 @@ def _display_dbt_output(dbt_output: str) -> None:
 INTERRUPTED_ERROR = "Sync interrupted before it finished"
 
 
+def _failure_text_of(project_root: Path, result: dict[str, Any]) -> str:
+    """The failure text of a source result: its error, else the failed resources of a partial."""
+    error = result.get("error")
+    if error:
+        return str(error)
+    failed = result.get("failed_resources")
+    if result.get("status") == "partial" and failed:
+        names = ", ".join(str(n) for n in failed)
+        return redacted_error_text(project_root, f"Failed resources: {names}")
+    return "Unknown error"
+
+
 def _interrupted_summary(
     results: list[dict[str, Any]],
     success_sources: list[str],
@@ -4070,7 +4103,7 @@ def run_sync(
             failed_sources.append(
                 {
                     "name": source_config.name,
-                    "error": result.get("error", "Unknown error"),
+                    "error": _failure_text_of(project_root, result),
                     "error_type": result.get("error_type"),
                 }
             )
