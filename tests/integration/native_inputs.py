@@ -327,6 +327,7 @@ def main():
                 AFFECTED,
                 RETAINED,
                 RETAINED_AFFECTED,
+                RETAINED_CORRECTION,
                 RETAINED_DURABILITY,
             )
 
@@ -336,6 +337,7 @@ def main():
                 report["retained_evidence"] = RETAINED
                 report["retained_affected_evidence"] = RETAINED_AFFECTED
                 report["retained_durability_evidence"] = RETAINED_DURABILITY
+                report["retained_correction_evidence"] = RETAINED_CORRECTION
 
             for number, case in CASES:
                 if number not in selected:

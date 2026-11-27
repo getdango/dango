@@ -168,7 +168,7 @@ def journal(rig, owner):
     }
 
 
-AFFECTED = ("08", "11", "12")
+AFFECTED = ("11",)
 RETAINED = {
     "head": "fa2282c0bba6f959ca9a2d12d314cecc395c46df",
     "run": "45861634718",
@@ -338,4 +338,116 @@ def prepared_ready_recovery(rig):
         "before": before,
         "after": {"json": record(rig, identity)[1], "sql": journal(rig, owner)},
         "native_unchanged": True,
+    }
+
+
+RETAINED_CORRECTION = {
+    "head": "b63f5ea72b5f47c43be5b94075bfb0c902518a9c",
+    "run": "45929522151",
+    "retained_case_ids": ["08", "11", "12"],
+    "cases": {f"{n:02d}": ("PASS" if n in {8, 11, 12} else "UNRUN") for n in range(1, 13)},
+}
+
+
+def direct_active_cleanup(rig):
+    """B1/11: release after real post-commit process death, without a capture recovery call."""
+    import os
+    from datetime import datetime, timedelta
+
+    from native_workspaces import child
+
+    workspace = target(rig)
+    owner = context(rig, workspace)
+    original_copy = rig.inputs.copy.copy_one
+
+    def interrupted():
+        def die(*args):
+            original_copy(*args)
+            os._exit(73)
+
+        rig.inputs.copy.copy_one = die
+        rig.capture(context=owner, target=workspace)
+
+    child(interrupted, expected=73)
+    identity = capture_id(rig, owner)
+    rig.captures.append((owner, identity))
+    consumer = rig.admit("consumer.direct-cleanup", {})
+    pin = rig.service.acquire_pin(consumer, workspace.workspace_id, "query", identity)
+
+    def snapshot():
+        return {
+            "json": record(rig, identity)[1],
+            "sql": journal(rig, owner),
+            "source_pins": rig.manifest(rig.source.workspace_id)[1]["pins"],
+            "target_pins": rig.manifest(workspace.workspace_id)[1]["pins"],
+        }
+
+    before = snapshot()
+    assert before["json"]["phase"] == "copying"
+    assert before["sql"]["operation"] == [("prepared", None, None)]
+    assert before["sql"]["effect"] == [("prepared", identity)]
+    assert rows(rig, owner, workspace) == [(1, 100), (2, 200), (3, 50)]
+    native = rig.native.metadata(rig.native.current(workspace.workspace_id))
+    original_release, original_finalize = rig.service.release_pin, rig.store.finalize_operation
+    calls = []
+
+    def partial(*args):
+        calls.append(args[-1])
+        if len(calls) == 2:
+            raise InterruptedError()
+        return original_release(*args)
+
+    rig.service.release_pin = partial
+    try:
+        refused(lambda: rig.inputs.release_capture(owner, identity), "capture_unavailable")
+    finally:
+        rig.service.release_pin = original_release
+    partial_state = snapshot()
+    assert partial_state["json"]["phase"] == "releasing"
+
+    def finalized_then_interrupted(*args):
+        original_finalize(*args)
+        raise InterruptedError()
+
+    rig.store.finalize_operation = finalized_then_interrupted
+    try:
+        refused(lambda: rig.inputs.release_capture(owner, identity), "capture_unavailable")
+    finally:
+        rig.store.finalize_operation = original_finalize
+    finalized = snapshot()
+    assert finalized["json"]["phase"] == "releasing"
+    assert finalized["sql"]["operation"] == [("finalized", identity, "cancelled")]
+    receipt = json.loads(finalized["sql"]["receipt"][0][2])
+    assert receipt["error_code"] == "capture_released"
+    assert (
+        receipt["action"] == "Admit a new capture before using released historical input metadata."
+    )
+    rig.inputs.release_capture(owner, identity)
+    after = snapshot()
+    assert after["json"]["phase"] == "released" and after["sql"] == finalized["sql"]
+    for entries in (after["source_pins"], after["target_pins"]):
+        assert all(p["released"] for p in entries if p["pin"]["operation_id"] == owner.operation_id)
+    assert any(p["pin"]["pin_id"] == pin.pin_id and not p["released"] for p in after["target_pins"])
+    unchanged = authority_snapshot(rig)
+    rig.inputs.release_capture(owner, identity)
+    assert authority_snapshot(rig) == unchanged
+    assert rig.native.metadata(rig.native.current(workspace.workspace_id)) == native
+    assert not list((rig.native.root / ".dango/state/inputs/staging" / identity).glob("*.parquet"))
+    rig.now = datetime.fromisoformat(workspace.lease_expiry) + timedelta(seconds=1)
+    assert rig.expire(workspace).error_code == "workspace_retained"
+    rig.service.release_pin(consumer, workspace.workspace_id, pin.pin_id)
+    assert rig.expire(workspace).error_code == "workspace_retained"
+    rig.finish(consumer)
+    rig.dispose(workspace)
+    rig.targets.remove(workspace)
+    return {
+        "classification": "real_process_death_after_native_commit_then_direct_release",
+        "exit": 73,
+        "before": before,
+        "partial": partial_state,
+        "finalized_before_tombstone": finalized,
+        "after": after,
+        "idempotent_no_reacquire_or_recopy": True,
+        "other_pin_then_active_operation_retained": True,
+        "last_eligible_owned_expiry": True,
     }

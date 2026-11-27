@@ -13,6 +13,7 @@ from uuid import uuid4
 from input_observations import (
     capture_id,
     context,
+    direct_active_cleanup,
     fixture_edit,
     journal,
     lookup_corruption,
@@ -357,6 +358,7 @@ def fixture_lifetime(rig):
 
 def release_consumers(rig):
     """11: original-context partial release is retryable and preserves every other consumer/receipt."""
+    direct_proof = direct_active_cleanup(rig)
     lookup_proof = lookup_corruption(rig, "release")
     owner, value = rig.capture()
     workspace = rig.targets[-1]
@@ -409,6 +411,7 @@ def release_consumers(rig):
         "active_operations_retained": True,
         "last_eligible_expiry": True,
         "wrong_lookup_release": lookup_proof,
+        "direct_active_cleanup": direct_proof,
     }
 
 

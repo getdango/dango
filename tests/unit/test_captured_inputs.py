@@ -402,3 +402,89 @@ def test_ready_with_active_prepared_effect_recovers_same_result(rig, monkeypatch
     assert rig.copy.calls.count("copy") == 1
     rig.capture_service.release_capture(owner, identity)
     assert rig.capture(owner)[1] == value
+
+
+@pytest.mark.parametrize(
+    "interruption", ["none", "partial_pin", "before_finalize", "after_finalize"]
+)
+def test_direct_active_release_completes_cancelled_cleanup(rig, monkeypatch, interruption):
+    """B1: release actual interrupted preparation directly, with durable retry and consumer isolation."""
+    owner = rig.capture_context()
+    rig.copy.fail = "interrupt"
+    with pytest.raises(KeyboardInterrupt):
+        rig.capture(owner)
+    identity = rig.rows(
+        "SELECT native_ref FROM platform_effects WHERE operation_id=?", (owner.operation_id,)
+    )[0][0]
+    assert rig.record(identity)[1]["phase"] == "copying"
+    assert rig.rows(
+        "SELECT state,status FROM platform_operations WHERE operation_id=?", (owner.operation_id,)
+    ) == [("prepared", None)]
+    assert rig.rows(
+        "SELECT state FROM platform_effects WHERE operation_id=?", (owner.operation_id,)
+    ) == [("prepared",)]
+    assert all(rig.service.has_pins(owner, w.workspace_id) for w in (rig.source, rig.target))
+    consumer = rig.admit("reader", {})
+    pin = rig.service.acquire_pin(consumer, rig.target.workspace_id, "query", identity)
+    original_release, original_finalize = rig.service.release_pin, rig.store.finalize_operation
+    calls = []
+
+    def partial(*args):
+        calls.append(args[-1])
+        if len(calls) == 2:
+            raise InterruptedError()
+        return original_release(*args)
+
+    def finalize(*args):
+        if interruption == "after_finalize":
+            original_finalize(*args)
+        raise InterruptedError()
+
+    if interruption != "none":
+        with monkeypatch.context() as patch:
+            if interruption == "partial_pin":
+                patch.setattr(rig.service, "release_pin", partial)
+            else:
+                patch.setattr(rig.store, "finalize_operation", finalize)
+            with pytest.raises(InputCaptureError, match="capture_unavailable"):
+                rig.capture_service.release_capture(owner, identity)
+        assert rig.record(identity)[1]["phase"] == "releasing"
+    rig.capture_service.release_capture(owner, identity)
+    assert rig.record(identity)[1]["phase"] == "released"
+    status = rig.store.inspect_effect(owner, owner.operation_id, "inputs.capture")
+    assert status.state == "finalized" and status.effect.state == "prepared"
+    assert status.receipt.model_dump() == {
+        "schema_version": 1,
+        "operation_id": owner.operation_id,
+        "status": "cancelled",
+        "resource_revision": None,
+        "result_ref": identity,
+        "evidence_refs": (),
+        "error_code": "capture_released",
+        "action": "Admit a new capture before using released historical input metadata.",
+    }
+    raw = rig.rows(
+        "SELECT status,result_ref,outcome_json FROM platform_operations WHERE operation_id=?",
+        (owner.operation_id,),
+    )[0]
+    assert raw[:2] == ("cancelled", identity)
+    assert json.loads(raw[2])["result_ref"] == identity
+    before = rig.observation()
+    rig.capture_service.release_capture(owner, identity)
+    assert rig.observation() == before
+    assert rig.copy.calls.count("copy") == 1
+    assert not rig.service.has_pins(owner, rig.source.workspace_id)
+    rig.now += timedelta(days=8)
+    assert (
+        rig.service.expire(rig.expiry(rig.target), rig.target.workspace_id, 0).error_code
+        == "workspace_retained"
+    )
+    rig.service.release_pin(consumer, rig.target.workspace_id, pin.pin_id)
+    assert (
+        rig.service.expire(rig.expiry(rig.target), rig.target.workspace_id, 0).error_code
+        == "workspace_retained"
+    )
+    rig.finish(consumer)
+    assert (
+        rig.service.expire(rig.expiry(rig.target), rig.target.workspace_id, 0).status == "success"
+    )

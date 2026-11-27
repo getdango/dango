@@ -439,6 +439,8 @@ class InputCaptureService(CaptureAuthority):
                         operation_id=context.operation_id,
                         status="cancelled",
                         result_ref=input_set_id,
+                        error_code="capture_released",
+                        action="Admit a new capture before using released historical input metadata.",
                     ),
                 )
             record.save(value.model_copy(update={"phase": "released"}))

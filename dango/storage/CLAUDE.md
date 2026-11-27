@@ -162,7 +162,9 @@ receipt to name the exact saved input ID. Active prepared recovery remains valid
 the saved result; released input metadata conveys no current use authority.
 
 Release requires the original capture operation, validates exact owned input pins and preserves
-other consumer pins. Partial cleanup retries never reacquire pins; only recorded unchanged staging
+other consumer pins. Direct cleanup of active preparation finalizes one valid cancelled receipt
+with fixed safe reason/action; finalized historical outcomes remain immutable. Partial cleanup
+retries never reacquire pins; only recorded unchanged staging
 inodes are deleted. Interruption before staging inventory can leave unknown residuals retained
 for whole task/workspace cleanup. Native expiry remains an explicit eligible T04B operation.
 
