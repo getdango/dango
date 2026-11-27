@@ -156,7 +156,9 @@ relation commits separately and retained native data/delete-file bytes are then 
 Selected-source retained-file estimates are checked before export; actual excess stops further
 relations and leaves failed owned residuals/pins. This is neither an atomic whole-capture rollback
 nor a hard kernel storage limit. A ready private record is published only after checks and is
-usable only after the canonical effect and success receipt complete. Historical replay returns
+usable only after the canonical effect and success receipt complete. Every loaded capture must match its external lookup key before any ownership or cleanup action.
+Ready and successful historical returns require the original applied effect and immutable success
+receipt to name the exact saved input ID. Active prepared recovery remains valid. Historical replay returns
 the saved result; released input metadata conveys no current use authority.
 
 Release requires the original capture operation, validates exact owned input pins and preserves

@@ -20,6 +20,7 @@ from dango.storage.workspace_records import Counter, Record, Text, Token, Worksp
 from dango.storage.workspace_state import LockedRecord, _owned, _unique_pairs, current_binding
 
 if TYPE_CHECKING:
+    from dango.operations.store import EffectInspection
     from dango.storage.catalogs import CatalogAllocator
     from dango.storage.inputs import InputSet
     from dango.storage.workspaces import WorkspaceService
@@ -372,7 +373,32 @@ class CaptureAuthority:
     allocator: CatalogAllocator
     workspaces: WorkspaceService
 
-    def _owner(self, context: OperationContext, value: CaptureRecord) -> None:
+    @staticmethod
+    def _success(value: CaptureRecord, inspection: EffectInspection) -> None:
+        """Require the original applied effect and immutable success receipt for every ready history."""
+        if (
+            inspection.operation_id != value.operation_id
+            or inspection.operation_name != "inputs.capture"
+            or inspection.request_digest != value.request_digest
+            or inspection.state != "finalized"
+            or inspection.effect is None
+            or inspection.effect.state != "applied"
+            or inspection.receipt is None
+            or inspection.receipt.operation_id != value.operation_id
+            or inspection.receipt.status != "success"
+            or inspection.receipt.result_ref != value.input_set_id
+            or capture_result(value).state != "ready"
+        ):
+            raise InputCaptureError("capture_recovery_required")
+        from dango.storage.workspace_state import WorkspaceJournal
+
+        WorkspaceJournal._check_effect(inspection.effect, "inputs.capture", value.input_set_id)
+
+    def _owner(
+        self, context: OperationContext, value: CaptureRecord, input_set_id: str
+    ) -> EffectInspection:
+        if value.input_set_id != input_set_id:
+            raise InputCaptureError("capture_recovery_required")
         inspection = self.workspaces._inspect(context, value.operation_id, "inputs.capture")
         if (
             inspection.request_digest != value.request_digest
@@ -384,6 +410,9 @@ class CaptureAuthority:
         if (value.project_id, value.actor_id) != (context.project_id, context.actor_id):
             raise InputCaptureError("capture_denied")
         capture_result(value)
+        if inspection.receipt is not None and inspection.receipt.status == "success":
+            self._success(value, inspection)
+        return inspection
 
     def _lifetime(self, context: OperationContext, value: CaptureRecord) -> AcceptedFixture:
         manifest, digest, identity = fixture(self.root, context)

@@ -160,3 +160,15 @@ class InputRig(Rig):
 
         with capture_record(self.root, identity) as record:
             record.save(record.read(CaptureRecord).model_copy(update=changes))
+
+    def observation(self):
+        """Independently snapshot persisted JSON/pins/raw SQL and all synthetic native/copy calls."""
+        return {
+            "json": {
+                str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob("*.json")
+            },
+            "operations": self.rows("SELECT * FROM platform_operations ORDER BY operation_id"),
+            "effects": self.rows("SELECT * FROM platform_effects ORDER BY operation_id,effect_id"),
+            "native_calls": tuple(self.port.calls),
+            "copy_calls": tuple(self.copy.calls),
+        }

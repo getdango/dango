@@ -4,6 +4,7 @@ Check strict capture contracts and failure ownership locally; native answers are
 """
 
 import json
+import sqlite3
 from datetime import timedelta
 
 import pytest
@@ -298,3 +299,106 @@ def test_fresh_store_and_services_reopen_saved_capture(rig):
     assert store.inspect_effect(
         owner, owner.operation_id, "inputs.capture"
     ) == rig.store.inspect_effect(owner, owner.operation_id, "inputs.capture")
+
+
+@pytest.mark.parametrize("method", ["inspect", "release", "replay"])
+def test_misplaced_valid_capture_denied_before_any_mutation(rig, method):
+    """G1: a complete valid B under A never changes lookup authority, pins or native state."""
+    owner_a, a = rig.capture()
+    _, rig.target = rig.allocate()
+    owner_b, b = rig.capture()
+    path_a, _ = rig.record(a.input_set_id)
+    original = path_a.read_bytes()
+    path_a.write_bytes(rig.record(b.input_set_id)[0].read_bytes())
+    before = rig.observation()
+    action = {
+        "inspect": lambda: rig.capture_service.inspect_capture(owner_a, a.input_set_id),
+        "release": lambda: rig.capture_service.release_capture(owner_b, a.input_set_id),
+        "replay": lambda: rig.capture_service.capture_inputs(
+            owner_a, a.workspace_id, "p0-accepted-v1", ("sales",), 1000
+        ),
+    }[method]
+    with pytest.raises(InputCaptureError, match="capture_recovery_required"):
+        action()
+    assert rig.observation() == before
+    path_a.write_bytes(original)
+    rig.capture_service.release_capture(owner_b, b.input_set_id)
+    assert (
+        rig.capture_service.capture_inputs(
+            owner_b, b.workspace_id, "p0-accepted-v1", ("sales",), 1000
+        )
+        == b
+    )
+    assert rig.capture_service.inspect_capture(owner_a, a.input_set_id) == a
+
+
+@pytest.mark.parametrize("corruption", ["prepared", "result_ref", "effect_ref"])
+@pytest.mark.parametrize("method", ["inspect", "release", "replay"])
+def test_inconsistent_success_denies_without_mutation(rig, corruption, method):
+    """G2: generic SQL/receipt consistency cannot substitute for the exact applied capture result."""
+    owner, value = rig.capture()
+    with sqlite3.connect(rig.root / ".dango/dango.db") as connection:
+        if corruption == "prepared":
+            connection.execute(
+                "UPDATE platform_effects SET state='prepared' WHERE operation_id=?",
+                (owner.operation_id,),
+            )
+        elif corruption == "effect_ref":
+            connection.execute(
+                "UPDATE platform_effects SET native_ref=? WHERE operation_id=?",
+                ("f" * 32, owner.operation_id),
+            )
+        else:
+            receipt = json.loads(
+                connection.execute(
+                    "SELECT outcome_json FROM platform_operations WHERE operation_id=?",
+                    (owner.operation_id,),
+                ).fetchone()[0]
+            )
+            receipt["result_ref"] = "different-input-id"
+            connection.execute(
+                "UPDATE platform_operations SET result_ref=?,outcome_json=? WHERE operation_id=?",
+                ("different-input-id", json.dumps(receipt), owner.operation_id),
+            )
+    before = rig.observation()
+    action = {
+        "inspect": lambda: rig.capture_service.inspect_capture(owner, value.input_set_id),
+        "release": lambda: rig.capture_service.release_capture(owner, value.input_set_id),
+        "replay": lambda: rig.capture(owner),
+    }[method]
+    with pytest.raises(InputCaptureError):
+        action()
+    assert rig.observation() == before
+
+
+def test_ready_with_active_prepared_effect_recovers_same_result(rig, monkeypatch):
+    """A crash before applied is valid active recovery, unlike finalized-success contradictions."""
+    owner = rig.capture_context()
+    original = rig.store.record_effect
+
+    def before_applied(context, operation, effect):
+        if effect.state == "applied":
+            raise InterruptedError()
+        return original(context, operation, effect)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(rig.store, "record_effect", before_applied)
+        with pytest.raises(InputCaptureError, match="capture_recovery_required"):
+            rig.capture(owner)
+    identity = rig.rows(
+        "SELECT native_ref FROM platform_effects WHERE operation_id=?", (owner.operation_id,)
+    )[0][0]
+    assert rig.record(identity)[1]["phase"] == "ready"
+    assert rig.rows(
+        "SELECT state FROM platform_effects WHERE operation_id=?", (owner.operation_id,)
+    ) == [("prepared",)]
+    assert rig.rows(
+        "SELECT state,status FROM platform_operations WHERE operation_id=?", (owner.operation_id,)
+    ) == [("prepared", None)]
+    with pytest.raises(InputCaptureError, match="capture_recovery_required"):
+        rig.capture_service.inspect_capture(owner, identity)
+    _, value = rig.capture(owner)
+    assert value.input_set_id == identity and value.state == "ready"
+    assert rig.copy.calls.count("copy") == 1
+    rig.capture_service.release_capture(owner, identity)
+    assert rig.capture(owner)[1] == value

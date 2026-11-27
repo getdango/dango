@@ -15,11 +15,14 @@ from input_observations import (
     context,
     fixture_edit,
     journal,
+    lookup_corruption,
+    prepared_ready_recovery,
     record,
     refused,
     rows,
     schemas,
     selected_estimate,
+    success_corruption,
     tables,
     target,
 )
@@ -267,12 +270,16 @@ def strict_and_replay(rig):
     finally:
         path.write_bytes(original)
     assert rig.native.metadata(rig.native.current(value.workspace_id)) == native
+    success_proof = success_corruption(rig, owner, value)
+    recovery_proof = prepared_ready_recovery(rig)
     refused(lambda: rig.capture(target=workspace), "capture_collision")
     assert rows(rig, owner, workspace) == [(1, 100), (2, 200), (3, 50)]
     return {
         "canonical_input_set_id": value.input_set_id,
         "strict_records": True,
         "collision_preserves_original": True,
+        "success_evidence": success_proof,
+        "active_prepared_ready_recovery": recovery_proof,
     }
 
 
@@ -350,6 +357,7 @@ def fixture_lifetime(rig):
 
 def release_consumers(rig):
     """11: original-context partial release is retryable and preserves every other consumer/receipt."""
+    lookup_proof = lookup_corruption(rig, "release")
     owner, value = rig.capture()
     workspace = rig.targets[-1]
     consumers = []
@@ -400,11 +408,13 @@ def release_consumers(rig):
         "four_consumer_purposes_retained": True,
         "active_operations_retained": True,
         "last_eligible_expiry": True,
+        "wrong_lookup_release": lookup_proof,
     }
 
 
 def durability(rig):
     """12: fresh process reopens exact saved identity, then missing/corrupt late authority denies."""
+    lookup_proof = lookup_corruption(rig, "inspect")
     owner, value = rig.capture()
     output = rig.native.root / "fresh-input.json"
 
@@ -440,6 +450,7 @@ def durability(rig):
     assert rig.native.metadata(rig.accepted.binding) == native
     return {
         "fresh_process_exact_result": True,
+        "wrong_lookup_inspect": lookup_proof,
         "missing_corrupt_late_authority_denied": True,
         "import_resource_cleanup": "required workflow and final receipt gates",
     }

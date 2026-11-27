@@ -246,7 +246,7 @@ class InputCaptureService(CaptureAuthority):
                         result_json=result.model_dump_json(),
                     )
                     record.save(value)
-                self._owner(context, value)
+                self._owner(context, value, input_set_id)
                 if (value.operation_id, value.request_digest) != (
                     context.operation_id,
                     request_digest(context, request),
@@ -404,18 +404,12 @@ class InputCaptureService(CaptureAuthority):
             value = record.read(CaptureRecord)
             if value is None:
                 raise InputCaptureError("capture_denied")
-            self._owner(context, value)
+            status = self._owner(context, value, input_set_id)
             if value.phase in {"releasing", "released"}:
                 raise InputCaptureError("capture_released")
             self._pins(context, value)
-            status = self.workspaces._inspect(context, value.operation_id, _EFFECT)
-            if value.phase == "ready" and (
-                status.effect is None
-                or status.effect.state != "applied"
-                or status.receipt is None
-                or status.receipt.status != "success"
-            ):
-                raise InputCaptureError("capture_recovery_required")
+            if value.phase == "ready":
+                self._success(value, status)
             return capture_result(value)
 
     @_safe
@@ -426,7 +420,7 @@ class InputCaptureService(CaptureAuthority):
             value = record.read(CaptureRecord)
             if value is None:
                 raise InputCaptureError("capture_denied")
-            self._owner(context, value)
+            self._owner(context, value, input_set_id)
             if context.operation_id != value.operation_id:
                 raise InputCaptureError("capture_denied")
             if value.phase == "released":

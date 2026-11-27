@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -167,7 +168,7 @@ def journal(rig, owner):
     }
 
 
-AFFECTED = ("12",)
+AFFECTED = ("08", "11", "12")
 RETAINED = {
     "head": "fa2282c0bba6f959ca9a2d12d314cecc395c46df",
     "run": "45861634718",
@@ -185,3 +186,156 @@ RETAINED_AFFECTED = {
         f"{n:02d}": ("UNRUN" if n < 5 else ("FAIL" if n == 12 else "PASS")) for n in range(1, 13)
     },
 }
+
+
+RETAINED_DURABILITY = {
+    "head": "64de432c7cd637af997fcff2d063070b8f5a6fb9",
+    "run": "45864177842",
+    "retained_case_ids": ["12"],
+    "cases": {f"{n:02d}": ("PASS" if n == 12 else "UNRUN") for n in range(1, 13)},
+}
+
+
+def authority_snapshot(rig):
+    """Compare every persisted JSON/pin, raw journal row, data/staging file and resolver use."""
+    return {
+        "json": {
+            str(p.relative_to(rig.native.root)): p.read_text()
+            for p in rig.native.root.rglob("*.json")
+        },
+        "operations": rig.rows("SELECT * FROM platform_operations ORDER BY operation_id"),
+        "effects": rig.rows("SELECT * FROM platform_effects ORDER BY operation_id,effect_id"),
+        "parquet": {
+            str(p.relative_to(rig.native.root)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in rig.native.root.rglob("*.parquet")
+        },
+        "resolves": rig.native.control["resolves"],
+    }
+
+
+def lookup_corruption(rig, operation):
+    """G1: real valid B stored under A never changes the external lookup or B's retained pins."""
+    owner_a, a = rig.capture()
+    owner_b, b = rig.capture()
+    path, _ = record(rig, a.input_set_id)
+    original = path.read_bytes()
+    path.write_bytes(record(rig, b.input_set_id)[0].read_bytes())
+    try:
+        before = authority_snapshot(rig)
+        action = (
+            (lambda: rig.inputs.inspect_capture(owner_a, a.input_set_id))
+            if operation == "inspect"
+            else (lambda: rig.inputs.release_capture(owner_b, a.input_set_id))
+        )
+        code = refused(action, "capture_recovery_required")
+        after = authority_snapshot(rig)
+        assert after == before
+        evidence = {
+            "operation": operation,
+            "lookup": a.input_set_id,
+            "misplaced": b.input_set_id,
+            "code": code,
+            "before": before,
+            "after": after,
+        }
+    finally:
+        path.write_bytes(original)
+    rig.inputs.release_capture(owner_b, b.input_set_id)
+    assert (
+        rig.inputs.capture_inputs(owner_b, b.workspace_id, "p0-accepted-v1", ("sales",), 1000000)
+        == b
+    )
+    assert rig.inputs.inspect_capture(owner_a, a.input_set_id) == a
+    return evidence
+
+
+def success_corruption(rig, owner, value):
+    """G2: preserve exact SQL/JSON/pins/files while rejecting both reproduced success contradictions."""
+    database = rig.native.root / ".dango/dango.db"
+    with sqlite3.connect(database) as connection:
+        saved = connection.execute(
+            "SELECT result_ref,outcome_json FROM platform_operations WHERE operation_id=?",
+            (owner.operation_id,),
+        ).fetchone()
+    evidence = []
+    for mutation in ("prepared_success_effect", "wrong_success_result"):
+        try:
+            with sqlite3.connect(database) as connection:
+                if mutation == "prepared_success_effect":
+                    connection.execute(
+                        "UPDATE platform_effects SET state='prepared' WHERE operation_id=?",
+                        (owner.operation_id,),
+                    )
+                else:
+                    receipt = json.loads(saved[1])
+                    receipt["result_ref"] = "different-input-id"
+                    connection.execute(
+                        "UPDATE platform_operations SET result_ref=?,outcome_json=? WHERE operation_id=?",
+                        ("different-input-id", json.dumps(receipt), owner.operation_id),
+                    )
+            before = authority_snapshot(rig)
+            codes = [
+                refused(
+                    lambda: rig.inputs.capture_inputs(
+                        owner, value.workspace_id, "p0-accepted-v1", ("sales",), 1000000
+                    ),
+                    "capture_recovery_required",
+                ),
+                refused(
+                    lambda: rig.inputs.inspect_capture(owner, value.input_set_id),
+                    "capture_recovery_required",
+                ),
+                refused(
+                    lambda: rig.inputs.release_capture(owner, value.input_set_id),
+                    "capture_recovery_required",
+                ),
+            ]
+            after = authority_snapshot(rig)
+            assert after == before
+            evidence.append(
+                {"mutation": mutation, "codes": codes, "before": before, "after": after}
+            )
+        finally:
+            with sqlite3.connect(database) as connection:
+                connection.execute(
+                    "UPDATE platform_effects SET state='applied' WHERE operation_id=?",
+                    (owner.operation_id,),
+                )
+                connection.execute(
+                    "UPDATE platform_operations SET result_ref=?,outcome_json=? WHERE operation_id=?",
+                    (*saved, owner.operation_id),
+                )
+    assert rig.inputs.inspect_capture(owner, value.input_set_id) == value
+    return evidence
+
+
+def prepared_ready_recovery(rig):
+    """Keep a real completed native copy active/prepared, then finalize exactly once without recopy."""
+    workspace = target(rig)
+    owner = context(rig, workspace)
+    original = rig.store.record_effect
+
+    def before_applied(caller, operation, effect):
+        if effect.name == "inputs.capture" and effect.state == "applied":
+            raise InterruptedError()
+        return original(caller, operation, effect)
+
+    rig.store.record_effect = before_applied
+    try:
+        refused(lambda: rig.capture(context=owner, target=workspace), "capture_recovery_required")
+    finally:
+        rig.store.record_effect = original
+    identity = capture_id(rig, owner)
+    before = {"json": record(rig, identity)[1], "sql": journal(rig, owner)}
+    assert before["json"]["phase"] == "ready" and before["sql"]["operation"][0][0] == "prepared"
+    assert before["sql"]["effect"] == [("prepared", identity)]
+    refused(lambda: rig.inputs.inspect_capture(owner, identity), "capture_recovery_required")
+    native = rig.native.metadata(rig.native.current(workspace.workspace_id))
+    _, value = rig.capture(context=owner, target=workspace)
+    assert value.input_set_id == identity and value.state == "ready"
+    assert rig.native.metadata(rig.native.current(workspace.workspace_id)) == native
+    return {
+        "before": before,
+        "after": {"json": record(rig, identity)[1], "sql": journal(rig, owner)},
+        "native_unchanged": True,
+    }
