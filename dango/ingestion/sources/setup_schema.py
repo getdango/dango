@@ -55,6 +55,7 @@ REPLACE_MODE_SOURCE_TYPES = frozenset(
 )
 
 _DAYS_AGO = re.compile(r"\d+daysAgo")
+_DRIVE_PREFIX = re.compile(r"[A-Za-z]:")
 _BOOL_STRINGS = {"true": True, "yes": True, "1": True, "false": False, "no": False, "0": False}
 
 
@@ -344,6 +345,22 @@ def _coerce(param: dict[str, Any], value: Any) -> Any:
     return value
 
 
+def file_pattern_error(pattern: str) -> str | None:
+    """Why a file source's ``file_pattern`` may not be set by the wizard or an agent, or None.
+
+    The pattern is matched inside the source directory: it must be relative (not absolute,
+    drive-qualified like ``C:`` or UNC) and have no ``..`` component, with ``/`` or ``\\`` as
+    separators. Sub-folder patterns such as ``2026-*/*.csv`` stay allowed.
+    """
+    parts = pattern.replace("\\", "/").split("/")
+    if pattern.startswith(("/", "\\")) or _DRIVE_PREFIX.match(pattern) or ".." in parts:
+        return (
+            f"Parameter 'file_pattern' must be a pattern relative to the source directory: "
+            f"no absolute, drive or network paths and no '..' components (got '{pattern}')"
+        )
+    return None
+
+
 def normalize_params(
     source_type: str,
     source_name: str,
@@ -417,6 +434,11 @@ def normalize_params(
             if name in required_names:
                 errors.append(f"Missing required parameter '{name}'")
             continue
+        if name == "file_pattern" and isinstance(value, str):
+            pattern_error = file_pattern_error(value)
+            if pattern_error:
+                errors.append(pattern_error)
+                continue
         if check_hosts and name == HOST_BEARING_PARAMS.get(source_type):
             host_error = validate_host_param(source_type, value, require_https=require_https)
             if host_error:

@@ -42,7 +42,7 @@ from dango.platform.cloud.backup_fd_copy import (
 from dango.platform.cloud.compose_helper import COMPOSE_DIR, HELPER_PATH, SRV_DIR
 from dango.platform.compose_exec import EXIT_BUSY, uses_helper
 from dango.platform.docker import get_compose_project_name
-from dango.utils.env_file import parse_env_file
+from dango.utils.env_file import parse_env_simple
 
 _logger = get_logger(__name__)
 
@@ -446,7 +446,7 @@ def read_env_values(
     regular file of at most *max_bytes* is read, and the open never blocks (a
     FIFO is refused). Any refusal returns ``{}``.
 
-    Standard library only, apart from :func:`parse_env_file`: ``migrate`` embeds
+    Standard library only, apart from :func:`parse_env_simple`: ``migrate`` embeds
     the source of both functions in a script that may run on a server with an
     older Dango version.
     """
@@ -471,7 +471,7 @@ def read_env_values(
         os.close(fd)
     if size > max_bytes:
         return {}
-    values = parse_env_file(b"".join(chunks).decode("utf-8", errors="replace"))
+    values = parse_env_simple(b"".join(chunks).decode("utf-8", errors="replace"))
     return {name: values[name] for name in names if values.get(name)}
 
 

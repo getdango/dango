@@ -21,7 +21,18 @@ from __future__ import annotations
 
 import io
 import os
+import re
 from pathlib import Path
+
+# Values python-dotenv reads back unchanged without quotes (no space, quote, backslash, ``$``, ``#``).
+_BARE_VALUE = re.compile(r"[A-Za-z0-9_./:@+,-]+")
+
+
+def _resolve_quote_mode(value: str, quote_mode: str) -> str:
+    """``"auto"`` becomes ``"never"`` for a value that is safe bare, else ``"always"``."""
+    if quote_mode == "auto":
+        return "never" if _BARE_VALUE.fullmatch(value) else "always"
+    return quote_mode
 
 
 def describe_env_read_error(
@@ -144,11 +155,15 @@ def env_has(project_root: Path, name: str) -> bool:
     return bool(os.environ.get(name)) or bool(read_env(project_root).get(name))
 
 
-def parse_env_text(text: str) -> dict[str, str | None]:
-    """Parse ``.env`` text that the caller already decoded (same rules as :func:`read_env`)."""
+def parse_env_text(text: str, *, interpolate: bool = True) -> dict[str, str | None]:
+    """Parse ``.env`` text that the caller already decoded (same rules as :func:`read_env`).
+
+    ``interpolate=False`` returns ``${NAME}`` references as written instead of expanding them
+    from this machine's environment (for text that belongs to another machine).
+    """
     from dotenv import dotenv_values
 
-    return dict(dotenv_values(stream=io.StringIO(text)))
+    return dict(dotenv_values(stream=io.StringIO(text), interpolate=interpolate))
 
 
 def read_env_text(env_file: Path) -> str:
@@ -171,8 +186,11 @@ def read_env_text(env_file: Path) -> str:
     return text
 
 
-def set_env_value(env_file: Path, key: str, value: str) -> None:
+def set_env_value(env_file: Path, key: str, value: str, *, quote_mode: str = "always") -> None:
     """Add or replace ``key`` in an ``.env`` file, exactly as ``dotenv.set_key`` does.
+
+    ``quote_mode``: ``"always"`` (default) single-quotes every value; ``"auto"`` leaves a value of
+    letters, digits and ``_ . / : @ + , -`` bare and single-quotes anything else. Every other line, comment and blank line is kept as it was.
 
     The file is created when it does not exist. An existing file is read first, so one that
     cannot be read is reported and never rewritten. python-dotenv then writes a temporary copy
@@ -186,7 +204,13 @@ def set_env_value(env_file: Path, key: str, value: str) -> None:
 
     read_env_text(env_file)
     try:
-        set_key(str(env_file), key, value, encoding="utf-8")
+        set_key(
+            str(env_file),
+            key,
+            value,
+            quote_mode=_resolve_quote_mode(value, quote_mode),
+            encoding="utf-8",
+        )
     except (UnicodeDecodeError, ValueError) as exc:
         raise EnvFileError(env_file, exc) from exc
     except OSError as exc:
@@ -214,3 +238,49 @@ def unset_env_value(env_file: Path, key: str) -> bool:
     except OSError as exc:
         raise EnvFileError(env_file, exc, action="write") from exc
     return bool(removed)
+
+
+def _quoted(value: str, quote_mode: str) -> str:
+    """The right-hand side ``dotenv.set_key`` writes: single-quoted, backslash and quote escaped."""
+    if _resolve_quote_mode(value, quote_mode) == "never":
+        return value
+    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
+
+
+def set_env_text(text: str, key: str, value: str, *, quote_mode: str = "always") -> str:
+    """``text`` with ``key`` added or replaced, as :func:`set_env_value` does to a file.
+
+    For ``.env`` text that lives elsewhere (read and written over SSH): the new line is rendered
+    with the quoting ``dotenv.set_key`` uses, every other line, comment and blank line is returned
+    byte-for-byte, and nothing touches the disk.
+    """
+    from dotenv.parser import parse_stream
+
+    if quote_mode not in ("always", "auto", "never"):
+        raise ValueError(f"Unknown quote_mode: {quote_mode}")
+    line = f"{key}={_quoted(value, quote_mode)}\n"
+    out: list[str] = []
+    replaced = False
+    missing_newline = False
+    for binding in parse_stream(io.StringIO(text)):
+        if binding.key == key:
+            out.append(line)
+            replaced = True
+        else:
+            out.append(binding.original.string)
+            missing_newline = not binding.original.string.endswith("\n")
+    if not replaced:
+        if missing_newline:
+            out.append("\n")
+        out.append(line)
+    return "".join(out)
+
+
+def unset_env_text(text: str, key: str) -> str:
+    """``text`` without ``key`` (every other line byte-for-byte); unchanged when it is absent."""
+    from dotenv.parser import parse_stream
+
+    return "".join(
+        binding.original.string for binding in parse_stream(io.StringIO(text)) if binding.key != key
+    )

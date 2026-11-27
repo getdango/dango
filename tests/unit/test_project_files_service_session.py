@@ -300,7 +300,8 @@ class TestRemoteEnvCommandsInBothSessions:
         assert _invoke("set", "FOO=bar").exit_code == 0
         assert victim.read_text() == "keep"
         assert not env_path.is_symlink()
-        assert env_path.read_text() == "FOO=bar\n"
+        # The unparseable line from the old target is kept as it was; only FOO is added.
+        assert env_path.read_text() == "keep\nFOO=bar\n"
 
     def test_absent_file_lists_empty(self, session):
         assert "No environment variables" in _invoke("list").output

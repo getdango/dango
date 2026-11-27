@@ -11,6 +11,7 @@ from rich.console import Console
 
 from dango.error_format import format_structured_error
 from dango.exceptions import ConfigError
+from dango.utils.private_files import write_private_text
 
 console = Console()
 
@@ -129,10 +130,7 @@ class CredentialManager:
 # access_token = "your-long-lived-token"
 # account_id = "act_123456789"
 """
-            # Note: write_text without prior chmod — low risk since file is
-            # user-owned and gitignored, but see cloud/ssh.py os.open() pattern
-            # for sensitive files that need restricted permissions at creation.
-            self.secrets_file.write_text(secrets_template, encoding="utf-8", newline="\n")
+            write_private_text(self.secrets_file, secrets_template)
             console.print(f"[dim]Created {self.secrets_file.relative_to(self.project_root)}[/dim]")
 
         # Create config.toml if it doesn't exist
