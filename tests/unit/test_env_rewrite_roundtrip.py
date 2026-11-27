@@ -272,3 +272,12 @@ def test_a_secrets_save_tightens_a_loose_env_file_and_never_leaves_temp_files(
     expected = 0o600 if os.name == "posix" else stat.S_IMODE(os.stat(env).st_mode)
     assert stat.S_IMODE(os.stat(env).st_mode) == expected
     assert sorted(p.name for p in tmp_path.iterdir()) == [".env"]
+
+
+@pytest.mark.parametrize("name", [n for n in sorted(VALUES) if VALUES[n] == VALUES[n].strip()])
+def test_remote_env_set_writes_a_special_value_the_runtime_reads_back(name: str) -> None:
+    written = _run_remote(_ssh(HEAD), "set", f"{name}={VALUES[name]}")
+    assert written.startswith(HEAD)
+    assert parse_env_text(written)[name] == VALUES[name]
+    again = _run_remote(_ssh(written), "set", "OTHER=x1")
+    assert parse_env_text(again)[name] == VALUES[name]
