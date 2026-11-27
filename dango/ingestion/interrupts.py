@@ -20,11 +20,13 @@ from contextlib import contextmanager
 import duckdb
 from dlt.pipeline.exceptions import PipelineStepFailed
 
+from dango.exceptions import SyncTimeoutError
+
 _MAX_DEPTH = 6
 
 
-def wraps_interrupt(error: BaseException) -> bool:
-    """True when *error* is, or was raised because of, a ``KeyboardInterrupt``."""
+def _error_chain(error: BaseException) -> Iterator[BaseException]:
+    """*error* and everything it wraps (dlt's ``exception``, ``__cause__``, ``__context__``)."""
     stack: list[tuple[BaseException, int]] = [(error, 0)]
     seen: set[int] = set()
     while stack:
@@ -32,13 +34,24 @@ def wraps_interrupt(error: BaseException) -> bool:
         if id(current) in seen or depth > _MAX_DEPTH:
             continue
         seen.add(id(current))
-        if isinstance(current, KeyboardInterrupt):
-            return True
+        yield current
         inner = getattr(current, "exception", None)
         for candidate in (inner, current.__cause__, current.__context__):
             if isinstance(candidate, BaseException):
                 stack.append((candidate, depth + 1))
-    return False
+
+
+def wraps_interrupt(error: BaseException) -> bool:
+    """True when *error* is, or was raised because of, a ``KeyboardInterrupt``."""
+    return any(isinstance(current, KeyboardInterrupt) for current in _error_chain(error))
+
+
+def find_sync_timeout(error: BaseException) -> SyncTimeoutError | None:
+    """The ``SyncTimeoutError`` that *error* is, or was raised because of (dlt wraps it), else None."""
+    for current in _error_chain(error):
+        if isinstance(current, SyncTimeoutError):
+            return current
+    return None
 
 
 @contextmanager

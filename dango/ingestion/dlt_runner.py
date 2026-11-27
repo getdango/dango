@@ -43,7 +43,11 @@ from dango.ingestion.file_refresh import (
     finish_aborted_refresh,
     restore_refresh_backup,
 )
-from dango.ingestion.interrupts import interrupts_stay_interrupts, sigterm_as_interrupt
+from dango.ingestion.interrupts import (
+    find_sync_timeout,
+    interrupts_stay_interrupts,
+    sigterm_as_interrupt,
+)
 from dango.ingestion.sources.registry import get_source_metadata
 from dango.ingestion.status_codes import has_status_code
 from dango.utils.dlt_error_text import rewrite_dlt_advice
@@ -267,6 +271,47 @@ def _dlt_pipelines_dir() -> Path:
     from dlt.common.pipeline import get_dlt_pipelines_dir
 
     return Path(get_dlt_pipelines_dir())
+
+
+def _pending_package_ids(pipeline: Any) -> frozenset[str] | None:
+    """Ids of the packages the pipeline has extracted or normalized but not loaded.
+
+    None when dlt cannot say (the caller then keeps its older behaviour).
+    """
+    try:
+        return frozenset(pipeline.list_extracted_load_packages()) | frozenset(
+            pipeline.list_normalized_load_packages()
+        )
+    except Exception:
+        return None
+
+
+def _drop_packages_of_this_run(pipeline: Any, packages_before: frozenset[str] | None) -> None:
+    """Drop the packages this run created; an older kept package (and the state matching it) stays.
+
+    ``drop_pending_packages()`` would also delete a package an earlier failed load left behind, whose
+    rows the kept pipeline state already counts as extracted: they would never load. Without an older
+    package, or when dlt's storages cannot be reached, it is used as before.
+    """
+    if not packages_before:
+        pipeline.drop_pending_packages()
+        return
+    try:
+        load_storage = pipeline._get_load_storage()
+        normalize_storage = pipeline._get_normalize_storage()
+        normalized = load_storage.normalized_packages if load_storage.is_storage_ready() else None
+        extracted = (
+            normalize_storage.extracted_packages if normalize_storage.is_storage_ready() else None
+        )
+    except AttributeError:
+        pipeline.drop_pending_packages()
+        return
+    new_ids = (_pending_package_ids(pipeline) or frozenset()) - packages_before
+    for load_id in new_ids:
+        if normalized is not None and load_id in normalized.list_packages():
+            normalized.delete_package(load_id)
+        if extracted is not None and load_id in extracted.list_packages():
+            extracted.delete_package(load_id)
 
 
 def _checked_pipeline_dir(pipeline_name: str) -> Path:
@@ -571,6 +616,7 @@ class DltPipelineRunner:
         source_name = source_config.name
         source_type = source_config.type
         start_time = datetime.now(tz=timezone.utc)
+        self._state_outcome: str | None = None
 
         console.print(f"\n{'=' * 60}")
         console.print(f"🍡 Syncing: [bold]{source_name}[/bold] ({source_type.value})")
@@ -759,9 +805,7 @@ class DltPipelineRunner:
                 except SyncTimeoutError as e:
                     error_message = str(e)
                     console.print(f"[red]❌ {self._rich_err(e)}[/red]")
-                    console.print(
-                        "[yellow]ℹ️  Pipeline state has been restored to prevent corruption[/yellow]"
-                    )
+                    console.print(f"[yellow]ℹ️  {self._state_outcome_text()}[/yellow]")
 
                     # Return failure result
                     duration = (datetime.now(tz=timezone.utc) - start_time).total_seconds()
@@ -805,9 +849,7 @@ class DltPipelineRunner:
                 except SyncTimeoutError as e:
                     error_message = str(e)
                     console.print(f"[red]❌ {self._rich_err(e)}[/red]")
-                    console.print(
-                        "[yellow]ℹ️  Pipeline state has been restored to prevent corruption[/yellow]"
-                    )
+                    console.print(f"[yellow]ℹ️  {self._state_outcome_text()}[/yellow]")
 
                     # Return failure result
                     duration = (datetime.now(tz=timezone.utc) - start_time).total_seconds()
@@ -1334,8 +1376,15 @@ class DltPipelineRunner:
 
                 # Call source function with provided kwargs
                 # dlt resolves dlt.secrets.value parameters at this point
+                # Names only: the values may be API keys or tokens and must not reach the
+                # terminal or the sync logs.
+                argument_names = ", ".join(str(name) for name in config.function_kwargs)
+                arguments_text = (
+                    f"arguments: {argument_names}" if argument_names else "no arguments"
+                )
                 console.print(
-                    f"  [dim]Calling {config.source_function}(**{config.function_kwargs})[/dim]"
+                    f"  [dim]Calling {escape(config.source_function)} with "
+                    f"{escape(arguments_text)}[/dim]"
                 )
                 source = source_function(**config.function_kwargs)
 
@@ -1427,6 +1476,9 @@ class DltPipelineRunner:
                     dataset_name=dataset_name,
                 )
 
+        # Packages already waiting (an earlier failed run's) before this run extracts anything.
+        packages_before = _pending_package_ids(pipeline)
+
         try:
             # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
             self._run_extract_with_retry(pipeline, source, max_retries=3)
@@ -1463,7 +1515,7 @@ class DltPipelineRunner:
                     ):
                         would_truncate.append((table_name, pre_count))
                 if would_truncate:
-                    pipeline.drop_pending_packages()
+                    _drop_packages_of_this_run(pipeline, packages_before)
                     self._restore_dlt_state(state_backup)
                     error_msg = redacted_error_text(
                         self.project_root, truncate_message(source_name, would_truncate)
@@ -1590,10 +1642,15 @@ class DltPipelineRunner:
             }
 
         except Exception:
-            # Restore state on failure
-            if state_backup:
+            # A package this run extracted is still waiting: keep the state that matches it.
+            # Otherwise restore the state as it was before the run.
+            if (
+                not self._keep_state_for_new_package(pipeline, state_backup, packages_before)
+                and state_backup
+            ):
                 console.print("  ⚠️  Restoring pipeline state (failed load)")
                 self._restore_dlt_state(state_backup)
+                self._state_outcome = "restored"
             raise
 
     def _detect_write_disposition(self, source: Any) -> bool:
@@ -1911,6 +1968,9 @@ class DltPipelineRunner:
                     dataset_name=dataset_name,
                 )
 
+        # Packages already waiting (an earlier failed run's) before this run extracts anything.
+        packages_before = _pending_package_ids(pipeline)
+
         try:
             # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
             self._run_extract_with_retry(pipeline, source, max_retries=3)
@@ -1947,7 +2007,7 @@ class DltPipelineRunner:
                     ):
                         would_truncate.append((table_name, pre_count))
                 if would_truncate:
-                    pipeline.drop_pending_packages()
+                    _drop_packages_of_this_run(pipeline, packages_before)
                     self._restore_dlt_state(state_backup)
                     error_msg = redacted_error_text(
                         self.project_root, truncate_message(source_name, would_truncate)
@@ -2188,8 +2248,10 @@ class DltPipelineRunner:
                     except Exception:
                         console.print("  ❌ Partial sync also failed")
 
-            console.print("  🔄 Restoring previous state...")
-            self._restore_dlt_state(state_backup)
+            if not self._keep_state_for_new_package(pipeline, state_backup, packages_before):
+                console.print("  🔄 Restoring previous state...")
+                self._restore_dlt_state(state_backup)
+                self._state_outcome = "restored"
             raise
 
     # Sources with complex credential objects that need restructuring.
@@ -3117,6 +3179,10 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 return
 
             except Exception as e:
+                timeout = find_sync_timeout(e)
+                if timeout is not None:
+                    # The timeout alarm fires once: a retry would run with no time limit.
+                    raise timeout from None
                 last_exception = e
                 console.print(f"  ⚠️  Attempt {attempt} failed: {self._rich_err(e)}")
 
@@ -3617,6 +3683,38 @@ Need help? Visit: https://github.com/getdango/dango/issues
                     "close anything using that directory and run it again."
                 ) from e
             console.print(f"  ⚠️  Could not clear local pipeline cache: {self._rich_err(e)}")
+
+    def _state_outcome_text(self) -> str:
+        """What the last failed run did with the pipeline state (for the timeout message)."""
+        outcome = getattr(self, "_state_outcome", None)
+        if outcome == "kept":
+            return "Pipeline state was kept with the extracted data, which the next run loads"
+        if outcome == "restored":
+            return "Pipeline state has been restored to prevent corruption"
+        return "Pipeline state was not changed"
+
+    def _keep_state_for_new_package(
+        self, pipeline: Any, backup_dir: Path | None, packages_before: frozenset[str] | None
+    ) -> bool:
+        """After a failed run: keep the pipeline state when this run left a package behind.
+
+        dlt advances the state (an incremental cursor) while it extracts and stores the same state in
+        the package. The package is kept for the next run to load, so the matching state must be kept
+        too: restoring the old state would make the next run extract the same rows again on top of
+        the package. The backup is not needed then and is removed. Returns False, with nothing
+        changed, when this run left no package (the failure came before extraction finished), or
+        when dlt cannot tell: the caller then restores the backup as before.
+        """
+        after = _pending_package_ids(pipeline)
+        if packages_before is None or after is None or not (after - packages_before):
+            return False
+        console.print(
+            "  [dim]Keeping pipeline state: it matches the extracted data, which is kept "
+            "for the next run[/dim]"
+        )
+        self._cleanup_state_backup(backup_dir)
+        self._state_outcome = "kept"
+        return True
 
     def _restore_dlt_state(self, backup_dir: Path | None):
         """
