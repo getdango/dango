@@ -25,6 +25,7 @@ from dango.utils.inferred_tests import (
     inferred_not_null_test,
 )
 from dango.utils.inferred_tests import has_not_null_test as _has_not_null_test
+from dango.utils.refresh_backup import is_refresh_backup_table
 
 
 def _quote_column_name(name: str) -> str:
@@ -305,6 +306,8 @@ class DbtModelGenerator:
                     continue
                 if table_name in skip_exact:
                     continue
+                if is_refresh_backup_table(table_name):
+                    continue  # a full refresh's safety copy, never a source table
                 tables.append(table_name)
 
             return tables
