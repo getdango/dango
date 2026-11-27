@@ -3341,8 +3341,8 @@ Need help? Visit: https://github.com/getdango/dango/issues
           `norm_info.row_counts` at all, and dlt never creates a table for it in the
           staging schema -- a swap loop keyed only on the staged tables would silently
           leave that table's stale destination data untouched. The swap below unions in
-          `pre_table_counts` so a table that goes fully empty this run is purged, not
-          skipped (this scenario is normally caught first by the empty-replace check
+          `pre_table_counts` so a table that goes fully empty this run is emptied (rows
+          deleted, table kept so dlt's schema for it stays true), not skipped (this scenario is normally caught first by the empty-replace check
           below unless the caller passed `allow_empty_replace=True`).
         - A crashed or interrupted prior staging attempt that never reached its own
           cleanup leaves both a stale staging schema AND a stale local dlt pipeline
@@ -3523,7 +3523,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
             # multi-resource source: changed rows update, new rows insert, and rows
             # absent from the new extraction are correctly purged. Tables present in
             # pre_table_counts but absent from staged_counts (a resource that yielded
-            # zero rows this run -- see docstring) are dropped outright, not skipped.
+            # zero rows this run -- see docstring) are emptied, not skipped and not dropped.
             #
             # Explicit transaction around the whole loop: DuckDB's connection
             # auto-commits each statement individually, so a multi-table source with
@@ -3548,12 +3548,17 @@ Need help? Visit: https://github.com/getdango/dango/issues
                     db.execute(f'CREATE SCHEMA IF NOT EXISTS "{dataset_name}"')
                     all_table_names = set(staged_counts) | set(scoped_counts or {})
                     for table_name in all_table_names:
-                        db.execute(f'DROP TABLE IF EXISTS "{dataset_name}"."{table_name}"')
                         if table_name in staged_counts:
+                            db.execute(f'DROP TABLE IF EXISTS "{dataset_name}"."{table_name}"')
                             db.execute(
                                 f'CREATE TABLE "{dataset_name}"."{table_name}" AS '
                                 f'SELECT * FROM "{staging_dataset_name}"."{table_name}"'
                             )
+                        else:
+                            # No rows this run: empty it, keep it. dlt's schema for the real
+                            # pipeline still lists the table, and the next plain sync would
+                            # fail on a missing one.
+                            db.execute(f'DELETE FROM "{dataset_name}"."{table_name}"')
                     db.execute("COMMIT")
                 except Exception:
                     db.execute("ROLLBACK")

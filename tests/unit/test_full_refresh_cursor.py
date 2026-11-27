@@ -312,6 +312,22 @@ class TestFailureKeepsTableAndCursorTogether:
 
 
 @pytest.mark.parametrize("method", METHODS)
+def test_an_unreadable_staged_state_stops_the_refresh_before_the_swap(
+    tmp_path: Any, method: str
+) -> None:
+    runner = DltPipelineRunner(tmp_path)
+    assert run(runner, method, source(events(5)))["status"] == "success"
+    with patch.object(dlt_runner, "staged_source_state", side_effect=OSError("state unreadable")):
+        failed = run(runner, method, source(events(8)), full_refresh=True)
+    assert failed["status"] == "failed"
+    assert ev(runner) == upto(5)
+    assert cursors() == {"events": 5}
+
+    assert run(runner, method, source(events(8)))["status"] == "success"
+    assert ev(runner) == upto(8)
+
+
+@pytest.mark.parametrize("method", METHODS)
 class TestStateWriteFailsAfterTheSwap:
     """The swap is committed and cannot be undone: the data stays refreshed, the cursor stays where
     it was (the next plain sync may load the rows between the two again, it never loses rows), the
