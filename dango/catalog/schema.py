@@ -10,6 +10,8 @@ from typing import Any
 
 import duckdb
 
+from dango.utils.refresh_backup import is_refresh_backup_table
+
 
 def _get_column_schema(
     db_path: Path,
@@ -162,4 +164,8 @@ def _get_raw_tables_from_duckdb(db_path: Path) -> list[dict[str, str]]:
         ).fetchall()
     finally:
         conn.close()
-    return [{"schema": r[0], "table": r[1], "source_name": r[0][4:]} for r in rows]
+    return [
+        {"schema": r[0], "table": r[1], "source_name": r[0][4:]}
+        for r in rows
+        if not is_refresh_backup_table(r[1])  # a full refresh's safety copy, not a source table
+    ]

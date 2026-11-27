@@ -242,6 +242,31 @@ def test_failed_restore_never_masks_the_original_error(
     assert f"{SCHEMA}.{BACKUP}" in _tables(runner)  # the previous data is still kept
 
 
+class _InterruptedConn:
+    """A connection whose every query is cut short by an interrupt."""
+
+    def __init__(self, shape: str) -> None:
+        self.shape = shape
+
+    def execute(self, *args, **kwargs):
+        raise _interrupt_shape(self.shape)
+
+
+@pytest.mark.parametrize("shape", ["duckdb", "wrapped"])
+@pytest.mark.parametrize("method", ["has_rows", "file_columns", "delete_file"])
+def test_other_per_file_queries_do_not_swallow_an_interrupt(method, shape, tmp_path):
+    loader = CSVLoader(tmp_path, tmp_path / "w.duckdb")
+    conn = _InterruptedConn(shape)
+    call = {
+        "has_rows": lambda: loader._has_rows(conn, "a.csv"),
+        "file_columns": lambda: loader._get_file_columns(conn, "a.csv"),
+        "delete_file": lambda: loader._delete_file_data(conn, "/x/a.csv", "t", NAME),
+    }[method]
+
+    with pytest.raises(KeyboardInterrupt):
+        call()
+
+
 # Controls: green before and after the change.
 
 

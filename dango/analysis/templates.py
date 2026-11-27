@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 from dango.analysis.models import ComparisonType, MonitorConfig
+from dango.utils.refresh_backup import is_refresh_backup_table
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -183,6 +184,8 @@ def _generic_metrics(name: str, project_root: Path | None) -> list[MonitorConfig
                 "ORDER BY table_name",
                 [schema],
             ).fetchall()
+            # A full refresh's safety copy is never a source table
+            tables = [row for row in tables if not is_refresh_backup_table(row[0])]
             if not tables:
                 return []
 

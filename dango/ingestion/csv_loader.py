@@ -17,6 +17,11 @@ from rich.console import Console
 
 from dango.config.models import CSVSourceConfig
 from dango.exceptions import CSVSchemaMismatchError
+from dango.ingestion.interrupts import (
+    is_interrupt,
+    reraise_current_if_interrupt,
+    reraise_if_interrupt,
+)
 from dango.utils.error_text import rich_error_text
 from dango.validation import quote_identifier
 
@@ -366,6 +371,10 @@ class CSVLoader:
                 "error": str(e),
                 **stats,
             }
+        except BaseException:
+            # An interrupt or unexpected failure: release the warehouse file before it propagates
+            conn.close()
+            raise
 
     def _has_rows(self, conn: duckdb.DuckDBPyConnection, filepath: str) -> bool:
         """True if the file reads cleanly and has at least one row."""
@@ -374,6 +383,7 @@ class CSVLoader:
             quoted = self._sql_quote(filepath)
             return bool(conn.execute(f"SELECT COUNT(*) FROM {read_fn}('{quoted}')").fetchone()[0])
         except Exception:
+            reraise_current_if_interrupt()
             return False
 
     @staticmethod
@@ -576,6 +586,7 @@ class CSVLoader:
             conn.execute(f"DROP VIEW {temp_view}")
             return columns
         except Exception as e:
+            reraise_if_interrupt(e)
             # Clean up view if it exists
             try:
                 conn.execute(f"DROP VIEW IF EXISTS {temp_view}")
@@ -637,7 +648,8 @@ class CSVLoader:
             rows = conn.execute(f"DESCRIBE {temp_view}").fetchall()
             conn.execute(f"DROP VIEW {temp_view}")
             return {row[0]: row[1] for row in rows}
-        except Exception:
+        except Exception as exc:
+            reraise_if_interrupt(exc)
             try:
                 conn.execute(f"DROP VIEW IF EXISTS {temp_view}")
             except Exception:  # noqa: BLE001
@@ -790,6 +802,7 @@ class CSVLoader:
                     # entirely (skip_schema_check=allow_schema_changes) on this path.
                     self._check_column_types(conn, filepath, target_table, source_name)
             except Exception as e:
+                reraise_if_interrupt(e)
                 # If we can't read the file schema, treat as mismatch
                 mismatched_files.append({"filename": filename, "error": str(e)})
 
@@ -933,7 +946,8 @@ class CSVLoader:
                     f"TRY_CAST({col_ident} AS {table_types[col]}) IS NULL "
                     f"LIMIT 1"
                 ).fetchone()
-            except duckdb.Error:
+            except duckdb.Error as scan_error:
+                reraise_if_interrupt(scan_error)
                 # DuckDB's read_csv_auto infers a column's type from a sample of
                 # rows (default ~20,480). A value beyond that sample that doesn't
                 # fit the inferred type makes the scan itself raise a raw
@@ -1054,25 +1068,36 @@ class CSVLoader:
         filepath_escaped = self._sql_quote(filepath)
         read_fn = self._get_read_function(filepath)
 
-        # Load to temp table with metadata columns
-        conn.execute(f"""
-            CREATE TABLE {temp_table} AS
-            SELECT
-                *,
-                '{filename_escaped}' AS _dango_filename,
-                TIMESTAMP '{metadata["mtime"].strftime("%Y-%m-%d %H:%M:%S")}' AS _dango_file_mtime,
-                CURRENT_TIMESTAMP AS _dango_loaded_at,
-                false AS _dango_deleted
-            FROM {read_fn}('{filepath_escaped}')
-        """)
+        try:
+            # Load to temp table with metadata columns
+            conn.execute(f"""
+                CREATE TABLE {temp_table} AS
+                SELECT
+                    *,
+                    '{filename_escaped}' AS _dango_filename,
+                    TIMESTAMP '{metadata["mtime"].strftime("%Y-%m-%d %H:%M:%S")}' AS _dango_file_mtime,
+                    CURRENT_TIMESTAMP AS _dango_loaded_at,
+                    false AS _dango_deleted
+                FROM {read_fn}('{filepath_escaped}')
+            """)
 
-        # Create target table from temp (empty)
-        conn.execute(f"""
-            CREATE TABLE {target_table} AS
-            SELECT * FROM {temp_table} WHERE 1=0
-        """)
+            # Create target table from temp (empty)
+            conn.execute(f"""
+                CREATE TABLE {target_table} AS
+                SELECT * FROM {temp_table} WHERE 1=0
+            """)
 
-        conn.execute(f"DROP TABLE {temp_table}")
+            conn.execute(f"DROP TABLE {temp_table}")
+        except BaseException:
+            # A failed or interrupted read must not leave the temp copy of the file behind
+            try:
+                conn.execute(f"DROP TABLE IF EXISTS {temp_table}")
+            except Exception as cleanup_error:
+                console.print(
+                    f"    ⚠️  Failed to cleanup temp table {temp_table}: "
+                    f"{rich_error_text(self.project_root, cleanup_error)}"
+                )
+            raise
 
     def _load_new_file(
         self,
@@ -1142,10 +1167,13 @@ class CSVLoader:
         except CSVSchemaMismatchError:
             # Schema mismatch - re-raise to fail-fast (don't suppress)
             raise
-        except Exception as e:
-            console.print(
-                f"    ❌ Failed to load {filename}: {rich_error_text(self.project_root, e)}"
-            )
+        except (Exception, KeyboardInterrupt) as e:
+            # An interrupt is not a failed file: drop the temp table quietly, then stop the sync
+            interrupted = isinstance(e, KeyboardInterrupt) or is_interrupt(e)
+            if not interrupted:
+                console.print(
+                    f"    ❌ Failed to load {filename}: {rich_error_text(self.project_root, e)}"
+                )
             # Attempt cleanup of temp table
             try:
                 conn.execute(f"DROP TABLE IF EXISTS {temp_table}")
@@ -1154,6 +1182,8 @@ class CSVLoader:
                 console.print(
                     f"    ⚠️  Failed to cleanup temp table {temp_table}: {rich_error_text(self.project_root, cleanup_error)}"
                 )
+            if interrupted:
+                raise KeyboardInterrupt from e
             return False
 
     def _reload_updated_file(
@@ -1229,9 +1259,9 @@ class CSVLoader:
                 console.print(f"    🔄 {filename}: {row_count:,} rows (reloaded)")
                 return True
 
-            except Exception as e:
+            except BaseException:
                 conn.execute("ROLLBACK")
-                raise e
+                raise
 
             finally:
                 conn.execute(f"DROP TABLE IF EXISTS {temp_table}")
@@ -1240,6 +1270,7 @@ class CSVLoader:
             # Schema mismatch - re-raise to fail-fast (don't suppress)
             raise
         except Exception as e:
+            reraise_if_interrupt(e)
             console.print(
                 f"    ❌ Failed to reload {filename}: {rich_error_text(self.project_root, e)}"
             )
@@ -1271,6 +1302,7 @@ class CSVLoader:
             return True
 
         except Exception as e:
+            reraise_if_interrupt(e)
             console.print(
                 f"    ❌ Failed to delete {filename}: {rich_error_text(self.project_root, e)}"
             )
