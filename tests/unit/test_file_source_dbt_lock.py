@@ -312,6 +312,24 @@ def test_lock_is_released_after_success_failure_and_interrupt(
     assert _lock_is_free(tmp_path)
 
 
+@pytest.mark.parametrize("full_refresh", [False, True])
+def test_lock_is_released_when_an_interrupt_escapes_the_sync(
+    kind, full_refresh, tmp_path, uploads, runner, monkeypatch
+):
+    """An interrupt before the refresh window opens is not turned into a result: it propagates."""
+    src = _seed(kind, tmp_path, uploads, runner)
+
+    def interrupted(self, source_name):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(DltPipelineRunner, "_get_csv_table_rows", interrupted)
+
+    with pytest.raises(KeyboardInterrupt):
+        _sync(runner, src, full_refresh=full_refresh)
+
+    assert _lock_is_free(tmp_path)
+
+
 # --- callers: none of them holds the lock, so none can double-acquire -------------------------
 
 

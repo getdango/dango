@@ -1,7 +1,7 @@
 """dango/ingestion/file_refresh.py
 
-The full-refresh window of a csv / local_files sync: back the table and file metadata up, and put
-them back when the refresh does not finish.
+The write window of a csv / local_files sync: the dbt lock it holds, and for a full refresh the
+backup of the table and file metadata that is put back when the refresh does not finish.
 
 ``dlt_runner`` runs one window per ``--full-refresh``. The live table is renamed to
 ``<name>_pre_refresh_backup`` and the source's ``_dango_file_metadata`` rows are cleared, so the
@@ -21,7 +21,9 @@ from typing import Any
 import duckdb
 from rich.console import Console
 
+from dango.exceptions import DbtLockError
 from dango.ingestion.interrupts import is_interrupt, reraise_if_interrupt
+from dango.utils.dbt_lock import DbtLock
 from dango.utils.refresh_backup import refresh_backup_table_name
 from dango.validation import quote_identifier
 
@@ -47,6 +49,50 @@ class RefreshState:
 
     has_backup: bool = False
     metadata_backup: list[tuple] | None = None
+
+
+def run_in_write_window(
+    project_root: Path,
+    source_name: str,
+    max_lock_wait: float,
+    work: Callable[[], dict[str, Any]],
+) -> dict[str, Any]:
+    """Run *work* (everything that reads or writes the warehouse) while holding the dbt lock.
+
+    Same lock and operation name as the dlt path, so a dbt run and a file sync never write at the
+    same time. It is released on every exit: success, failure, interrupt and ``SystemExit``, and
+    only after *work* has finished its own restore. When the lock stays busy for *max_lock_wait*
+    seconds nothing is touched and a failed result comes back; an interrupt while waiting comes
+    back as the ``interrupted`` result.
+    """
+    lock = DbtLock(project_root, source="sync", operation=f"load:{source_name}")
+    try:
+        lock.acquire(timeout=max_lock_wait)
+    except DbtLockError:
+        message = (
+            f"Another sync or a dbt run is using the warehouse, so '{source_name}' was not "
+            "synced and nothing was changed. Try again when it has finished."
+        )
+        console.print(f"  [red]❌ {message}[/red]")
+        return {
+            "status": "failed",
+            "source": source_name,
+            "error": message,
+            "rows_loaded": 0,
+            "uses_replace_mode": True,
+        }
+    except KeyboardInterrupt:
+        console.print("\n  [yellow]Sync interrupted while waiting; nothing was changed[/yellow]")
+        return {
+            "status": "interrupted",
+            "source": source_name,
+            "rows_loaded": 0,
+            "uses_replace_mode": True,
+        }
+    try:
+        return work()
+    finally:
+        lock.release()
 
 
 def _connect(duckdb_path: Path, source_name: str, operation: str) -> duckdb.DuckDBPyConnection:

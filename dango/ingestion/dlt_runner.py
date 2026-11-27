@@ -43,6 +43,7 @@ from dango.ingestion.file_refresh import (
     begin_full_refresh,
     finish_aborted_refresh,
     restore_refresh_backup,
+    run_in_write_window,
 )
 from dango.ingestion.interrupts import (
     find_sync_timeout,
@@ -790,13 +791,19 @@ class DltPipelineRunner:
             if source_type == SourceType.CSV:
                 with sigterm_as_interrupt():
                     result = self._run_csv_source(
-                        source_config, full_refresh, allow_empty_replace=allow_empty_replace
+                        source_config,
+                        full_refresh,
+                        allow_empty_replace=allow_empty_replace,
+                        max_lock_wait=max_lock_wait,
                     )
             # LOCAL_FILES: Unified local file source (CSV, JSON, JSONL, Parquet)
             elif source_type == SourceType.LOCAL_FILES:
                 with sigterm_as_interrupt():
                     result = self._run_local_files_source(
-                        source_config, full_refresh, allow_empty_replace=allow_empty_replace
+                        source_config,
+                        full_refresh,
+                        allow_empty_replace=allow_empty_replace,
+                        max_lock_wait=max_lock_wait,
                     )
             # DLT_NATIVE: Advanced registry bypass
             elif source_type == SourceType.DLT_NATIVE:
@@ -993,19 +1000,37 @@ class DltPipelineRunner:
         source_config: DataSource,
         full_refresh: bool = False,
         allow_empty_replace: bool = False,
+        max_lock_wait: int = 300,
     ) -> dict[str, Any]:
         """
-        Run CSV source using custom CSV loader
+        Run CSV source using custom CSV loader, holding the dbt lock for the whole write window
 
         Args:
             source_config: Source configuration
             full_refresh: If True, drop existing table and reload
             allow_empty_replace: If True, allow 0-row syncs to replace existing data
+            max_lock_wait: Seconds to wait for the dbt lock before the sync fails
 
         Returns:
             Load statistics
         """
         if not source_config.csv:
+            raise ValueError(f"CSV config missing for source: {source_config.name}")
+        return run_in_write_window(
+            self.project_root,
+            source_config.name,
+            max_lock_wait,
+            lambda: self._run_csv_source_locked(source_config, full_refresh, allow_empty_replace),
+        )
+
+    def _run_csv_source_locked(
+        self,
+        source_config: DataSource,
+        full_refresh: bool,
+        allow_empty_replace: bool,
+    ) -> dict[str, Any]:
+        """The CSV sync itself; the caller holds the dbt lock."""
+        if not source_config.csv:  # checked by the caller; narrows the type
             raise ValueError(f"CSV config missing for source: {source_config.name}")
 
         target_schema = f"raw_{source_config.name}"
@@ -1136,19 +1161,39 @@ class DltPipelineRunner:
         source_config: DataSource,
         full_refresh: bool = False,
         allow_empty_replace: bool = False,
+        max_lock_wait: int = 300,
     ) -> dict[str, Any]:
         """
-        Run local files source using CSVLoader with multi-format support.
+        Run local files source using CSVLoader with multi-format support, holding the dbt lock
 
         Args:
             source_config: Source configuration with local_files config
             full_refresh: If True, drop existing table and reload
             allow_empty_replace: If True, allow 0-row syncs to replace existing data
+            max_lock_wait: Seconds to wait for the dbt lock before the sync fails
 
         Returns:
             Load statistics
         """
         if not source_config.local_files:
+            raise ValueError(f"local_files config missing for source: {source_config.name}")
+        return run_in_write_window(
+            self.project_root,
+            source_config.name,
+            max_lock_wait,
+            lambda: self._run_local_files_source_locked(
+                source_config, full_refresh, allow_empty_replace
+            ),
+        )
+
+    def _run_local_files_source_locked(
+        self,
+        source_config: DataSource,
+        full_refresh: bool,
+        allow_empty_replace: bool,
+    ) -> dict[str, Any]:
+        """The local files sync itself; the caller holds the dbt lock."""
+        if not source_config.local_files:  # checked by the caller; narrows the type
             raise ValueError(f"local_files config missing for source: {source_config.name}")
 
         target_schema = f"raw_{source_config.name}"

@@ -56,7 +56,7 @@ class TestRunSourceEmptySyncPolicyResolution:
     def _run(self, tmp_path: Path, source: DataSource, allow_empty_replace: bool | None):
         runner = _make_runner(tmp_path)
 
-        def fake_run_csv_source(config, full_refresh, allow_empty_replace):
+        def fake_run_csv_source(config, full_refresh, allow_empty_replace, max_lock_wait=300):
             return {
                 "status": "success" if allow_empty_replace else "failed",
                 "source": config.name,
