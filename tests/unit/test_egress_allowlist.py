@@ -306,7 +306,7 @@ class TestLiveEgressDetection:
            documented host).
 
         Two phases, matching the "run it twice" approach: Phase 1 uses dlt's
-        own default (`dlthub_telemetry` unset, defaults True) and proves a
+        own default (no opt-out; the test sets the env var to `true`) and proves a
         live send IS attempted. Phase 2 calls
         `dango.telemetry.set_dlt_telemetry_state(False)` -- the exact
         write-through `dango telemetry off --provider dlt` performs since
@@ -356,7 +356,9 @@ class TestLiveEgressDetection:
         from dango.utils.driver import METABASE_DUCKDB_DRIVER_VERSION
 
         monkeypatch.setenv("DBT_SEND_ANONYMOUS_USAGE_STATS", "false")
-        monkeypatch.setenv("DO_NOT_TRACK", "1")
+        for _var in ("DO_NOT_TRACK", "DANGO_TELEMETRY"):  # dlt honours these; Phase 1 needs it on
+            monkeypatch.delenv(_var, raising=False)
+        monkeypatch.setenv("RUNTIME__DLTHUB_TELEMETRY", "true")
 
         # Isolate ~/.dango/ (1.0.8-OPS-2 moved dlt's opt-out here) so this
         # test never touches the real machine's telemetry config — same
@@ -411,7 +413,7 @@ class TestLiveEgressDetection:
         # phases, via the exact same detection mechanism as the test above.
         restricted_allowed = _documented_hosts() - {"telemetry.scalevector.ai"}
 
-        # --- Phase 1: dlt's own default (dlthub_telemetry unset -> True) ---
+        # --- Phase 1: dlt's own default (no opt-out; env var set to true) ---
         guard1 = _AllowlistGuard(restricted_allowed)
         with guard1:
             result1 = run_sync(tmp_path, [source], skip_dbt=True)

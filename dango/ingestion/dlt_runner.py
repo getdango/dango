@@ -214,7 +214,14 @@ def _connect_with_metabase_stopped(
 
 
 def _apply_dlt_telemetry_env(project_root: Path) -> None:
-    """Set dlt's RUNTIME__DLTHUB_TELEMETRY env var from the machine-level opt-out.
+    """Set dlt's RUNTIME__DLTHUB_TELEMETRY env var from the telemetry opt-outs.
+
+    The value comes from `get_dlt_telemetry_state()`: the user's env opt-outs
+    (``DO_NOT_TRACK``, ``DANGO_TELEMETRY``, an explicit
+    ``RUNTIME__DLTHUB_TELEMETRY=false``) and the machine-level opt-out in
+    ``~/.dango/config.yml``; the work is done by
+    `dango.telemetry.apply_dlt_telemetry_env()`. An existing explicit false is
+    never replaced by true.
 
     dlt runs in-process here (`dlt.pipeline(...)` below), not via subprocess
     like dbt (`_dbt_telemetry_env()` in `transformation/__init__.py`) — so
@@ -249,10 +256,9 @@ def _apply_dlt_telemetry_env(project_root: Path) -> None:
             `~/.dango/config.yml` on first read (see that function's
             docstring).
     """
-    from dango.telemetry import get_dlt_telemetry_state
+    from dango.telemetry import apply_dlt_telemetry_env
 
-    enabled = get_dlt_telemetry_state(project_root)
-    os.environ["RUNTIME__DLTHUB_TELEMETRY"] = "true" if enabled else "false"
+    apply_dlt_telemetry_env(project_root)
 
 
 def _enable_load_package_cleanup() -> None:

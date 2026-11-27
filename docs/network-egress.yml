@@ -43,6 +43,10 @@ telemetry:
       git-tracked by default) and is translated into dlt's own
       RUNTIME__DLTHUB_TELEMETRY env-var override right before each
       dlt.pipeline() call (dango/ingestion/dlt_runner.py:_apply_dlt_telemetry_env).
+      The env opt-outs DO_NOT_TRACK=1, DANGO_TELEMETRY=false and an explicit
+      RUNTIME__DLTHUB_TELEMETRY=false also turn it off for the process
+      (dango/telemetry.py:get_dlt_telemetry_state); they never turn on what
+      the config disabled.
       A user can still set dlthub_telemetry=false in a project's
       .dlt/config.toml directly, or use dlt's own `dlt --disable-telemetry`
       CLI, but Dango no longer writes or reads that file for this setting.
