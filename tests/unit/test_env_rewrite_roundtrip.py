@@ -256,3 +256,19 @@ def test_the_spaces_script_reader_has_no_dango_import() -> None:
     ast.parse(script)
     for forbidden in ("import dango", "from dango", "project_env", "dotenv"):
         assert forbidden not in script
+
+
+def test_a_secrets_save_tightens_a_loose_env_file_and_never_leaves_temp_files(
+    tmp_path: Path,
+) -> None:
+    import os
+    import stat
+
+    env = tmp_path / ".env"
+    env.write_text(HEAD, encoding="utf-8")
+    os.chmod(env, 0o644)
+    client = _client(tmp_path)
+    assert client.post("/api/secrets", json={"key": "K", "value": "v1"}).status_code == 200
+    expected = 0o600 if os.name == "posix" else stat.S_IMODE(os.stat(env).st_mode)
+    assert stat.S_IMODE(os.stat(env).st_mode) == expected
+    assert sorted(p.name for p in tmp_path.iterdir()) == [".env"]
