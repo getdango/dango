@@ -19,7 +19,8 @@ from dango.ingestion.dlt_runner import _apply_dlt_telemetry_env
 from dango.telemetry import get_dlt_telemetry_state
 
 _DLT_ENV = "RUNTIME__DLTHUB_TELEMETRY"
-_ENV_VARS = ("DO_NOT_TRACK", "DANGO_TELEMETRY", _DLT_ENV)
+_MARKER = dango_telemetry._DLT_ENV_WRITTEN_MARKER
+_ENV_VARS = ("DO_NOT_TRACK", "DANGO_TELEMETRY", _DLT_ENV, _MARKER)
 _TRUTHY = ("1", "t", "true", "y", "yes", "TRUE", " Yes ")
 _FALSY = ("0", "f", "false", "n", "no", "FALSE", " No ")
 
@@ -233,6 +234,15 @@ class TestDangoOwnEnvValueIsNotAUserOptOut:
         assert get_dlt_telemetry_state(tmp_path) is False
         _apply_dlt_telemetry_env(tmp_path)
         assert os.environ[_DLT_ENV] == "false"
+
+    def test_an_env_opt_out_removes_a_stale_marker(self, tmp_path: Path) -> None:
+        """A user opt-out must not leave Dango's marker behind (it would hide a later explicit false)."""
+        os.environ[_MARKER] = "false"
+        os.environ[_DLT_ENV] = "false"
+        os.environ["DO_NOT_TRACK"] = "1"
+        _apply_dlt_telemetry_env(tmp_path)
+        assert os.environ[_DLT_ENV] == "false"
+        assert _MARKER not in os.environ
 
 
 @pytest.fixture

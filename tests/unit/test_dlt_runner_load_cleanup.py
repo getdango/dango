@@ -22,6 +22,7 @@ from dlt.pipeline.exceptions import PipelineStepFailed
 
 from dango.config.models import DataSource, DltNativeConfig, SourceType
 from dango.ingestion.dlt_runner import DltPipelineRunner
+from dango.telemetry import _DLT_ENV_WRITTEN_MARKER as _TELEMETRY_MARKER
 
 CANARY = "canary-7f3a91c2-row-value"
 SOURCE_PY = textwrap.dedent(
@@ -42,6 +43,9 @@ SOURCE_PY = textwrap.dedent(
 @pytest.fixture
 def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """Project root with isolated dlt data dir; env restored after the test."""
+    # The real apply step below writes the dlt telemetry variable and Dango's marker for it
+    # straight into os.environ (monkeypatch does not undo that), so restore both explicitly.
+    saved = {k: os.environ.get(k) for k in ("RUNTIME__DLTHUB_TELEMETRY", _TELEMETRY_MARKER)}
     monkeypatch.setenv("DLT_DATA_DIR", str(tmp_path / ".dlt"))
     monkeypatch.setenv("DLT_PROJECT_DIR", str(tmp_path))
     monkeypatch.delenv("LOAD__DELETE_COMPLETED_JOBS", raising=False)
@@ -51,13 +55,22 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     monkeypatch.setattr("dango.telemetry.get_dlt_telemetry_state", lambda *a, **k: False)
     (tmp_path / "custom_sources").mkdir()
     (tmp_path / "custom_sources" / "c1e_mod.py").write_text(SOURCE_PY)
-    yield tmp_path
-    # dlt caches its runtime config (and telemetry flags) on a process-wide RunContext;
-    # reset it so later tests (egress allowlist) see a fresh dlt runtime.
-    from dlt.common.runtime.telemetry import stop_telemetry
+    try:
+        yield tmp_path
+    finally:
+        # dlt caches its runtime config (and telemetry flags) on a process-wide RunContext;
+        # reset it so later tests (egress allowlist) see a fresh dlt runtime.
+        try:
+            from dlt.common.runtime.telemetry import stop_telemetry
 
-    stop_telemetry()
-    dlt.current.run_context().reset_config()
+            stop_telemetry()
+            dlt.current.run_context().reset_config()
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
 
 def pipelines_dir(root: Path) -> Path:
