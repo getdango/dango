@@ -168,6 +168,42 @@ class TestMixedRefreshFailuresLeaveTheSourceAsItWas:
         )
         assert allowed["status"] == "success", allowed.get("error")
         assert table_ids(runner, "events") == upto(8)
-        assert table_names(runner) == [
-            "events"
-        ]  # the emptied table is purged, as for any staged refresh
+        assert table_names(runner) == ["dims", "events"]  # emptied, not dropped
+        assert table_ids(runner, "dims") == []
+
+    def test_the_next_plain_sync_fills_the_emptied_replace_table(
+        self, tmp_path: Any, method: str
+    ) -> None:
+        runner = DltPipelineRunner(tmp_path)
+        assert run(runner, method, mixed(5))["status"] == "success"
+        refreshed = run(
+            runner, method, mixed(8, rows=[]), full_refresh=True, allow_empty_replace=True
+        )
+        assert refreshed["status"] == "success", refreshed.get("error")
+
+        assert run(runner, method, mixed(10, rows=NEW_DIMS))["status"] == "success"
+        assert table_ids(runner, "events") == upto(10)
+        assert table_ids(runner, "dims") == [7, 8]
+        assert run(runner, method, mixed(11, rows=NEW_DIMS))["status"] == "success"
+        assert table_ids(runner, "events") == upto(11)
+
+
+@pytest.mark.parametrize("method", METHODS)
+class TestAnEmptiedTableStaysForTheNextSync:
+    def test_an_append_table_that_returned_no_rows_is_emptied_not_dropped(
+        self, tmp_path: Any, method: str
+    ) -> None:
+        runner = DltPipelineRunner(tmp_path)
+
+        def two(n_b: int) -> Any:
+            return source(events(5, table="a"), events(n_b, table="b"))
+
+        assert run(runner, method, two(5))["status"] == "success"
+        allowed = run(runner, method, two(0), full_refresh=True, allow_empty_replace=True)
+        assert allowed["status"] == "success", allowed.get("error")
+        assert table_ids(runner, "a") == upto(5)
+        assert table_ids(runner, "b") == []
+
+        assert run(runner, method, two(5))["status"] == "success"
+        assert table_ids(runner, "a") == upto(5)
+        assert table_ids(runner, "b") == upto(5)
