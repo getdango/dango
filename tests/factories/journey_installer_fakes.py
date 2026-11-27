@@ -20,6 +20,9 @@ if [ "${FAKE_INSTALLER_FAIL:-}" = 1 ]; then
     echo "installer: boom"
     exit 1
 fi
+if [ "${FAKE_INSTALLER_PIP_ERROR:-}" = 1 ]; then
+    echo "ERROR: To modify pip, please run the following command:"
+fi
 if [ "${FAKE_INSTALLER_NO_DANGO:-}" = 1 ]; then
     exit 0
 fi

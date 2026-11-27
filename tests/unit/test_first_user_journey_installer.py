@@ -111,6 +111,14 @@ def test_failed_installer_fails_the_step_and_skips_the_rest(tmp_path: Path) -> N
     assert "Traceback" not in result.stderr
 
 
+def test_error_text_in_a_successful_installer_run_fails_the_step(tmp_path: Path) -> None:
+    result = _installer_journey(tmp_path, env={"FAKE_INSTALLER_PIP_ERROR": "1"})
+    assert result.returncode == 1
+    failing = next(ln for ln in result.stdout.splitlines() if ln.startswith("FAIL installer"))
+    assert "ERROR:" in failing
+    assert "SKIP init: depends on installer" in result.stdout
+
+
 def test_installer_that_leaves_no_dango_fails_the_step(tmp_path: Path) -> None:
     result = _installer_journey(tmp_path, env={"FAKE_INSTALLER_NO_DANGO": "1"})
     assert result.returncode == 1

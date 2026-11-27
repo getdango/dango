@@ -107,6 +107,12 @@ def step_installer(
         return failure("installer", f"installer: {proc.error}", proc.output)
     if proc.returncode != 0:
         return failure("installer", f"installer: exit code {proc.returncode}", proc.output)
+    # A good install shows no pip error: a Windows pip that is asked to replace its own pip.exe
+    # prints one in the middle of an install that goes on to succeed.
+    error_line = next((ln for ln in proc.output.splitlines() if "ERROR:" in ln), None)
+    if error_line is not None:
+        reason = f"installer printed an error although it exited 0: {error_line.strip()}"
+        return failure("installer", reason, proc.output)
     windows = sys.platform == "win32"
     bin_dir = installer_dir / "venv" / ("Scripts" if windows else "bin")
     dango = bin_dir / ("dango.exe" if windows else "dango")
