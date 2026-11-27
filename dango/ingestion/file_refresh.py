@@ -13,6 +13,7 @@ Linux.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,7 @@ from typing import Any
 
 import duckdb
 from rich.console import Console
+from rich.markup import escape
 
 from dango.exceptions import DbtLockError
 from dango.ingestion.interrupts import is_interrupt, reraise_if_interrupt
@@ -51,6 +53,40 @@ class RefreshState:
     metadata_backup: list[tuple] | None = None
 
 
+def _describe_holder(lock_info: dict[str, Any] | None) -> str:
+    """Plain ASCII description of whoever holds the lock (PID and operation, if known)."""
+
+    def clean(value: object) -> str:
+        """Printable ASCII, at most 60 characters."""
+        return re.sub(r"[^\x20-\x7e]", "?", str(value))[:60]
+
+    parts = []
+    if lock_info and lock_info.get("pid") is not None:
+        parts.append(f"PID {clean(lock_info['pid'])}")
+    if lock_info and lock_info.get("operation"):
+        parts.append(clean(lock_info["operation"]))
+    return ", ".join(parts) or "holder unknown"
+
+
+def _acquire_noting_the_wait(lock: DbtLock, max_lock_wait: float) -> None:
+    """Take *lock*; when it is busy, say so once and wait up to *max_lock_wait* seconds.
+
+    Raises ``DbtLockError`` when the lock stays busy (at once for a wait of 0).
+    """
+    try:
+        lock.acquire(timeout=0)
+        return
+    except DbtLockError as busy:
+        if max_lock_wait <= 0:
+            raise
+        holder = escape(_describe_holder(busy.lock_info))
+    console.print(
+        f"  [dim]Waiting for another sync or dbt run to finish ({holder}); "
+        f"up to {int(max_lock_wait)}s...[/dim]"
+    )
+    lock.acquire(timeout=max_lock_wait)
+
+
 def run_in_write_window(
     project_root: Path,
     source_name: str,
@@ -67,7 +103,7 @@ def run_in_write_window(
     """
     lock = DbtLock(project_root, source="sync", operation=f"load:{source_name}")
     try:
-        lock.acquire(timeout=max_lock_wait)
+        _acquire_noting_the_wait(lock, max_lock_wait)
     except DbtLockError:
         message = (
             f"Another sync or a dbt run is using the warehouse, so '{source_name}' was not "

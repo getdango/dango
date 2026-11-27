@@ -28,7 +28,7 @@ from dango.config.models import (
     PlatformSettings,
     SourceType,
 )
-from dango.exceptions import ConfigError, ConfigNotFoundError, SyncTimeoutError
+from dango.exceptions import ConfigError, ConfigNotFoundError, DbtLockError, SyncTimeoutError
 from dango.ingestion.csv_loader import CSVLoader, check_duplicate_filenames
 from dango.ingestion.empty_guard import (
     disposition_name,
@@ -2974,6 +2974,17 @@ Error details: {shown}
         """
         error_str = str(error).lower()
         shown = redacted_error_text(getattr(self, "project_root", None), error, source_name)
+
+        # A busy dbt lock says "timeout" but is not a network problem
+        if isinstance(error, DbtLockError):
+            return f"""
+Sync not started: another sync or dbt run is using the warehouse for '{source_name}'
+
+Nothing was changed. Try again shortly, once the other run has finished:
+  dango sync {source_name}
+
+Check what is running with: dango status
+"""
 
         # DuckDB lock messages carry a PID and a file path, so DuckDB's own lock wording is
         # recognised before any status-code or word match can claim it. The broader keyword
