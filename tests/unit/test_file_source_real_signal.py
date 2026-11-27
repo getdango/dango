@@ -29,10 +29,10 @@ NAME = "orders"
 SCHEMA = f"raw_{NAME}"
 _TABLES_SQL = f"SELECT table_name FROM information_schema.tables WHERE table_schema = '{SCHEMA}'"
 
-# The child interrupts nothing itself: it only announces (marker file) that it is inside a slow
-# DuckDB query for big.csv, and waits there for the parent's real signal.
+# The child interrupts nothing itself: it only announces (marker file) that a slow DuckDB query
+# for big.csv is running, and waits there for the parent's real signal.
 CHILD = """
-import json, os, signal, sys, threading
+import json, os, signal, sys, threading, time
 from pathlib import Path
 from dango.config.models import CSVSourceConfig, DataSource, LocalFilesSourceConfig, SourceType
 from dango.ingestion import csv_loader
@@ -50,10 +50,29 @@ def patched(self, conn, temp_table, target_table):
     name = conn.execute(f"SELECT _dango_filename FROM {temp_table} LIMIT 1").fetchone()[0]
     if name == "big.csv":
         conn.execute("SET threads=1")
-        marker.write_text("in-load", encoding="utf-8")
-        conn.execute(
-            "SELECT count(*) FROM range(2000000000) a(x), range(1000) b(y) WHERE (x * y) % 7 = 1"
-        ).fetchall()
+        conn.execute("SET enable_progress_bar=true")
+        conn.execute("SET enable_progress_bar_print=false")
+        done = threading.Event()
+
+        def announce_when_running():
+            # DuckDB can drop a SIGINT that arrives as a query starts, so announce only once the
+            # query reports progress (it is running)
+            try:
+                while not done.is_set() and conn.query_progress() < 0:
+                    time.sleep(0.01)
+                if not done.is_set():
+                    marker.write_text("in-load", encoding="utf-8")
+            except Exception:
+                return
+
+        threading.Thread(target=announce_when_running, daemon=True).start()
+        try:
+            conn.execute(
+                "SELECT count(*) FROM range(2000000000) a(x), range(1000) b(y) "
+                "WHERE (x * y) % 7 = 1"
+            ).fetchall()
+        finally:
+            done.set()
     return original(self, conn, temp_table, target_table)
 
 csv_loader.CSVLoader._build_insert_select = patched
@@ -111,7 +130,7 @@ def _run_child_and_signal(root: Path, kind: str, refresh: bool, sig: int) -> tup
             time.sleep(0.05)  # waiting for the child's marker, not ordering anything
         assert marker.exists(), "child never reached the load"
         proc.send_signal(sig)
-        out, _ = proc.communicate(timeout=90)
+        out, _ = proc.communicate(timeout=60)
         return proc.returncode, out
     finally:
         if proc.poll() is None:

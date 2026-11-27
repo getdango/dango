@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -39,10 +39,14 @@ _METADATA_INSERT = (
 @dataclass
 class RefreshState:
     """What a full refresh has changed so far (filled in step by step, so an interrupt at any
-    point still knows what to put back)."""
+    point still knows what to put back).
+
+    ``metadata_backup`` stays ``None`` until the source's file metadata rows have been read; the
+    rows are only deleted after that, so ``None`` means they were never touched.
+    """
 
     has_backup: bool = False
-    metadata_backup: list[tuple] = field(default_factory=list)
+    metadata_backup: list[tuple] | None = None
 
 
 def _connect(duckdb_path: Path, source_name: str, operation: str) -> duckdb.DuckDBPyConnection:
@@ -111,12 +115,13 @@ def restore_refresh_backup(
     duckdb_path: Path,
     source_name: str,
     target_schema: str,
-    metadata_backup: list[tuple],
+    metadata_backup: list[tuple] | None,
     operation: str,
 ) -> bool:
     """Put the backed-up table and file metadata back; any partial live table is dropped.
 
-    One transaction: either the previous table and metadata are back, or nothing changed. Returns
+    One transaction: either the previous table and metadata are back, or nothing changed. With
+    ``metadata_backup=None`` the metadata rows are not touched. Returns
     True when the live table holds the previous data afterwards (also when no backup table exists,
     because then nothing was moved), False when no restore was possible. Errors propagate.
     """
@@ -145,7 +150,8 @@ def restore_refresh_backup(
                 f"RENAME TO {quote_identifier(source_name)}"
             )
             # Whatever the unfinished load recorded is replaced by the previous rows
-            if has_metadata_table:
+            # (never snapshotted: the rows were never deleted, so they are left as they are)
+            if has_metadata_table and metadata_backup is not None:
                 conn.execute(
                     "DELETE FROM _dango_file_metadata WHERE source_name = ?", [source_name]
                 )

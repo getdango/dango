@@ -362,11 +362,17 @@ def test_control_failing_file_is_still_left_out_not_interrupted(
 
 
 def test_sigterm_becomes_keyboard_interrupt_and_handler_is_restored():
+    """The installed handler is called directly: no signal is sent to the pytest process (the
+    subprocess test in test_file_source_real_signal.py sends the real SIGTERM)."""
     from dango.ingestion.interrupts import sigterm_as_interrupt
 
     before = signal.getsignal(signal.SIGTERM)
-    with pytest.raises(KeyboardInterrupt), sigterm_as_interrupt():
-        os.kill(os.getpid(), signal.SIGTERM)
+    with sigterm_as_interrupt():
+        handler = signal.getsignal(signal.SIGTERM)
+        assert callable(handler)
+        assert handler != before
+        with pytest.raises(KeyboardInterrupt):
+            handler(signal.SIGTERM, None)
     assert signal.getsignal(signal.SIGTERM) == before
 
 
