@@ -15,6 +15,7 @@ on:
       - tests/integration/native_inputs.py
       - tests/integration/input_cases.py
       - tests/integration/input_observations.py
+      - tests/integration/input_sql_fixture.py
       - .github/workflows/t05-native-inputs.yml
 
 permissions:
@@ -522,8 +523,8 @@ jobs:
             .status=="PASS_NATIVE_INPUT_AFFECTED" and .phase=="affected" and .commit==$commit
             and .smoke=="PASS" and .owned_cleanup==true and .lifetime_released_after_all_refs==true
             and (.cases|keys)==["01","02","03","04","05","06","07","08","09","10","11","12"]
-            and .selected_cases==["03","04","05","07","08"]
-            and (.cases|to_entries|all(if (.key|IN("03","04","05","07","08")) then .value=="PASS" else .value=="UNRUN" end))
+            and .selected_cases==["04"]
+            and (.cases|to_entries|all(if .key=="04" then .value=="PASS" else .value=="UNRUN" end))
             and .retained_evidence.head=="fa2282c0bba6f959ca9a2d12d314cecc395c46df" and .retained_evidence.run=="45861634718"
             and .retained_evidence.retained_case_ids==["01","02","03","04"]
             and (.retained_evidence.cases|keys)==["01","02","03","04","05","06","07","08","09","10","11","12"]
@@ -544,7 +545,35 @@ jobs:
             and .retained_cleanup_evidence.retained_case_ids==["11"]
             and (.retained_cleanup_evidence.cases|keys)==["01","02","03","04","05","06","07","08","09","10","11","12"]
             and (.retained_cleanup_evidence.cases|to_entries|all(if .key=="11" then .value=="PASS" else .value=="UNRUN" end))
-            and (.case_observations|keys)==["03","04","05","07","08"]
+            and .retained_ast_evidence.head=="88997b69d0979face58cdbfba8703875df5415ae" and .retained_ast_evidence.run=="45957026257"
+            and .retained_ast_evidence.overall_status=="FAIL" and .retained_ast_evidence.retained_case_ids==["03","05","07","08"]
+            and (.retained_ast_evidence.cases|keys)==["01","02","03","04","05","06","07","08","09","10","11","12"]
+            and (.retained_ast_evidence.cases|to_entries|all(if (.key|IN("03","04","05","07","08")) then .value=="PASS" else .value=="UNRUN" end))
+            and (.case_observations|keys)==["04"]
+            and (.fixture_lifecycle.workspace_id|type)=="string" and (.fixture_lifecycle.binding_id|type)=="string"
+            and (.fixture_lifecycle.before.files|type)=="object" and (.fixture_lifecycle.after_negative.files|type)=="object"
+            and (.fixture_lifecycle.removed|type)=="array"
+            and (.fixture_lifecycle.references_before|keys)==["data","delete"]
+            and (.fixture_lifecycle.references_before==.fixture_lifecycle.references_after)
+            and (if (.fixture_lifecycle.removed|length)==0 then
+              .fixture_lifecycle.actual_expiry_failure==null and .fixture_lifecycle.normal_expiry_receipt.status=="success"
+              and .fixture_lifecycle.normal_expiry_receipt.result_ref==.fixture_lifecycle.workspace_id
+            else
+              (.fixture_lifecycle.removed|length)==1
+              and .fixture_lifecycle.actual_expiry_failure.classification=="OwnedWorkspace.removal_intent:OwnershipError"
+              and .fixture_lifecycle.actual_expiry_failure.stage=="OwnedWorkspace.removal_intent"
+              and .fixture_lifecycle.actual_expiry_failure.error_code=="workspace_recovery_required"
+              and .fixture_lifecycle.pre_unlink_receipt.removed==[]
+              and .fixture_lifecycle.pre_unlink_receipt.actual_expiry_failure==.fixture_lifecycle.actual_expiry_failure
+              and .fixture_lifecycle.pre_unlink_receipt.failed_operation==.fixture_lifecycle.failed_operation
+              and .fixture_lifecycle.expiry_effect.state=="prepared" and .fixture_lifecycle.expiry_effect.native_ref==.fixture_lifecycle.workspace_id
+              and .fixture_lifecycle.failed_operation=={"state":"prepared","receipt":null,"allocator_phase":"prepared"}
+              and .fixture_lifecycle.references_before==.fixture_lifecycle.references_at_cleanup
+              and .fixture_lifecycle.before==.fixture_lifecycle.after_conditional_cleanup
+              and .fixture_lifecycle.same_operation_retry.status=="success"
+              and .fixture_lifecycle.same_operation_retry.result_ref==.fixture_lifecycle.workspace_id
+              and .fixture_lifecycle.same_operation_retry.operation_id==.fixture_lifecycle.actual_expiry_failure.operation_id
+            end)
             and .profile.fixture_sha256=="b6879d50f7220b8afa1a1b6b6266e27db6c3492a8fa2bc71747656c6411af449"
             and .profile.python=="3.14.10" and .profile.duckdb=="2.0.0" and .profile.ducklake=="1.1"
           ' "$PAYLOAD/work/native-result.json" >/dev/null

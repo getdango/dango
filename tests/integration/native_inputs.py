@@ -239,6 +239,12 @@ class InputRig(WorkspaceRig):
                 self.captures.append((context, rows[0][0]))
         return context, result
 
+    def expire(self, workspace):
+        """Observe normal expiry and permit only the proven own-negative fixture recovery path."""
+        from input_sql_fixture import expire_fixture
+
+        return expire_fixture(self, workspace)
+
     def release(self):
         """End fixture lifetime only after all capture pins and explicitly disposed workspaces are gone."""
         for context, identity in self.captures:
@@ -346,8 +352,12 @@ def main():
         "smoke": "FAIL",
     }
     output = args.task_root.parent / "native-result.json"
+    rig = None
     try:
         rig = InputRig(args.task_root)
+        from input_sql_fixture import checkpoint_report
+
+        rig.fixture_checkpoint = lambda: checkpoint_report(report, rig, output)
         from native_catalog_bindings import fixture_bytes
 
         report["profile"] = {
@@ -366,6 +376,7 @@ def main():
                 AFFECTED,
                 RETAINED,
                 RETAINED_AFFECTED,
+                RETAINED_AST,
                 RETAINED_CLEANUP,
                 RETAINED_CORRECTION,
                 RETAINED_DURABILITY,
@@ -379,6 +390,7 @@ def main():
                 report["retained_durability_evidence"] = RETAINED_DURABILITY
                 report["retained_correction_evidence"] = RETAINED_CORRECTION
                 report["retained_cleanup_evidence"] = RETAINED_CLEANUP
+                report["retained_ast_evidence"] = RETAINED_AST
 
             for number, case in CASES:
                 if number not in selected:
@@ -415,6 +427,8 @@ def main():
             status="FAIL",
             error_type=type(error).__name__,
             safe_code=getattr(error, "code", None),
+            expiry_diagnostics=getattr(rig, "expiry_diagnostics", {}),
+            fixture_lifecycle=getattr(getattr(rig, "sql_guard", None), "evidence", {}),
             failure_frames=[
                 {"file": Path(frame.filename).name, "line": frame.lineno, "function": frame.name}
                 for frame in traceback.extract_tb(error.__traceback__)
@@ -424,6 +438,8 @@ def main():
             "Input integration failed; inspect sanitized stage/case evidence"
         ) from None
     finally:
+        report["expiry_diagnostics"] = getattr(rig, "expiry_diagnostics", {})
+        report["fixture_lifecycle"] = getattr(getattr(rig, "sql_guard", None), "evidence", {})
         output.write_text(json.dumps(report) + "\n")
         if report["status"] == "FAIL":
             (args.task_root.parent / "smoke-result.json").write_text(json.dumps(report) + "\n")

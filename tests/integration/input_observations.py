@@ -168,7 +168,7 @@ def journal(rig, owner):
     }
 
 
-AFFECTED = ("03", "04", "05", "07", "08")
+AFFECTED = ("04",)
 RETAINED = {
     "head": "fa2282c0bba6f959ca9a2d12d314cecc395c46df",
     "run": "45861634718",
@@ -458,4 +458,13 @@ RETAINED_CLEANUP = {
     "run": "45931116545",
     "retained_case_ids": ["11"],
     "cases": {f"{n:02d}": ("PASS" if n == 11 else "UNRUN") for n in range(1, 13)},
+}
+
+
+RETAINED_AST = {
+    "head": "88997b69d0979face58cdbfba8703875df5415ae",
+    "run": "45957026257",
+    "overall_status": "FAIL",
+    "retained_case_ids": ["03", "05", "07", "08"],
+    "cases": {f"{n:02d}": ("PASS" if n in {3, 4, 5, 7, 8} else "UNRUN") for n in range(1, 13)},
 }

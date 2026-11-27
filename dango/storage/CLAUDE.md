@@ -182,3 +182,11 @@ requires all12 literal statuses, exact profile/head and final owned cleanup. Fix
 record selected current-head PASS and other rows UNRUN with unchanged earlier evidence bound
 separately to its exact head/run; they never claim a fresh full-matrix PASS. Local synthetic
 copies are never native snapshot acceptance evidence.
+
+The native04 test fixture records every physical file and all historical native data/delete
+references around its deliberately rejected NOT NULL write. It never deletes a suspected residual
+pre-emptively. Only after observing an actual exact allocator inventory refusal may its separate
+test helper remove one proven newly created, unreferenced, unchanged own fixture file under the
+allocator lock; it durably checkpoints the original failure before unlink and retries the same
+expiry context/revision. Ordinary workspace failures propagate. This is finite test cleanup,
+not a product orphan collector or a relaxation of allocator ownership/expiry.

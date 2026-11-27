@@ -94,15 +94,9 @@ def test_duplicate_table_names_in_separate_schemas(rig):
         for p in Path(rig.native.current(workspace.workspace_id).data_root_ref).rglob("*.parquet")
     )
     assert measured == value.captured_bytes
-    from tests.unit.test_input_copy_sql import exercise_sql_roundtrip
+    from input_sql_fixture import sql_oracle
 
-    sql_workspace = target(rig)
-    sql_owner = rig.admit("fixture.structured-sql", {})
-    with rig.allocator.attach(
-        sql_owner, rig.native.current(sql_workspace.workspace_id), read_only=False
-    ) as connection:
-        sql_proof = exercise_sql_roundtrip(connection, rig.native.root / "sql-api")
-    rig.finish(sql_owner)
+    sql_proof = sql_oracle(rig)
     return {
         "structured_sql_adversarial_native": sql_proof,
         "sales": 350,
