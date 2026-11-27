@@ -72,3 +72,24 @@ class TestLockErrorDetection:
         result = analyze_error(Exception("something went wrong"), "test_source")
         assert "DuckDB Lock Error" not in result
         assert "Connection Error" not in result
+
+
+class TestDbtLockError:
+    """A busy dbt lock is reported as such, not as a network problem (its text says "timeout")."""
+
+    BUSY = "Sync queue timeout. Another sync is still running."
+
+    def test_a_busy_lock_is_plain_text_not_a_connection_error(self, analyze_error):
+        from dango.exceptions import DbtLockError
+
+        result = analyze_error(DbtLockError(self.BUSY), "shop")
+
+        assert "another sync or dbt run is using the warehouse" in result.lower()
+        assert "try again" in result.lower()
+        assert "Connection Error" not in result
+        assert "internet" not in result.lower()
+
+    def test_other_timeouts_are_still_connection_errors(self, analyze_error):
+        result = analyze_error(Exception(self.BUSY), "shop")
+
+        assert "Connection Error" in result

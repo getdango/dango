@@ -148,6 +148,7 @@ def test_lock_covers_full_refresh_preparation_load_and_cleanup(
     kind, tmp_path, uploads, runner, probes, monkeypatch
 ):
     src = _seed(kind, tmp_path, uploads, runner)
+    probes(DltPipelineRunner, "_get_csv_table_rows", "precount")
     probes(dlt_runner, "begin_full_refresh", "begin")
     probes(CSVLoader, "load", "loader_load")
     real_connect = dlt_runner._connect_with_lock_retry
@@ -162,7 +163,7 @@ def test_lock_covers_full_refresh_preparation_load_and_cleanup(
 
     assert _sync(runner, src, full_refresh=True)["status"] == "success"
 
-    probes.assert_busy_at("begin", "loader_load")
+    probes.assert_busy_at("precount", "begin", "loader_load")
     assert cleanup == [False]
 
 
@@ -324,36 +325,80 @@ def test_lock_is_released_when_an_interrupt_escapes_the_sync(
 
     monkeypatch.setattr(DltPipelineRunner, "_get_csv_table_rows", interrupted)
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(KeyboardInterrupt) as excinfo:
         _sync(runner, src, full_refresh=full_refresh)
 
+    # excinfo keeps the traceback (and so the lock object) alive: a missing release is not
+    # hidden by garbage collection closing the lock file
+    assert excinfo.value is not None
     assert _lock_is_free(tmp_path)
 
 
 # --- callers: none of them holds the lock, so none can double-acquire -------------------------
 
 
-def test_run_sync_takes_the_lock_once_per_file_source_with_the_callers_wait(
-    kind, tmp_path, uploads, monkeypatch
-):
-    """``run_sync`` is what the CLI, the scheduler subprocess, the web initial sync and MCP call."""
-    _write(uploads / "a.csv", ["1,a"])
-    src = _source(kind, tmp_path)
+def _record_acquires(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, float]]:
     acquires: list[tuple[str, float]] = []
     real_acquire = DbtLock.acquire
 
     def recording(self, timeout: float = 300):
-        acquires.append((self.operation, timeout))
+        if self.operation.startswith("load:"):  # post-sync hooks take the lock for their own work
+            acquires.append((self.operation, timeout))
         return real_acquire(self, timeout)
 
     monkeypatch.setattr(DbtLock, "acquire", recording)
+    return acquires
 
-    summary = run_sync(tmp_path, [src], skip_dbt=True, max_lock_wait=7)
+
+def test_run_sync_takes_a_free_lock_once_per_file_source_without_waiting(
+    kind, tmp_path, uploads, monkeypatch, capsys
+):
+    """``run_sync`` is what the CLI, the scheduler subprocess, the web initial sync and MCP call."""
+    _write(uploads / "a.csv", ["1,a"])
+    acquires = _record_acquires(monkeypatch)
+
+    summary = run_sync(tmp_path, [_source(kind, tmp_path)], skip_dbt=True, max_lock_wait=7)
 
     assert summary["failed_count"] == 0 and summary["success_count"] == 1
-    # (post-sync hooks take the lock for their own writes, after the source's window closed)
-    assert [a for a in acquires if a[0].startswith("load:")] == [(f"load:{NAME}", 7)]
+    assert acquires == [(f"load:{NAME}", 0)]
+    assert "Waiting for" not in capsys.readouterr().out
     assert _lock_is_free(tmp_path)
+
+
+def test_run_sync_waits_with_the_callers_wait_and_says_so_once(
+    kind, tmp_path, uploads, monkeypatch, capsys
+):
+    _write(uploads / "a.csv", ["1,a"])
+    holder = DbtLock(tmp_path, source="dbt", operation="dbt run")
+    holder.acquire(timeout=0)
+    acquires = _record_acquires(monkeypatch)
+    monkeypatch.setattr("time.sleep", lambda seconds: holder.release())
+    try:
+        summary = run_sync(tmp_path, [_source(kind, tmp_path)], skip_dbt=True, max_lock_wait=7)
+    finally:
+        holder.release()
+
+    out = capsys.readouterr().out
+    assert summary["success_count"] == 1
+    assert acquires == [(f"load:{NAME}", 0), (f"load:{NAME}", 7)]
+    assert out.count("Waiting for") == 1
+    assert f"PID {os.getpid()}" in out and "dbt run" in out
+
+
+def test_a_zero_wait_fails_at_once_and_prints_no_waiting_line(
+    kind, tmp_path, uploads, runner, monkeypatch, capsys
+):
+    _write(uploads / "a.csv", ["1,a"])
+    holder = DbtLock(tmp_path, source="dbt", operation="dbt run")
+    holder.acquire(timeout=0)
+    try:
+        result = runner.run_source(_source(kind, tmp_path), max_lock_wait=0)
+    finally:
+        holder.release()
+
+    assert result["status"] == "failed"
+    assert "was not synced and nothing was changed" in result["error"]
+    assert "Waiting for" not in capsys.readouterr().out
 
 
 def test_run_sync_reports_a_busy_lock_as_a_failed_source(kind, tmp_path, uploads, metabase_stops):
@@ -367,3 +412,29 @@ def test_run_sync_reports_a_busy_lock_as_a_failed_source(kind, tmp_path, uploads
 
     assert summary["success_count"] == 0 and summary["failed_count"] == 1
     assert metabase_stops == []
+
+
+def test_a_busy_lock_in_the_dlt_path_shows_plain_text_end_to_end(
+    tmp_path, runner, metabase_stops, monkeypatch, capsys
+):
+    from unittest.mock import MagicMock
+
+    src = DataSource(name="shop", type=SourceType.STRIPE)
+    monkeypatch.setattr(runner, "_check_dependencies", lambda source_type: (True, []))
+
+    def load(*args, max_lock_wait=300, **kwargs):
+        runner._load_with_lock(MagicMock(), "shop", max_lock_wait)
+
+    monkeypatch.setattr(runner, "_run_dlt_source", load)
+    holder = DbtLock(tmp_path, source="dbt", operation="dbt run")
+    holder.acquire(timeout=0)
+    try:
+        result = runner.run_source(src, max_lock_wait=0)
+    finally:
+        holder.release()
+
+    out = capsys.readouterr().out
+    assert result["status"] == "failed"
+    assert "another sync or dbt run is using the warehouse" in out.lower()
+    assert "Connection Error" not in out
+    assert metabase_stops == [True]  # the dlt path's own (non-forced) stop call, unchanged
