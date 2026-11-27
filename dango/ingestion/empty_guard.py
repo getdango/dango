@@ -190,6 +190,20 @@ def tables_run_can_write(source: Any, pipeline: Any, candidates: Iterable[str]) 
     return {name for name in candidates if _resolve(name, shape, tables) != _UNTOUCHED}
 
 
+def mixes_replace_with_append_or_merge(source: Any) -> bool:
+    """True when a selected resource replaces its table and another selected one appends or merges.
+
+    Rewriting only the replace tables would load the append and merge tables a second time, so such
+    a source needs the whole-source rebuild. A source whose selected resources are all replace, one
+    with an undetermined disposition only, or one that cannot be read is not reported as mixed.
+    """
+    shape = _inspect(source)
+    if shape is None:
+        return False
+    values = set(shape.selected.values())
+    return "replace" in values and bool(values & {"append", "merge"})
+
+
 def truncate_message(source_name: str, truncated: list[tuple[str, int]]) -> str:
     """Failure text when replace-mode tables with existing data would be emptied."""
     details = "\n  - ".join(

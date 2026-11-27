@@ -5723,6 +5723,26 @@
       "test_name": "hardcoded_sql_expressions"
     },
     {
+      "code": "3561                             # fail on a missing one.\n3562                             db.execute(f'DELETE FROM \"{dataset_name}\".\"{table_name}\"')\n3563                     db.execute(\"COMMIT\")\n",
+      "col_offset": 39,
+      "end_col_offset": 85,
+      "filename": "dango/ingestion/dlt_runner.py",
+      "issue_confidence": "MEDIUM",
+      "issue_cwe": {
+        "id": 89,
+        "link": "https://cwe.mitre.org/data/definitions/89.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Possible SQL injection vector through string-based query construction.",
+      "line_number": 3562,
+      "line_range": [
+        3562
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
+      "test_id": "B608",
+      "test_name": "hardcoded_sql_expressions"
+    },
+    {
       "code": "60         req = urllib.request.Request(f\"http://127.0.0.1:{port}/\", method=\"GET\")\n61         with urllib.request.urlopen(req, timeout=timeout) as resp:\n62             # Marimo returns HTML with \"marimo\" in the response\n",
       "col_offset": 13,
       "end_col_offset": 57,
