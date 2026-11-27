@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import stat
 from datetime import datetime
 from pathlib import Path
@@ -128,10 +129,18 @@ def _metadata(value: dict[str, Any], name: str, invocation: str) -> None:
         or _text(metadata["invocation_id"]) != invocation
     ):
         raise ArtifactError("artifact_binding_mismatch")
-    if (
-        datetime.fromisoformat(_text(metadata["generated_at"]).replace("Z", "+00:00")).utcoffset()
-        is None
-    ):
+    timestamp = re.fullmatch(
+        r"([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})"
+        r"(?:\.([0-9]{1,9}))?(Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])",
+        _text(metadata["generated_at"]),
+    )
+    if timestamp is None:
+        raise ArtifactError()
+    clock, fraction, offset = timestamp.groups()
+    # Validate native nanosecond timestamps on Python3.10 without altering evidence bytes.
+    fraction = "." + fraction.ljust(6, "0")[:6] if fraction else ""
+    offset = "+00:00" if offset == "Z" else offset
+    if datetime.fromisoformat(clock + fraction + offset).utcoffset() is None:
         raise ArtifactError()
 
 

@@ -18,7 +18,15 @@ from dango.transformation.artifacts import (
     BuildReceipt,
     InvocationBinding,
 )
-from tests.unit.test_dbt2_artifacts import HASHES, digest, fixture, parse, receipt, write_json
+from tests.unit.test_dbt2_artifacts import (
+    HASHES,
+    digest,
+    fixture,
+    parse,
+    rebind,
+    receipt,
+    write_json,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -214,5 +222,50 @@ def test_file_content_change_during_read_refuses(tmp_path):
             return raw
 
     with patch("dango.transformation.artifacts.os.fdopen", ChangingRead):
+        with pytest.raises(ArtifactError):
+            parse(target)
+
+
+@pytest.mark.parametrize(
+    ("timestamp", "accepted"),
+    [
+        ("2026-11-10T13:35:23Z", True),
+        ("2026-11-10T13:35:23.1Z", True),
+        ("2026-11-10T13:35:23.12Z", True),
+        ("2026-11-10T13:35:23.123Z", True),
+        ("2026-11-10T13:35:23.1234Z", True),
+        ("2026-11-10T13:35:23.12345Z", True),
+        ("2026-11-10T13:35:23.123456Z", True),
+        ("2026-11-10T13:35:23.1234567Z", True),
+        ("2026-11-10T13:35:23.12345678Z", True),
+        ("2026-11-10T13:35:23.123456789Z", True),
+        ("2024-02-29T23:59:59.123456789+05:30", True),
+        ("2026-11-10T13:35:23.123456789-03:30", True),
+        ("2026-11-10T13:35:23.123456789", False),
+        ("2026-11-10T13:35:23.1234567890Z", False),
+        ("2026-11-10T13:35:23.abcZ", False),
+        ("2026-11-10T13:35:23.Z", False),
+        ("2026-02-29T13:35:23Z", False),
+        ("2026-13-10T13:35:23Z", False),
+        ("2026-11-10T24:35:23Z", False),
+        ("2026-11-10T13:60:23Z", False),
+        ("2026-11-10T13:35:60Z", False),
+        ("2026-11-10T13:35:23+24:00", False),
+        ("2026-11-10T13:35:23+00:60", False),
+        ("2026-11-10T13:35:23+0530", False),
+        ("2026-11-10 13:35:23Z", False),
+        ("2026-11-10T13:35:23Ztrailing", False),
+        (None, False),
+        (True, False),
+    ],
+)
+def test_native_timestamp_precision_calendar_and_offset(tmp_path, timestamp, accepted):
+    target, binding = fixture(tmp_path)
+    value = json.loads((target / "run_results.json").read_text())
+    value["metadata"]["generated_at"] = timestamp  # Explicit synthetic timestamp variant.
+    rebind(target, binding, "run_results.json", value)
+    if accepted:
+        assert receipt(parse(target)).status == "success"
+    else:
         with pytest.raises(ArtifactError):
             parse(target)
