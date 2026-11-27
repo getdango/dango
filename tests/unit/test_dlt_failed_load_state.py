@@ -12,7 +12,7 @@ import os
 from collections import Counter
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import dlt
 import pytest
@@ -69,6 +69,12 @@ def cursor() -> Any:
     return resources["events"]["incremental"]["updated_at"]["last_value"]
 
 
+def backups() -> list[str]:
+    """State backups Dango left in dlt's pipelines directory."""
+    root = Path(os.environ["DLT_DATA_DIR"]) / "pipelines"
+    return sorted(p.name for p in root.iterdir() if "_backup_" in p.name)
+
+
 def pending() -> bool:
     return bool(dlt.attach(NAME).has_pending_data)
 
@@ -101,6 +107,7 @@ class TestFailedLoadThenRetry:
         runner = DltPipelineRunner(tmp_path)
         assert run(runner, method, source(5))["status"] == "success"
         assert isinstance(fail_load(runner, method, source(8), RuntimeError("lf")), RuntimeError)
+        assert backups() == []
 
         assert run(runner, method, source(8))["status"] == "success"
         assert events(runner) == ONCE[0]
@@ -177,6 +184,30 @@ class TestControlsUnchanged:
         assert run(runner, method, source(8))["status"] == "success"
         assert events(runner) == ONCE[0]
 
+    def test_state_is_restored_when_no_package_is_left(self, tmp_path: Any, method: str) -> None:
+        """dlt advanced the cursor but the package is gone (as after the empty-replace guard drops
+        it): the old state must come back, or the rows between old and new cursor are never loaded."""
+        runner = DltPipelineRunner(tmp_path)
+        assert run(runner, method, source(5))["status"] == "success"
+        real = dlt.Pipeline.extract
+
+        def extract_then_lose_the_package(self: Any, *args: Any, **kwargs: Any) -> Any:
+            real(self, *args, **kwargs)
+            self.drop_pending_packages()
+            raise RuntimeError("extract ended badly")
+
+        with (
+            patch.object(dlt.Pipeline, "extract", extract_then_lose_the_package),
+            patch("dango.ingestion.dlt_runner.time.sleep"),
+            pytest.raises(RuntimeError, match="extract ended badly"),
+        ):
+            run(runner, method, source(8))
+        assert not pending()
+        assert cursor() == 5
+
+        assert run(runner, method, source(8))["status"] == "success"
+        assert events(runner) == ONCE[0]
+
     def test_merge_with_primary_key_absorbs_the_retry(self, tmp_path: Any, method: str) -> None:
         runner = DltPipelineRunner(tmp_path)
         assert run(runner, method, source(5, disposition="merge"))["status"] == "success"
@@ -195,3 +226,54 @@ class TestControlsUnchanged:
 
         expected = Counter(dict.fromkeys(range(1, 6), 3)) + Counter(dict.fromkeys((6, 7, 8), 2))
         assert Counter(events(runner)) == expected
+
+
+class TestKeepDecision:
+    """Which failures keep the state: only those that left a package this run did not start with."""
+
+    @staticmethod
+    def pipeline(extracted: list[str], normalized: list[str]) -> Any:
+        fake = MagicMock()
+        fake.list_extracted_load_packages.return_value = extracted
+        fake.list_normalized_load_packages.return_value = normalized
+        return fake
+
+    @pytest.mark.parametrize(
+        ("before", "extracted", "normalized", "keeps"),
+        [
+            (frozenset(), [], [], False),
+            (frozenset(), ["p1"], [], True),
+            (frozenset(), [], ["p1"], True),
+            (frozenset({"p1"}), [], ["p1"], False),
+            (frozenset({"p1"}), ["p2"], ["p1"], True),
+            (frozenset({"p1"}), [], ["p2"], True),
+            (None, [], ["p1"], False),
+        ],
+    )
+    def test_decision(
+        self,
+        tmp_path: Any,
+        before: frozenset[str] | None,
+        extracted: list[str],
+        normalized: list[str],
+        keeps: bool,
+    ) -> None:
+        backup = tmp_path / "x_backup_20260101_000000"
+        backup.mkdir()
+        runner = DltPipelineRunner(tmp_path)
+        fake = self.pipeline(extracted, normalized)
+
+        assert runner._keep_state_for_new_package(fake, backup, before) is keeps
+        assert backup.exists() is not keeps
+
+    def test_unreadable_package_list_keeps_nothing(self, tmp_path: Any) -> None:
+        fake = MagicMock()
+        fake.list_extracted_load_packages.side_effect = OSError("gone")
+        backup = tmp_path / "x_backup_20260101_000000"
+        backup.mkdir()
+
+        assert (
+            DltPipelineRunner(tmp_path)._keep_state_for_new_package(fake, backup, frozenset())
+            is False
+        )
+        assert backup.exists()

@@ -43,7 +43,11 @@ from dango.ingestion.file_refresh import (
     finish_aborted_refresh,
     restore_refresh_backup,
 )
-from dango.ingestion.interrupts import interrupts_stay_interrupts, sigterm_as_interrupt
+from dango.ingestion.interrupts import (
+    find_sync_timeout,
+    interrupts_stay_interrupts,
+    sigterm_as_interrupt,
+)
 from dango.ingestion.sources.registry import get_source_metadata
 from dango.ingestion.status_codes import has_status_code
 from dango.utils.dlt_error_text import rewrite_dlt_advice
@@ -267,6 +271,19 @@ def _dlt_pipelines_dir() -> Path:
     from dlt.common.pipeline import get_dlt_pipelines_dir
 
     return Path(get_dlt_pipelines_dir())
+
+
+def _pending_package_ids(pipeline: Any) -> frozenset[str] | None:
+    """Ids of the packages the pipeline has extracted or normalized but not loaded.
+
+    None when dlt cannot say (the caller then keeps its older behaviour).
+    """
+    try:
+        return frozenset(pipeline.list_extracted_load_packages()) | frozenset(
+            pipeline.list_normalized_load_packages()
+        )
+    except Exception:
+        return None
 
 
 def _checked_pipeline_dir(pipeline_name: str) -> Path:
@@ -1334,8 +1351,15 @@ class DltPipelineRunner:
 
                 # Call source function with provided kwargs
                 # dlt resolves dlt.secrets.value parameters at this point
+                # Names only: the values may be API keys or tokens and must not reach the
+                # terminal or the sync logs.
+                argument_names = ", ".join(str(name) for name in config.function_kwargs)
+                arguments_text = (
+                    f"arguments: {argument_names}" if argument_names else "no arguments"
+                )
                 console.print(
-                    f"  [dim]Calling {config.source_function}(**{config.function_kwargs})[/dim]"
+                    f"  [dim]Calling {escape(config.source_function)} with "
+                    f"{escape(arguments_text)}[/dim]"
                 )
                 source = source_function(**config.function_kwargs)
 
@@ -1426,6 +1450,9 @@ class DltPipelineRunner:
                     destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
                     dataset_name=dataset_name,
                 )
+
+        # Packages already waiting (an earlier failed run's) before this run extracts anything.
+        packages_before = _pending_package_ids(pipeline)
 
         try:
             # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
@@ -1590,8 +1617,12 @@ class DltPipelineRunner:
             }
 
         except Exception:
-            # Restore state on failure
-            if state_backup:
+            # A package this run extracted is still waiting: keep the state that matches it.
+            # Otherwise restore the state as it was before the run.
+            if (
+                not self._keep_state_for_new_package(pipeline, state_backup, packages_before)
+                and state_backup
+            ):
                 console.print("  ⚠️  Restoring pipeline state (failed load)")
                 self._restore_dlt_state(state_backup)
             raise
@@ -1911,6 +1942,9 @@ class DltPipelineRunner:
                     dataset_name=dataset_name,
                 )
 
+        # Packages already waiting (an earlier failed run's) before this run extracts anything.
+        packages_before = _pending_package_ids(pipeline)
+
         try:
             # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
             self._run_extract_with_retry(pipeline, source, max_retries=3)
@@ -2188,8 +2222,9 @@ class DltPipelineRunner:
                     except Exception:
                         console.print("  ❌ Partial sync also failed")
 
-            console.print("  🔄 Restoring previous state...")
-            self._restore_dlt_state(state_backup)
+            if not self._keep_state_for_new_package(pipeline, state_backup, packages_before):
+                console.print("  🔄 Restoring previous state...")
+                self._restore_dlt_state(state_backup)
             raise
 
     # Sources with complex credential objects that need restructuring.
@@ -3117,6 +3152,10 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 return
 
             except Exception as e:
+                timeout = find_sync_timeout(e)
+                if timeout is not None:
+                    # The timeout alarm fires once: a retry would run with no time limit.
+                    raise timeout from None
                 last_exception = e
                 console.print(f"  ⚠️  Attempt {attempt} failed: {self._rich_err(e)}")
 
@@ -3617,6 +3656,28 @@ Need help? Visit: https://github.com/getdango/dango/issues
                     "close anything using that directory and run it again."
                 ) from e
             console.print(f"  ⚠️  Could not clear local pipeline cache: {self._rich_err(e)}")
+
+    def _keep_state_for_new_package(
+        self, pipeline: Any, backup_dir: Path | None, packages_before: frozenset[str] | None
+    ) -> bool:
+        """After a failed run: keep the pipeline state when this run left a package behind.
+
+        dlt advances the state (an incremental cursor) while it extracts and stores the same state in
+        the package. The package is kept for the next run to load, so the matching state must be kept
+        too: restoring the old state would make the next run extract the same rows again on top of
+        the package. The backup is not needed then and is removed. Returns False, with nothing
+        changed, when this run left no package (the failure came before extraction finished), or
+        when dlt cannot tell: the caller then restores the backup as before.
+        """
+        after = _pending_package_ids(pipeline)
+        if packages_before is None or after is None or not (after - packages_before):
+            return False
+        console.print(
+            "  [dim]Keeping pipeline state: it matches the extracted data, which is kept "
+            "for the next run[/dim]"
+        )
+        self._cleanup_state_backup(backup_dir)
+        return True
 
     def _restore_dlt_state(self, backup_dir: Path | None):
         """
