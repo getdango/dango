@@ -286,6 +286,34 @@ def _pending_package_ids(pipeline: Any) -> frozenset[str] | None:
         return None
 
 
+def _drop_packages_of_this_run(pipeline: Any, packages_before: frozenset[str] | None) -> None:
+    """Drop the packages this run created; an older kept package (and the state matching it) stays.
+
+    ``drop_pending_packages()`` would also delete a package an earlier failed load left behind, whose
+    rows the kept pipeline state already counts as extracted: they would never load. Without an older
+    package, or when dlt's storages cannot be reached, it is used as before.
+    """
+    if not packages_before:
+        pipeline.drop_pending_packages()
+        return
+    try:
+        load_storage = pipeline._get_load_storage()
+        normalize_storage = pipeline._get_normalize_storage()
+        normalized = load_storage.normalized_packages if load_storage.is_storage_ready() else None
+        extracted = (
+            normalize_storage.extracted_packages if normalize_storage.is_storage_ready() else None
+        )
+    except AttributeError:
+        pipeline.drop_pending_packages()
+        return
+    new_ids = (_pending_package_ids(pipeline) or frozenset()) - packages_before
+    for load_id in new_ids:
+        if normalized is not None and load_id in normalized.list_packages():
+            normalized.delete_package(load_id)
+        if extracted is not None and load_id in extracted.list_packages():
+            extracted.delete_package(load_id)
+
+
 def _checked_pipeline_dir(pipeline_name: str) -> Path:
     """Working dir of *pipeline_name*; ``ValueError`` if it is not a single path component."""
     from dango.utils.safe_names import contained_child, reject_backup_shaped_name
@@ -588,6 +616,7 @@ class DltPipelineRunner:
         source_name = source_config.name
         source_type = source_config.type
         start_time = datetime.now(tz=timezone.utc)
+        self._state_outcome: str | None = None
 
         console.print(f"\n{'=' * 60}")
         console.print(f"🍡 Syncing: [bold]{source_name}[/bold] ({source_type.value})")
@@ -776,9 +805,7 @@ class DltPipelineRunner:
                 except SyncTimeoutError as e:
                     error_message = str(e)
                     console.print(f"[red]❌ {self._rich_err(e)}[/red]")
-                    console.print(
-                        "[yellow]ℹ️  Pipeline state has been restored to prevent corruption[/yellow]"
-                    )
+                    console.print(f"[yellow]ℹ️  {self._state_outcome_text()}[/yellow]")
 
                     # Return failure result
                     duration = (datetime.now(tz=timezone.utc) - start_time).total_seconds()
@@ -822,9 +849,7 @@ class DltPipelineRunner:
                 except SyncTimeoutError as e:
                     error_message = str(e)
                     console.print(f"[red]❌ {self._rich_err(e)}[/red]")
-                    console.print(
-                        "[yellow]ℹ️  Pipeline state has been restored to prevent corruption[/yellow]"
-                    )
+                    console.print(f"[yellow]ℹ️  {self._state_outcome_text()}[/yellow]")
 
                     # Return failure result
                     duration = (datetime.now(tz=timezone.utc) - start_time).total_seconds()
@@ -1490,7 +1515,7 @@ class DltPipelineRunner:
                     ):
                         would_truncate.append((table_name, pre_count))
                 if would_truncate:
-                    pipeline.drop_pending_packages()
+                    _drop_packages_of_this_run(pipeline, packages_before)
                     self._restore_dlt_state(state_backup)
                     error_msg = redacted_error_text(
                         self.project_root, truncate_message(source_name, would_truncate)
@@ -1625,6 +1650,7 @@ class DltPipelineRunner:
             ):
                 console.print("  ⚠️  Restoring pipeline state (failed load)")
                 self._restore_dlt_state(state_backup)
+                self._state_outcome = "restored"
             raise
 
     def _detect_write_disposition(self, source: Any) -> bool:
@@ -1981,7 +2007,7 @@ class DltPipelineRunner:
                     ):
                         would_truncate.append((table_name, pre_count))
                 if would_truncate:
-                    pipeline.drop_pending_packages()
+                    _drop_packages_of_this_run(pipeline, packages_before)
                     self._restore_dlt_state(state_backup)
                     error_msg = redacted_error_text(
                         self.project_root, truncate_message(source_name, would_truncate)
@@ -2225,6 +2251,7 @@ class DltPipelineRunner:
             if not self._keep_state_for_new_package(pipeline, state_backup, packages_before):
                 console.print("  🔄 Restoring previous state...")
                 self._restore_dlt_state(state_backup)
+                self._state_outcome = "restored"
             raise
 
     # Sources with complex credential objects that need restructuring.
@@ -3657,6 +3684,15 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 ) from e
             console.print(f"  ⚠️  Could not clear local pipeline cache: {self._rich_err(e)}")
 
+    def _state_outcome_text(self) -> str:
+        """What the last failed run did with the pipeline state (for the timeout message)."""
+        outcome = getattr(self, "_state_outcome", None)
+        if outcome == "kept":
+            return "Pipeline state was kept with the extracted data, which the next run loads"
+        if outcome == "restored":
+            return "Pipeline state has been restored to prevent corruption"
+        return "Pipeline state was not changed"
+
     def _keep_state_for_new_package(
         self, pipeline: Any, backup_dir: Path | None, packages_before: frozenset[str] | None
     ) -> bool:
@@ -3677,6 +3713,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
             "for the next run[/dim]"
         )
         self._cleanup_state_backup(backup_dir)
+        self._state_outcome = "kept"
         return True
 
     def _restore_dlt_state(self, backup_dir: Path | None):
