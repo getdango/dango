@@ -3342,8 +3342,9 @@ Need help? Visit: https://github.com/getdango/dango/issues
           staging schema -- a swap loop keyed only on the staged tables would silently
           leave that table's stale destination data untouched. The swap below unions in
           `pre_table_counts` so a table that goes fully empty this run is emptied (rows
-          deleted, table kept so dlt's schema for it stays true), not skipped (this scenario is normally caught first by the empty-replace check
-          below unless the caller passed `allow_empty_replace=True`).
+          deleted, table kept so dlt's schema for it stays true) rather than left with
+          its stale rows (this scenario is normally caught first by the empty-replace
+          check below unless the caller passed `allow_empty_replace=True`).
         - A crashed or interrupted prior staging attempt that never reached its own
           cleanup leaves both a stale staging schema AND a stale local dlt pipeline
           working directory behind. If the working directory survives, a fresh
@@ -3523,7 +3524,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
             # multi-resource source: changed rows update, new rows insert, and rows
             # absent from the new extraction are correctly purged. Tables present in
             # pre_table_counts but absent from staged_counts (a resource that yielded
-            # zero rows this run -- see docstring) are emptied, not skipped and not dropped.
+            # zero rows this run -- see docstring) are emptied: neither left with stale rows nor dropped.
             #
             # Explicit transaction around the whole loop: DuckDB's connection
             # auto-commits each statement individually, so a multi-table source with
