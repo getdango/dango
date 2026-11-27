@@ -76,7 +76,7 @@ def test_cli_sync_with_one_bad_file_exits_1_and_names_it(project: Path) -> None:
     assert "Failed (1)" in output and "c.csv" in output
     assert "Sync failed for 1 source(s)" in output
     assert "Succeeded" not in output and "Synced demo" not in output
-    assert "skipping dbt" in output
+    assert "Running dbt models" not in output
     last = load_sync_history(project, "demo", limit=1)[0]
     assert last["status"] == "partial" and "c.csv" in last["error_message"]
 

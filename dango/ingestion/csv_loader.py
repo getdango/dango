@@ -23,12 +23,16 @@ from dango.ingestion.interrupts import (
     reraise_current_if_interrupt,
     reraise_if_interrupt,
 )
-from dango.utils.error_text import rich_error_text
+from dango.utils.error_text import redacted_error_text, rich_error_text
 from dango.validation import quote_identifier
 
 console = Console()
 
 DUPLICATE_FILENAME_ERROR_TYPE = "duplicate_filenames"
+
+# A file that failed to load is named in the sync result with a short reason.
+_MAX_REASON_CHARS = 200
+_MAX_LISTED_FAILED_FILES = 5
 
 # DuckDB read functions keyed by file extension
 SUPPORTED_READ_FUNCTIONS: dict[str, str] = {
@@ -61,6 +65,35 @@ class CSVLoader:
         """
         self.project_root = project_root
         self.duckdb_path = duckdb_path
+        # Files of the current load() that failed to read or insert (a 0-row file is not one)
+        self.failed_files: list[dict[str, str]] = []
+
+    def _record_failed_file(self, filepath: str, error: BaseException) -> None:
+        """Remember that *filepath* failed to load, with a short, redacted, single-line reason."""
+        name = os.path.basename(filepath)
+        text = redacted_error_text(self.project_root, error)
+        text = text.replace(filepath, name).replace(f"{self.project_root}{os.sep}", "")
+        # DuckDB's CSV errors echo the offending row ("Original Line: ..."): leave the data out
+        lines = [
+            ln.strip()
+            for ln in text.splitlines()
+            if ln.strip() and not ln.strip().startswith("Original Line:")
+        ]
+        reason = " ".join(lines[:2]) or type(error).__name__
+        if len(reason) > _MAX_REASON_CHARS:
+            reason = f"{reason[:_MAX_REASON_CHARS]}..."
+        self.failed_files.append({"file": name, "reason": reason})
+
+    @staticmethod
+    def _failed_files_error(failed: list[dict[str, str]]) -> str:
+        """One line naming the failed files and why (the source's `error` text)."""
+        shown = "; ".join(f"{f['file']} ({f['reason']})" for f in failed[:_MAX_LISTED_FAILED_FILES])
+        more = len(failed) - _MAX_LISTED_FAILED_FILES
+        extra = f"; and {more} more" if more > 0 else ""
+        return (
+            f"{len(failed)} file(s) failed to load and were left out: {shown}{extra}. "
+            "Fix or remove the file(s); the next sync tries them again."
+        )
 
     def _get_read_function(self, filepath: str) -> str:
         """Get DuckDB read function for file format based on extension."""
@@ -105,6 +138,7 @@ class CSVLoader:
             Dictionary with load statistics
         """
         console.print(f"📄 Loading file source: {source_name}")
+        self.failed_files = []
 
         # Resolve directory path (relative to project root if not absolute)
         directory = config.directory
@@ -356,10 +390,16 @@ class CSVLoader:
                 f"{stats['deleted']} deleted | Total rows: {stats['total_rows']}"
             )
 
-            return {
-                "status": "success",
-                **stats,
-            }
+            result: dict[str, Any] = {"status": "success", **stats}
+            if self.failed_files:
+                # Some files loaded and stay recorded; the failed ones are tried again next sync
+                failed = list(self.failed_files)
+                result.update(
+                    status="partial",
+                    failed_files=failed,
+                    error=self._failed_files_error(failed),
+                )
+            return result
 
         except CSVSchemaMismatchError as e:
             # Schema mismatch - fail immediately with clear error
@@ -1183,6 +1223,7 @@ class CSVLoader:
                 console.print(
                     f"    ❌ Failed to load {filename}: {rich_error_text(self.project_root, e)}"
                 )
+                self._record_failed_file(filepath, e)
             # Attempt cleanup of temp table
             try:
                 conn.execute(f"DROP TABLE IF EXISTS {temp_table}")
@@ -1283,6 +1324,7 @@ class CSVLoader:
             console.print(
                 f"    ❌ Failed to reload {filename}: {rich_error_text(self.project_root, e)}"
             )
+            self._record_failed_file(filepath, e)
             return False
 
     def _delete_file_data(

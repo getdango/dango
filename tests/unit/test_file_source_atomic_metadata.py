@@ -186,7 +186,8 @@ def test_control_a_failing_file_is_skipped_and_the_others_load(
 
     result = _sync(runner, _source(kind, tmp_path))
 
-    assert result["status"] == "success" and result["new"] == 2
+    assert result["status"] == "partial" and result["new"] == 2
+    assert [f["file"] for f in result["failed_files"]] == ["b.csv"]
     assert _rows(runner) == [(1, "a"), (3, "c")]
     assert _recorded_files(runner) == ["a.csv", "c.csv"]
 

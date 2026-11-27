@@ -185,7 +185,7 @@ def test_run_source_records_partial_and_does_not_print_synced(
     assert "c.csv" in last["error_message"]
     printed = out.getvalue()
     assert "Synced" not in printed
-    assert "c.csv" in printed
+    assert "Partially synced sales" in printed
 
 
 def test_run_sync_lists_the_source_under_failures_with_the_file(

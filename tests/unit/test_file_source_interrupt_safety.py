@@ -353,7 +353,8 @@ def test_control_failing_file_is_still_left_out_not_interrupted(
 
     result = _sync(runner, _source(kind, tmp_path))
 
-    assert result["status"] == "success"
+    assert result["status"] == "partial"
+    assert [f["file"] for f in result["failed_files"]] == ["b.csv"]
     assert result["new"] == 1
     assert _rows(runner) == [(1, "a"), (2, "b")]
 
