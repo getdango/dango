@@ -242,6 +242,34 @@ def test_failed_restore_never_masks_the_original_error(
     assert f"{SCHEMA}.{BACKUP}" in _tables(runner)  # the previous data is still kept
 
 
+def test_interrupt_between_rename_and_metadata_snapshot_keeps_the_file_metadata(
+    kind, tmp_path, uploads, runner, monkeypatch
+):
+    """The table is renamed but the metadata rows are not snapshotted (or cleared) yet."""
+    from dango.ingestion import file_refresh
+
+    src = _seed(kind, tmp_path, uploads, runner)
+    before_meta = _metadata(runner)
+    real_print = file_refresh.console.print
+
+    def print_then_interrupt(*args, **kwargs):
+        if "existing data backed up" in str(args[0]):
+            raise KeyboardInterrupt
+        return real_print(*args, **kwargs)
+
+    monkeypatch.setattr(file_refresh.console, "print", print_then_interrupt)
+
+    result = _sync_result(runner, src, full_refresh=True)
+
+    monkeypatch.setattr(file_refresh.console, "print", real_print)
+    assert result["status"] == "interrupted"
+    assert _rows(runner) == ORIGINAL
+    assert _metadata(runner) == before_meta
+    assert f"{SCHEMA}.{BACKUP}" not in _tables(runner)
+    assert _sync(runner, src)["status"] == "success"  # the next plain sync loads nothing twice
+    assert not _query(runner, f"SELECT id FROM {SCHEMA}.{NAME} GROUP BY id HAVING count(*) > 1")
+
+
 class _InterruptedConn:
     """A connection whose every query is cut short by an interrupt."""
 
