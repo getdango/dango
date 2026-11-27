@@ -32,6 +32,7 @@ from dango.exceptions import ConfigError, ConfigNotFoundError, SyncTimeoutError
 from dango.ingestion.csv_loader import CSVLoader, check_duplicate_filenames
 from dango.ingestion.empty_guard import (
     disposition_name,
+    mixes_replace_with_append_or_merge,
     replace_protected_tables,
     tables_run_can_write,
     truncate_message,
@@ -48,6 +49,7 @@ from dango.ingestion.interrupts import (
     interrupts_stay_interrupts,
     sigterm_as_interrupt,
 )
+from dango.ingestion.refresh_state import adopt_staged_state, staged_source_state
 from dango.ingestion.sources.registry import get_source_metadata
 from dango.ingestion.status_codes import has_status_code
 from dango.utils.dlt_error_text import rewrite_dlt_advice
@@ -1436,7 +1438,12 @@ class DltPipelineRunner:
         # true reload. Replace sources skip the schema drop since they overwrite
         # tables on every run (preserving schema protects against 0-row results).
         if full_refresh:
+            # A source with replace resources next to append/merge ones is staged as well: the
+            # replace path below would load its append and merge tables a second time.
+            stage_the_reload = mixes_replace_with_append_or_merge(source)
             if not uses_replace_mode:
+                stage_the_reload = True
+            if stage_the_reload:
                 # 1.0.10-S15: merge/append sources no longer drop the real schema
                 # before extraction (see PLAN.md's "S15 finding" -- any ordinary
                 # failure after that drop, not just an interrupt, previously left the
@@ -1925,7 +1932,12 @@ class DltPipelineRunner:
         # true reload. Replace sources skip the schema drop since they overwrite
         # tables on every run (preserving schema protects against 0-row results).
         if full_refresh:
+            # A source with replace resources next to append/merge ones is staged as well: the
+            # replace path below would load its append and merge tables a second time.
+            stage_the_reload = mixes_replace_with_append_or_merge(source)
             if not uses_replace_mode:
+                stage_the_reload = True
+            if stage_the_reload:
                 # 1.0.10-S15: merge/append sources no longer drop the real schema
                 # before extraction (see PLAN.md's "S15 finding" -- any ordinary
                 # failure after that drop, not just an interrupt, previously left the
@@ -3497,6 +3509,10 @@ Need help? Visit: https://github.com/getdango/dango/issues
             console.print("  ⏳ Loading data to staging...")
             staging_load_info = self._load_with_lock(staging_pipeline, source_name, max_lock_wait)
 
+            # Where the refreshed data ends (cursor, boundary row hashes): read before the swap, so a
+            # failure here leaves the destination untouched. The real pipeline adopts it after the swap.
+            staged_state = staged_source_state(staging_pipeline)
+
             # Extract load statistics BEFORE cleanup -- _extract_load_stats queries
             # row counts from the staging dataset, which the swap+cleanup below removes.
             stats = self._extract_load_stats(staging_load_info)
@@ -3545,7 +3561,14 @@ Need help? Visit: https://github.com/getdango/dango/issues
             finally:
                 db.close()
 
-            # The swap is committed: packages an earlier failed load left in the REAL pipeline
+            # The swap is committed: the real pipeline's cursor must now match the refreshed tables,
+            # or the next plain sync re-reads every row since the old cursor (duplicates in append
+            # tables). Only after the commit: a cursor ahead of tables that were not swapped would
+            # leave rows unread. Nothing but this write sits between the commit and the state, so an
+            # interrupt there is the only way to leave the new tables with the old cursor.
+            self._adopt_staged_cursor(pipeline, staged_state, source_name)
+
+            # Packages an earlier failed load left in the REAL pipeline
             # describe data this refresh just replaced, and the next plain sync would load them
             # back. (Before the swap, or when it was blocked or failed, they are kept: they belong
             # to a load the user may still want to resume.)
@@ -3585,6 +3608,27 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 "rows_loaded": 0,
                 "uses_replace_mode": uses_replace_mode,
             }
+
+    def _adopt_staged_cursor(
+        self, pipeline: Any, staged_state: dict[str, Any], source_name: str
+    ) -> None:
+        """Make the real pipeline's incremental state equal the refreshed data's, after the swap.
+
+        A failure only warns: the swap is committed and cannot be undone, the old cursor is kept (a
+        later plain sync may load some rows twice, it never misses any) and the same refresh run
+        again repairs it.
+        """
+        if pipeline is None:
+            return
+        try:
+            adopt_staged_state(pipeline, staged_state)
+        except Exception as e:
+            console.print(
+                f"  ⚠️  Could not save the new incremental position ({self._rich_err(e)}); "
+                f"the data is refreshed, but the next plain sync may load rows added since the "
+                f"last sync a second time. Run `dango sync {escape(source_name)} --full-refresh` "
+                f"again to repair this"
+            )
 
     def _drop_stale_pending_packages(self, pipeline: Any) -> None:
         """Drop the real pipeline's pending (extracted or normalized, not loaded) packages.

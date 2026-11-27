@@ -314,7 +314,7 @@ class TestFailureKeepsTableAndCursorTogether:
 @pytest.mark.parametrize("method", METHODS)
 class TestStateWriteFailsAfterTheSwap:
     """The swap is committed and cannot be undone: the data stays refreshed, the cursor stays where
-    it was (the next plain sync may load the rows between the two again, it never skips rows), the
+    it was (the next plain sync may load the rows between the two again, it never loses rows), the
     refresh says so, and a second refresh repairs it."""
 
     def test_old_cursor_kept_with_a_warning_and_a_second_refresh_repairs_it(
