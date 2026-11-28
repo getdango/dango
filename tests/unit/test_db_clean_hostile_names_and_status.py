@@ -51,6 +51,20 @@ def test_a_crafted_orphan_table_name_never_reaches_a_configured_table(
     assert tables_by_schema(root).get("raw_gone", []) == []
 
 
+def test_an_orphan_schema_with_a_space_in_its_name_is_dropped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = project(tmp_path, "p1", entry("keep"))
+    plant(root, "raw_keep", ["events"])
+    plant(root, "raw_my schema", ["t"])
+
+    result = db_clean(root, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert "raw_my schema" not in tables_by_schema(root)
+    assert ids_in(root, "raw_keep") == [1]
+
+
 def test_a_crafted_orphan_schema_name_never_reaches_a_configured_table(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -77,6 +91,7 @@ def test_status_does_not_call_a_kept_schema_orphaned(
     assert "Orphaned Tables" not in result.output
     assert "Run 'dango db clean'" not in result.output
     assert "No orphaned tables found" in result.output
+    assert "Configured Tables" not in result.output
     assert "Kept raw_old" in result.output
 
 
