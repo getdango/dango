@@ -13,7 +13,8 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from dango.config.models import DataSource, SourceType
+from dango.config.models import DataSource
+from dango.config.source_datasets import dataset_name_of, pipeline_name_of, schemas_of
 from dango.logging import get_logger
 
 logger = get_logger(__name__)
@@ -34,28 +35,6 @@ __all__ = [
     "warehouse_has_data_for",
 ]
 
-_FILE_SOURCES = (SourceType.CSV, SourceType.LOCAL_FILES)
-
-
-def pipeline_name_of(source: DataSource) -> str | None:
-    """The dlt pipeline name the runner uses for *source* (None for file sources: no dlt state)."""
-    if source.type in _FILE_SOURCES:
-        return None
-    native = getattr(source, "dlt_native", None)
-    override = (
-        getattr(native, "pipeline_name", None) if source.type == SourceType.DLT_NATIVE else None
-    )
-    return str(override or source.name)
-
-
-def dataset_name_of(source: DataSource) -> str:
-    """The warehouse schema the runner loads *source* into."""
-    native = getattr(source, "dlt_native", None)
-    override = (
-        getattr(native, "dataset_name", None) if source.type == SourceType.DLT_NATIVE else None
-    )
-    return str(override or f"raw_{source.name}")
-
 
 def pipeline_names_in_use(sources: Iterable[DataSource]) -> set[str]:
     """Pipeline names of the dlt-backed sources in *sources*, case-folded.
@@ -66,7 +45,7 @@ def pipeline_names_in_use(sources: Iterable[DataSource]) -> set[str]:
 
 
 def warehouse_has_data_for(duckdb_path: Path, source: DataSource) -> bool:
-    """True when the warehouse still holds any table of the source's schema.
+    """True when the warehouse still holds any table of a schema the source may write to.
 
     Conservative: a warehouse that cannot be read (locked, corrupt) counts as holding data, so the
     cursor is kept. A missing warehouse file holds none.
@@ -78,9 +57,11 @@ def warehouse_has_data_for(duckdb_path: Path, source: DataSource) -> bool:
 
         con = duckdb.connect(str(duckdb_path), read_only=True)
         try:
+            first, second = (schemas_of(source) * 2)[:2]  # one or two candidate schemas
             row = con.execute(
-                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ?",
-                [dataset_name_of(source)],
+                "SELECT COUNT(*) FROM information_schema.tables "
+                "WHERE lower(table_schema) IN (?, ?)",
+                [first, second],
             ).fetchone()
         finally:
             con.close()

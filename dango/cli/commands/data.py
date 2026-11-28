@@ -13,6 +13,7 @@ from rich.markup import escape
 
 from dango.cli import console
 from dango.utils.error_text import rich_error_text
+from dango.validation import quote_identifier
 
 if TYPE_CHECKING:
     from dango.config import DangoConfig
@@ -98,17 +99,35 @@ def db_status(ctx: click.Context) -> None:
                     actual_raw_tables[schema] = set()
                 actual_raw_tables[schema].add(table)
 
+        # Raw tables are classified by the scan `dango db clean` uses, so the two always agree
+        from dango.utils.orphan_scan import scan_orphans
+
+        scan = scan_orphans(duckdb_path, config)
+        orphan_keys = {(s, t) for s, t, _size in scan.orphans}
+
         configured_tables = []
         orphaned_tables = []
 
         for schema, table, size in result:
-            if is_table_configured(
-                schema, table, schema_to_tables, source_to_schema, actual_raw_tables
-            ):
+            if schema == "raw" or (schema.startswith("raw") and len(schema) > 3):
+                if schema.casefold() in scan.kept_schemas:
+                    continue  # reported below: its owner is unclear, `db clean` leaves it alone
+                is_configured = (schema, table) not in orphan_keys
+            else:
+                is_configured = is_table_configured(
+                    schema, table, schema_to_tables, source_to_schema, actual_raw_tables
+                )
+            if is_configured:
                 if not table.startswith("_dlt_"):
                     configured_tables.append((schema, table, size, "✅"))
             else:
                 orphaned_tables.append((schema, table, size))
+
+        for line in scan.kept:
+            note = f"{line} 'dango db clean' will not drop it."
+            console.print(f"[yellow]{escape(note)}[/yellow]", highlight=False)
+        if scan.kept:
+            console.print()
 
         # Display configured tables
         if configured_tables:
@@ -237,9 +256,12 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
             return
 
         # Find orphaned tables using shared detection logic
-        from dango.utils.db_health import find_orphaned_tables
+        from dango.utils.orphan_scan import scan_orphans
 
-        orphaned_tables = find_orphaned_tables(duckdb_path, config)
+        scan = scan_orphans(duckdb_path, config)
+        orphaned_tables = scan.orphans
+        for line in scan.kept:  # schemas whose owner is unclear are never dropped
+            console.print(f"[yellow]{escape(line)} Not dropped.[/yellow]", highlight=False)
 
         if not orphaned_tables:
             console.print("[green]✅ No orphaned tables found[/green]")
@@ -293,7 +315,9 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
 
         for schema, table, _size in orphaned_tables:
             try:
-                conn.execute(f"DROP TABLE IF EXISTS {schema}.{table}")
+                conn.execute(
+                    f"DROP TABLE IF EXISTS {quote_identifier(schema)}.{quote_identifier(table)}"
+                )
                 console.print(f"[green]✓[/green] Dropped {schema}.{table}")
                 dropped_count += 1
                 if schema in pipelines_by_schema and table == "_dlt_pipeline_state":
