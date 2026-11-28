@@ -274,7 +274,7 @@ class SourceWizard:
             if metadata.get("default_config"):
                 self._write_config_template(source_type, metadata)
 
-            # Step 6a: Provision geo_targets seed + staging model for Google Ads
+            # Step 6a: Provision geo_targets seed for Google Ads
             if source_type == "google_ads":
                 self._provision_geo_targets(source_name)
 
@@ -2370,14 +2370,12 @@ def {module_name}_resource(api_key: str):
         return build_source_config(source_type, source_name, params)
 
     def _provision_geo_targets(self, source_name: str) -> None:
-        """Provision geo_targets seed CSV and staging join model for Google Ads."""
+        """Provision the geo_targets seed CSV for Google Ads."""
         for path in provision_geo_targets(self.project_root, source_name):
             if path.endswith("geo_targets.csv"):
                 console.print(
                     "[green]✓[/green] Provisioned dbt/seeds/geo_targets.csv (country names)"
                 )
-            else:
-                console.print(f"[green]✓[/green] Provisioned staging model {Path(path).name}")
 
     def _write_config_template(self, source_type: str, metadata: dict[str, Any]) -> None:
         """Write default_config to .dlt/config.toml for pipeline stability (prompts on overwrite)."""

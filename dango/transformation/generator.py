@@ -317,7 +317,9 @@ class DbtModelGenerator:
     def _provision_geo_targets(self, source_name: str) -> list[str]:
         """Provision geo_targets seed CSV and staging join model for Google Ads.
 
-        Copies the seed file and staging model template if they don't already exist.
+        Copies the seed file if it doesn't already exist. The staging join model is written
+        only when ``raw_<name>.geographic_stats`` exists, because the model reads that table
+        and dbt stops every run in the project while a model's source is undefined.
         This runs on every sync so existing projects get the seed retroactively.
 
         Args:
@@ -339,9 +341,11 @@ class DbtModelGenerator:
             )
             provisioned.append("geo_targets.csv")
 
-        # 2. Create staging join model from template
+        # 2. Create staging join model from template (only once its source table exists)
         model_dest = self.staging_dir / f"stg_{source_name}__geo_names.sql"
-        if not model_dest.exists():
+        if not model_dest.exists() and "geographic_stats" in self._discover_tables_from_db(
+            f"raw_{source_name}"
+        ):
             self.staging_dir.mkdir(parents=True, exist_ok=True)
             template = (self.templates_dir / "stg_geo_names.sql").read_text(encoding="utf-8")
             model_sql = template.replace("__SOURCE_NAME__", source_name)

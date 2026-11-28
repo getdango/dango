@@ -309,7 +309,7 @@ class TestSourceEditValidatesBeforeWriting:
         assert path.read_bytes() == before
         assert "updated" not in text
         assert "Changes NOT saved" in text
-        assert "type" in text and "local_file" in text
+        assert "source 'sales'" in text and "type" in text
 
     def test_duplicate_names_are_rejected_and_the_file_is_untouched(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -3,11 +3,19 @@
 Database management commands (db status, db clean) and project validation.
 """
 
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import click
 from rich.markup import escape
 
 from dango.cli import console
 from dango.utils.error_text import rich_error_text
+
+if TYPE_CHECKING:
+    from dango.config import DangoConfig
 
 
 @click.group()
@@ -149,6 +157,24 @@ def db_status(ctx: click.Context) -> None:
         raise click.Abort() from e
 
 
+def _report_orphaned_staging(project_root: Path, config: DangoConfig) -> None:
+    """List generated staging files whose source is no longer configured (never deletes)."""
+    from dango.config.source_checks import delete_command, find_orphaned_staging_files
+
+    orphans = find_orphaned_staging_files(project_root, [s.name for s in config.sources.sources])
+    if not orphans:
+        return
+    console.print()
+    console.print(
+        "[yellow]Generated dbt files for sources that are no longer configured "
+        "(not deleted):[/yellow]"
+    )
+    for path in orphans:
+        console.print(f"  {path.as_posix()}", markup=False, highlight=False, soft_wrap=True)
+    console.print("To remove them, run this from the project folder:")
+    console.print(f"  {delete_command(orphans)}", markup=False, highlight=False, soft_wrap=True)
+
+
 @db.command("clean")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 @click.pass_context
@@ -179,6 +205,7 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
 
         if not duckdb_path.exists():
             console.print("[yellow]⚠️  No database found[/yellow]")
+            _report_orphaned_staging(project_root, config)
             return
 
         # Find orphaned tables using shared detection logic
@@ -188,6 +215,7 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
 
         if not orphaned_tables:
             console.print("[green]✅ No orphaned tables found[/green]")
+            _report_orphaned_staging(project_root, config)
             return
 
         # Show orphaned tables
@@ -291,6 +319,7 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
         console.print(
             f"[green]✅ Removed {dropped_count}/{len(orphaned_tables)} orphaned table(s)[/green]"
         )
+        _report_orphaned_staging(project_root, config)
 
     except click.Abort:
         raise

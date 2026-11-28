@@ -100,6 +100,9 @@ class ProjectValidator:
         self._check_project_structure()
         self._check_config_files()
         self._check_data_sources()
+        self._check_source_names()
+        self._check_source_keys()
+        self._check_orphaned_staging()
         self._check_custom_sources()  # Check for unreferenced custom sources
         self._check_oauth_credentials()  # NEW: OAuth validation
         if include_connectivity:
@@ -221,6 +224,62 @@ class ProjectValidator:
         except Exception as e:
             self.results.append(
                 ValidationResult("Data Sources", "fail", f"Error checking sources: {str(e)[:100]}")
+            )
+
+    def _check_source_names(self):
+        """Fail on duplicate source names; the config loader refuses them too."""
+        from dango.config.source_checks import (
+            duplicate_names_message,
+            duplicate_source_names,
+            entry_names,
+            load_raw_source_entries,
+        )
+
+        entries = load_raw_source_entries(self.project_root)
+        duplicates = duplicate_source_names(entry_names(entries or []))
+        if duplicates:
+            self.results.append(
+                ValidationResult("Source names", "fail", duplicate_names_message(duplicates))
+            )
+
+    def _check_source_keys(self):
+        """Warn about keys inside a source block that Dango does not know (they are ignored)."""
+        from dango.config.source_checks import load_raw_source_entries, unknown_source_keys
+
+        for name, keys in unknown_source_keys(
+            load_raw_source_entries(self.project_root) or []
+        ).items():
+            self.results.append(
+                ValidationResult(
+                    f"Source keys: {name}",
+                    "warn",
+                    f"Unknown key(s) ignored: {', '.join(keys)}. "
+                    "Check the spelling in .dango/sources.yml.",
+                )
+            )
+
+    def _check_orphaned_staging(self):
+        """Warn about generated staging files whose source is no longer configured."""
+        from dango.config.source_checks import (
+            delete_command,
+            entry_names,
+            find_orphaned_staging_files,
+            load_raw_source_entries,
+        )
+
+        entries = load_raw_source_entries(self.project_root)
+        if entries is None:
+            return  # no readable sources.yml: cannot tell which sources are configured
+        orphans = find_orphaned_staging_files(self.project_root, entry_names(entries))
+        if orphans:
+            self.results.append(
+                ValidationResult(
+                    "Staging files",
+                    "warn",
+                    "Generated files for sources no longer in sources.yml: "
+                    f"{', '.join(p.as_posix() for p in orphans)}. "
+                    f"Nothing is deleted automatically; to remove them run: {delete_command(orphans)}",
+                )
             )
 
     def _check_custom_sources(self):
@@ -386,9 +445,7 @@ class ProjectValidator:
 
     def _check_env_vars(self):
         """Check that environment variables referenced in sources.yml are set."""
-        import os
-
-        from dango.ingestion.sources.registry import get_source_metadata
+        from dango.ingestion.sources.setup_lifecycle import credential_requirements
         from dango.utils.project_env import EnvFileError, read_env
 
         try:
@@ -396,30 +453,24 @@ class ProjectValidator:
             config = loader.load_config()
             sources = config.sources.sources
 
-            # Load .env for checking (don't override existing vars)
-            dot_env = read_env(self.project_root)
+            # An unreadable .env is reported once, up front, whatever the sources need
+            read_env(self.project_root)
 
             for source in sources:
-                metadata = get_source_metadata(source.type.value)
-                if not metadata:
-                    continue
-
-                # Check required secret params (env vars)
-                for param in metadata.get("required_params", []):
-                    if param.get("type") != "secret":
+                # The variable the source really uses (its own name for it, else the derived
+                # default), exactly as the setup and runner paths resolve it
+                for req in credential_requirements(self.project_root, source):
+                    if req.kind != "env_var":
                         continue
-                    env_var = param.get("env_var", "")
-                    if not env_var:
-                        continue
-                    if not os.environ.get(env_var) and env_var not in dot_env:
-                        self.results.append(
-                            ValidationResult(
-                                f"Env: {source.name}",
-                                "warn",
-                                f"Environment variable {env_var} not set. "
-                                f"Sync will fail at runtime.",
-                            )
+                    self.results.append(
+                        ValidationResult(
+                            f"Env: {source.name}",
+                            "warn",
+                            f"Environment variable {req.name} not set. Sync will fail at runtime."
+                            if req.detail.startswith("Set ")
+                            else f"{req.detail}. Sync will fail at runtime.",
                         )
+                    )
 
         except EnvFileError as e:
             self.results.append(ValidationResult("Env Vars", "fail", escape(str(e))))
