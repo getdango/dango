@@ -78,10 +78,12 @@ class TestAnotherProjectsCursorIsNeverDeleted:
     def test_db_clean_leaves_a_dir_another_project_created(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: str
     ) -> None:
+        mine = project(tmp_path, "p1", entry(NAME))
+        with monkeypatch.context() as own:  # p1's own tables, with a pipeline dir of its own
+            own.setenv("DLT_DATA_DIR", str(tmp_path / "p1_dlt"))
+            assert run_sync(mine, method, NAME, 5)["status"] == "success"
         other = project(tmp_path, "p2", entry(NAME))
         assert run_sync(other, method, NAME, 5)["status"] == "success"
-        mine = project(tmp_path, "p1", entry(NAME))
-        assert run_sync(mine, method, NAME, 5)["status"] == "success"
         orphan(mine, NAME)
 
         result = db_clean(mine, monkeypatch)
@@ -220,10 +222,12 @@ class TestDbCleanListsTheStateItWillRemove:
     def test_a_dir_that_will_be_kept_is_not_listed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        mine = project(tmp_path, "p1", entry(NAME))
+        with monkeypatch.context() as own:
+            own.setenv("DLT_DATA_DIR", str(tmp_path / "p1_dlt"))
+            run_sync(mine, "native", NAME, 5)
         other = project(tmp_path, "p2", entry(NAME))
         run_sync(other, "native", NAME, 5)
-        mine = project(tmp_path, "p1", entry(NAME))
-        run_sync(mine, "native", NAME, 5)
         orphan(mine, NAME)
         out = db_clean(mine, monkeypatch, answer="n\n").output
         assert "Local sync state that will also be removed" not in out

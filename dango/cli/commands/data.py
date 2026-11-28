@@ -177,25 +177,28 @@ def _report_orphaned_staging(project_root: Path, config: DangoConfig) -> None:
 
 
 def _clear_local_pipeline_states(
-    config: DangoConfig, pipelines_by_schema: dict[str, set[str]], state_dropped: set[str]
+    project_root: Path,
+    config: DangoConfig,
+    pipelines_by_schema: dict[str, set[str]],
+    state_dropped: set[str],
 ) -> None:
     """Remove the local dlt state of pipelines whose warehouse state table was just dropped.
 
-    A pipeline name still used by a configured source is kept. A schema whose state table held no
-    names falls back to the source name in the schema (``raw_<name>``). Best effort, never raises.
+    A name a configured source still uses stays, and so does a directory created in another
+    project folder (said in one line). Best effort, never raises.
     """
     try:
         from dango.ingestion.pipeline_cleanup import (
             drop_local_pipeline_state,
-            pipeline_names_in_use,
+            names_to_clear,
+            state_note,
         )
 
-        names: set[str] = set()
-        for schema in state_dropped:
-            names |= pipelines_by_schema[schema] or {schema.removeprefix("raw_")}
-        for name in sorted(names - pipeline_names_in_use(config.sources.sources)):
-            if drop_local_pipeline_state(name):
-                console.print(f"[dim]Cleared the local sync state for '{escape(name)}'[/dim]")
+        for name in names_to_clear(pipelines_by_schema, state_dropped, config.sources.sources):
+            drop = drop_local_pipeline_state(name, project_root)
+            note = state_note(name, drop)
+            if note:
+                console.print(f"[dim]{escape(note)}[/dim]", highlight=False)
     except Exception:
         return
 
@@ -250,6 +253,29 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
 
         console.print()
 
+        from dango.ingestion.pipeline_cleanup import (
+            names_to_clear,
+            read_state_names,
+            will_be_removed,
+        )
+
+        state_schemas = [
+            schema
+            for schema, table, _size in orphaned_tables
+            if table == "_dlt_pipeline_state" and schema.startswith("raw_")
+        ]
+        pipelines_by_schema = read_state_names(duckdb_path, state_schemas)
+        planned = [
+            name
+            for name in names_to_clear(pipelines_by_schema, state_schemas, config.sources.sources)
+            if will_be_removed(name, project_root)
+        ]
+        if planned:
+            console.print("[yellow]Local sync state that will also be removed:[/yellow]")
+            for name in planned:
+                console.print(f"  - {escape(name)}", highlight=False)
+            console.print()
+
         # Confirm deletion
         if not yes:
             if not Confirm.ask("Remove these orphaned tables?"):
@@ -263,15 +289,6 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
         dropped_count = 0
         orphaned_sources = set()  # Track orphaned source names for metadata cleanup
 
-        # Pipelines whose warehouse state table is about to go (read before the drop): their
-        # local dlt state goes with it. Names come from the table's own rows.
-        from dango.ingestion.pipeline_cleanup import pipeline_names_in_state_table
-
-        pipelines_by_schema = {
-            schema: pipeline_names_in_state_table(conn, schema)
-            for schema, table, _size in orphaned_tables
-            if table == "_dlt_pipeline_state" and schema.startswith("raw_")
-        }
         state_dropped: set[str] = set()
 
         for schema, table, _size in orphaned_tables:
@@ -353,7 +370,7 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
 
         conn.close()
 
-        _clear_local_pipeline_states(config, pipelines_by_schema, state_dropped)
+        _clear_local_pipeline_states(project_root, config, pipelines_by_schema, state_dropped)
 
         console.print()
         console.print(

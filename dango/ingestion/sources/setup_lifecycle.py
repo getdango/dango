@@ -472,7 +472,7 @@ def remove_source(
     if not dry_run:
         from dango.ingestion.pipeline_cleanup import clear_state_of_removed_source
 
-        result.pipeline_state_cleared = clear_state_of_removed_source(project_root, source, others)
+        clear_state_of_removed_source(project_root, source, others, result)
         for path in staging_files:
             rel = str(path.relative_to(project_root))
             try:

@@ -7,6 +7,7 @@ a source or clean the warehouse.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -22,6 +23,7 @@ from dango.ingestion.dlt_runner import DltPipelineRunner
 from tests.factories.empty_guard_runs import sync
 from tests.factories.refresh_cursor_runs import events
 
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 FIXTURE_MODULE = {"source_module": "fixture_module", "source_function": "make"}
 
 
@@ -145,7 +147,9 @@ def db_clean(
     args = ["db", "clean"] + (["--yes"] if answer is None else [])
     result = CliRunner().invoke(cli, args, input=answer, catch_exceptions=True)
     return SimpleNamespace(
-        exit_code=result.exit_code, output=result.output, exception=result.exception
+        exit_code=result.exit_code,
+        output=_ANSI.sub("", result.output),
+        exception=result.exception,
     )
 
 
