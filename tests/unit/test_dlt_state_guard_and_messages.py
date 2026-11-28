@@ -165,6 +165,24 @@ def test_a_name_that_differs_only_in_case_from_a_configured_source_stays(
     assert ids(root, "kept") == upto(8)
 
 
+def test_a_configured_name_with_capitals_is_matched_without_case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The configured name is `MixedCase`; an orphaned state table names it `mixedcase`."""
+    native = {"pipeline_name": "MixedCase"}
+    root = project(tmp_path, "p1", entry("x", **native))
+    run_sync(root, "native", "x", 5, native=native)
+    if not (pipelines_dir() / "mixedcase").exists():
+        shutil.copytree(pipelines_dir() / "MixedCase", pipelines_dir() / "mixedcase")
+    plant_orphan_state(root, "raw_evil", "mixedcase")
+
+    result = db_clean(root, monkeypatch)
+    assert result.exit_code == 0, result.output
+    assert "Cleared the local sync state" not in result.output
+    assert (pipelines_dir() / "MixedCase" / "state.json").exists()
+    assert (pipelines_dir() / "mixedcase" / "state.json").exists()
+
+
 class TestWhenTheDirCannotBeRemoved:
     def test_remove_says_the_local_state_is_still_there(self, tmp_path: Path) -> None:
         root = project(tmp_path, "p1", entry(NAME))
