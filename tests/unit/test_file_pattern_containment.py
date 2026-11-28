@@ -35,6 +35,12 @@ ESCAPING = [
     "\\\\fake-server\\share\\*.csv",
     "//fake-server/share/*",
     "\\rooted\\*.csv",
+    ".. /x/*.csv",
+    "..\t/x/*.csv",
+    "sub/ ../x",
+    "sub\\.. \\x",
+    "...",
+    "x/.../y",
 ]
 FINE = [
     "*",
@@ -46,6 +52,9 @@ FINE = [
     "sub/*.json",
     "./data.csv",
     "a..b.csv",
+    "a.b/*.csv",
+    "a...b/*.csv",
+    ".hidden*",
     "[ab]*.parquet",
 ]
 
