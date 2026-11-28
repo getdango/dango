@@ -66,10 +66,16 @@ def _generated_files(root: Path, source: str) -> list[Path]:
     ]
 
 
-def _expected_command(paths: list[str]) -> str:
+def _expected_lines(paths: list[str]) -> list[str]:
+    """The delete command as printed: one `rm` line, or one `del "<path>"` per file on Windows."""
     if os.name == "nt":
-        return "del " + " ".join(p.replace("/", "\\") for p in paths)
-    return "rm " + " ".join(paths)
+        return [f'del "{p.replace("/", chr(92))}"' for p in paths]
+    return ["rm " + " ".join(paths)]
+
+
+def _assert_command(text: str) -> None:
+    for line in _expected_lines(ORPHANS):
+        assert line in text, text
 
 
 def find_orphaned_staging_files(root: Path, configured: list[str]) -> list[Path]:
@@ -126,6 +132,22 @@ class TestFindOrphanedStagingFiles:
         assert find_orphaned_staging_files(tmp_path, ["sales"]) == []
 
 
+class TestDeleteCommand:
+    def test_windows_command_is_one_del_per_path_so_powershell_runs_it(self) -> None:
+        from dango.config.source_checks import delete_command
+
+        command = delete_command([Path(p) for p in ORPHANS], windows=True)
+
+        assert command.split("\n") == [f'del "{p.replace("/", chr(92))}"' for p in ORPHANS]
+
+    def test_posix_command_is_a_single_rm(self) -> None:
+        from dango.config.source_checks import delete_command
+
+        command = delete_command([Path(p) for p in ORPHANS], windows=False)
+
+        assert command == "rm " + " ".join(ORPHANS)
+
+
 class TestValidateListsOrphans:
     def test_validate_warns_with_the_files_and_the_exact_command_and_deletes_nothing(
         self, tmp_path: Path
@@ -140,9 +162,39 @@ class TestValidateListsOrphans:
         assert len(rows) == 1 and rows[0].status == "warn"
         for path in ORPHANS:
             assert path in rows[0].message
-        assert _expected_command(ORPHANS) in rows[0].message
+        assert rows[0].command == "\n".join(_expected_lines(ORPHANS))
         assert "sales2" not in rows[0].message
         assert all(f.exists() for f in files)
+
+    def test_validate_prints_the_command_unwrapped_below_the_table(self, tmp_path: Path) -> None:
+        from dango.cli.validate import console
+
+        root = _project(tmp_path, ["sales2"])
+        _generated_files(root, "sales")
+        validator = ProjectValidator(root)
+        validator._check_orphaned_staging()
+
+        with console.capture() as captured:
+            validator._display_results()
+
+        lines = [line.strip() for line in _ANSI.sub("", captured.get()).splitlines()]
+        for expected in _expected_lines(ORPHANS):
+            assert expected in lines, lines
+
+    def test_bracket_text_in_a_file_name_is_shown_not_swallowed(self, tmp_path: Path) -> None:
+        from dango.cli.validate import console
+
+        root = _project(tmp_path, ["sales"])
+        _stage(root, "sources_a[b].yml", GENERATED_YML)
+        _stage(root, "stg_a[bold]__t.sql", GENERATED_SQL)
+        validator = ProjectValidator(root)
+        validator._check_orphaned_staging()
+
+        with console.capture() as captured:
+            validator._display_results()
+
+        text = _flat(captured.get())
+        assert "sources_a[b].yml" in text and "stg_a[bold]__t.sql" in text
 
     def test_validate_is_quiet_when_every_staging_file_has_a_source(self, tmp_path: Path) -> None:
         root = _project(tmp_path, ["sales"])
@@ -175,7 +227,7 @@ class TestDbClean:
         assert "No orphaned tables" in text
         for path in ORPHANS:
             assert path in text
-        assert _expected_command(ORPHANS) in text
+        _assert_command(text)
         assert all(f.exists() for f in files)
 
     def test_db_clean_still_drops_orphan_tables_and_lists_staging_files(
@@ -196,7 +248,7 @@ class TestDbClean:
         text = _flat(result.output)
         assert result.exit_code == 0, text
         assert "Dropped raw_sales.sales" in text
-        assert _expected_command(ORPHANS) in text
+        _assert_command(text)
         assert all(f.exists() for f in files)
 
     def test_db_clean_without_a_database_still_lists_orphans(
@@ -208,7 +260,21 @@ class TestDbClean:
 
         result = CliRunner().invoke(cli, ["db", "clean", "--yes"])
 
-        assert _expected_command(ORPHANS) in _flat(result.output)
+        _assert_command(_flat(result.output))
+
+    def test_db_clean_shows_bracket_text_in_a_file_name_as_written(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _project(tmp_path, ["sales"])
+        _stage(root, "sources_a[b].yml", GENERATED_YML)
+        _stage(root, "stg_a[bold]__t.sql", GENERATED_SQL)
+        monkeypatch.chdir(root)
+
+        result = CliRunner().invoke(cli, ["db", "clean", "--yes"])
+
+        text = _flat(result.output)
+        assert result.exit_code == 0, text
+        assert "sources_a[b].yml" in text and "stg_a[bold]__t.sql" in text
 
     def test_db_clean_prints_no_orphan_section_when_all_sources_are_configured(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
