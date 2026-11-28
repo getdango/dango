@@ -10,7 +10,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class DeduplicationStrategy(str, Enum):
@@ -445,8 +445,22 @@ class DataSource(BaseModel):
 class SourcesConfig(BaseModel):
     """sources.yml configuration"""
 
+    # A validation error would otherwise print the end of the whole config (it can hold a
+    # pasted secret); the message already names the field and the problem.
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     version: str = "1.0"
     sources: list[DataSource] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def reject_duplicate_names(self) -> "SourcesConfig":
+        """Source names are unique (case-insensitive): a repeated name shares one set of tables."""
+        from dango.config.source_checks import duplicate_names_message, duplicate_source_names
+
+        duplicates = duplicate_source_names(s.name for s in self.sources)
+        if duplicates:
+            raise ValueError(duplicate_names_message(duplicates))
+        return self
 
     def get_source(self, name: str) -> DataSource | None:
         """Get source by name"""

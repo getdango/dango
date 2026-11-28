@@ -114,8 +114,8 @@ class TestSourceEdit:
         dango_dir = tmp_path / ".dango"
         dango_dir.mkdir()
         sources_file = dango_dir / "sources.yml"
-        original = "sources:\n  - name: test\n"
-        edited = "sources:\n  - name: test\n    enabled: false\n"
+        original = "sources:\n  - name: test\n    type: csv\n"
+        edited = "sources:\n  - name: test\n    type: csv\n    enabled: false\n"
         sources_file.write_text(original)
 
         runner = CliRunner()

@@ -216,11 +216,22 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
 
     # Validate YAML syntax
     try:
-        yaml.safe_load(edited)
+        parsed = yaml.safe_load(edited)
     except yaml.YAMLError as e:
         console.print(f"[red]Invalid YAML:[/red] {escape(str(e))}")
         console.print("[yellow]Changes NOT saved.[/yellow]")
         raise click.Abort() from e
+
+    # Validate the schema the loader will apply, so a bad edit never replaces a working file
+    from dango.config.source_checks import describe_sources_errors
+
+    problems = describe_sources_errors(parsed)
+    if problems:
+        console.print("[red]sources.yml is not valid:[/red]")
+        for problem in problems:
+            console.print(f"  - {escape(problem)}")
+        console.print("[yellow]Changes NOT saved.[/yellow] The original sources.yml is unchanged.")
+        raise click.Abort()
 
     sources_file.write_text(edited, encoding="utf-8", newline="\n")
     console.print("[green]sources.yml updated[/green]")

@@ -49,14 +49,15 @@ class TestQuoteColumnName:
 @pytest.mark.unit
 class TestGeoTargetsProvisioning:
     def test_geo_targets_copied_when_missing(self, tmp_path: Path):
-        """Google Ads source + no seed file -> seed + model created."""
+        """Google Ads source + no seed file + geographic_stats loaded -> seed + model created."""
         project_root = tmp_path / "project"
         project_root.mkdir()
         (project_root / "data").mkdir()
 
         gen = DbtModelGenerator(project_root)
 
-        provisioned = gen._provision_geo_targets("my_google_ads")
+        with patch.object(gen, "_discover_tables_from_db", return_value=["geographic_stats"]):
+            provisioned = gen._provision_geo_targets("my_google_ads")
 
         # Seed file should be created
         seed_file = project_root / "dbt" / "seeds" / "geo_targets.csv"
@@ -94,7 +95,8 @@ class TestGeoTargetsProvisioning:
         model_file.write_text("custom_model")
 
         gen = DbtModelGenerator(project_root)
-        provisioned = gen._provision_geo_targets("my_ads")
+        with patch.object(gen, "_discover_tables_from_db", return_value=["geographic_stats"]):
+            provisioned = gen._provision_geo_targets("my_ads")
 
         # Nothing should be provisioned
         assert provisioned == []
@@ -137,7 +139,7 @@ class TestGeoTargetsProvisioning:
             mock_provision.assert_called_once_with("my_ads")
 
     def test_geo_targets_end_to_end_via_generate_all_models(self, tmp_path: Path):
-        """generate_all_models creates geo seed files for google_ads (no mocking)."""
+        """generate_all_models writes the seed but no join model while geographic_stats is absent."""
         project_root = tmp_path / "project"
         project_root.mkdir()
         (project_root / "data").mkdir()
@@ -145,8 +147,8 @@ class TestGeoTargetsProvisioning:
         gen = DbtModelGenerator(project_root)
         source = _make_source("my_ads", "google_ads")
 
-        # No tables in DB — generate_all_models will skip model generation
-        # but should still provision geo_targets
+        # No tables in DB: the seed is provisioned, but a model that reads
+        # source('my_ads', 'geographic_stats') would break every dbt run, so it waits.
         with patch.object(gen, "_discover_tables_from_db", return_value=[]):
             gen.generate_all_models([source])
 
@@ -154,6 +156,21 @@ class TestGeoTargetsProvisioning:
         model_file = project_root / "dbt" / "models" / "staging" / "stg_my_ads__geo_names.sql"
 
         assert seed_file.exists()
+        assert not model_file.exists()
+
+    def test_geo_names_model_appears_once_geographic_stats_exists(self, tmp_path: Path):
+        """generate_all_models writes the join model when raw_<name>.geographic_stats exists."""
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        (project_root / "data").mkdir()
+
+        gen = DbtModelGenerator(project_root)
+        source = _make_source("my_ads", "google_ads")
+
+        with patch.object(gen, "_discover_tables_from_db", return_value=["geographic_stats"]):
+            gen.generate_all_models([source])
+
+        model_file = project_root / "dbt" / "models" / "staging" / "stg_my_ads__geo_names.sql"
         assert model_file.exists()
         assert "my_ads" in model_file.read_text()
         assert "__SOURCE_NAME__" not in model_file.read_text()

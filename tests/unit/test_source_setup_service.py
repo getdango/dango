@@ -293,15 +293,18 @@ class TestCreate:
     def test_create_google_ads_provisions_geo_targets(self, project):
         result = create_source(project, "google_ads", "ads", {})
         assert (project / "dbt" / "seeds" / "geo_targets.csv").exists()
-        assert (project / "dbt" / "models" / "staging" / "stg_ads__geo_names.sql").exists()
+        # The join model reads raw_ads.geographic_stats, which no sync has created yet: the
+        # generator writes it once the table exists.
+        assert not (project / "dbt" / "models" / "staging" / "stg_ads__geo_names.sql").exists()
         assert "dbt/seeds/geo_targets.csv" in result.files_changed
 
     def test_provision_geo_targets_templates_exist_and_idempotent(self, tmp_path):
         first = provision_geo_targets(tmp_path, "g1")
-        assert len(first) == 2
+        assert first == ["dbt/seeds/geo_targets.csv"]
         assert provision_geo_targets(tmp_path, "g1") == []
-        # second source: only its own staging model is new
-        assert provision_geo_targets(tmp_path, "g2") == ["dbt/models/staging/stg_g2__geo_names.sql"]
+        # second source: the seed is shared and the join model is not written at setup
+        assert provision_geo_targets(tmp_path, "g2") == []
+        assert not (tmp_path / "dbt" / "models" / "staging").exists()
 
     def test_create_secrets_toml_template_for_template_source(self, project):
         result = create_source(project, "salesforce", "sf", {})

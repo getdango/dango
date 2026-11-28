@@ -162,7 +162,13 @@ def write_default_config(
 
 
 def provision_geo_targets(project_root: Path, source_name: str) -> list[str]:
-    """Provision the geo_targets seed + staging join model (Google Ads). Returns new paths."""
+    """Provision the geo_targets seed (Google Ads). Returns new paths.
+
+    The ``stg_<name>__geo_names`` join model is not written here: it reads
+    ``raw_<name>.geographic_stats``, which does not exist until the first sync, and a model
+    over a missing source stops every dbt run in the project. The model generator writes it
+    once that table exists.
+    """
     templates_dir = Path(__file__).resolve().parents[2] / "templates" / "dbt"
     created: list[str] = []
     seeds_dir = project_root / "dbt" / "seeds"
@@ -172,15 +178,6 @@ def provision_geo_targets(project_root: Path, source_name: str) -> list[str]:
         seed_src = templates_dir / "seeds" / "geo_targets.csv"
         seed_dest.write_text(seed_src.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
         created.append("dbt/seeds/geo_targets.csv")
-    staging_dir = project_root / "dbt" / "models" / "staging"
-    model_dest = staging_dir / f"stg_{source_name}__geo_names.sql"
-    if not model_dest.exists():
-        staging_dir.mkdir(parents=True, exist_ok=True)
-        template = (templates_dir / "stg_geo_names.sql").read_text(encoding="utf-8")
-        model_dest.write_text(
-            template.replace("__SOURCE_NAME__", source_name), encoding="utf-8", newline="\n"
-        )
-        created.append(f"dbt/models/staging/stg_{source_name}__geo_names.sql")
     return created
 
 
