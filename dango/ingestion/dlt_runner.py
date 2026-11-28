@@ -28,6 +28,7 @@ from dango.config.models import (
     PlatformSettings,
     SourceType,
 )
+from dango.config.source_datasets import dlt_dataset_name
 from dango.exceptions import ConfigError, ConfigNotFoundError, DbtLockError, SyncTimeoutError
 from dango.ingestion.csv_loader import CSVLoader, check_duplicate_filenames
 from dango.ingestion.empty_guard import (
@@ -52,6 +53,7 @@ from dango.ingestion.interrupts import (
 )
 from dango.ingestion.refresh_state import adopt_staged_state, staged_source_state
 from dango.ingestion.sources.registry import get_source_metadata
+from dango.ingestion.staging_cleanup import staging_schemas_to_drop
 from dango.ingestion.status_codes import has_status_code
 from dango.utils.dlt_error_text import rewrite_dlt_advice
 from dango.utils.docker_hints import DOCKER_UNAVAILABLE_ERROR, note_metabase_skipped
@@ -2853,7 +2855,8 @@ class DltPipelineRunner:
         """
         import duckdb
 
-        schema = schema_name or f"raw_{source_name}"
+        # dlt keeps the configured dataset name on the pipeline and writes the rewritten one
+        schema = dlt_dataset_name(schema_name or f"raw_{source_name}")
         try:
             conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
             try:
@@ -3447,11 +3450,14 @@ Need help? Visit: https://github.com/getdango/dango/issues
         real data, which both this task's own acceptance criteria and the pre-existing
         product behavior for every other full-refresh path require to be blocked.
         """
+        # Every name below is the schema dlt really writes: it rewrites a configured dataset name
+        # (`raw-dash` -> `raw_dash`, `x_` -> `xx`) and keeps the configured one on the pipeline.
+        dataset_name = dlt_dataset_name(dataset_name)
         staging_pipeline_name = f"{pipeline_name}_fullrefresh_staging"
-        staging_dataset_name = f"{dataset_name}_fullrefresh_staging"
+        staging_dataset_name = dlt_dataset_name(f"{dataset_name}_fullrefresh_staging")
         # dlt's own internal artifact for merge writes (confirmed live: named
         # f"{staging_dataset_name}_staging", not documented anywhere).
-        staging_internal_dataset = f"{staging_dataset_name}_staging"
+        staging_internal_dataset = dlt_dataset_name(f"{staging_dataset_name}_staging")
 
         def _cleanup_staging(staging_pipeline_obj: Any = None, *, strict: bool = False) -> None:
             """Drop both staging schemas (the intentional one and dlt's own internal
@@ -4156,13 +4162,12 @@ def run_sync(
                     "SELECT schema_name FROM information_schema.schemata "
                     "WHERE schema_name LIKE '%\\_staging' ESCAPE '\\'"
                 ).fetchall()
-                dropped = []
-                for (schema_name_val,) in schemas:
-                    base_name = schema_name_val.removesuffix("_staging")
-                    source_name = base_name.removeprefix("raw_")
-                    if source_name in success_sources or base_name in success_sources:
-                        conn.execute(f'DROP SCHEMA IF EXISTS "{schema_name_val}" CASCADE')
-                        dropped.append(schema_name_val)
+                # Only schemas of sources that synced and that no configured source loads into
+                dropped = staging_schemas_to_drop(
+                    [row[0] for row in schemas], success_sources, project_root, sources
+                )
+                for schema_name_val in dropped:
+                    conn.execute(f'DROP SCHEMA IF EXISTS "{schema_name_val}" CASCADE')
                 if dropped:
                     console.print(f"[dim]🧹 Cleaned up {len(dropped)} staging schema(s)[/dim]")
             finally:

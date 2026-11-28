@@ -369,7 +369,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/remote.py` | 760 | — (remote group + push/rollback/firewall/domain) |
 | `cli/commands/remote_mgmt.py` | 645 | — (remote status/logs/ssh/query + deployment history) |
 | `platform/cloud/deployer.py` | 761 | — (push deploy workflow + deploy lock + journal) |
-| `cli/validate.py` | 1048 | — |
+| `cli/validate.py` | 1182 | — |
 | `config/models.py` | 662 | — (Pydantic config models) |
 | `cli/commands/deploy.py` | 979 | — (deploy group with DO + BYOS routing, destroy command) |
 | `cli/commands/deploy_wizard.py` | 1322 | — (interactive deploy wizard + BYOS) |

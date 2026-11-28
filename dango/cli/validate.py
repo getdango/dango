@@ -104,6 +104,7 @@ class ProjectValidator:
         self._check_data_sources()
         self._check_source_names()
         self._check_source_keys()
+        self._check_dataset_collisions()
         self._check_orphaned_staging()
         self._check_custom_sources()  # Check for unreferenced custom sources
         self._check_oauth_credentials()  # NEW: OAuth validation
@@ -259,6 +260,26 @@ class ProjectValidator:
                     "warn",
                     f"Unknown key(s) ignored: {escape(', '.join(keys))}. "
                     "Check the spelling in .dango/sources.yml.",
+                )
+            )
+
+    def _check_dataset_collisions(self):
+        """Warn when a source loads into the schema dlt uses for another source's merge staging."""
+        from dango.config.source_checks import staging_collisions
+
+        try:
+            sources = ConfigLoader(self.project_root).load_sources_config().sources
+        except Exception:
+            return  # the source checks above already report an unreadable sources.yml
+        for name, other, schema in staging_collisions(sources):
+            self.results.append(
+                ValidationResult(
+                    f"Dataset: {escape(name)}",
+                    "warn",
+                    f"Source '{escape(name)}' loads into the schema {escape(schema)}, which dlt "
+                    f"also uses for the merge-staging tables of source '{escape(other)}'. "
+                    f"A sync of '{escape(other)}' can overwrite same-named tables there. "
+                    "Rename one of the two sources (or set another dataset_name on one of them).",
                 )
             )
 
