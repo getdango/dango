@@ -1,7 +1,8 @@
 """dango/config/source_checks.py
 
 Read-only checks over sources.yml and the staging files Dango generates for it: duplicate
-source names, unknown keys in a source block, orphaned staging files, and plain-words schema
+source names, unknown keys in a source block, datasets that collide with the staging schema of
+another source, orphaned staging files, and plain-words schema
 errors for `dango source edit`. Nothing here writes or deletes anything.
 """
 
@@ -112,6 +113,26 @@ def unknown_source_keys(entries: Iterable[dict[str, Any]]) -> dict[str, list[str
                 f"{key}.{k}" for k in sorted(map(str, value)) if k not in accepted
             )
     return {name: keys for name, keys in found.items() if keys}
+
+
+def staging_collisions(sources: Iterable[Any]) -> list[tuple[str, str, str]]:
+    """``(source, other, schema)`` where *source* loads into the merge-staging schema of *other*.
+
+    dlt writes the staging copies of a merge load into ``<dataset>_staging``; a source whose own
+    schema has that name shares those tables with it. Sources are compared whether enabled or not.
+    """
+    from dango.config.source_datasets import schemas_of, staging_schema_of
+
+    listed = list(sources)
+    found = []
+    for other in listed:
+        schema = staging_schema_of(other)
+        if schema is None:
+            continue
+        for source in listed:
+            if source.name != other.name and schema in schemas_of(source):
+                found.append((source.name, other.name, schema))
+    return sorted(found)
 
 
 def _staging_file_source(name: str, configured: set[str]) -> tuple[str, bool] | None:

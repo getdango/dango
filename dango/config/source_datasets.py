@@ -16,9 +16,12 @@ from dango.config.models import DataSource, SourceType
 
 __all__ = [
     "FILE_SOURCES",
+    "claimed_schemas",
     "dataset_name_of",
+    "dlt_dataset_name",
     "pipeline_name_of",
     "schemas_of",
+    "staging_schema_of",
     "tables_of",
 ]
 
@@ -70,6 +73,30 @@ def schemas_of(source: DataSource) -> list[str]:
         return [configured]
     rewritten = _as_dlt_names(dataset_name_of(source)).casefold()
     return [rewritten] if rewritten == configured else [rewritten, configured]
+
+
+def dlt_dataset_name(name: str) -> str:
+    """The schema dlt writes for the dataset *name* (``raw-dash`` -> ``raw_dash``, ``x_`` -> ``xx``).
+
+    dlt keeps the configured name on the pipeline object (``pipeline.dataset_name``) and rewrites it
+    only when it creates the schema: every query against the warehouse must use this name.
+    """
+    return _as_dlt_names(name)
+
+
+def claimed_schemas(sources: Iterable[DataSource]) -> set[str]:
+    """Lower-case schemas that any of *sources* (enabled or not) may write to."""
+    return {schema for source in sources for schema in schemas_of(source)}
+
+
+def staging_schema_of(source: DataSource) -> str | None:
+    """Lower-case schema dlt writes the merge-staging tables of *source* into (None: file source).
+
+    dlt names it ``<configured dataset>_staging`` and rewrites that like any dataset name.
+    """
+    if source.type in FILE_SOURCES:
+        return None
+    return _as_dlt_names(f"{dataset_name_of(source)}_staging").casefold()
 
 
 def tables_of(source: DataSource) -> set[str] | None:
