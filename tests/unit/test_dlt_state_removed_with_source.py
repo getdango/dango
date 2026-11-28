@@ -26,6 +26,7 @@ from tests.factories.dlt_state_projects import (
     run_sync,
     write_sources,
 )
+from tests.factories.duckdb_holder import hold_warehouse
 from tests.factories.empty_guard_runs import METHODS
 
 pytestmark = pytest.mark.unit
@@ -138,6 +139,12 @@ class TestRemoveAfterTheDataIsGone:
 
 
 class TestWhatRemoveLeavesAlone:
+    def test_a_warehouse_that_cannot_be_read_keeps_the_cursor(self, tmp_path: Path) -> None:
+        root = synced(tmp_path, "native")
+        with hold_warehouse(root / "data" / "warehouse.duckdb"):
+            remove_source(root, NAME, force=True)
+        assert NAME in pipeline_dirs()
+
     def test_another_source_with_the_same_pipeline_name_keeps_it(self, tmp_path: Path) -> None:
         root = project(
             tmp_path, "p1", entry("a", pipeline_name="shared"), entry("b", pipeline_name="shared")
