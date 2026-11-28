@@ -25,7 +25,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/local_backup.py` | `backup` group: list local archives, `backup restore` (refuses while Dango runs or holds the dbt lock; streams files atomically; restores only backup members) | `backup_group`, `backup_restore()` |
 | `commands/local_backup_files.py` | Helpers of `local_backup.py`: which archive members a restore writes (`is_backup_member`), where they land (`member_rel_path`), WAL sidecar clearing and the safety backup's directory walk | `is_backup_member`, `member_rel_path`, `clear_sidecar`, `add_tree` |
 | `sync_report.py` | Failure listing for `dango sync` (WP-23): `print_failed_sources` prints each failed source with its reason redacted and Rich-escaped through `utils/error_text.rich_error_text`, plain ASCII, no traceback; the sync command calls it before aborting so the exit stays 1 without a blank `Error:` line | `print_failed_sources()` |
-| `commands/data.py` (388 lines) | `db` group (`status`, `clean`) + `validate` | `db`, `validate()` |
+| `commands/data.py` (428 lines) | `db` group (`status`, `clean`; `clean` also clears the local dlt state of the pipelines whose `_dlt_pipeline_state` table it drops, via `ingestion/pipeline_cleanup.py`) + `validate` | `db`, `validate()` |
 | `commands/config_cmd.py` (240 lines) | `config` group (`validate`, `show`, `do-token`) | `config` |
 | `commands/metabase_cmd.py` (412 lines) | `metabase` group (`save`, `load`, `refresh`, `repair-admin`) | `metabase` |
 | `commands/model.py` (244 lines) | `model` group (`add`, `remove`) | `model` |
