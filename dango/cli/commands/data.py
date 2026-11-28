@@ -237,9 +237,12 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
             return
 
         # Find orphaned tables using shared detection logic
-        from dango.utils.db_health import find_orphaned_tables
+        from dango.utils.orphan_scan import scan_orphans
 
-        orphaned_tables = find_orphaned_tables(duckdb_path, config)
+        scan = scan_orphans(duckdb_path, config)
+        orphaned_tables = scan.orphans
+        for line in scan.kept:  # schemas whose owner is unclear are never dropped
+            console.print(f"[yellow]{escape(line)} Not dropped.[/yellow]", highlight=False)
 
         if not orphaned_tables:
             console.print("[green]✅ No orphaned tables found[/green]")

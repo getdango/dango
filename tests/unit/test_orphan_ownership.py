@@ -196,5 +196,5 @@ def test_the_clean_lists_only_the_corrected_orphans_before_asking(
     assert result.exit_code == 0, result.output
     assert "raw_ghost.t" in result.output
     assert "raw_custom" not in result.output
-    assert "Found 1 orphaned table(s)" in result.output
+    assert "Found 2 orphaned table(s)" in result.output
     assert set(tables_by_schema(root)) == {"raw_custom", "raw_ghost"}
