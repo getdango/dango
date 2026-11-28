@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import duckdb
 
 from dango.utils.db_health import build_schema_table_mapping, is_table_configured
+from dango.validation import quote_identifier as _quoted
 
 if TYPE_CHECKING:
     from dango.config.models import DangoConfig
@@ -27,10 +28,7 @@ class OrphanScan(NamedTuple):
 
     orphans: list[tuple[str, str, str]]
     kept: list[str]
-
-
-def _quoted(name: str) -> str:
-    return '"' + name.replace('"', '""') + '"'
+    kept_schemas: set[str]  # lower-case names of the schemas in `kept`
 
 
 def _state_names(conn: Any, schema: str) -> set[str] | None:
@@ -58,9 +56,17 @@ def _claimants(config: DangoConfig) -> dict[str, list[str]]:
 
 
 def _kept_by_state(
-    conn: Any, config: DangoConfig, candidates: dict[str, str], with_state: set[str]
+    conn: Any,
+    config: DangoConfig,
+    candidates: dict[str, str],
+    with_state: set[str],
+    claimed: set[str],
 ) -> dict[str, str]:
-    """Unclaimed schemas whose sync state names a configured pipeline (or cannot be read)."""
+    """Schemas with tables no config line owns whose sync state names a configured pipeline.
+
+    Also kept when the state cannot be read. A *claimed* schema is one a source loads into: its
+    leftover tables (say, of a removed endpoint) are kept, and the line says that.
+    """
     from dango.config.source_datasets import pipeline_name_of
 
     owners = {
@@ -77,7 +83,12 @@ def _kept_by_state(
             kept[key] = f"Kept {schema}: its sync state could not be read, so its owner is unclear."
             continue
         owner = next((owners[n.casefold()] for n in sorted(names) if n.casefold() in owners), None)
-        if owner:
+        if owner and key in claimed:
+            kept[key] = (
+                f"Kept {schema}: it has tables the configuration of '{owner}' does not list; "
+                "its sync state belongs to that source."
+            )
+        elif owner:
             kept[key] = (
                 f"Kept {schema}: its sync state belongs to the configured source '{owner}', "
                 "which does not load into this schema now."
@@ -128,7 +139,7 @@ def scan_orphans(duckdb_path: Path, config: DangoConfig) -> OrphanScan:
         ]
         candidates = {schema.casefold(): schema for schema, _t, _s in unowned}
         with_state = {schema.casefold() for schema, table, _s in result if table == _STATE_TABLE}
-        kept = _kept_by_state(conn, config, candidates, with_state)
+        kept = _kept_by_state(conn, config, candidates, with_state, set(schema_to_tables_map))
         for key in sorted(candidates):  # a staging schema follows the schema it belongs to
             if key.endswith("_staging") and key.removesuffix("_staging") in kept:
                 kept.setdefault(key, kept[key.removesuffix("_staging")])
@@ -142,6 +153,6 @@ def scan_orphans(duckdb_path: Path, config: DangoConfig) -> OrphanScan:
 
         orphans = [row for row in unowned if row[0].casefold() not in kept]
         reasons = sorted(set(kept.values()))  # a staging schema repeats its schema's line
-        return OrphanScan(orphans, reasons)
+        return OrphanScan(orphans, reasons, set(kept))
     finally:
         conn.close()

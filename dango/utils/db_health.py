@@ -595,8 +595,9 @@ def is_table_configured(
             return claimed
         return True
 
-    # Raw tables: check schema-specific expected tables (dlt names child tables parent__child)
-    if key == "raw" or key.startswith("raw_"):
+    # Raw tables: check schema-specific expected tables (dlt names child tables parent__child).
+    # A schema a source claims is a raw schema whatever its spelling (`rawdata` matches `raw_%`).
+    if key == "raw" or key.startswith("raw_") or claimed:
         expected_in_schema = schema_to_tables.get(key, set())
         if not expected_in_schema:
             return claimed
