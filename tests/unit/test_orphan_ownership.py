@@ -198,3 +198,24 @@ def test_the_clean_lists_only_the_corrected_orphans_before_asking(
     assert "raw_custom" not in result.output
     assert "Found 2 orphaned table(s)" in result.output
     assert set(tables_by_schema(root)) == {"raw_custom", "raw_ghost"}
+
+
+def test_a_disabled_source_still_claims_its_schema_without_any_sync_state(
+    tmp_path: Path,
+) -> None:
+    root = project(tmp_path, "p1", entry("b", dataset_name="raw_custom") | {"enabled": False})
+    plant(root, "raw_custom", ["events"])
+    assert orphans(root) == []
+
+
+def test_a_schema_created_in_mixed_case_is_matched_to_its_claim(tmp_path: Path) -> None:
+    root = project(tmp_path, "p1", *sources_of(b="raw_custom"))
+    plant(root, "raw_Custom", ["events"])
+    assert orphans(root) == []
+
+
+def test_the_staging_schema_of_a_kept_schema_is_kept_too(tmp_path: Path) -> None:
+    root = project(tmp_path, "p1", *sources_of(b="raw_new"))
+    plant(root, "raw_old", ["events"], state="b")
+    plant(root, "raw_old_staging", ["events"])
+    assert orphans(root) == []

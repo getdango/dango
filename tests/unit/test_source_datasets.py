@@ -12,10 +12,11 @@ from pathlib import Path
 import pytest
 
 from dango.cli.commands.source import _resolve_pipeline_and_dataset_name
-from dango.config.models import DataSource, DltNativeConfig, SourceType
+from dango.config.models import DangoConfig, DataSource, DltNativeConfig, SourcesConfig, SourceType
 from dango.config.source_datasets import schemas_of, tables_of
 from dango.ingestion.pipeline_cleanup import dataset_name_of, pipeline_name_of
 from dango.ingestion.sources.setup_lifecycle import remove_source
+from dango.utils.db_health import build_schema_table_mapping
 from tests.factories.custom_dataset_projects import sources_of, synced_into
 from tests.factories.dlt_state_projects import isolate_home, pipeline_dirs, project
 
@@ -109,9 +110,21 @@ def test_source_remove_keeps_the_sync_state_while_data_sits_in_a_rewritten_schem
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     isolate_home(monkeypatch, tmp_path / "home")
-    root = project(tmp_path, "p1", *sources_of(b="Raw_Custom"))
-    synced_into(root, "b", 5, "Raw_Custom")
+    root = project(tmp_path, "p1", *sources_of(b="Raw-Dash"))
+    synced_into(root, "b", 5, "Raw-Dash")
 
     remove_source(root, "b", force=True)
 
     assert pipeline_dirs() == ["b"]
+
+
+def test_the_table_mapping_gives_a_shared_schema_to_every_table_when_one_source_lists_none() -> (
+    None
+):
+    sources = [stripe("shop", endpoints=["customer"]), native("b", dataset_name="raw_shop")]
+    config = DangoConfig.model_construct(sources=SourcesConfig(sources=sources))
+    schema_to_tables, source_to_schema = build_schema_table_mapping(config)
+    assert schema_to_tables == {"raw_shop": set()}
+    assert source_to_schema == {"shop": "raw_shop", "b": "raw_shop"}
+    only_listed = DangoConfig.model_construct(sources=SourcesConfig(sources=sources[:1]))
+    assert build_schema_table_mapping(only_listed)[0] == {"raw_shop": {"customer"}}
