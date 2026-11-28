@@ -3450,14 +3450,15 @@ Need help? Visit: https://github.com/getdango/dango/issues
         real data, which both this task's own acceptance criteria and the pre-existing
         product behavior for every other full-refresh path require to be blocked.
         """
-        # Every name below is the schema dlt really writes: it rewrites a configured dataset name
-        # (`raw-dash` -> `raw_dash`, `x_` -> `xx`) and keeps the configured one on the pipeline.
+        # The schema dlt really writes: it rewrites a configured dataset name (`raw-dash` ->
+        # `raw_dash`, `x_` -> `xx`) and keeps the configured one on the pipeline. The staging
+        # names built from it are then already in dlt's form.
         dataset_name = dlt_dataset_name(dataset_name)
         staging_pipeline_name = f"{pipeline_name}_fullrefresh_staging"
-        staging_dataset_name = dlt_dataset_name(f"{dataset_name}_fullrefresh_staging")
+        staging_dataset_name = f"{dataset_name}_fullrefresh_staging"
         # dlt's own internal artifact for merge writes (confirmed live: named
         # f"{staging_dataset_name}_staging", not documented anywhere).
-        staging_internal_dataset = dlt_dataset_name(f"{staging_dataset_name}_staging")
+        staging_internal_dataset = f"{staging_dataset_name}_staging"
 
         def _cleanup_staging(staging_pipeline_obj: Any = None, *, strict: bool = False) -> None:
             """Drop both staging schemas (the intentional one and dlt's own internal
