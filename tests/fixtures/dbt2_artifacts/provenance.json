@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "profile": "t44a-dbt-oss-2.0.8-manifest12-results6",
+  "source_commit": "957df45d7889a8ef47de14715a23887fb38ec531",
+  "runtime_fixture_sha256": "b6879d50f7220b8afa1a1b6b6266e27db6c3492a8fa2bc71747656c6411af449",
+  "retained_index_sha256": "72b1a4eade23e8a9e78c7b2ee9514ab64912dd4055241dfbc7bfcebca4cae3f0",
+  "commands": {
+    "build": {
+      "argv_command": [
+        "build"
+      ],
+      "exit_code": 0,
+      "recipe_source_path": "tests/integration/t44a_qualification/diagnostic.py",
+      "recipe_source_sha256": "fcdc881c50b1e97293bad241ba1dc5e5f19d0a76048e97e36ebb7706f4dfd637",
+      "native_artifacts_binding": "Original native metadata invocation IDs, versions and exact original byte hashes; runner envelopes in tests are synthetic."
+    },
+    "snapshot": {
+      "argv_command": [
+        "snapshot"
+      ],
+      "exit_code": 0,
+      "recipe_source_path": "tests/integration/t44a_qualification/dbt_assets.py",
+      "recipe_source_sha256": "fa41b149cacf088849b5dda7940c82e1a252f7d5e64f93e5713375138fe0f934",
+      "native_artifacts_binding": "Original native metadata invocation IDs, versions and exact original byte hashes; runner envelopes in tests are synthetic."
+    },
+    "docs_generate": {
+      "argv_command": [
+        "docs",
+        "generate"
+      ],
+      "native_result_command": "compile",
+      "exit_code": 0,
+      "scope": "docs only; no data/check/publication result",
+      "recipe_source_path": "tests/integration/t44a_qualification/dbt_assets.py",
+      "recipe_source_sha256": "fa41b149cacf088849b5dda7940c82e1a252f7d5e64f93e5713375138fe0f934",
+      "native_artifacts_binding": "Original native metadata invocation IDs, versions and exact original byte hashes; runner envelopes in tests are synthetic."
+    }
+  },
+  "files": [
+    {
+      "original_filename": "manifest.json",
+      "run": "42825753494",
+      "source_commit": "957df45d7889a8ef47de14715a23887fb38ec531",
+      "schema": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+      "byte_length": 503382,
+      "sha256": "277ded597218e39b8279bd27a43e1088590a1006149d432cf9e30c3bdd929029",
+      "classification": "authentic_native_original_bytes",
+      "archive_member": "build/manifest.json"
+    },
+    {
+      "original_filename": "run_results.json",
+      "run": "42825753494",
+      "source_commit": "957df45d7889a8ef47de14715a23887fb38ec531",
+      "schema": "https://schemas.getdbt.com/dbt/run-results/v6.json",
+      "byte_length": 2273,
+      "sha256": "a8182892e78a885996e49159338af782737f3d9c193dd770f6475678165d933a",
+      "classification": "authentic_native_original_bytes",
+      "archive_member": "build/run_results.json"
+    },
+    {
+      "original_filename": "catalog.json",
+      "run": "42825753494",
+      "source_commit": "957df45d7889a8ef47de14715a23887fb38ec531",
+      "schema": "https://schemas.getdbt.com/dbt/catalog/v1.json",
+      "byte_length": 1358,
+      "sha256": "dcc62f87c52e5d5a731e7db68059caad29a9cba2d7e4f376c582ca013965bae7",
+      "classification": "authentic_native_original_bytes",
+      "archive_member": "build/catalog.json"
+    },
+    {
+      "original_filename": "assets-snapshot-first-manifest.json",
+      "run": "42825753494",
+      "source_commit": "957df45d7889a8ef47de14715a23887fb38ec531",
+      "schema": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+      "byte_length": 503242,
+      "sha256": "6a98b433919ad3a109aaf3cc6e0a462e595fecc537414e63d30efd4db20f258e",
+      "classification": "authentic_native_original_bytes",
+      "archive_member": "snapshot/manifest.json"
+    },
+    {
+      "original_filename": "assets-snapshot-first-run_results.json",
+      "run": "42825753494",
+      "source_commit": "957df45d7889a8ef47de14715a23887fb38ec531",
+      "schema": "https://schemas.getdbt.com/dbt/run-results/v6.json",
+      "byte_length": 1027,
+      "sha256": "67bac66ae10e36d1d7788603ef856b4b9248cbcec14be927e097550f60794c35",
+      "classification": "authentic_native_original_bytes",
+      "archive_member": "snapshot/run_results.json"
+    },
+    {
+      "original_filename": "assets-docs-manifest.json",
+      "run": "42825753494",
+      "source_commit": "957df45d7889a8ef47de14715a23887fb38ec531",
+      "schema": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+      "byte_length": 503436,
+      "sha256": "f596924f683ca244debe6ef6eea41ef2e222086f51121eb3c5f05ad85ccf3b2c",
+      "classification": "authentic_native_original_bytes",
+      "archive_member": "docs_generate/manifest.json"
+    },
+    {
+      "original_filename": "assets-docs-run_results.json",
+      "run": "42825753494",
+      "source_commit": "957df45d7889a8ef47de14715a23887fb38ec531",
+      "schema": "https://schemas.getdbt.com/dbt/run-results/v6.json",
+      "byte_length": 346,
+      "sha256": "485ee1f52a6224282f321517e1d22ad00a5d796a4a1592392945dd672c9df1e1",
+      "classification": "authentic_native_original_bytes",
+      "archive_member": "docs_generate/run_results.json"
+    }
+  ],
+  "notes": [
+    "Runner invocation envelopes and all mutated negatives are synthetic test data, not native outputs.",
+    "Original missing trace remains missing; no native log schema claim.",
+    "Synthetic /work paths in original member bytes retained unchanged; no secrets or private workspace paths admitted."
+  ],
+  "package": {
+    "path": "native-artifacts.zip",
+    "sha256": "97b5247dd15f13bdb3122317cf1c0e7d68e3840e7dd799df0eba0a1ac77180dd",
+    "byte_length": 209708,
+    "classification": "derived_lossless_test_container_not_native_dbt_archive",
+    "member_count": 7,
+    "total_uncompressed_bytes": 1515064,
+    "metadata": "Sorted members;1980-01-01;Unix regular0644;DEFLATE9;empty extras/comments;committed package bytes authoritative, no cross-zlib bitidentity claim."
+  }
+}

@@ -14,12 +14,15 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 | `model_common.py` | Shared types (`ModelServiceError`, `ModelChangeResult`), naming normalisation and recursive model lookup | `normalize_model_name`, `find_model`, `list_models` |
 | `model_sql.py` | `ref()`/`source()` extraction, lineage validation, SQL file rendering | `extract_refs`, `validate_model_sql`, `render_model_sql` |
 | `model_docs.py` | schema.yml helpers that preserve every other key (tests, config, other models, top-level keys) | `locate_model_docs`, `upsert_model_docs`, `remove_model_docs`, `resolve_docs_path` |
+| `artifacts.py` | Pure pinned dbt JSON parser; contained `invocation.json` byte bindings, opaque diagnostic preservation and supplied support inventory | `parse_artifacts`, public build record exports |
+| `artifact_records.py` | Strict immutable build plan/invocation/artifact/outcome records; internal definitions re-exported by artifacts.py | `BuildPlan`, `ArtifactEvidence`, `InvocationBinding`, `NodeOutcome`, `SupportFeature`, `ArtifactSet`, `BuildReceipt`, `ArtifactError` |
 | `build_finalize.py` | Shared post-`dbt build` steps and run_results summary; used by `dango run` and MCP `run_transform`. Model status always; schema.yml sync (nested models) + Metabase refresh only on success. Never raises | `finalize_dbt_build`, `summarize_run_results` |
 
 ## Common Tasks
 
 | To... | Modify... | Test with... |
 |-------|-----------|--------------|
+| Change pinned artifact parsing or strict build outcomes | `artifacts.py`, `artifact_records.py` | `pytest tests/unit/test_dbt2_artifacts.py tests/unit/test_dbt2_records.py -m unit` |
 | Change dbt run behavior | `__init__.py` (`run_dbt_models`) | Manual: `dango run` |
 | Change dbt telemetry opt-out env injection | `__init__.py` (`_dbt_telemetry_env`) | `pytest tests/unit/test_telemetry_unified.py` |
 | Add a new dedup strategy mapping | `generator.py` (`CSV_TO_DBT_STRATEGY_MAP`) | Manual: `dango generate` with source using new strategy |
@@ -44,7 +47,8 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 
 ## Testing
 
-- **Unit:** None yet (will be `tests/unit/test_transformation.py`)
+- **Artifact contracts:** `tests/unit/test_dbt2_artifacts.py`, `tests/unit/test_dbt2_records.py`; original-byte fixtures and provenance in `tests/fixtures/dbt2_artifacts/`. No native process or service.
+- **Other unit:** None yet (will be `tests/unit/test_transformation.py`)
 - **Integration:** None yet (will be `tests/integration/test_transformation.py`)
 - **Manual:** `dango generate` then `dango run` in a dango project directory
 
