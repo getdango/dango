@@ -28,6 +28,19 @@ def parse_env_file(content: str) -> dict[str, str]:
     }
 
 
+def env_key_error(key: str) -> str | None:
+    """Why ``key`` cannot be the name of a one-line ``.env`` variable, or None.
+
+    A name with a line break, whitespace, ``=`` or ``#`` would be written as more than one
+    variable (or none), so the Secrets page, ``remote env set`` and source removal refuse it.
+    """
+    if not key:
+        return "Key is required."
+    if "=" in key or "#" in key or any(c.isspace() for c in key):
+        return "Key must not contain whitespace, line breaks, '=' or '#'."
+    return None
+
+
 def parse_env_simple(content: str) -> dict[str, str]:
     """Parse ``.env`` content with the standard library only (no escapes, one line per value).
 

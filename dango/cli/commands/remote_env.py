@@ -21,7 +21,7 @@ from rich.markup import escape
 from dango.cli import console
 from dango.logging import get_logger
 from dango.platform.cloud.project_files import read_project_file, write_project_file
-from dango.utils.env_file import parse_env_file
+from dango.utils.env_file import env_key_error, parse_env_file
 from dango.utils.project_env import set_env_text, unset_env_text
 
 logger = get_logger(__name__)
@@ -100,6 +100,10 @@ def env_set(ctx: click.Context, key_value: str) -> None:
     value = value.strip()
     if not key:
         console.print("[red]Error:[/red] Key cannot be empty.")
+        raise SystemExit(1)
+    key_error = env_key_error(key)
+    if key_error:
+        console.print(f"[red]Error:[/red] {escape(key_error)}")
         raise SystemExit(1)
 
     from dango.cli.commands.remote import _ssh_connect_or_fail

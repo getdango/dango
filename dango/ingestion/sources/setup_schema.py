@@ -350,10 +350,13 @@ def file_pattern_error(pattern: str) -> str | None:
 
     The pattern is matched inside the source directory: it must be relative (not absolute,
     drive-qualified like ``C:`` or UNC) and have no ``..`` component, with ``/`` or ``\\`` as
-    separators. Sub-folder patterns such as ``2026-*/*.csv`` stay allowed.
+    separators. A component made only of dots and whitespace that contains ``..`` (``.. ``,
+    ``...``) counts as ``..``: Windows trims trailing dots and spaces from names. Sub-folder
+    patterns such as ``2026-*/*.csv`` and names like ``a..b.csv`` stay allowed.
     """
     parts = pattern.replace("\\", "/").split("/")
-    if pattern.startswith(("/", "\\")) or _DRIVE_PREFIX.match(pattern) or ".." in parts:
+    dotted = any(".." in part and all(c == "." or c.isspace() for c in part) for part in parts)
+    if pattern.startswith(("/", "\\")) or _DRIVE_PREFIX.match(pattern) or dotted:
         return (
             f"Parameter 'file_pattern' must be a pattern relative to the source directory: "
             f"no absolute, drive or network paths and no '..' components (got '{pattern}')"

@@ -22,7 +22,7 @@ from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
 from dango.logging import get_logger
-from dango.utils.env_file import parse_env_file
+from dango.utils.env_file import env_key_error, parse_env_file
 from dango.utils.private_files import apply_private_mode
 
 router = APIRouter(tags=["secrets"])
@@ -177,6 +177,9 @@ async def set_secret(
     value = body.get("value", "")
     if not key:
         return JSONResponse(status_code=400, content={"message": "Key is required."})
+    key_error = env_key_error(key)
+    if key_error:
+        return JSONResponse(status_code=400, content={"message": key_error})
     if not isinstance(value, str):
         return JSONResponse(status_code=400, content={"message": "Value must be a string."})
 
