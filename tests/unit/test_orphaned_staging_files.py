@@ -15,6 +15,7 @@ import duckdb
 import pytest
 import yaml
 from click.testing import CliRunner
+from rich.markup import escape
 
 from dango.cli.main import cli
 from dango.cli.validate import ProjectValidator
@@ -195,6 +196,9 @@ class TestValidateListsOrphans:
 
         text = _flat(captured.get())
         assert "sources_a[b].yml" in text and "stg_a[bold]__t.sql" in text
+        # the table cell carries the escaped path (the command line below it is not markup)
+        row = next(r for r in validator.results if r.name == "Staging files")
+        assert escape("dbt/models/staging/sources_a[b].yml") in row.message
 
     def test_validate_is_quiet_when_every_staging_file_has_a_source(self, tmp_path: Path) -> None:
         root = _project(tmp_path, ["sales"])
