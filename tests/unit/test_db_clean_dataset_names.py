@@ -69,6 +69,8 @@ def test_a_custom_dataset_survives_clean_and_the_next_sync_has_no_gap(
         ("raw custom", "raw_custom"),
         ("Raw", "raw"),
         ("RAW_Mixed_CASE", "raw_mixed_case"),
+        ("rawdata", "rawdata"),
+        ("raw1", "raw1"),
     ],
 )
 def test_a_dataset_name_that_dlt_rewrites_is_still_the_sources_schema(
@@ -82,6 +84,7 @@ def test_a_dataset_name_that_dlt_rewrites_is_still_the_sources_schema(
     result = db_clean(root, monkeypatch)
 
     assert result.exit_code == 0, result.output
+    assert "Kept" not in result.output
     assert ids_in(root, schema) == upto(5)
 
 

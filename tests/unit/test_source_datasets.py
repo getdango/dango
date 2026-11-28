@@ -51,6 +51,8 @@ def files(type_: str, name: str = "sales") -> DataSource:
         (native("b", dataset_name="  "), ["  "]),
         (stripe(), ["raw_shop"]),
         (files("csv"), ["raw_sales"]),
+        (files("csv", "sales_"), ["raw_sales_"]),
+        (files("local_files", "sales_"), ["raw_sales_"]),
         (files("local_files"), ["raw_sales"]),
     ],
 )

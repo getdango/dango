@@ -219,3 +219,69 @@ def test_the_staging_schema_of_a_kept_schema_is_kept_too(tmp_path: Path) -> None
     plant(root, "raw_old", ["events"], state="b")
     plant(root, "raw_old_staging", ["events"])
     assert orphans(root) == []
+
+
+@pytest.mark.parametrize("dataset", ["rawdata", "raw1"])
+def test_a_claimed_dataset_that_only_looks_like_a_raw_schema_is_configured(
+    tmp_path: Path, dataset: str
+) -> None:
+    """`LIKE 'raw_%'` matches `rawdata`; the claim, not the spelling, decides."""
+    root = project(tmp_path, "p1", *sources_of(b=dataset))
+    plant(root, dataset, ["events", "_dlt_loads"])
+    assert orphans(root) == []
+
+
+def test_a_leftover_table_of_a_configured_source_is_kept_with_the_right_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = project(tmp_path, "p1", config_entry("stripe", "stripe", endpoints=["customer"]))
+    plant(root, "raw_stripe", ["customer", "customer__sources", "invoice"], state="stripe")
+
+    result = db_clean(root, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert "invoice" in tables_by_schema(root)["raw_stripe"]
+    line = next(x for x in result.output.splitlines() if "Kept raw_stripe" in x)
+    assert "does not list" in line
+    assert "'stripe'" in line
+    assert "does not load into" not in line
+
+
+def test_a_leftover_table_of_a_configured_source_without_a_sync_state_is_dropped_as_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Control: no new keep and no new drop where the sync state does not name the source."""
+    root = project(tmp_path, "p1", config_entry("stripe", "stripe", endpoints=["customer"]))
+    plant(root, "raw_stripe", ["customer", "customer__sources", "invoice"])
+    assert orphans(root) == [("raw_stripe", "invoice")]
+    db_clean(root, monkeypatch)
+    assert tables_by_schema(root)["raw_stripe"] == ["customer", "customer__sources"]
+
+
+def test_an_unclaimed_schema_is_not_described_as_one_the_source_lists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = project(tmp_path, "p1", *sources_of(b="raw_new"))
+    plant(root, "raw_old", ["events"], state="b")
+    line = next(x for x in db_clean(root, monkeypatch).output.splitlines() if "Kept raw_old" in x)
+    assert "does not load into this schema" in line
+    assert "does not list" not in line
+
+
+def test_a_file_source_with_a_trailing_underscore_owns_the_literal_schema(
+    tmp_path: Path,
+) -> None:
+    """`sales_` is written to `raw_sales_` (not rewritten by dlt): it has no state table either."""
+    root = project(
+        tmp_path,
+        "p1",
+        config_entry("sales_", "csv", directory="data/uploads", file_pattern="*.csv"),
+    )
+    plant(root, "raw_sales_", ["sales_"])
+    assert orphans(root) == []
+
+
+def test_a_dataset_ending_in_staging_is_claimed_without_any_sync_state(tmp_path: Path) -> None:
+    root = project(tmp_path, "p1", *sources_of(b="raw_x_staging"))
+    plant(root, "raw_x_staging", ["events"])
+    assert orphans(root) == []

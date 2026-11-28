@@ -6,17 +6,23 @@ HOME), planted warehouse schemas, and readers for the `dango db clean` dataset-o
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import duckdb
+import pytest
+from click.testing import CliRunner
 
 from dango.config import get_config
 from dango.utils.db_health import find_orphaned_tables
+from dango.validation import quote_identifier as q
 from tests.factories.dlt_state_projects import entry, run_sync
 
 _SYSTEM = ("information_schema", "pg_catalog")
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def warehouse(root: Path) -> Path:
@@ -75,16 +81,16 @@ def plant(
     warehouse(root).parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(warehouse(root)))
     try:
-        con.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+        con.execute(f"CREATE SCHEMA IF NOT EXISTS {q(schema)}")
         for table in tables:
-            con.execute(f'CREATE TABLE "{schema}"."{table}" AS SELECT 1 AS id')
+            con.execute(f"CREATE TABLE {q(schema)}.{q(table)} AS SELECT 1 AS id")
         if state is not None:
             con.execute(
-                f'CREATE TABLE "{schema}"."_dlt_pipeline_state" AS SELECT ? AS pipeline_name',
+                f"CREATE TABLE {q(schema)}._dlt_pipeline_state AS SELECT ? AS pipeline_name",
                 [state],
             )
         if state_sql is not None:
-            con.execute(f'CREATE TABLE "{schema}"."_dlt_pipeline_state" AS {state_sql}')
+            con.execute(f"CREATE TABLE {q(schema)}._dlt_pipeline_state AS {state_sql}")
     finally:
         con.close()
 
@@ -102,3 +108,15 @@ def orphan_schemas(root: Path) -> set[str]:
 def sources_of(**datasets: Any) -> list[dict[str, Any]]:
     """dlt_native source entries `name=dataset_name` (None = default dataset)."""
     return [entry(name, **({"dataset_name": ds} if ds else {})) for name, ds in datasets.items()]
+
+
+def db_status(root: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """`dango db status` in `root` through the real CLI."""
+    from dango.cli.main import cli
+
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("COLUMNS", "300")
+    result = CliRunner().invoke(cli, ["db", "status"], catch_exceptions=True)
+    return SimpleNamespace(
+        exit_code=result.exit_code, output=_ANSI.sub("", result.output), exception=result.exception
+    )
