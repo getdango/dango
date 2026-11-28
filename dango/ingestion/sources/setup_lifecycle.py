@@ -69,6 +69,7 @@ class SourceRemovalResult:
     downstream_models: list[str] = field(default_factory=list)  # "layer.name"
     env_vars_matching: list[str] = field(default_factory=list)  # names only, never values
     monitors_removed: list[str] = field(default_factory=list)  # analysis monitor names
+    pipeline_state_cleared: bool = False  # the source's local dlt state (cursor) was removed
     warnings: list[str] = field(default_factory=list)
 
 
@@ -469,6 +470,9 @@ def remove_source(
         project_root, st, source_name, [s.name for s in others if s.type.value == st], result
     )
     if not dry_run:
+        from dango.ingestion.pipeline_cleanup import clear_state_of_removed_source
+
+        clear_state_of_removed_source(project_root, source, others, result)
         for path in staging_files:
             rel = str(path.relative_to(project_root))
             try:

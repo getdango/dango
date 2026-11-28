@@ -531,6 +531,11 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
         result = remove_source(project_root, source_name, force=True)
         if result.config_toml_section_removed:
             console.print("[green]✓[/green] Cleaned up .dlt/config.toml")
+        if result.pipeline_state_cleared:
+            console.print(
+                f"[dim]Cleared the local sync state for '{escape(source_name)}' "
+                "(no data left in the warehouse)[/dim]"
+            )
         if result.files_removed:
             console.print(
                 f"[green]✓[/green] Removed {len(result.files_removed)} dbt staging file(s)"

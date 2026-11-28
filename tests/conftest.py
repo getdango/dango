@@ -89,6 +89,10 @@ def _isolate_home(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.
     """`Path.home()` (used by `dango/platform/cloud/ssh.py`, `~/.dango/...`) points at a throwaway dir."""
     monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home")))
     monkeypatch.delenv("DIGITALOCEAN_TOKEN", raising=False)  # no test may reach the DO API
+    # dlt prefers both over HOME: a test that removes a pipeline dir must never reach real state.
+    # A test that needs one sets it itself, inside the test.
+    monkeypatch.delenv("DLT_DATA_DIR", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
 
 
 @pytest.fixture
