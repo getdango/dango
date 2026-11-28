@@ -120,13 +120,30 @@ def drop_schema(root: Path, schema: str) -> None:
         con.close()
 
 
-def db_clean(root: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
-    """`dango db clean --yes` in `root` through the real CLI."""
+def plant_orphan_state(root: Path, schema: str, pipeline_name: str) -> None:
+    """An orphaned raw schema whose `_dlt_pipeline_state` table names `pipeline_name`."""
+    con = duckdb.connect(str(root / "data" / "warehouse.duckdb"))
+    try:
+        con.execute(f'CREATE SCHEMA "{schema}"')
+        con.execute(f'CREATE TABLE "{schema}"."t" AS SELECT 1 AS id')
+        con.execute(
+            f'CREATE TABLE "{schema}"."_dlt_pipeline_state" AS SELECT ? AS pipeline_name',
+            [pipeline_name],
+        )
+    finally:
+        con.close()
+
+
+def db_clean(
+    root: Path, monkeypatch: pytest.MonkeyPatch, *, answer: str | None = None
+) -> SimpleNamespace:
+    """`dango db clean` in `root` through the real CLI: `--yes`, or answering the prompt with `answer`."""
     from dango.cli.main import cli
 
     monkeypatch.chdir(root)
     monkeypatch.setenv("COLUMNS", "300")
-    result = CliRunner().invoke(cli, ["db", "clean", "--yes"], catch_exceptions=True)
+    args = ["db", "clean"] + (["--yes"] if answer is None else [])
+    result = CliRunner().invoke(cli, args, input=answer, catch_exceptions=True)
     return SimpleNamespace(
         exit_code=result.exit_code, output=result.output, exception=result.exception
     )
