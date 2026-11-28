@@ -445,6 +445,10 @@ class DataSource(BaseModel):
 class SourcesConfig(BaseModel):
     """sources.yml configuration"""
 
+    # A validation error would otherwise print the end of the whole config (it can hold a
+    # pasted secret); the message already names the field and the problem.
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     version: str = "1.0"
     sources: list[DataSource] = Field(default_factory=list)
 

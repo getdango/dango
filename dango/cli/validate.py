@@ -47,7 +47,7 @@ DBT_VERSION_TIMEOUT_SECONDS = 30
 class ValidationResult:
     """Result of a validation check"""
 
-    def __init__(self, name: str, status: str, message: str = ""):
+    def __init__(self, name: str, status: str, message: str = "", command: str = ""):
         """
         Initialize validation result
 
@@ -55,10 +55,12 @@ class ValidationResult:
             name: Name of check
             status: Status (pass, warn, fail)
             message: Additional message
+            command: Shell command the user can run to fix it (printed unwrapped below the table)
         """
         self.name = name
         self.status = status  # pass, warn, fail
         self.message = message
+        self.command = command
 
     def __repr__(self):
         return f"ValidationResult({self.name}, {self.status})"
@@ -239,7 +241,9 @@ class ProjectValidator:
         duplicates = duplicate_source_names(entry_names(entries or []))
         if duplicates:
             self.results.append(
-                ValidationResult("Source names", "fail", duplicate_names_message(duplicates))
+                ValidationResult(
+                    "Source names", "fail", escape(duplicate_names_message(duplicates))
+                )
             )
 
     def _check_source_keys(self):
@@ -251,9 +255,9 @@ class ProjectValidator:
         ).items():
             self.results.append(
                 ValidationResult(
-                    f"Source keys: {name}",
+                    f"Source keys: {escape(name)}",
                     "warn",
-                    f"Unknown key(s) ignored: {', '.join(keys)}. "
+                    f"Unknown key(s) ignored: {escape(', '.join(keys))}. "
                     "Check the spelling in .dango/sources.yml.",
                 )
             )
@@ -277,8 +281,10 @@ class ProjectValidator:
                     "Staging files",
                     "warn",
                     "Generated files for sources no longer in sources.yml: "
-                    f"{', '.join(p.as_posix() for p in orphans)}. "
-                    f"Nothing is deleted automatically; to remove them run: {delete_command(orphans)}",
+                    f"{escape(', '.join(p.as_posix() for p in orphans))}. "
+                    "Nothing is deleted automatically; the command to remove them is printed "
+                    "below the table.",
+                    command=delete_command(orphans),
                 )
             )
 
@@ -1103,6 +1109,12 @@ class ProjectValidator:
                 table.add_row(clean_name, status_str, result.message)
 
             console.print(table)
+
+            for result in results:
+                if result.command:
+                    console.print("To remove these files, run this from the project folder:")
+                    for line in result.command.splitlines():
+                        console.print(f"  {line}", markup=False, highlight=False, soft_wrap=True)
 
         # Overall summary
         summary = self._create_summary()

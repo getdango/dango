@@ -172,7 +172,8 @@ def _report_orphaned_staging(project_root: Path, config: DangoConfig) -> None:
     for path in orphans:
         console.print(f"  {path.as_posix()}", markup=False, highlight=False, soft_wrap=True)
     console.print("To remove them, run this from the project folder:")
-    console.print(f"  {delete_command(orphans)}", markup=False, highlight=False, soft_wrap=True)
+    for line in delete_command(orphans).splitlines():
+        console.print(f"  {line}", markup=False, highlight=False, soft_wrap=True)
 
 
 @db.command("clean")

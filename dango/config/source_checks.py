@@ -156,11 +156,16 @@ def find_orphaned_staging_files(project_root: Path, configured: Iterable[str]) -
     return orphans
 
 
-def delete_command(paths: Iterable[Path]) -> str:
-    """The shell command that deletes ``paths`` (project-relative), for this platform."""
-    if os.name == "nt":
-        shown = [str(PureWindowsPath(p)) for p in paths]
-        return "del " + " ".join(f'"{p}"' if " " in p else p for p in shown)
+def delete_command(paths: Iterable[Path], windows: bool | None = None) -> str:
+    """The shell command that deletes ``paths`` (project-relative), for this platform.
+
+    On Windows it is one ``del "<path>"`` per line: PowerShell's ``del`` (Remove-Item) takes a
+    single positional path, and the quoted one-file form also runs in cmd.exe.
+    """
+    if windows is None:
+        windows = os.name == "nt"
+    if windows:
+        return "\n".join(f'del "{PureWindowsPath(p)}"' for p in paths)
     return "rm " + " ".join(shlex.quote(p.as_posix()) for p in paths)
 
 

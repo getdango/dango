@@ -205,6 +205,15 @@ class TestDuplicateSourceNames:
         assert secret not in text and secret[-8:] not in text
         assert "input_value" not in text
 
+    def test_a_field_error_does_not_print_the_value_that_was_typed(self) -> None:
+        secret = "planted-secret-value-123"
+        data = {"sources": [{**_local("sales"), "enabled": secret}]}
+
+        with pytest.raises(ValidationError) as info:
+            SourcesConfig.model_validate(data)
+
+        assert "enabled" in str(info.value) and secret not in str(info.value)
+
     def test_validate_shows_bracket_text_in_a_duplicated_name_as_written(
         self, tmp_path: Path
     ) -> None:
