@@ -22,7 +22,7 @@ from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
 from dango.logging import get_logger
-from dango.utils.env_file import parse_env_file, serialize_env_file
+from dango.utils.env_file import env_key_error, parse_env_file
 from dango.utils.private_files import apply_private_mode
 
 router = APIRouter(tags=["secrets"])
@@ -73,16 +73,46 @@ def read_env_file(project_root: Path) -> dict[str, str]:
 
 
 def _write_env_file(project_root: Path, env_vars: dict[str, str]) -> None:
-    """Write env vars to the project ``.env`` file with mode 0o600."""
+    """Make the project ``.env`` hold ``env_vars``, changing only the lines that differ.
+
+    Comments, blank lines, order and every unchanged line stay byte-for-byte; a changed or new
+    value is written (quoted as python-dotenv reads it back) and a removed one is dropped. The
+    file is replaced atomically and ends up mode 0o600.
+
+    Raises:
+        EnvFileError: The file cannot be read or the replacement cannot be written.
+    """
+    from dango.utils.project_env import set_env_value, unset_env_value
+
     env_file = project_root / ".env"
-    content = serialize_env_file(env_vars)
-    # Create with restrictive permissions to avoid TOCTOU window
-    fd = os.open(str(env_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    current = read_env_file(project_root)
+    for key in current:
+        if key not in env_vars:
+            unset_env_value(env_file, key)
+    for key, value in env_vars.items():
+        if current.get(key) != value:
+            set_env_value(env_file, key, value, quote_mode="auto")
+    if env_file.exists():
+        fd = os.open(str(env_file), os.O_RDONLY)
+        try:
+            apply_private_mode(fd, 0o600)
+        finally:
+            os.close(fd)
+
+
+def _try_write_env_file(project_root: Path, env_vars: dict[str, str]) -> JSONResponse | None:
+    """Write the ``.env``; a fixed 500 response (nothing from the exception) when it fails."""
+    from dango.utils.project_env import EnvFileError
+
     try:
-        apply_private_mode(fd, 0o600)
-        os.write(fd, content.encode("utf-8"))
-    finally:
-        os.close(fd)
+        _write_env_file(project_root, env_vars)
+    except EnvFileError as exc:
+        logger.warning("secrets_env_write_failed", path=str(exc.path), exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"message": "The project .env file could not be written."},
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +177,9 @@ async def set_secret(
     value = body.get("value", "")
     if not key:
         return JSONResponse(status_code=400, content={"message": "Key is required."})
+    key_error = env_key_error(key)
+    if key_error:
+        return JSONResponse(status_code=400, content={"message": key_error})
     if not isinstance(value, str):
         return JSONResponse(status_code=400, content={"message": "Value must be a string."})
 
@@ -154,7 +187,9 @@ async def set_secret(
     env_vars = read_env_file(project_root)
     action = "updated" if key in env_vars else "created"
     env_vars[key] = value
-    _write_env_file(project_root, env_vars)
+    failed = _try_write_env_file(project_root, env_vars)
+    if failed is not None:
+        return failed
 
     log_auth_event(
         AuditEvent.SECRET_SET,
@@ -189,7 +224,9 @@ async def delete_secret(
         return JSONResponse(status_code=404, content={"message": f"Key '{key}' not found."})
 
     del env_vars[key]
-    _write_env_file(project_root, env_vars)
+    failed = _try_write_env_file(project_root, env_vars)
+    if failed is not None:
+        return failed
 
     log_auth_event(
         AuditEvent.SECRET_DELETED,

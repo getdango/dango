@@ -563,8 +563,8 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
         # Offer to clean up related .env variables
         env_file = project_root / ".env"
         if env_file.exists():
-            from dango.utils.env_file import parse_env_file, serialize_env_file
-            from dango.utils.project_env import read_env_text
+            from dango.utils.env_file import env_key_error
+            from dango.utils.project_env import EnvFileError, unset_env_value
 
             matching = result.env_vars_matching
             if matching:
@@ -573,13 +573,21 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
                     console.print(f"  [cyan]{k}[/cyan]")
                 console.print()
                 if Confirm.ask("Remove these environment variables?", default=False):
-                    env_vars = parse_env_file(read_env_text(env_file))
-                    for k in matching:
-                        env_vars.pop(k, None)
-                    env_file.write_text(
-                        serialize_env_file(env_vars), encoding="utf-8", newline="\n"
-                    )
-                    console.print(f"[green]✓[/green] Removed {len(matching)} env variable(s)")
+                    odd = [k for k in matching if env_key_error(k)]
+                    matching = [k for k in matching if k not in odd]
+                    if odd:
+                        console.print(
+                            "[yellow]Left in .env (not a plain variable name, remove by "
+                            f"hand if unwanted): {escape(', '.join(odd))}[/yellow]"
+                        )
+                    try:
+                        for k in matching:
+                            unset_env_value(env_file, k)
+                    except EnvFileError as exc:
+                        console.print(f"[red]Error:[/red] {escape(str(exc))}")
+                        console.print("[dim]Environment variables left unchanged.[/dim]")
+                    else:
+                        console.print(f"[green]✓[/green] Removed {len(matching)} env variable(s)")
                 else:
                     console.print("[dim]Environment variables left unchanged.[/dim]")
             else:

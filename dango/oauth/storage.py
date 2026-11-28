@@ -11,6 +11,8 @@ from typing import Any
 import toml
 from rich.console import Console
 
+from dango.utils.private_files import write_private_text
+
 console = Console()
 
 
@@ -84,7 +86,7 @@ class OAuthStorage:
 
         # Create secrets.toml if it doesn't exist
         if not self.secrets_file.exists():
-            self.secrets_file.write_text("", encoding="utf-8", newline="\n")
+            write_private_text(self.secrets_file, "")
 
     def _load_secrets(self) -> dict[str, Any]:
         """Load secrets.toml"""
@@ -94,9 +96,8 @@ class OAuthStorage:
         return {}
 
     def _save_secrets(self, secrets: dict[str, Any]) -> None:
-        """Save secrets.toml"""
-        with open(self.secrets_file, "w", encoding="utf-8", newline="\n") as f:
-            toml.dump(secrets, f)
+        """Save secrets.toml (owner-only, replaced atomically)."""
+        write_private_text(self.secrets_file, toml.dumps(secrets))
 
     def save(self, oauth_cred: OAuthCredential) -> bool:
         """

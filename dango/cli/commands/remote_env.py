@@ -21,7 +21,8 @@ from rich.markup import escape
 from dango.cli import console
 from dango.logging import get_logger
 from dango.platform.cloud.project_files import read_project_file, write_project_file
-from dango.utils.env_file import parse_env_file, serialize_env_file
+from dango.utils.env_file import env_key_error, parse_env_file
+from dango.utils.project_env import set_env_text, unset_env_text
 
 logger = get_logger(__name__)
 
@@ -53,19 +54,23 @@ def env(ctx: click.Context) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _read_remote_env(ssh: Any) -> dict[str, str]:
-    """Read (as the service user) and parse the remote .env; empty dict if absent."""
+def _read_remote_env_text(ssh: Any) -> str:
+    """Read (as the service user) the remote .env text; empty string if absent."""
     try:
-        return parse_env_file(read_project_file(ssh, _REMOTE_ENV_PATH))
+        return read_project_file(ssh, _REMOTE_ENV_PATH)
     except Exception:
         # Do not treat an unreadable file as empty: the caller would overwrite it.
         logger.debug("remote_env_read_failed", path=_REMOTE_ENV_PATH, exc_info=True)
         raise
 
 
-def _write_remote_env(ssh: Any, env_vars: dict[str, str]) -> None:
-    """Write env vars to the remote .env as the service user, mode 0o600."""
-    content = serialize_env_file(env_vars)
+def _read_remote_env(ssh: Any) -> dict[str, str]:
+    """Read and parse the remote .env; empty dict if absent."""
+    return parse_env_file(_read_remote_env_text(ssh))
+
+
+def _write_remote_env_text(ssh: Any, content: str) -> None:
+    """Write the remote .env text as the service user, mode 0o600."""
     write_project_file(ssh, _REMOTE_ENV_PATH, content, mode=0o600)
 
 
@@ -96,15 +101,18 @@ def env_set(ctx: click.Context, key_value: str) -> None:
     if not key:
         console.print("[red]Error:[/red] Key cannot be empty.")
         raise SystemExit(1)
+    key_error = env_key_error(key)
+    if key_error:
+        console.print(f"[red]Error:[/red] {escape(key_error)}")
+        raise SystemExit(1)
 
     from dango.cli.commands.remote import _ssh_connect_or_fail
 
     _cloud_cfg, ssh, _project_root = _ssh_connect_or_fail(ctx)
     try:
-        env_vars = _read_remote_env(ssh)
-        action = "Updated" if key in env_vars else "Set"
-        env_vars[key] = value
-        _write_remote_env(ssh, env_vars)
+        text = _read_remote_env_text(ssh)
+        action = "Updated" if key in parse_env_file(text) else "Set"
+        _write_remote_env_text(ssh, set_env_text(text, key, value, quote_mode="auto"))
         console.print(f"[green]{action}[/green] {key}=***")
     except Exception as exc:
         console.print(f"[red]Error:[/red] Failed to set env var: {escape(str(exc))}")
@@ -198,12 +206,11 @@ def env_delete(ctx: click.Context, key: str) -> None:
 
     _cloud_cfg, ssh, _project_root = _ssh_connect_or_fail(ctx)
     try:
-        env_vars = _read_remote_env(ssh)
-        if key not in env_vars:
+        text = _read_remote_env_text(ssh)
+        if key not in parse_env_file(text):
             console.print(f"[yellow]Not found:[/yellow] {key} is not set in remote .env")
             raise SystemExit(1)
-        del env_vars[key]
-        _write_remote_env(ssh, env_vars)
+        _write_remote_env_text(ssh, unset_env_text(text, key))
         console.print(f"[green]Deleted[/green] {key}")
     except SystemExit:
         raise

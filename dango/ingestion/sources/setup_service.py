@@ -29,6 +29,7 @@ from dango.ingestion.sources.setup_schema import (
     require_agent_setup_supported,
 )
 from dango.logging import get_logger
+from dango.utils.private_files import write_private_text
 from dango.utils.project_env import EnvFileError
 from dango.utils.project_env import env_has as _dotenv_has
 
@@ -237,7 +238,7 @@ def write_secrets_toml_template(
     template_vars = defaultdict(str, source_name=source_name, **params)
     template_text = secrets_template.format_map(template_vars)
     prefix = existing.rstrip() + "\n\n" if existing.strip() else ""
-    secrets_path.write_text(prefix + template_text + "\n", encoding="utf-8", newline="\n")
+    write_private_text(secrets_path, prefix + template_text + "\n")
     return ".dlt/secrets.toml"
 
 

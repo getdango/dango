@@ -74,7 +74,7 @@ def _spaces_client_preamble(
     import inspect
 
     from dango.platform.cloud.scheduled_backup import ENV_FILE_MAX_BYTES, read_env_values
-    from dango.utils.env_file import parse_env_file
+    from dango.utils.env_file import parse_env_simple
 
     names = (access_key_env, secret_key_env)
     return (
@@ -83,7 +83,7 @@ def _spaces_client_preamble(
         "from pathlib import Path\n"
         "import boto3\n"
         f"ENV_FILE_MAX_BYTES = {ENV_FILE_MAX_BYTES}\n"
-        + inspect.getsource(parse_env_file)
+        + inspect.getsource(parse_env_simple)
         + inspect.getsource(read_env_values)
         + f"keys = read_env_values({_ENV_FILE!r}, {names!r})\n"
         + f"missing = [n for n in {names!r} if n not in keys]\n"
